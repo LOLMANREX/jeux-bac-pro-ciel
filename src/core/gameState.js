@@ -79,6 +79,11 @@ export const QUICK_EMOTES = [
 
 export const FORTIN_POS = { x: 0, z: -1.8 };
 
+export function detectTouchDevice() {
+  if (typeof window === 'undefined') return false;
+  return 'ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+}
+
 export function getTpById(id) {
   return TP_CATALOG.find((t) => t.id === id) || null;
 }
@@ -114,6 +119,8 @@ export class GameState {
     this.leaderboard = [];
     this.quality = localStorage.getItem('ciel_quality') || 'high';
     this.cameraMode = localStorage.getItem('ciel_camera_mode') === 'third' ? 'third' : 'first';
+    const savedTouch = localStorage.getItem('ciel_touch_mode');
+    this.touchMode = savedTouch === '1' ? true : savedTouch === '0' ? false : detectTouchDevice();
     const savedFov = Number(localStorage.getItem('ciel_fov'));
     this.fov = Number.isFinite(savedFov) && savedFov >= 50 && savedFov <= 110 ? savedFov : 70;
     const savedSens = Number(localStorage.getItem('ciel_sens'));
@@ -183,6 +190,12 @@ export class GameState {
   setCameraMode(mode) {
     this.cameraMode = mode === 'third' ? 'third' : 'first';
     localStorage.setItem('ciel_camera_mode', this.cameraMode);
+    this.emit();
+  }
+
+  setTouchMode(enabled) {
+    this.touchMode = Boolean(enabled);
+    localStorage.setItem('ciel_touch_mode', this.touchMode ? '1' : '0');
     this.emit();
   }
 

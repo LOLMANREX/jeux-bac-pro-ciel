@@ -20,6 +20,7 @@ import { HudManager } from './ui/HudManager.js';
 import { MainMenu } from './ui/MainMenu.js';
 import { DialogueModal } from './ui/DialogueModal.js';
 import { ChangelogModal } from './ui/ChangelogModal.js';
+import { TouchControls } from './ui/TouchControls.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
 import { createOscilloscopeGame } from './minigames/OscilloscopeGame.js';
 import { createSolderingGame } from './minigames/SolderingGame.js';
@@ -53,6 +54,7 @@ const player = new PlayerController(sceneMgr.camera, canvas, allColliders, {
 });
 player.setSensitivity(gameState.mouseSens);
 player.setCameraMode(gameState.cameraMode);
+player.setTouchMode(gameState.touchMode);
 
 let localAvatar = null;
 const localBubble = createSpeechBubble(2.94);
@@ -93,10 +95,13 @@ let modalOpen = false;
 let subModalActive = false;
 let nearestTarget = null;
 
+let touchControls = null;
+
 function setModalActive(active, pauseScene = false, lockActivity = false) {
   modalOpen = active;
   subModalActive = lockActivity;
   player.setEnabled(joined && !active);
+  touchControls?.setVisible(joined && !active && gameState.touchMode);
   sceneMgr.setPaused(pauseScene);
 }
 
@@ -181,7 +186,14 @@ function teleportNearTarget(id) {
 const hud = new HudManager(gameState, network, {
   onQualityChange: (q) => sceneMgr.setQuality(q),
   onFovChange: (fov) => sceneMgr.setFov(fov),
-  onCameraModeChange: (mode) => player.setCameraMode(mode),
+  onCameraModeChange: (mode) => {
+    player.setCameraMode(mode);
+    touchControls?.syncCameraMode(mode);
+  },
+  onTouchModeChange: (active) => {
+    player.setTouchMode(active);
+    touchControls?.setVisible(joined && !modalOpen && active);
+  },
   onSensitivityChange: (s) => player.setSensitivity(s),
   onQuickNav: (id) => teleportNearTarget(id),
   onModalOpen: (isOpen) => setModalActive(isOpen, false, false),
@@ -198,12 +210,36 @@ const hud = new HudManager(gameState, network, {
   onReturnToMenu: () => returnToMainMenu()
 });
 
+function toggleCameraMode() {
+  sfx.click();
+  const next = gameState.cameraMode === 'third' ? 'first' : 'third';
+  gameState.setCameraMode(next);
+  player.setCameraMode(next);
+  hud.syncCameraUi?.();
+  touchControls?.syncCameraMode(next);
+  hud.toast(next === 'third' ? '🎥 Caméra 3ème personne' : '🎥 Caméra 1ère personne');
+}
+
+touchControls = new TouchControls(player, {
+  onInteract: () => {
+    if (joined && !modalOpen && nearestTarget) interactWith(nearestTarget);
+  },
+  onToggleCamera: () => {
+    if (joined && !modalOpen) toggleCameraMode();
+  },
+  onTapLookZone: (x, y) => {
+    if (joined && !modalOpen) tryRaycastInteract(x, y);
+  }
+});
+touchControls.syncCameraMode(gameState.cameraMode);
+
 function returnToMainMenu() {
   joined = false;
   modalOpen = false;
   subModalActive = false;
   player.setEnabled(false);
   player.setAvatarVisible(false);
+  touchControls.setVisible(false);
   network.disconnect();
   remotePlayers.clearAll();
   hud.hide();
@@ -362,12 +398,7 @@ window.addEventListener('keydown', (e) => {
     interactWith(nearestTarget);
   } else if (e.code === 'KeyV') {
     e.preventDefault();
-    sfx.click();
-    const next = gameState.cameraMode === 'third' ? 'first' : 'third';
-    gameState.setCameraMode(next);
-    player.setCameraMode(next);
-    hud.syncCameraUi?.();
-    hud.toast(next === 'third' ? '🎥 Caméra 3ème personne' : '🎥 Caméra 1ère personne');
+    toggleCameraMode();
   } else if (e.code === 'KeyT') {
     e.preventDefault();
     player.clearKeys();
@@ -387,27 +418,32 @@ document.getElementById('interact-prompt')?.addEventListener('click', () => {
 });
 
 const raycaster = new THREE.Raycaster();
-let downPos = { x: 0, y: 0 };
-canvas.addEventListener('mousedown', (e) => {
-  downPos = { x: e.clientX, y: e.clientY };
-});
-canvas.addEventListener('mouseup', (e) => {
-  if (!joined || modalOpen || e.button !== 0) return;
-  const dragDist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
-  if (dragDist > 6) return;
-
+function tryRaycastInteract(clientX, clientY) {
   const ndc = new THREE.Vector2(
-    (e.clientX / window.innerWidth) * 2 - 1,
-    -(e.clientY / window.innerHeight) * 2 + 1
+    (clientX / window.innerWidth) * 2 - 1,
+    -(clientY / window.innerHeight) * 2 + 1
   );
   raycaster.setFromCamera(ndc, sceneMgr.camera);
   for (const item of allInteractables) {
     const hits = raycaster.intersectObject(item.mesh, true);
     if (hits.length > 0 && hits[0].distance < 7.5) {
       interactWith(item);
-      return;
+      return true;
     }
   }
+  return false;
+}
+
+let downPos = { x: 0, y: 0 };
+canvas.addEventListener('mousedown', (e) => {
+  downPos = { x: e.clientX, y: e.clientY };
+});
+canvas.addEventListener('mouseup', (e) => {
+  if (!joined || modalOpen || e.button !== 0 || gameState.touchMode) return;
+  const dragDist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+  if (dragDist > 6) return;
+
+  if (tryRaycastInteract(e.clientX, e.clientY)) return;
 
   player.requestPointerLock();
 });
@@ -450,6 +486,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
     }
     nearestTarget = best;
     hud.setInteractPrompt(best);
+    touchControls.setInteractTarget(best);
   }
 });
 
@@ -468,7 +505,10 @@ const mainMenu = new MainMenu(gameState, network, {
     hud.show();
     player.setAvatarVisible(true);
     player.setCameraMode(gameState.cameraMode);
+    player.setTouchMode(gameState.touchMode);
     player.setEnabled(true);
+    touchControls.syncCameraMode(gameState.cameraMode);
+    touchControls.setVisible(gameState.touchMode);
     player.teleportTo({ x: 0, z: 6.2 }, FORTIN_POS);
     network.connect(name, cleanRoom, skin, {
       x: 0,
@@ -478,7 +518,11 @@ const mainMenu = new MainMenu(gameState, network, {
     });
 
     setTimeout(() => {
-      hud.toast('Approchez-vous de M. Fortin et appuyez sur E pour commencer !');
+      hud.toast(
+        gameState.touchMode
+          ? 'Approchez-vous de M. Fortin et touchez Parler pour commencer !'
+          : 'Approchez-vous de M. Fortin et appuyez sur E pour commencer !'
+      );
     }, 500);
   }
 });

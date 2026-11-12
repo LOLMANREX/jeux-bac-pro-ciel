@@ -138,6 +138,32 @@ export class SkinPreview3D {
       this.lastMouseX = e.clientX;
       this.yaw += dx * 0.014;
     });
+    this.canvas.addEventListener(
+      'touchstart',
+      (e) => {
+        if (!this.active || !e.touches[0]) return;
+        e.preventDefault();
+        this.dragging = true;
+        this.lastMouseX = e.touches[0].clientX;
+      },
+      { passive: false }
+    );
+    window.addEventListener(
+      'touchmove',
+      (e) => {
+        if (!this.dragging || !this.active || !e.touches[0]) return;
+        const dx = e.touches[0].clientX - this.lastMouseX;
+        this.lastMouseX = e.touches[0].clientX;
+        this.yaw += dx * 0.014;
+      },
+      { passive: true }
+    );
+    window.addEventListener('touchend', () => {
+      this.dragging = false;
+    });
+    window.addEventListener('touchcancel', () => {
+      this.dragging = false;
+    });
 
     this.rebuild();
 

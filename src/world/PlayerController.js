@@ -18,6 +18,9 @@ export class PlayerController {
     this.speed = 5.4;
     this.radius = 0.42;
     this.keys = new Set();
+    this.virtualMove = { right: 0, forward: 0 };
+    this.virtualSprint = false;
+    this.touchMode = false;
     this.dragging = false;
     this.lastMouse = { x: 0, y: 0 };
     this.enabled = false;
@@ -61,7 +64,44 @@ export class PlayerController {
 
   clearKeys() {
     this.keys.clear();
+    this.virtualMove.right = 0;
+    this.virtualMove.forward = 0;
     this.dragging = false;
+  }
+
+  setTouchMode(enabled) {
+    this.touchMode = Boolean(enabled);
+    if (this.touchMode && document.pointerLockElement === this.canvas) {
+      document.exitPointerLock?.();
+    }
+    if (!this.touchMode) {
+      this.virtualMove.right = 0;
+      this.virtualMove.forward = 0;
+      this.virtualSprint = false;
+    }
+  }
+
+  setMoveVector(right, forward) {
+    this.virtualMove.right = Math.max(-1, Math.min(1, Number(right) || 0));
+    this.virtualMove.forward = Math.max(-1, Math.min(1, Number(forward) || 0));
+  }
+
+  setSprint(active) {
+    this.virtualSprint = Boolean(active);
+  }
+
+  lookDelta(dx, dy) {
+    if (!this.enabled) return;
+    this.yaw -= dx * 0.0052 * this.sensitivity;
+    this.pitch = Math.max(-1.1, Math.min(1.1, this.pitch - dy * 0.0052 * this.sensitivity));
+  }
+
+  triggerJump() {
+    if (!this.enabled || !this.isGrounded) return false;
+    this.velocityY = 6.2;
+    this.isGrounded = false;
+    this.onJump?.();
+    return true;
   }
 
   setEnabled(enabled) {
@@ -122,7 +162,7 @@ export class PlayerController {
   }
 
   requestPointerLock() {
-    if (!this.enabled) return;
+    if (!this.enabled || this.touchMode) return;
     if (document.pointerLockElement !== this.canvas) {
       this.canvas.requestPointerLock?.();
     }
@@ -160,8 +200,8 @@ export class PlayerController {
   update(dt) {
     if (!this.enabled) return { isMoving: false, landed: false };
 
-    let forward = 0;
-    let right = 0;
+    let forward = this.virtualMove.forward;
+    let right = this.virtualMove.right;
 
     if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) forward += 1;
     if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) forward -= 1;
@@ -169,12 +209,15 @@ export class PlayerController {
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) right -= 1;
 
     let isMoving = false;
-    const sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 1.45 : 1;
+    const sprint =
+      this.virtualSprint || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 1.45 : 1;
 
-    if (forward !== 0 || right !== 0) {
-      const len = Math.hypot(forward, right);
-      forward /= len;
-      right /= len;
+    const len = Math.hypot(forward, right);
+    if (len > 0.001) {
+      if (len > 1) {
+        forward /= len;
+        right /= len;
+      }
 
       const moveDist = this.speed * sprint * dt;
       const sinY = Math.sin(this.yaw);
@@ -195,10 +238,8 @@ export class PlayerController {
       isMoving = moved;
     }
 
-    if (this.keys.has('Space') && this.isGrounded) {
-      this.velocityY = 6.2;
-      this.isGrounded = false;
-      this.onJump?.();
+    if (this.keys.has('Space')) {
+      this.triggerJump();
     }
 
     this.wasGrounded = this.isGrounded;

@@ -21,15 +21,21 @@ export class HudManager {
     this.netErrorText = document.getElementById('net-error-text');
     this.rosterPopover = document.getElementById('room-roster-popover');
 
+    this.questPanelEl = document.getElementById('quest-panel');
     this.questProgressEl = document.getElementById('quest-progress-text');
     this.questHintEl = document.getElementById('quest-objective-hint');
     this.questListEl = document.getElementById('quest-list');
     this.quickNavEl = document.getElementById('quick-nav-buttons');
+    this.questToggleBtn = document.getElementById('btn-quest-toggle');
 
     this.interactPromptEl = document.getElementById('interact-prompt');
     this.interactLabelEl = document.getElementById('interact-label');
 
     this.emoteBarEl = document.getElementById('emote-bar');
+    this.chatEmoteStripEl = document.getElementById('chat-emote-strip');
+    this.touchToggleBtn = document.getElementById('btn-touch-toggle');
+    this.orientationHintEl = document.getElementById('orientation-hint');
+    this.orientationDismissed = false;
     this.chatDrawer = document.getElementById('chat-drawer');
     this.chatMessagesEl = document.getElementById('chat-messages');
     this.chatRoomNameEl = document.getElementById('chat-room-name');
@@ -132,6 +138,49 @@ export class HudManager {
       syncSettingsUi();
       this.toast(next === 'third' ? '🎥 Caméra 3ème personne' : '🎥 Caméra 1ère personne');
     });
+
+    const syncTouchUi = () => {
+      const active = Boolean(this.gameState.touchMode);
+      document.body.classList.toggle('touch-active', active);
+      if (this.touchToggleBtn) {
+        this.touchToggleBtn.classList.toggle('btn-active', active);
+        this.touchToggleBtn.textContent = active ? '📱 Tactile: ON' : '📱 Tactile: OFF';
+      }
+      this.handlers.onTouchModeChange?.(active);
+    };
+    this.syncTouchUi = syncTouchUi;
+    syncTouchUi();
+
+    this.touchToggleBtn?.addEventListener('click', () => {
+      sfx.click();
+      const next = !this.gameState.touchMode;
+      this.gameState.setTouchMode(next);
+      syncTouchUi();
+      this.toast(next ? '📱 Interface tactile activée' : '🖱️ Interface PC (Clavier/Souris) activée');
+    });
+
+    const setQuestCollapsed = (collapsed) => {
+      this.questPanelEl?.classList.toggle('collapsed', collapsed);
+      if (this.questToggleBtn) {
+        this.questToggleBtn.textContent = collapsed ? '▸' : '▾';
+      }
+    };
+    this.setQuestCollapsed = setQuestCollapsed;
+
+    this.questToggleBtn?.addEventListener('click', () => {
+      sfx.click();
+      const isCollapsed = this.questPanelEl?.classList.contains('collapsed');
+      setQuestCollapsed(!isCollapsed);
+    });
+
+    document.getElementById('btn-orientation-dismiss')?.addEventListener('click', () => {
+      sfx.click();
+      this.orientationDismissed = true;
+      this.orientationHintEl?.classList.add('hidden');
+    });
+
+    window.addEventListener('resize', () => this.updateOrientationHint());
+    window.addEventListener('orientationchange', () => this.updateOrientationHint());
 
     cameraSelect?.addEventListener('change', () => {
       sfx.click();
@@ -414,6 +463,9 @@ export class HudManager {
     fortinBtn.addEventListener('click', () => {
       sfx.click();
       this.handlers.onQuickNav?.('fortin');
+      if (window.innerWidth <= 900 || window.innerHeight <= 560) {
+        this.setQuestCollapsed?.(true);
+      }
     });
     this.quickNavEl.appendChild(fortinBtn);
 
@@ -425,26 +477,40 @@ export class HudManager {
       btn.addEventListener('click', () => {
         sfx.click();
         this.handlers.onQuickNav?.(tp.id);
+        if (window.innerWidth <= 900 || window.innerHeight <= 560) {
+          this.setQuestCollapsed?.(true);
+        }
       });
       this.quickNavEl.appendChild(btn);
     });
   }
 
   _renderEmoteBar() {
-    if (!this.emoteBarEl) return;
-    this.emoteBarEl.innerHTML = QUICK_EMOTES.map(
-      (em) =>
-        `<button type="button" class="btn-emote" data-emote="${em.id}" title="Touche ${em.key} : ${em.label}">
-          <span class="em-key">${em.key}</span> ${em.label}
-        </button>`
-    ).join('');
+    const buildButtons = (compact) =>
+      QUICK_EMOTES.map(
+        (em) =>
+          `<button type="button" class="btn-emote ${compact ? 'compact' : ''}" data-emote="${em.id}" title="Touche ${em.key} : ${em.label}">
+            ${compact ? em.label : `<span class="em-key">${em.key}</span> ${em.label}`}
+          </button>`
+      ).join('');
 
-    this.emoteBarEl.querySelectorAll('.btn-emote').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const em = QUICK_EMOTES.find((item) => item.id === btn.dataset.emote);
-        if (em) this.triggerEmote(em);
+    const bindClicks = (container) => {
+      container?.querySelectorAll('.btn-emote').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const em = QUICK_EMOTES.find((item) => item.id === btn.dataset.emote);
+          if (em) this.triggerEmote(em);
+        });
       });
-    });
+    };
+
+    if (this.emoteBarEl) {
+      this.emoteBarEl.innerHTML = buildButtons(false);
+      bindClicks(this.emoteBarEl);
+    }
+    if (this.chatEmoteStripEl) {
+      this.chatEmoteStripEl.innerHTML = buildButtons(true);
+      bindClicks(this.chatEmoteStripEl);
+    }
   }
 
   triggerEmote(emoteOrIndex) {
@@ -459,16 +525,32 @@ export class HudManager {
     this.handlers.onLocalEmote?.(emote);
   }
 
+  updateOrientationHint() {
+    if (!this.orientationHintEl) return;
+    const hudVisible = !this.hudEl.classList.contains('hidden');
+    const isPortraitNarrow = window.innerWidth < 680 && window.innerHeight > window.innerWidth;
+    const show = hudVisible && !this.orientationDismissed && isPortraitNarrow;
+    this.orientationHintEl.classList.toggle('hidden', !show);
+  }
+
   show() {
     this.hudEl.classList.remove('hidden');
     this.chatRoomNameEl.textContent = this.gameState.room;
     if (this.netRoomTag) this.netRoomTag.textContent = this.gameState.room;
+    this.syncTouchUi?.();
+    if (window.innerWidth <= 900 || window.innerHeight <= 560) {
+      this.setQuestCollapsed?.(true);
+    } else {
+      this.setQuestCollapsed?.(false);
+    }
+    this.updateOrientationHint();
     this.refresh();
   }
 
   hide() {
     this.closeAllModals();
     this.netErrorBanner?.classList.add('hidden');
+    this.orientationHintEl?.classList.add('hidden');
     this.hudEl.classList.add('hidden');
     this.chatDrawer.classList.add('hidden');
     this.interactPromptEl.classList.add('hidden');

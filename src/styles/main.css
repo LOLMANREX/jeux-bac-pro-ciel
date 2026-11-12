@@ -22,10 +22,13 @@ body,
   padding: 0;
   width: 100%;
   height: 100%;
+  height: 100dvh;
   overflow: hidden;
+  overscroll-behavior: none;
   background: var(--bg-dark);
   color: var(--text);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #game-canvas {
@@ -33,6 +36,9 @@ body,
   width: 100%;
   height: 100%;
   cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .hidden {
@@ -85,6 +91,11 @@ button:active {
 .btn-hud:hover {
   background: rgba(51, 65, 85, 0.9);
   border-color: var(--cyan);
+}
+.btn-hud.btn-active {
+  background: rgba(6, 182, 212, 0.24);
+  border-color: var(--cyan);
+  color: #cffafe;
 }
 
 .btn-danger {
@@ -501,9 +512,37 @@ button:active {
 .quest-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   font-weight: 700;
   color: var(--amber);
   margin-bottom: 6px;
+}
+.quest-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-quest-toggle {
+  background: rgba(30, 41, 59, 0.92);
+  color: var(--cyan);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 6px;
+  width: 24px;
+  height: 22px;
+  font-size: 0.78rem;
+  line-height: 1;
+  padding: 0;
+}
+.quest-panel.collapsed {
+  width: auto;
+  padding: 8px 12px;
+}
+.quest-panel.collapsed .quest-header {
+  margin-bottom: 0;
+}
+.quest-panel.collapsed .quest-panel-body {
+  display: none;
 }
 
 .quest-hint {
@@ -641,6 +680,18 @@ button:active {
   padding: 9px 12px;
   background: rgba(15, 23, 42, 0.8);
   font-size: 0.85rem;
+}
+.chat-emote-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 7px 10px;
+  background: rgba(11, 19, 36, 0.7);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+.btn-emote.compact {
+  padding: 4px 8px;
+  font-size: 0.74rem;
 }
 .chat-messages {
   flex: 1;
@@ -1222,6 +1273,10 @@ button:active {
   color: var(--muted);
 }
 
+.leaderboard-body {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .lb-table {
   width: 100%;
   border-collapse: collapse;
@@ -1462,6 +1517,284 @@ button:active {
 
 @media (max-width: 1180px) {
   .hud-bottom-hint {
+    display: none;
+  }
+}
+
+.touch-controls {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 16;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.touch-look-zone {
+  position: fixed;
+  left: 44%;
+  right: 0;
+  top: 58px;
+  bottom: 0;
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch-joystick-zone {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: min(44vw, 240px);
+  height: min(44vh, 220px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 18px 20px;
+  pointer-events: auto;
+  touch-action: none;
+  z-index: 21;
+}
+.touch-joystick-base {
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.86));
+  border: 2px solid rgba(56, 189, 248, 0.45);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.touch-joystick-base.active {
+  border-color: var(--cyan);
+  box-shadow: 0 0 22px rgba(34, 211, 238, 0.35);
+}
+.touch-joystick-knob {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #67e8f9, #0284c7);
+  border: 2px solid #e0f2fe;
+  box-shadow: 0 4px 14px rgba(6, 182, 212, 0.55);
+  pointer-events: none;
+}
+.touch-action-pad {
+  position: fixed;
+  right: 16px;
+  bottom: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(68px, 78px));
+  gap: 10px;
+  pointer-events: auto;
+  touch-action: none;
+  z-index: 22;
+}
+.touch-btn {
+  min-height: 60px;
+  border-radius: 16px;
+  background: rgba(11, 19, 36, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(56, 189, 248, 0.38);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  touch-action: none;
+  padding: 6px;
+}
+.touch-btn .tb-ico {
+  font-size: 1.18rem;
+  line-height: 1;
+}
+.touch-btn .tb-lbl {
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.touch-btn:active,
+.touch-btn.pressed {
+  transform: scale(0.92);
+  background: rgba(6, 182, 212, 0.34);
+  border-color: var(--cyan);
+}
+.touch-btn.active {
+  background: rgba(6, 182, 212, 0.28);
+  border-color: var(--cyan);
+  color: #cffafe;
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.35);
+}
+.touch-btn-interact:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.touch-btn-interact.ready {
+  opacity: 1;
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.88), rgba(2, 132, 199, 0.92));
+  border-color: #a5f3fc;
+  color: #fff;
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.55);
+}
+
+.orientation-hint {
+  position: fixed;
+  bottom: 162px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(360px, calc(100vw - 24px));
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  color: #fef3c7;
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 0.79rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  z-index: 26;
+  pointer-events: auto;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+}
+
+body.touch-active .key-mini,
+body.touch-active .hud-bottom-hint,
+body.touch-active .emote-bar {
+  display: none;
+}
+body.touch-active .interact-prompt {
+  bottom: 168px;
+}
+body.touch-active .hud-corner-badge {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  bottom: 10px;
+  text-align: center;
+  padding: 4px 10px;
+}
+body.touch-active .chat-drawer {
+  bottom: 162px;
+}
+
+@media (max-width: 760px), (max-height: 540px) {
+  .overlay-screen {
+    padding: 10px;
+    align-items: flex-start;
+    overflow-y: auto;
+  }
+  .main-menu-shell {
+    padding: 16px;
+    border-radius: 16px;
+    gap: 14px;
+    max-height: none;
+    margin: auto 0;
+  }
+  .menu-left-panel h1 {
+    font-size: 1.6rem;
+  }
+  .subtitle {
+    font-size: 0.85rem;
+    margin-bottom: 12px;
+  }
+  .btn-menu {
+    padding: 10px 12px;
+  }
+  .menu-right-preview {
+    padding: 10px;
+  }
+  #skin-preview-canvas,
+  #hud-skin-preview-canvas {
+    max-width: 100%;
+    height: auto;
+  }
+  .menu-corner-badge {
+    right: 10px;
+    bottom: 8px;
+    padding: 4px 9px;
+  }
+  .hud-top {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .hud-brand,
+  .hud-actions {
+    gap: 6px;
+  }
+  .hud-actions {
+    width: 100%;
+  }
+  .student-badge,
+  .grade-pill,
+  .net-pill,
+  .btn-hud {
+    padding: 6px 9px;
+    font-size: 0.77rem;
+    min-height: 34px;
+  }
+  .quest-panel {
+    top: auto;
+    left: 10px;
+    bottom: auto;
+    margin-left: 0;
+    position: fixed;
+    top: 96px;
+    width: min(260px, calc(100vw - 20px));
+    max-height: 54dvh;
+    overflow-y: auto;
+    z-index: 23;
+  }
+  .room-roster-popover {
+    left: 0;
+    right: auto;
+    width: min(280px, calc(100vw - 24px));
+  }
+  .toast-container {
+    top: 96px;
+    right: 10px;
+    max-width: calc(100vw - 20px);
+  }
+  .chat-drawer {
+    right: 10px;
+    width: min(320px, calc(100vw - 20px));
+    height: min(290px, calc(100dvh - 140px));
+    z-index: 28;
+  }
+  .modal-backdrop {
+    padding: 10px;
+  }
+  .dialogue-card {
+    padding: 14px 15px;
+    max-height: 92dvh;
+  }
+  .dialogue-header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .vn-dialogue-box {
+    padding: 12px 14px;
+    max-height: 85dvh;
+    overflow-y: auto;
+  }
+  .touch-joystick-base {
+    width: 100px;
+    height: 100px;
+  }
+  .touch-joystick-knob {
+    width: 42px;
+    height: 42px;
+  }
+  .touch-action-pad {
+    right: 12px;
+    bottom: 14px;
+    grid-template-columns: repeat(2, minmax(60px, 70px));
+    gap: 8px;
+  }
+  .touch-btn {
+    min-height: 54px;
+    border-radius: 14px;
+  }
+  .hud-corner-badge .vb-meta {
     display: none;
   }
 }

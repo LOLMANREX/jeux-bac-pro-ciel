@@ -249,23 +249,16 @@ export function createSolderingGame(api) {
     });
 
     const canvas = document.getElementById('pcb-canvas');
-    const getPos = (e) => {
+    const getPos = (point) => {
       const rect = canvas.getBoundingClientRect();
       return {
-        x: ((e.clientX - rect.left) / rect.width) * canvas.width,
-        y: ((e.clientY - rect.top) / rect.height) * canvas.height
+        x: ((point.clientX - rect.left) / rect.width) * canvas.width,
+        y: ((point.clientY - rect.top) / rect.height) * canvas.height
       };
     };
 
-    canvas?.addEventListener('mousemove', (e) => {
-      const pos = getPos(e);
-      pointer.x = pos.x;
-      pointer.y = pos.y;
-    });
-
-    canvas?.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      const pos = getPos(e);
+    const startPointer = (point) => {
+      const pos = getPos(point);
       pointer.x = pos.x;
       pointer.y = pos.y;
       pointer.down = true;
@@ -288,10 +281,47 @@ export function createSolderingGame(api) {
         heatProgress = 0;
         sfx.solderSizzle();
       }
+    };
+
+    canvas?.addEventListener('mousemove', (e) => {
+      const pos = getPos(e);
+      pointer.x = pos.x;
+      pointer.y = pos.y;
     });
+
+    canvas?.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      startPointer(e);
+    });
+
+    canvas?.addEventListener(
+      'touchstart',
+      (e) => {
+        if (!e.touches[0]) return;
+        e.preventDefault();
+        startPointer(e.touches[0]);
+      },
+      { passive: false }
+    );
+
+    canvas?.addEventListener(
+      'touchmove',
+      (e) => {
+        if (!e.touches[0]) return;
+        e.preventDefault();
+        const pos = getPos(e.touches[0]);
+        pointer.x = pos.x;
+        pointer.y = pos.y;
+      },
+      { passive: false }
+    );
 
     window.removeEventListener('mouseup', finishHeat);
     window.addEventListener('mouseup', finishHeat);
+    window.removeEventListener('touchend', finishHeat);
+    window.addEventListener('touchend', finishHeat);
+    window.removeEventListener('touchcancel', finishHeat);
+    window.addEventListener('touchcancel', finishHeat);
 
     document.getElementById('sd-validate-btn')?.addEventListener('click', () => {
       const fb = document.getElementById('sd-feedback');
