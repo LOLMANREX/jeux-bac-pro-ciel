@@ -82,6 +82,18 @@ export function attachWsHub(httpServer, store) {
     }
   }
 
+  function flushClientPlaytime(state) {
+    if (!state?.name || !state.lastPlaytimeFlushMs) return;
+    const now = Date.now();
+    const elapsedSec = Math.floor((now - state.lastPlaytimeFlushMs) / 1000);
+    if (elapsedSec > 0) {
+      state.lastPlaytimeFlushMs += elapsedSec * 1000;
+      store.addPlaytime(state.name, elapsedSec);
+    } else {
+      store.addPlaytime(state.name, 0);
+    }
+  }
+
   function buildOnlineMap() {
     const map = new Map();
     for (const [sock, s] of clients.entries()) {
@@ -90,7 +102,8 @@ export function attachWsHub(httpServer, store) {
         id: s.id,
         name: s.name,
         room: s.room,
-        activity: s.activity
+        activity: s.activity,
+        lastPlaytimeFlushMs: s.lastPlaytimeFlushMs || 0
       });
     }
     return map;
@@ -102,6 +115,25 @@ export function attachWsHub(httpServer, store) {
       const active = onlineMap.get(entry.name.toLowerCase());
       return {
         ...entry,
+        online: Boolean(active),
+        onlineRoom: active ? active.room : null,
+        onlineActivity: active ? active.activity : null
+      };
+    });
+  }
+
+  function getAllEnrichedPlayers() {
+    const onlineMap = buildOnlineMap();
+    const now = Date.now();
+    return store.getAllPlayers().map((entry) => {
+      const active = onlineMap.get(entry.name.toLowerCase());
+      const liveExtraSec =
+        active && active.lastPlaytimeFlushMs
+          ? Math.max(0, Math.floor((now - active.lastPlaytimeFlushMs) / 1000))
+          : 0;
+      return {
+        ...entry,
+        playtimeSeconds: (entry.playtimeSeconds || 0) + liveExtraSec,
         online: Boolean(active),
         onlineRoom: active ? active.room : null,
         onlineActivity: active ? active.activity : null
@@ -223,8 +255,11 @@ export function attachWsHub(httpServer, store) {
   }
 
   const heartbeatInterval = setInterval(() => {
-    for (const [sock] of clients.entries()) {
+    for (const [sock, s] of clients.entries()) {
       if (sock.readyState !== 1) continue;
+      if (s.name) {
+        flushClientPlaytime(s);
+      }
       if (sock.isAlive === false) {
         sock.terminate();
         continue;
@@ -259,7 +294,8 @@ export function attachWsHub(httpServer, store) {
       yaw: 0,
       activity: 'Dans l’atelier',
       color: '#22d3ee',
-      skin: sanitizeSkin(null)
+      skin: sanitizeSkin(null),
+      lastPlaytimeFlushMs: 0
     };
     clients.set(ws, state);
 
@@ -278,7 +314,8 @@ export function attachWsHub(httpServer, store) {
           const name = resolveUniqueSessionName(msg.name, ws);
           const room = sanitizeRoom(msg.room);
           const incomingSkin = msg.skin && typeof msg.skin === 'object' ? msg.skin : null;
-          const profile = store.getOrCreatePlayer(name, incomingSkin);
+          store.getOrCreatePlayer(name, incomingSkin);
+          const profile = store.recordLogin(name);
           const skin = sanitizeSkin(profile.skin, profile.color);
 
           state.name = profile.name;
@@ -286,6 +323,7 @@ export function attachWsHub(httpServer, store) {
           state.color = skin.outfitColor || profile.color;
           state.room = room;
           state.activity = 'Dans l’atelier';
+          state.lastPlaytimeFlushMs = Date.now();
           state.x = clamp(msg.x ?? 0, -14, 14);
           state.y = clamp(msg.y ?? 0, 0, 3);
           state.z = clamp(msg.z ?? 6.2, -11, 11);
@@ -474,6 +512,7 @@ export function attachWsHub(httpServer, store) {
       const leaving = clients.get(ws);
       clients.delete(ws);
       if (leaving && leaving.name) {
+        flushClientPlaytime(leaving);
         const roomRoster = getRoomRoster(leaving.room);
         broadcastToRoom(leaving.room, {
           type: 'player_left',
@@ -504,6 +543,7 @@ export function attachWsHub(httpServer, store) {
       return [...map.values()];
     },
     getEnrichedLeaderboard,
+    getAllEnrichedPlayers,
     notifySkinUpdated: (profile) => {
       if (!profile?.name) return;
       const key = profile.name.toLowerCase();
@@ -531,6 +571,54 @@ export function attachWsHub(httpServer, store) {
       for (const [sock, s] of clients.entries()) {
         if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
           announceScoreInRoom(s, tpId, result, sock);
+        }
+      }
+      broadcastLeaderboard();
+    },
+    notifyPlayerReset: (profile) => {
+      if (!profile?.name) return;
+      const key = profile.name.toLowerCase();
+      for (const [sock, s] of clients.entries()) {
+        if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
+          s.lastPlaytimeFlushMs = Date.now();
+          sock.send(
+            JSON.stringify({
+              type: 'profile_reset',
+              profile,
+              message: 'Votre progression a été réinitialisée par l’administrateur.'
+            })
+          );
+          broadcastToRoom(
+            s.room,
+            {
+              type: 'player_stats_updated',
+              id: s.id,
+              profile: {
+                xp: profile.xp,
+                average: profile.average,
+                completedCount: profile.completedCount,
+                diplomaEarned: profile.diplomaEarned,
+                rank: profile.rank,
+                rankLabel: profile.rankLabel
+              }
+            },
+            sock
+          );
+        }
+      }
+      broadcastLeaderboard();
+    },
+    disconnectPlayer: (rawName) => {
+      const key = String(rawName || '').trim().toLowerCase();
+      for (const [sock, s] of clients.entries()) {
+        if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
+          sock.send(
+            JSON.stringify({
+              type: 'account_deleted',
+              message: 'Votre compte élève a été supprimé par l’administrateur.'
+            })
+          );
+          sock.close(4001, 'Compte supprimé par l’administrateur');
         }
       }
       broadcastLeaderboard();

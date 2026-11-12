@@ -195,6 +195,9 @@ export class NetworkClient {
           this.pendingJoin.name = msg.profile.name;
         }
       }
+      if (msg.type === 'account_deleted') {
+        this.manualClose = true;
+      }
       this.emit(msg.type, msg);
     });
 

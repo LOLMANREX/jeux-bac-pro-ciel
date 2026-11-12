@@ -285,6 +285,7 @@ test('Serveur HTTP sert index.html sans cache pour mobile et 5G', async () => {
   const tmpDist = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-dist-'));
   fs.mkdirSync(path.join(tmpDist, 'assets'));
   fs.writeFileSync(path.join(tmpDist, 'index.html'), '<!doctype html><html><body>OK</body></html>');
+  fs.writeFileSync(path.join(tmpDist, 'admin.html'), '<!doctype html><html><body>ADMIN</body></html>');
   fs.writeFileSync(path.join(tmpDist, 'assets', 'bundle.js'), 'console.log(1);');
 
   const { server, wsHub } = createGameServer({ dbPath: null, distDir: tmpDist });
@@ -300,6 +301,11 @@ test('Serveur HTTP sert index.html sans cache pour mobile et 5G', async () => {
     assert.ok(rootCc.includes('no-store'));
     assert.ok(rootCc.includes('must-revalidate'));
 
+    const adminRes = await fetch(`${baseUrl}/admin`);
+    assert.equal(adminRes.status, 200);
+    assert.ok((await adminRes.text()).includes('ADMIN'));
+    assert.ok((adminRes.headers.get('cache-control') || '').includes('no-store'));
+
     const spaRes = await fetch(`${baseUrl}/atelier-ciel`);
     assert.equal(spaRes.status, 200);
     const spaCc = spaRes.headers.get('cache-control') || '';
@@ -312,5 +318,108 @@ test('Serveur HTTP sert index.html sans cache pour mobile et 5G', async () => {
     wsHub.close();
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(tmpDist, { recursive: true, force: true });
+  }
+});
+
+test('Admin API sécurisée : login, liste, playtime, reset WS et suppression', async () => {
+  const { server, store, wsHub } = createGameServer({ dbPath: null });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const wsUrl = `ws://127.0.0.1:${port}/ws`;
+
+  try {
+    const unauth = await fetch(`${baseUrl}/api/admin/players`);
+    assert.equal(unauth.status, 401);
+
+    const badLogin = await fetch(`${baseUrl}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'wrong' })
+    });
+    assert.equal(badLogin.status, 401);
+
+    const okLogin = await fetch(`${baseUrl}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: process.env.ADMIN_PASSWORD || 'Louisetjade1102' })
+    });
+    assert.equal(okLogin.status, 200);
+    const { token } = await okLogin.json();
+    assert.ok(token);
+
+    const ws = new WebSocket(wsUrl);
+    await new Promise((resolve) => ws.once('open', resolve));
+    const welcomeP = new Promise((resolve) => {
+      ws.on('message', function onMsg(buf) {
+        const m = JSON.parse(buf.toString());
+        if (m.type === 'welcome') {
+          ws.off('message', onMsg);
+          resolve(m);
+        }
+      });
+    });
+    ws.send(JSON.stringify({ type: 'join', name: 'TestEleve', room: 'salle-e204' }));
+    await welcomeP;
+
+    store.recordTpScore('TestEleve', 'oscilloscope', 18, 30);
+    store.addPlaytime('TestEleve', 125);
+
+    const listRes = await fetch(`${baseUrl}/api/admin/players`, {
+      headers: { 'x-admin-token': token }
+    });
+    assert.equal(listRes.status, 200);
+    const listData = await listRes.json();
+    const target = listData.players.find((p) => p.name === 'TestEleve');
+    assert.ok(target);
+    assert.equal(target.online, true);
+    assert.ok(target.playtimeSeconds >= 125);
+    assert.ok(target.createdAt);
+    assert.ok(target.lastLogin);
+
+    const resetMsgP = new Promise((resolve) => {
+      ws.on('message', function onMsg(buf) {
+        const m = JSON.parse(buf.toString());
+        if (m.type === 'profile_reset') {
+          ws.off('message', onMsg);
+          resolve(m);
+        }
+      });
+    });
+    const resetRes = await fetch(`${baseUrl}/api/admin/players/TestEleve/reset`, {
+      method: 'POST',
+      headers: { 'x-admin-token': token }
+    });
+    assert.equal(resetRes.status, 200);
+    const resetMsg = await resetMsgP;
+    assert.equal(resetMsg.profile.xp, 0);
+    assert.equal(resetMsg.profile.playtimeSeconds, 0);
+    assert.deepEqual(resetMsg.profile.grades, {});
+
+    const deletedMsgP = new Promise((resolve) => {
+      ws.on('message', function onMsg(buf) {
+        const m = JSON.parse(buf.toString());
+        if (m.type === 'account_deleted') {
+          ws.off('message', onMsg);
+          resolve(m);
+        }
+      });
+    });
+    const delRes = await fetch(`${baseUrl}/api/admin/players/TestEleve`, {
+      method: 'DELETE',
+      headers: { 'x-admin-token': token }
+    });
+    assert.equal(delRes.status, 200);
+    await deletedMsgP;
+    await new Promise((resolve) => ws.once('close', resolve));
+
+    const afterRes = await fetch(`${baseUrl}/api/admin/players`, {
+      headers: { 'x-admin-token': token }
+    });
+    const afterData = await afterRes.json();
+    assert.equal(afterData.players.some((p) => p.name === 'TestEleve'), false);
+  } finally {
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
   }
 });

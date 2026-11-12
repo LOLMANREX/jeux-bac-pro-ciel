@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Administration — Atelier CIEL 3D</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1324'/%3E%3Cpath d='M14 40 L24 22 L32 38 L42 18 L50 42' fill='none' stroke='%2322d3ee' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='50' cy='42' r='4' fill='%2310b981'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <div id="admin-app" class="admin-app">
+      <section id="admin-login-screen" class="login-screen">
+        <form id="admin-login-form" class="login-card">
+          <div class="badge-pill">BAC PRO CIEL • SUPERVISION</div>
+          <h1>Console <span class="accent">Admin</span></h1>
+          <p class="subtitle">
+            Connectez-vous pour superviser l'activité des élèves, suivre le temps de jeu et gérer les profils de la base de données.
+          </p>
+          <div class="field-group">
+            <label for="admin-password-input">Mot de passe administrateur</label>
+            <div class="pw-row">
+              <input
+                id="admin-password-input"
+                type="password"
+                autocomplete="current-password"
+                placeholder="Entrez le mot de passe..."
+                required
+              />
+              <button type="button" id="btn-toggle-pw" class="btn-secondary btn-icon" title="Afficher / Masquer">
+                👁️
+              </button>
+            </div>
+          </div>
+          <div id="login-error" class="error-box hidden"></div>
+          <button type="submit" id="btn-login-submit" class="btn-primary btn-full">
+            🔐 Accéder au tableau de bord
+          </button>
+          <a href="/" class="back-link">← Retour à l'Atelier CIEL 3D</a>
+        </form>
+      </section>
+
+      <main id="admin-dashboard" class="dashboard hidden">
+        <header class="dash-header">
+          <div>
+            <div class="badge-pill">ATELIER CIEL 3D • PORTAIL PROFESSEUR</div>
+            <h1>🛡️ Administration des Élèves</h1>
+          </div>
+          <div class="dash-header-actions">
+            <span id="last-sync-label" class="sync-pill">Sync : --</span>
+            <button type="button" id="btn-refresh" class="btn-secondary">🔄 Actualiser</button>
+            <a href="/" class="btn-secondary">🎮 Ouvrir le jeu</a>
+            <button type="button" id="btn-logout" class="btn-danger-outline">🚪 Déconnexion</button>
+          </div>
+        </header>
+
+        <section class="stats-grid">
+          <article class="stat-card">
+            <div class="stat-label">👥 Nombre total d'élèves</div>
+            <div id="stat-total-players" class="stat-value">0</div>
+            <div class="stat-sub">Profils enregistrés dans db.json</div>
+          </article>
+          <article class="stat-card online-card">
+            <div class="stat-label">🟢 Joueurs actuellement en ligne</div>
+            <div id="stat-online-count" class="stat-value">0</div>
+            <div class="stat-sub">Connexions WebSocket actives</div>
+          </article>
+          <article class="stat-card time-card">
+            <div class="stat-label">⏱️ Temps de jeu cumulé (classe)</div>
+            <div id="stat-total-playtime" class="stat-value">0m</div>
+            <div class="stat-sub">Cumul de tous les élèves</div>
+          </article>
+        </section>
+
+        <section class="toolbar-card">
+          <div class="search-wrap">
+            <input
+              id="search-player-input"
+              type="search"
+              placeholder="🔍 Rechercher un élève par pseudo..."
+            />
+          </div>
+          <div class="toolbar-controls">
+            <select id="sort-select" aria-label="Trier les élèves">
+              <option value="lastSeen">Trier : Dernière connexion</option>
+              <option value="playtime">Trier : Temps de jeu</option>
+              <option value="average">Trier : Moyenne TP (/20)</option>
+              <option value="xp">Trier : XP totale</option>
+              <option value="name">Trier : Pseudo (A → Z)</option>
+            </select>
+            <button type="button" id="btn-filter-online" class="btn-secondary">🟢 En ligne uniquement</button>
+          </div>
+        </section>
+
+        <section class="table-card">
+          <div class="table-scroll">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Élève &amp; TP</th>
+                  <th>Statut</th>
+                  <th>Temps de jeu</th>
+                  <th>Dernière connexion</th>
+                  <th>Moyenne TP</th>
+                  <th>XP</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="players-tbody"></tbody>
+            </table>
+          </div>
+          <div id="empty-state" class="empty-state hidden">Aucun profil élève ne correspond à votre recherche.</div>
+        </section>
+      </main>
+
+      <div id="admin-confirm-modal" class="modal-backdrop hidden">
+        <div class="confirm-card">
+          <div id="confirm-badge" class="confirm-badge">ACTION REQUISE</div>
+          <h2 id="confirm-title">Confirmer l'action</h2>
+          <p id="confirm-message"></p>
+          <div class="confirm-actions">
+            <button type="button" id="btn-confirm-cancel" class="btn-secondary">Annuler</button>
+            <button type="button" id="btn-confirm-exec" class="btn-primary">Confirmer</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="admin-toast-container" class="toast-container"></div>
+    </div>
+
+    <script type="module" src="/src/admin/admin.js"></script>
+  </body>
+</html>

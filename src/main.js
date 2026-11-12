@@ -288,6 +288,17 @@ network.on('profile_updated', ({ profile }) => {
   lab.updateStationBadges(profile.grades);
 });
 
+network.on('profile_reset', ({ profile, message }) => {
+  gameState.setProfile(profile);
+  lab.updateStationBadges(profile.grades);
+  hud.toast(message || 'Votre progression a été réinitialisée par l’administrateur.', 'error');
+});
+
+network.on('account_deleted', ({ message }) => {
+  returnToMainMenu();
+  hud.toast(message || 'Votre compte a été supprimé par l’administrateur.', 'error');
+});
+
 network.on('score_recorded', (res) => {
   gameState.setProfile(res.profile);
   lab.updateStationBadges(res.profile.grades);

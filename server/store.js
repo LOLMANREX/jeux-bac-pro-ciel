@@ -153,6 +153,14 @@ export class GameStore {
     const diplomaEarned = Boolean(base.diplomaEarned) || completedCount === TP_IDS.length;
     const diplomas = computeDiplomas(grades, average, diplomaEarned);
     const xp = Number.isFinite(Number(base.xp)) ? Math.max(0, Math.round(Number(base.xp))) : 0;
+    const nowIso = new Date().toISOString();
+    const updatedAt = base.updatedAt || nowIso;
+    const createdAt = base.createdAt || updatedAt;
+    const lastLogin = base.lastLogin || updatedAt;
+    const lastSeen = base.lastSeen || updatedAt;
+    const playtimeSeconds = Number.isFinite(Number(base.playtimeSeconds))
+      ? Math.max(0, Math.round(Number(base.playtimeSeconds)))
+      : 0;
 
     return {
       name,
@@ -165,7 +173,11 @@ export class GameStore {
       average,
       diplomaEarned,
       diplomas,
-      updatedAt: base.updatedAt || new Date().toISOString()
+      createdAt,
+      lastLogin,
+      lastSeen,
+      playtimeSeconds,
+      updatedAt
     };
   }
 
@@ -315,6 +327,79 @@ export class GameStore {
     };
   }
 
+  _findPlayerKey(rawName) {
+    const rawKey = String(rawName || '').trim().toLowerCase();
+    if (rawKey && this.data.players[rawKey]) return rawKey;
+    const sanitizedKey = sanitizeName(rawName).toLowerCase();
+    if (sanitizedKey && this.data.players[sanitizedKey]) return sanitizedKey;
+    return null;
+  }
+
+  recordLogin(rawName) {
+    const name = sanitizeName(rawName);
+    const key = name.toLowerCase();
+    this.getOrCreatePlayer(name);
+    const player = this._normalizePlayer(this.data.players[key], name);
+    const nowIso = new Date().toISOString();
+    player.lastLogin = nowIso;
+    player.lastSeen = nowIso;
+    player.updatedAt = nowIso;
+    this.data.players[key] = player;
+    this._save();
+    return this.getPublicProfile(key);
+  }
+
+  addPlaytime(rawName, seconds) {
+    const key = this._findPlayerKey(rawName);
+    if (!key) return null;
+    const addSec = Math.max(0, Math.round(Number(seconds) || 0));
+    const player = this._normalizePlayer(this.data.players[key], key);
+    const nowIso = new Date().toISOString();
+    player.playtimeSeconds += addSec;
+    player.lastSeen = nowIso;
+    player.updatedAt = nowIso;
+    this.data.players[key] = player;
+    this._save();
+    return this.getPublicProfile(key);
+  }
+
+  resetPlayer(rawName) {
+    const key = this._findPlayerKey(rawName);
+    if (!key) return null;
+    const current = this._normalizePlayer(this.data.players[key], key);
+    const nowIso = new Date().toISOString();
+    this.data.players[key] = this._normalizePlayer(
+      {
+        name: current.name,
+        color: current.color,
+        skin: current.skin,
+        xp: 0,
+        questAccepted: false,
+        grades: {},
+        bestTimes: {},
+        average: null,
+        diplomaEarned: false,
+        diplomas: [],
+        createdAt: current.createdAt,
+        lastLogin: current.lastLogin,
+        lastSeen: nowIso,
+        playtimeSeconds: 0,
+        updatedAt: nowIso
+      },
+      current.name
+    );
+    this._save();
+    return this.getPublicProfile(key);
+  }
+
+  deletePlayer(rawName) {
+    const key = this._findPlayerKey(rawName);
+    if (!key) return false;
+    delete this.data.players[key];
+    this._save();
+    return true;
+  }
+
   _buildProfileObject(p) {
     const norm = this._normalizePlayer(p);
     const completedCount = TP_IDS.filter(
@@ -334,8 +419,16 @@ export class GameStore {
       diplomas: [...norm.diplomas],
       mention: computeMention(norm.average),
       rankLabel: computeRankLabel(completedCount, norm.average, norm.diplomaEarned),
+      createdAt: norm.createdAt,
+      lastLogin: norm.lastLogin,
+      lastSeen: norm.lastSeen,
+      playtimeSeconds: norm.playtimeSeconds,
       updatedAt: norm.updatedAt
     };
+  }
+
+  getAllPlayers() {
+    return this._getSortedBase();
   }
 
   _getSortedBase() {
