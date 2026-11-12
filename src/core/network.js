@@ -1,4 +1,4 @@
-export const DEFAULT_ROOM = 'salle-e204';
+export const DEFAULT_ROOM = 'plateau-u300';
 
 export function buildWebSocketUrl(loc = typeof window !== 'undefined' ? window.location : null) {
   if (!loc || !loc.host) return '';
@@ -88,7 +88,7 @@ export class NetworkClient {
     }
   }
 
-  connect(name, room = DEFAULT_ROOM, skin = null, spawn = { x: 0, y: 0, z: 6.2, yaw: 0 }) {
+  connect(name, room = DEFAULT_ROOM, skin = null, spawn = { x: -3.95, y: 0, z: 0.65, yaw: -1.35 }) {
     this._teardownSocket();
     this.manualClose = false;
     this.reconnectAttempts = 0;
@@ -181,10 +181,12 @@ export class NetworkClient {
           name: this.pendingJoin.name,
           room: this.pendingJoin.room,
           skin: this.pendingJoin.skin,
-          x: qNum(sp.x ?? 0),
+          zoneId: this.pendingJoin.zoneId || 'U300',
+          zoneLabel: this.pendingJoin.zoneLabel || 'U300 - Couloir Central',
+          x: qNum(sp.x ?? -3.95),
           y: qNum(sp.y ?? 0),
-          z: qNum(sp.z ?? 6.2),
-          yaw: qNum(sp.yaw ?? 0)
+          z: qNum(sp.z ?? 0.65),
+          yaw: qNum(sp.yaw ?? -1.35)
         });
       }
 
@@ -340,6 +342,14 @@ export class NetworkClient {
 
   sendActivity(activity) {
     this.send({ type: 'activity', activity });
+  }
+
+  sendZone(zoneId, zoneLabel) {
+    if (this.pendingJoin) {
+      this.pendingJoin.zoneId = zoneId;
+      this.pendingJoin.zoneLabel = zoneLabel;
+    }
+    return this.send({ type: 'zone', zoneId, zoneLabel });
   }
 
   sendEmote(emoteId, label) {

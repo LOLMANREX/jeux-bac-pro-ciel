@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v2.8 - Nettoyage complet des aperçus de liens et métadonnées'),
+    __APP_VERSION__: JSON.stringify('v3.0 - Nouveau Monde : Plateau U300 Complet'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

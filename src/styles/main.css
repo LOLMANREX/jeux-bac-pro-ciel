@@ -445,6 +445,7 @@ button:active {
 .hud input,
 .hud select,
 .hud .quest-panel,
+.hud .minimap-panel,
 .hud .chat-drawer {
   pointer-events: auto;
 }
@@ -497,7 +498,8 @@ button:active {
 
 .student-badge,
 .grade-pill,
-.net-pill {
+.net-pill,
+.zone-pill {
   background: var(--panel);
   backdrop-filter: blur(6px);
   border: 1px solid var(--border);
@@ -507,6 +509,67 @@ button:active {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.zone-pill {
+  border-color: rgba(56, 189, 248, 0.45);
+  color: #e0f2fe;
+  font-weight: 700;
+}
+
+.hud-left-stack {
+  position: fixed;
+  top: 68px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 23;
+  max-height: calc(100dvh - 135px);
+  overflow-y: auto;
+  pointer-events: none;
+}
+
+.minimap-panel {
+  width: 272px;
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 0.84rem;
+}
+
+.minimap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--cyan);
+  margin-bottom: 8px;
+}
+
+.minimap-panel.collapsed {
+  width: auto;
+  padding: 8px 12px;
+}
+
+.minimap-panel.collapsed .minimap-header {
+  margin-bottom: 0;
+}
+
+.minimap-panel.collapsed .minimap-panel-body {
+  display: none;
+}
+
+.minimap-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  background: #070f20;
 }
 
 .xp-pill {
@@ -534,9 +597,7 @@ button:active {
 
 /* Quest Panel */
 .quest-panel {
-  position: fixed;
-  top: 70px;
-  left: 16px;
+  position: relative;
   width: 272px;
   background: var(--panel);
   backdrop-filter: blur(8px);
@@ -1085,7 +1146,8 @@ button:active {
 }
 
 @media (max-width: 820px) {
-  .quest-panel {
+  .quest-panel,
+  .minimap-panel {
     width: 220px;
   }
   .hud-bottom-hint,
@@ -1780,21 +1842,23 @@ body.touch-active .chat-drawer {
   .student-badge,
   .grade-pill,
   .net-pill,
+  .zone-pill,
   .btn-hud {
     padding: 6px 9px;
     font-size: 0.77rem;
     min-height: 34px;
   }
-  .quest-panel {
+  .hud-left-stack {
     left: 10px;
-    bottom: auto;
-    margin-left: 0;
-    position: fixed;
     top: 112px;
     width: min(260px, calc(100vw - 20px));
-    max-height: 54dvh;
-    overflow-y: auto;
+    max-height: 58dvh;
     z-index: 23;
+  }
+  .quest-panel,
+  .minimap-panel {
+    position: relative;
+    width: 100%;
   }
   .room-roster-popover {
     left: 0;

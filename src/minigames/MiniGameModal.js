@@ -1,5 +1,5 @@
 import { sfx } from '../core/audio.js';
-import { getTpById } from '../core/gameState.js';
+import { getStationById } from '../core/gameState.js';
 
 export class MiniGameModal {
   constructor() {
@@ -26,7 +26,7 @@ export class MiniGameModal {
   }
 
   open(tpId, createGameFn, { onComplete, onClose }) {
-    const tp = getTpById(tpId);
+    const tp = getStationById(tpId);
     if (!tp) return;
     this.cleanupActive();
 
@@ -47,10 +47,16 @@ export class MiniGameModal {
       container: this.contentEl,
       setStages: (stages, activeIdx, onSelect) => {
         this.stagePillsEl.innerHTML = '';
-        stages.forEach((label, idx) => {
+        stages.forEach((item, idx) => {
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = `stage-pill ${idx === activeIdx ? 'active' : ''}`;
+          const label =
+            typeof item === 'string'
+              ? item
+              : item?.score != null
+                ? `${item.name} (${item.score}/20)`
+                : item?.name || '';
           btn.textContent = label;
           btn.addEventListener('click', () => {
             sfx.click();

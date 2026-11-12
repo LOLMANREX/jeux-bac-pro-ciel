@@ -97,9 +97,9 @@ export class DialogueModal {
     if (!p.questAccepted) {
       this._playNode({
         lines: [
-          `« Ah, bonjour ${p.name} ! Installe-toi en salle E204, on a une vraie journée de technicien CIEL devant nous. »`,
-          '« Le lycée vient de recevoir de nouveaux oscilloscopes et des cartes à braser, mais en parallèle un PC du fond a été infecté par un virus ce matin ! »',
-          '« Pour décrocher ton diplôme BAC PRO CIEL, tu vas devoir valider mes 5 Travaux Pratiques avec au moins 10/20 chacun : Oscilloscope, Brasure, Électronique, Antivirus et VM/VLAN. »',
+          `« Ah, bonjour ${p.name} ! Bienvenue sur le Plateau U300 de la filière CIEL, on a une vraie journée de technicien devant nous. »`,
+          '« Entre les salles Brasure/Élec (U301-U302), la Baie Serveur, l’Audiovisuel (U303-U304), l’atelier PC (U306), la Salle Réseau (U307) et le SOC Cyber (U305), tout l’étage est opérationnel ! »',
+          '« Pour décrocher ton diplôme BAC PRO CIEL, tu vas devoir valider mes 5 Travaux Pratiques avec au moins 10/20 chacun : Oscilloscope, Brasure, Électronique, Antivirus et VM/VLAN — et tu peux aussi t’entraîner dans les autres ateliers ! »',
           '« Alors, tu te sens prêt à relever le défi ? »'
         ],
         choices: [

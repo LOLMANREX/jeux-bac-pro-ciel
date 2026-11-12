@@ -117,7 +117,7 @@ export function createNpcTeacher(scene) {
   diamond.position.set(0, 2.38, 0);
   root.add(diamond);
 
-  const label = createLabel('Professeur CIEL', 'Enseignant BAC PRO CIEL • Salle E204');
+  const label = createLabel('Professeur CIEL', 'Enseignant BAC PRO CIEL • Plateau U300');
   label.position.set(0, 2.85, 0);
   root.add(label);
 

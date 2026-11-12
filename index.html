@@ -6,20 +6,20 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>Atelier CIEL 3D — BAC PRO CIEL (Salle E204)</title>
+    <title>Atelier CIEL 3D — BAC PRO CIEL (Plateau U300)</title>
     <meta
       name="description"
       content="Atelier CIEL 3D — Jeu multijoueur interactif du Bac Pro CIEL : réalise tes TPs, personnalise ton avatar et grimpe dans le classement de la classe."
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Atelier CIEL 3D" />
-    <meta property="og:title" content="Atelier CIEL 3D — BAC PRO CIEL (Salle E204)" />
+    <meta property="og:title" content="Atelier CIEL 3D — BAC PRO CIEL (Plateau U300)" />
     <meta
       property="og:description"
       content="Atelier CIEL 3D — Jeu multijoueur interactif du Bac Pro CIEL : réalise tes TPs, personnalise ton avatar et grimpe dans le classement de la classe."
     />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Atelier CIEL 3D — BAC PRO CIEL (Salle E204)" />
+    <meta name="twitter:title" content="Atelier CIEL 3D — BAC PRO CIEL (Plateau U300)" />
     <meta
       name="twitter:description"
       content="Atelier CIEL 3D — Jeu multijoueur interactif du Bac Pro CIEL : réalise tes TPs, personnalise ton avatar et grimpe dans le classement de la classe."
@@ -38,8 +38,8 @@
             <div class="badge-pill">BAC PRO CIEL • LYCÉE &amp; ATELIER 3D</div>
             <h1>Atelier CIEL <span class="accent">3D</span></h1>
             <p class="subtitle">
-              Bienvenue en salle <strong>E204</strong> ! Retrouvez le <strong>Professeur CIEL</strong>,
-              validez les 5 TPs (Oscilloscope, Brasure, Électronique, Antivirus, VM/VLAN) et jouez en réseau.
+              Bienvenue sur le Plateau <strong>U300</strong> ! Retrouvez le <strong>Professeur CIEL</strong> dans le hall central,
+              explorez U301 à U307 + Chambre serveur, validez vos TPs et jouez en réseau.
             </p>
 
             <!-- Vue 1 : Accueil du Menu Principal -->
@@ -57,12 +57,12 @@
 
               <div class="menu-nav-buttons">
                 <button type="button" id="menu-btn-quickplay" class="btn-primary btn-menu">
-                  <span>⚡ Partie Rapide (Salle E204)</span>
-                  <small>Rejoindre directement la salle commune avec la classe</small>
+                  <span>⚡ Partie Rapide (Plateau U300)</span>
+                  <small>Rejoindre directement le plateau U300 commun avec la classe</small>
                 </button>
                 <button type="button" id="menu-btn-play" class="btn-hud btn-menu">
                   <span>🚀 Choisir / Créer une salle</span>
-                  <small>Salle E204, Réseau B12 ou code personnalisé</small>
+                  <small>Plateau U300, Réseau B12 ou code personnalisé</small>
                 </button>
                 <button type="button" id="menu-btn-join" class="btn-hud btn-menu">
                   <span>🌐 Rejoindre une partie (Multijoueur)</span>
@@ -94,7 +94,7 @@
               <div class="menu-field">
                 <label for="room-select">Choisir une salle :</label>
                 <select id="room-select">
-                  <option value="salle-e204">Salle E204 (Principal)</option>
+                  <option value="plateau-u300">Plateau U300 — Filière CIEL (Principal)</option>
                   <option value="salle-reseau">Salle Réseau B12</option>
                   <option value="custom">Code de salle personnalisé...</option>
                 </select>
@@ -125,7 +125,7 @@
                 <p class="hint-mini">Chargement des salles en ligne...</p>
               </div>
               <div class="join-direct-row">
-                <input id="direct-room-input" type="text" maxlength="22" placeholder="Code de salle (ex: salle-e204)" />
+                <input id="direct-room-input" type="text" maxlength="22" placeholder="Code de salle (ex: plateau-u300)" />
                 <button type="button" id="btn-direct-join" class="btn-primary btn-sm">Rejoindre ▶</button>
               </div>
             </div>
@@ -208,10 +208,13 @@
               >
                 <span class="dot"></span>
                 <span id="net-text">Serveur</span>
-                <span id="net-room-tag" class="net-room-tag">salle-e204</span>
+                <span id="net-room-tag" class="net-room-tag">plateau-u300</span>
                 <span id="online-count" class="count-badge">1 élève</span>
               </button>
               <div id="room-roster-popover" class="room-roster-popover hidden"></div>
+            </div>
+            <div id="hud-zone-pill" class="zone-pill" title="Zone actuelle sur le Plateau U300">
+              📍 U300 - Couloir Central
             </div>
           </div>
 
@@ -229,30 +232,49 @@
           <button type="button" id="btn-net-retry" class="btn-hud btn-sm">🔄 Réessayer</button>
         </div>
 
-        <aside class="quest-panel" id="quest-panel">
-          <div class="quest-header">
-            <span>📋 Progression des TP</span>
-            <div class="quest-header-right">
-              <span id="quest-progress-text">0 / 5</span>
+        <div id="hud-left-stack" class="hud-left-stack">
+          <aside class="minimap-panel" id="minimap-panel">
+            <div class="minimap-header">
+              <span>🗺️ Plan Plateau U300</span>
               <button
                 type="button"
-                id="btn-quest-toggle"
+                id="btn-minimap-toggle"
                 class="btn-quest-toggle"
-                title="Réduire ou afficher le suivi des TP"
+                title="Réduire ou afficher la mini-carte (Touche M)"
               >
                 ▾
               </button>
             </div>
-          </div>
-          <div id="quest-panel-body" class="quest-panel-body">
-            <p id="quest-objective-hint" class="quest-hint">
-              Parlez au <strong>Professeur CIEL</strong> au tableau principal.
-            </p>
-            <ul id="quest-list" class="quest-list"></ul>
-            <div class="quick-nav-title">Accès rapide aux postes :</div>
-            <div id="quick-nav-buttons" class="quick-nav-buttons"></div>
-          </div>
-        </aside>
+            <div id="minimap-panel-body" class="minimap-panel-body">
+              <canvas id="u300-minimap-canvas" class="minimap-canvas" width="248" height="232"></canvas>
+            </div>
+          </aside>
+
+          <aside class="quest-panel" id="quest-panel">
+            <div class="quest-header">
+              <span>📋 Progression des TP</span>
+              <div class="quest-header-right">
+                <span id="quest-progress-text">0 / 5</span>
+                <button
+                  type="button"
+                  id="btn-quest-toggle"
+                  class="btn-quest-toggle"
+                  title="Réduire ou afficher le suivi des TP"
+                >
+                  ▾
+                </button>
+              </div>
+            </div>
+            <div id="quest-panel-body" class="quest-panel-body">
+              <p id="quest-objective-hint" class="quest-hint">
+                Parlez au <strong>Professeur CIEL</strong> dans le Hall U300.
+              </p>
+              <ul id="quest-list" class="quest-list"></ul>
+              <div class="quick-nav-title">Accès rapide aux postes :</div>
+              <div id="quick-nav-buttons" class="quick-nav-buttons"></div>
+            </div>
+          </aside>
+        </div>
 
         <div id="crosshair" class="crosshair"></div>
         <div id="interact-prompt" class="interact-prompt hidden">
@@ -295,7 +317,7 @@
 
         <aside id="chat-drawer" class="chat-drawer hidden">
           <div class="chat-header">
-            <span>💬 Salle <strong id="chat-room-name">E204</strong> (<span id="chat-room-count">1</span>)</span>
+            <span>💬 Salle <strong id="chat-room-name">plateau-u300</strong> (<span id="chat-room-count">1</span>)</span>
             <button id="btn-chat-close" class="icon-close">✕</button>
           </div>
           <div id="chat-emote-strip" class="chat-emote-strip"></div>
@@ -311,6 +333,7 @@
           <span>Espace : Sauter</span> •
           <span>V : Caméra</span> •
           <span>Tab : Classement</span> •
+          <span>M : Mini-carte</span> •
           <span>T : Chat</span> •
           <span>1–6 : Émotes</span>
         </div>

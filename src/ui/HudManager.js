@@ -1,7 +1,8 @@
 import { sfx } from '../core/audio.js';
-import { getMention, QUICK_EMOTES, TP_CATALOG } from '../core/gameState.js';
+import { getMention, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import { renderSkinPreviewSvg } from '../world/AvatarBuilder.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
+import { PlateauMiniMap } from './PlateauMiniMap.js';
 
 export class HudManager {
   constructor(gameState, network, handlers) {
@@ -27,6 +28,10 @@ export class HudManager {
     this.questListEl = document.getElementById('quest-list');
     this.quickNavEl = document.getElementById('quick-nav-buttons');
     this.questToggleBtn = document.getElementById('btn-quest-toggle');
+    this.zonePillEl = document.getElementById('hud-zone-pill');
+    this.minimapPanelEl = document.getElementById('minimap-panel');
+    this.minimapToggleBtn = document.getElementById('btn-minimap-toggle');
+    this.miniMap = new PlateauMiniMap(document.getElementById('u300-minimap-canvas'));
 
     this.interactPromptEl = document.getElementById('interact-prompt');
     this.interactLabelEl = document.getElementById('interact-label');
@@ -182,6 +187,23 @@ export class HudManager {
       sfx.click();
       const isCollapsed = this.questPanelEl?.classList.contains('collapsed');
       setQuestCollapsed(!isCollapsed);
+    });
+
+    const setMinimapCollapsed = (collapsed) => {
+      this.minimapPanelEl?.classList.toggle('collapsed', collapsed);
+      if (this.minimapToggleBtn) {
+        this.minimapToggleBtn.textContent = collapsed ? '▸' : '▾';
+      }
+    };
+    this.setMinimapCollapsed = setMinimapCollapsed;
+    this.toggleMinimap = () => {
+      const isCollapsed = this.minimapPanelEl?.classList.contains('collapsed');
+      setMinimapCollapsed(!isCollapsed);
+    };
+
+    this.minimapToggleBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.toggleMinimap();
     });
 
     document.getElementById('btn-orientation-dismiss')?.addEventListener('click', () => {
@@ -494,10 +516,25 @@ export class HudManager {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-quick';
-      btn.textContent = `${tp.icon} ${tp.shortTitle}`;
+      btn.textContent = `${tp.icon} ${tp.shortTitle} (${tp.room})`;
       btn.addEventListener('click', () => {
         sfx.click();
         this.handlers.onQuickNav?.(tp.id);
+        if (window.innerWidth <= 900 || window.innerHeight <= 560) {
+          this.setQuestCollapsed?.(true);
+        }
+      });
+      this.quickNavEl.appendChild(btn);
+    });
+
+    EXTRA_STATIONS.forEach((st) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn-quick';
+      btn.textContent = `${st.icon} ${st.shortTitle} (${st.room})`;
+      btn.addEventListener('click', () => {
+        sfx.click();
+        this.handlers.onQuickNav?.(st.id);
         if (window.innerWidth <= 900 || window.innerHeight <= 560) {
           this.setQuestCollapsed?.(true);
         }
@@ -561,11 +598,27 @@ export class HudManager {
     this.syncTouchUi?.();
     if (window.innerWidth <= 900 || window.innerHeight <= 560) {
       this.setQuestCollapsed?.(true);
+      this.setMinimapCollapsed?.(true);
     } else {
       this.setQuestCollapsed?.(false);
+      this.setMinimapCollapsed?.(false);
     }
     this.updateOrientationHint();
     this.refresh();
+  }
+
+  setCurrentZone(zone) {
+    if (!this.zonePillEl || !zone) return;
+    this.zonePillEl.textContent = zone.badgeText || `📍 ${zone.code} - ${zone.shortName}`;
+    this.zonePillEl.title = zone.fullLabel || zone.shortName;
+    if (zone.color) {
+      this.zonePillEl.style.borderColor = zone.color;
+    }
+  }
+
+  updateMiniMap(data) {
+    if (this.minimapPanelEl?.classList.contains('collapsed')) return;
+    this.miniMap?.render(data);
   }
 
   hide() {
@@ -587,7 +640,7 @@ export class HudManager {
     this.questProgressEl.textContent = `${completed} / 5`;
 
     if (!p.questAccepted) {
-      this.questHintEl.innerHTML = 'Allez parler au <strong>Professeur CIEL</strong> (👨‍🏫) au centre de la salle.';
+      this.questHintEl.innerHTML = 'Allez parler au <strong>Professeur CIEL</strong> (👨‍🏫) dans le Hall U300 (Escalier Central).';
     } else if (p.diplomaEarned) {
       this.questHintEl.innerHTML = `🎓 <strong>BAC PRO CIEL validé !</strong> (${getMention(p.average)}) — Retournez voir le Professeur CIEL !`;
     } else {

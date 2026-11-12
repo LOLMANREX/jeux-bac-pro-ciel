@@ -70,10 +70,15 @@ function makeStudentBadge(peer) {
 
   const subRank = peer.rankLabel || 'Apprenti CIEL';
   const subTp = `${peer.completedCount || 0}/5 TPs`;
-  const actText = `${peer.activity || 'Dans l’atelier'} • ${subRank} (${subTp})`;
+  const locText = peer.zoneLabel || 'U300';
+  const actPart =
+    peer.activity && peer.activity !== 'Dans l’atelier'
+      ? `${peer.activity} (${locText})`
+      : `📍 ${locText}`;
+  const actText = `${actPart} • ${subRank} (${subTp})`;
   ctx.fillStyle = '#cbd5e1';
-  ctx.font = '600 21px system-ui, sans-serif';
-  ctx.fillText(actText.slice(0, 46), 270, 106, 492);
+  ctx.font = '600 20px system-ui, sans-serif';
+  ctx.fillText(actText.slice(0, 50), 270, 106, 496);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -187,6 +192,7 @@ export class RemotePlayersManager {
         }
       }
       if (p.activity) this.setActivity(p.id, p.activity);
+      if (p.zoneId || p.zoneLabel) this.setZone(p.id, p.zoneId, p.zoneLabel);
       this.setStats(p.id, p);
       return;
     }
@@ -194,7 +200,7 @@ export class RemotePlayersManager {
     const skin = normalizeSkin(p.skin || { outfitColor: p.color || '#22d3ee' });
     const accentColor = skin.outfitColor || p.color || '#22d3ee';
     const meshData = buildStudentAvatarMesh(skin);
-    meshData.group.position.set(p.x || 0, Math.max(0, p.y || 0), p.z || 6.2);
+    meshData.group.position.set(p.x ?? -3.95, Math.max(0, p.y || 0), p.z ?? 0.65);
     meshData.group.rotation.y = (p.yaw || 0) + Math.PI;
 
     const peerData = {
@@ -203,6 +209,8 @@ export class RemotePlayersManager {
       color: accentColor,
       skin,
       activity: p.activity || 'Dans l’atelier',
+      zoneId: p.zoneId || 'U300',
+      zoneLabel: p.zoneLabel || 'U300 - Couloir Central',
       xp: p.xp || 0,
       average: typeof p.average === 'number' ? p.average : null,
       completedCount: p.completedCount || 0,
@@ -217,7 +225,7 @@ export class RemotePlayersManager {
       _walkPhase: 0,
       badge: null,
       bubble: null,
-      targetPos: new THREE.Vector3(p.x || 0, Math.max(0, p.y || 0), p.z || 6.2),
+      targetPos: new THREE.Vector3(p.x ?? -3.95, Math.max(0, p.y || 0), p.z ?? 0.65),
       targetYaw: p.yaw || 0,
       horizSpeed: 0
     };
@@ -296,6 +304,32 @@ export class RemotePlayersManager {
     if (!peer || peer.activity === activity) return;
     peer.activity = activity;
     this._refreshBadge(peer);
+  }
+
+  setZone(id, zoneId, zoneLabel) {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    const nextLabel = zoneLabel || peer.zoneLabel;
+    const nextId = zoneId || peer.zoneId;
+    if (peer.zoneId === nextId && peer.zoneLabel === nextLabel) return;
+    peer.zoneId = nextId;
+    peer.zoneLabel = nextLabel;
+    this._refreshBadge(peer);
+  }
+
+  getMiniMapPeers() {
+    const out = [];
+    for (const peer of this.peers.values()) {
+      out.push({
+        id: peer.id,
+        name: peer.name,
+        color: peer.color,
+        x: peer.group.position.x,
+        z: peer.group.position.z,
+        zoneLabel: peer.zoneLabel
+      });
+    }
+    return out;
   }
 
   setStats(id, stats = {}) {

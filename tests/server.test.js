@@ -62,7 +62,7 @@ test('Serveur HTTP + WebSocket multijoueur synchronise 2 élèves en temps réel
     ]);
 
     const p1Welcome = nextMsg(ws1, 'welcome');
-    ws1.send(JSON.stringify({ type: 'join', name: 'Alice', room: 'salle-e204' }));
+    ws1.send(JSON.stringify({ type: 'join', name: 'Alice', room: 'plateau-u300' }));
     const w1 = await p1Welcome;
     assert.equal(w1.profile.name, 'Alice');
 
@@ -72,7 +72,7 @@ test('Serveur HTTP + WebSocket multijoueur synchronise 2 élèves en temps réel
       JSON.stringify({
         type: 'join',
         name: 'Bob',
-        room: 'salle-e204',
+        room: 'plateau-u300',
         skin: { outfitColor: '#10b981', outfitStyle: 'cyber', hat: 'headset' }
       })
     );
@@ -84,7 +84,6 @@ test('Serveur HTTP + WebSocket multijoueur synchronise 2 élèves en temps réel
     assert.equal(w2.peers.length, 1);
     assert.equal(w2.peers[0].name, 'Alice');
 
-    // Movement + jump Y sync
     const p1SeesMove = nextMsg(ws1, 'player_moved');
     ws2.send(JSON.stringify({ type: 'move', x: 3.5, y: 0.95, z: -2.1, yaw: 1.2 }));
     const moved = await p1SeesMove;
@@ -92,11 +91,16 @@ test('Serveur HTTP + WebSocket multijoueur synchronise 2 élèves en temps réel
     assert.equal(moved.y, 0.95);
     assert.equal(moved.z, -2.1);
 
-    // Rooms list API
+    const p1SeesZone = nextMsg(ws1, 'player_zone');
+    ws2.send(JSON.stringify({ type: 'zone', zoneId: 'U301', zoneLabel: 'U301 - Brasure & Élec' }));
+    const zoned = await p1SeesZone;
+    assert.equal(zoned.zoneId, 'U301');
+    assert.equal(zoned.zoneLabel, 'U301 - Brasure & Élec');
+
     const roomsRes = await fetch(`${baseUrl}/api/rooms`);
     const roomsData = await roomsRes.json();
-    const e204 = roomsData.rooms.find((r) => r.room === 'salle-e204');
-    assert.equal(e204.count, 2);
+    const u300 = roomsData.rooms.find((r) => r.room === 'plateau-u300');
+    assert.equal(u300.count, 2);
 
     // Score submission over WS
     const scoreRecorded = nextMsg(ws1, 'score_recorded');
@@ -212,7 +216,7 @@ test('buildWebSocketUrl gère HTTPS/WSS et HTTP/WS dynamiquement sans port codé
   );
 });
 
-test('Multi-onglet : deux connexions avec le même pseudo coexistent avec suffixe #2 dans salle-e204', async () => {
+test('Multi-onglet : deux connexions avec le même pseudo coexistent avec suffixe #2 dans plateau-u300', async () => {
   const { server, wsHub } = createGameServer({ dbPath: null });
   await new Promise((resolve) => server.listen(0, resolve));
   const { port } = server.address();
@@ -245,7 +249,7 @@ test('Multi-onglet : deux connexions avec le même pseudo coexistent avec suffix
     const w1Promise = waitType(ws1, 'welcome');
     ws1.send(JSON.stringify({ type: 'join', name: 'Lucas' }));
     const w1 = await w1Promise;
-    assert.equal(w1.room, 'salle-e204');
+    assert.equal(w1.room, 'plateau-u300');
     assert.equal(w1.profile.name, 'Lucas');
 
     const w2Promise = waitType(ws2, 'welcome');
@@ -253,7 +257,7 @@ test('Multi-onglet : deux connexions avec le même pseudo coexistent avec suffix
     ws2.send(JSON.stringify({ type: 'join', name: 'Lucas' }));
     const [w2, joined] = await Promise.all([w2Promise, p1Joined]);
 
-    assert.equal(w2.room, 'salle-e204');
+    assert.equal(w2.room, 'plateau-u300');
     assert.equal(w2.profile.name, 'Lucas#2');
     assert.equal(w2.onlineCount, 2);
     assert.equal(w2.peers.length, 1);
@@ -359,7 +363,7 @@ test('Admin API sécurisée : login, liste, playtime, reset WS et suppression', 
         }
       });
     });
-    ws.send(JSON.stringify({ type: 'join', name: 'TestEleve', room: 'salle-e204' }));
+    ws.send(JSON.stringify({ type: 'join', name: 'TestEleve', room: 'plateau-u300' }));
     await welcomeP;
 
     store.recordTpScore('TestEleve', 'oscilloscope', 18, 30);

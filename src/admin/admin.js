@@ -265,7 +265,7 @@ function renderPlayersTable() {
       const avgTxt = typeof p.average === 'number' ? `${p.average.toFixed(1)} / 20` : '-- / 20';
       const statusHtml = p.online
         ? `<span class="status-pill online"><span class="dot"></span>En ligne</span>
-           <div class="activity-sub">${escapeHtml(p.onlineRoom || 'salle-e204')} • ${escapeHtml(p.onlineActivity || 'Atelier')}</div>`
+           <div class="activity-sub">${escapeHtml(p.onlineRoom || 'plateau-u300')} • ${escapeHtml(p.onlineActivity || 'Atelier')}</div>`
         : `<span class="status-pill offline"><span class="dot"></span>Hors ligne</span>`;
 
       return `

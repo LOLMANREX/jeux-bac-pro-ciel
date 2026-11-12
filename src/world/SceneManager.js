@@ -5,15 +5,15 @@ export class SceneManager {
     this.canvas = canvas;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#0c1526');
-    this.scene.fog = new THREE.Fog('#0c1526', 18, 42);
+    this.scene.fog = new THREE.Fog('#0c1526', 28, 72);
 
     this.camera = new THREE.PerspectiveCamera(
       68,
       window.innerWidth / window.innerHeight,
       0.1,
-      80
+      120
     );
-    this.camera.position.set(0, 1.68, 7.2);
+    this.camera.position.set(-3.95, 1.68, 0.65);
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -38,24 +38,24 @@ export class SceneManager {
   }
 
   _setupLights() {
-    const hemi = new THREE.HemisphereLight('#dbeafe', '#1e293b', 0.95);
+    const hemi = new THREE.HemisphereLight('#e0f2fe', '#1e293b', 1.12);
     this.scene.add(hemi);
 
-    this.sun = new THREE.DirectionalLight('#f8fafc', 1.25);
-    this.sun.position.set(6, 12, 7);
+    this.sun = new THREE.DirectionalLight('#f8fafc', 1.2);
+    this.sun.position.set(8, 16, 10);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 34;
-    this.sun.shadow.camera.left = -15;
-    this.sun.shadow.camera.right = 15;
-    this.sun.shadow.camera.top = 14;
-    this.sun.shadow.camera.bottom = -14;
+    this.sun.shadow.camera.far = 45;
+    this.sun.shadow.camera.left = -16;
+    this.sun.shadow.camera.right = 16;
+    this.sun.shadow.camera.top = 15;
+    this.sun.shadow.camera.bottom = -15;
     this.sun.shadow.bias = -0.0005;
     this.scene.add(this.sun);
 
-    const fill = new THREE.DirectionalLight('#38bdf8', 0.35);
-    fill.position.set(-9, 6, -8);
+    const fill = new THREE.DirectionalLight('#38bdf8', 0.48);
+    fill.position.set(-11, 8, -10);
     this.scene.add(fill);
   }
 

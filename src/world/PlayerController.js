@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { animateAvatarLimbs } from './AvatarBuilder.js';
+import { PLATEAU_SPAWN, WORLD_BOUNDS } from './plateauLayout.js';
 
 export class PlayerController {
   constructor(camera, canvas, colliders = [], options = {}) {
@@ -8,12 +9,14 @@ export class PlayerController {
     this.colliders = colliders;
     this.onJump = options.onJump || null;
 
-    this.groundY = 1.68;
-    this.position = new THREE.Vector3(0, this.groundY, 7.2);
+    this.groundY = PLATEAU_SPAWN.y;
+    this.position = new THREE.Vector3(PLATEAU_SPAWN.x, this.groundY, PLATEAU_SPAWN.z);
     this.velocityY = 0;
     this.isGrounded = true;
     this.wasGrounded = true;
-    this.yaw = 0;
+    const dx = PLATEAU_SPAWN.lookAt.x - PLATEAU_SPAWN.x;
+    const dz = PLATEAU_SPAWN.lookAt.z - PLATEAU_SPAWN.z;
+    this.yaw = Math.atan2(-dx, -dz);
     this.pitch = -0.05;
     this.speed = 5.4;
     this.radius = 0.42;
@@ -183,7 +186,14 @@ export class PlayerController {
   }
 
   _collides(nx, nz) {
-    if (nx < -13.1 || nx > 13.1 || nz < -10.1 || nz > 10.1) return true;
+    if (
+      nx - this.radius < WORLD_BOUNDS.minX + 0.14 ||
+      nx + this.radius > WORLD_BOUNDS.maxX - 0.14 ||
+      nz - this.radius < WORLD_BOUNDS.minZ + 0.14 ||
+      nz + this.radius > WORLD_BOUNDS.maxZ - 0.14
+    ) {
+      return true;
+    }
     for (const c of this.colliders) {
       if (
         nx + this.radius > c.minX &&
@@ -292,7 +302,14 @@ export class PlayerController {
         const cx = targetX + dirX * d;
         const cz = targetZ + dirZ * d;
         const cy = targetY + dirY * d;
-        if (cx < -13.3 || cx > 13.3 || cz < -10.3 || cz > 10.3 || cy < 0.45 || cy > 4.9) {
+        if (
+          cx < WORLD_BOUNDS.minX + 0.25 ||
+          cx > WORLD_BOUNDS.maxX - 0.25 ||
+          cz < WORLD_BOUNDS.minZ + 0.25 ||
+          cz > WORLD_BOUNDS.maxZ - 0.25 ||
+          cy < 0.45 ||
+          cy > WORLD_BOUNDS.height - 0.3
+        ) {
           dist = Math.max(0.65, d - 0.25);
           break;
         }
@@ -300,7 +317,7 @@ export class PlayerController {
 
       this.camera.position.set(
         targetX + dirX * dist,
-        Math.max(0.45, Math.min(4.9, targetY + dirY * dist)),
+        Math.max(0.45, Math.min(WORLD_BOUNDS.height - 0.3, targetY + dirY * dist)),
         targetZ + dirZ * dist
       );
       this.camera.lookAt(targetX, targetY + 0.12, targetZ);

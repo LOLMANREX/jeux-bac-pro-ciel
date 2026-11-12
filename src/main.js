@@ -3,9 +3,10 @@ import './styles/minigames.css';
 
 import * as THREE from 'three';
 import { sfx } from './core/audio.js';
-import { GameState, getTpById, QUICK_EMOTES, TEACHER_POS, TP_CATALOG } from './core/gameState.js';
+import { GameState, getTpById, getStationById, QUICK_EMOTES, TEACHER_POS, TP_CATALOG } from './core/gameState.js';
 import { NetworkClient } from './core/network.js';
 import { SceneManager } from './world/SceneManager.js';
+import { PLATEAU_SPAWN, getZoneAtPosition, getStationTeleportSpot } from './world/plateauLayout.js';
 import { buildLabWorld } from './world/LabBuilder.js';
 import { createNpcTeacher } from './world/NpcTeacher.js';
 import { PlayerController } from './world/PlayerController.js';
@@ -29,14 +30,23 @@ import { createSolderingGame } from './minigames/SolderingGame.js';
 import { createElectronicsGame } from './minigames/ElectronicsGame.js';
 import { createAntivirusGame } from './minigames/AntivirusGame.js';
 import { createVmVlanGame } from './minigames/VmVlanGame.js';
+import { createPatchRackGame } from './minigames/PatchRackGame.js';
+import { createPcHardwareGame } from './minigames/PcHardwareGame.js';
+import { createAudioVisualGame } from './minigames/AudioVisualGame.js';
 
 const MINIGAME_FACTORIES = {
   oscilloscope: createOscilloscopeGame,
   soldering: createSolderingGame,
   electronics: createElectronicsGame,
   antivirus: createAntivirusGame,
-  vmvlan: createVmVlanGame
+  vmvlan: createVmVlanGame,
+  patchrack: createPatchRackGame,
+  hardware: createPcHardwareGame,
+  audiovisual: (api) => createAudioVisualGame(api, { initialStage: 0 }),
+  studio: (api) => createAudioVisualGame(api, { initialStage: 1 })
 };
+
+const extraStationGrades = {};
 
 const gameState = new GameState();
 const network = new NetworkClient();
@@ -150,7 +160,7 @@ function setModalActive(active, pauseScene = false, lockActivity = false) {
 }
 
 function openTp(tpId) {
-  const tp = getTpById(tpId);
+  const tp = getStationById(tpId);
   const factory = MINIGAME_FACTORIES[tpId];
   if (!tp || !factory) return;
 
@@ -165,23 +175,29 @@ function openTp(tpId) {
 
   miniGameModal.open(tpId, factory, {
     onComplete: ({ tpId: doneId, score, durationSec }) => {
-      const p = { ...gameState.profile, grades: { ...gameState.profile.grades } };
-      const prev = typeof p.grades[doneId] === 'number' ? p.grades[doneId] : -1;
-      if (score > prev) p.grades[doneId] = score;
-      const vals = Object.values(p.grades);
-      p.average = vals.length
-        ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10
-        : null;
-      p.completedCount = vals.filter((v) => v >= 10).length;
-      p.diplomaEarned = p.completedCount === TP_CATALOG.length;
-      gameState.setProfile(p);
-      lab.updateStationBadges(p.grades);
+      if (getTpById(doneId)) {
+        const p = { ...gameState.profile, grades: { ...gameState.profile.grades } };
+        const prev = typeof p.grades[doneId] === 'number' ? p.grades[doneId] : -1;
+        if (score > prev) p.grades[doneId] = score;
+        const vals = Object.values(p.grades);
+        p.average = vals.length
+          ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10
+          : null;
+        p.completedCount = vals.filter((v) => v >= 10).length;
+        p.diplomaEarned = p.completedCount === TP_CATALOG.length;
+        gameState.setProfile(p);
+        lab.updateStationBadges({ ...p.grades, ...extraStationGrades });
 
-      network.submitScore(gameState.profile.name, doneId, score, durationSec, gameState.skin);
-      setTimeout(() => refreshWallLeaderboard(), 450);
+        network.submitScore(gameState.profile.name, doneId, score, durationSec, gameState.skin);
+        setTimeout(() => refreshWallLeaderboard(), 450);
+      } else {
+        extraStationGrades[doneId] = Math.max(extraStationGrades[doneId] ?? 0, score);
+        lab.updateStationBadges({ ...gameState.profile.grades, ...extraStationGrades });
+        hud.toast(`${tp.icon} Atelier ${tp.shortTitle} terminé (${score.toFixed(1)}/20) !`, score >= 10 ? 'success' : 'info');
+      }
     },
     onClose: ({ replayTpId } = {}) => {
-      network.sendActivity('Dans l’atelier');
+      network.sendActivity('Sur le Plateau U300');
       setModalActive(false, false, false);
       if (replayTpId) {
         openTp(replayTpId);
@@ -211,21 +227,21 @@ function openTeacherDialogue() {
 }
 
 function teleportNearTarget(id) {
+  const spot = getStationTeleportSpot(id);
+  if (!spot) return;
+  player.teleportTo(spot.pos, spot.lookAt);
+  const zone = getZoneAtPosition(player.position.x, player.position.z);
+  hud?.setCurrentZone?.(zone);
+  network.sendMove(player.position.x, 0, player.position.z, player.yaw, true);
+  network.sendZone(zone.id, zone.badgeText.replace('📍 ', ''));
   if (id === 'teacher') {
-    player.teleportTo({ x: 0, z: 0.9 }, TEACHER_POS);
-    network.sendMove(player.position.x, 0, player.position.z, player.yaw, true);
-    hud.toast('Devant le Professeur CIEL — Appuyez sur E pour lui parler');
+    hud.toast('Devant le Professeur CIEL (Hall U300) — Appuyez sur E pour lui parler');
     return;
   }
-  const tp = getTpById(id);
-  if (!tp) return;
-  const offset = { x: tp.position.x, z: tp.position.z };
-  if (tp.position.x < -4) offset.x += 2.3;
-  else if (tp.position.x > 4) offset.x -= 2.3;
-  else offset.z += 2.3;
-  player.teleportTo(offset, tp.position);
-  network.sendMove(player.position.x, 0, player.position.z, player.yaw, true);
-  hud.toast(`${tp.icon} Devant ${tp.title} — Appuyez sur E pour lancer le TP`);
+  const st = getStationById(id);
+  if (st) {
+    hud.toast(`${st.icon} Salle ${st.room} : ${st.shortTitle} — Appuyez sur E pour commencer`);
+  }
 }
 
 hud = new HudManager(gameState, network, {
@@ -391,6 +407,11 @@ network.on('player_activity', ({ id, activity, roomRoster }) => {
   if (roomRoster) gameState.setRoomRoster(roomRoster);
 });
 
+network.on('player_zone', ({ id, zoneId, zoneLabel, roomRoster }) => {
+  remotePlayers.setZone(id, zoneId, zoneLabel);
+  if (roomRoster) gameState.setRoomRoster(roomRoster);
+});
+
 network.on('player_stats_updated', ({ id, profile }) => {
   remotePlayers.setStats(id, profile);
 });
@@ -488,6 +509,10 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     player.clearKeys();
     hud.toggleChat(true, true);
+  } else if (e.code === 'KeyM') {
+    e.preventDefault();
+    sfx.click();
+    hud.toggleMinimap();
   } else if (e.code.startsWith('Digit') || e.code.startsWith('Numpad')) {
     const num = Number(e.code.replace('Digit', '').replace('Numpad', ''));
     if (num >= 1 && num <= QUICK_EMOTES.length) {
@@ -533,6 +558,9 @@ canvas.addEventListener('mouseup', (e) => {
   player.requestPointerLock();
 });
 
+let lastZoneId = '';
+let lastMiniMapDrawAt = 0;
+
 sceneMgr.addUpdater((dt, elapsed) => {
   lab.update(elapsed);
   teacher.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned);
@@ -541,12 +569,28 @@ sceneMgr.addUpdater((dt, elapsed) => {
 
   if (!joined) {
     const angle = elapsed * 0.14;
-    sceneMgr.camera.position.set(Math.sin(angle) * 9.5, 3.2, Math.cos(angle) * 7.5 + 1.2);
-    sceneMgr.camera.lookAt(0, 1.3, -2.2);
+    sceneMgr.camera.position.set(-4.5 + Math.sin(angle) * 6.5, 4.2, Math.cos(angle) * 6.5);
+    sceneMgr.camera.lookAt(-2.0, 1.4, -0.5);
     return;
   }
 
   const step = player.update(dt);
+  const currentZone = getZoneAtPosition(player.position.x, player.position.z);
+  if (currentZone.id !== lastZoneId) {
+    lastZoneId = currentZone.id;
+    hud?.setCurrentZone?.(currentZone);
+    network.sendZone(currentZone.id, currentZone.badgeText.replace('📍 ', ''));
+  }
+
+  if (elapsed - lastMiniMapDrawAt >= 0.05) {
+    lastMiniMapDrawAt = elapsed;
+    hud?.updateMiniMap?.({
+      playerPos: player.position,
+      playerYaw: player.yaw,
+      currentZone,
+      peers: remotePlayers.getMiniMapPeers()
+    });
+  }
 
   if (!modalOpen) {
     const jumpY = Math.max(0, player.position.y - player.groundY);
@@ -589,7 +633,7 @@ mainMenu = new MainMenu(gameState, network, {
   onOpenPlatform: () => platformModal?.open?.(gameState.touchMode, null, true),
   onOpenFaq: () => faqModal?.open?.('list'),
   onStartGame: ({ name, room, skin }) => {
-    const cleanRoom = room || 'salle-e204';
+    const cleanRoom = room || 'plateau-u300';
     notifiedNetError = false;
     gameState.room = cleanRoom;
     gameState.setProfile({ ...gameState.profile, name, skin });
@@ -603,20 +647,25 @@ mainMenu = new MainMenu(gameState, network, {
     player.setEnabled(true);
     touchControls?.syncCameraMode?.(gameState.cameraMode);
     touchControls?.setVisible?.(gameState.touchMode);
-    player.teleportTo({ x: 0, z: 6.2 }, TEACHER_POS);
+    player.teleportTo(PLATEAU_SPAWN, PLATEAU_SPAWN.lookAt);
+    const startZone = getZoneAtPosition(PLATEAU_SPAWN.x, PLATEAU_SPAWN.z);
+    lastZoneId = startZone.id;
+    hud?.setCurrentZone?.(startZone);
     network.connect(name, cleanRoom, skin, {
-      x: 0,
+      x: PLATEAU_SPAWN.x,
       y: 0,
-      z: 6.2,
-      yaw: player.yaw
+      z: PLATEAU_SPAWN.z,
+      yaw: player.yaw,
+      zoneId: startZone.id,
+      zoneLabel: startZone.badgeText.replace('📍 ', '')
     });
     refreshWallLeaderboard();
 
     setTimeout(() => {
       hud?.toast?.(
         gameState.touchMode
-          ? 'Approchez-vous du Professeur CIEL et touchez Parler pour commencer !'
-          : 'Approchez-vous du Professeur CIEL et appuyez sur E pour commencer !'
+          ? 'Bienvenue sur le Plateau U300 ! Touchez Parler devant le Professeur CIEL.'
+          : 'Bienvenue sur le Plateau U300 ! Appuyez sur E devant le Professeur CIEL.'
       );
     }, 500);
   }

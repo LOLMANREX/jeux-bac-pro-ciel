@@ -1,4 +1,9 @@
 import { DEFAULT_SKIN } from '../world/AvatarBuilder.js';
+import {
+  EXTRA_STATIONS,
+  PLATEAU_TEACHER_POS,
+  TP_STATION_LAYOUT
+} from '../world/plateauLayout.js';
 
 export const TP_CATALOG = [
   {
@@ -7,12 +12,13 @@ export const TP_CATALOG = [
     shortTitle: 'Oscilloscope',
     icon: '〰️',
     pole: 'Métrologie & Signaux',
+    room: TP_STATION_LAYOUT.oscilloscope.room,
     color: '#22d3ee',
-    position: { x: -8.5, z: -4.5 },
+    position: TP_STATION_LAYOUT.oscilloscope.position,
     brief:
       'Calibrez la base de temps, le gain vertical et le déclenchement (Trigger) pour mesurer fréquence, amplitude et PWM.',
     teacherHint:
-      '« Pensez d’abord à placer le niveau de Trigger dans l’amplitude du signal pour le figer à l’écran, puis ajustez V/div et ms/div pour lire 2 à 4 périodes propres ! »'
+      '« Rendez-vous en salle U302 ! Pensez à placer le Trigger dans l’amplitude du signal puis ajustez V/div et ms/div pour lire 2 à 4 périodes propres. »'
   },
   {
     id: 'soldering',
@@ -20,12 +26,13 @@ export const TP_CATALOG = [
     shortTitle: 'Brasure',
     icon: '🔥',
     pole: 'Assemblage Électronique',
+    room: TP_STATION_LAYOUT.soldering.room,
     color: '#fb923c',
-    position: { x: -8.5, z: 3.5 },
+    position: TP_STATION_LAYOUT.soldering.position,
     brief:
       'Réglez votre station à ~350°C sans plomb, activez l’extracteur de fumées, chauffez pastille + patte et formez une brasure brillante.',
     teacherHint:
-      '« Trop froid, c’est une soudure sèche. Trop chaud, vous décollez la pastille ! Entre 340°C et 365°C, chauffez 1 à 2 secondes et utilisez la tresse si deux broches font un pont. »'
+      '« Direction la salle U301 ! Entre 340°C et 365°C, activez l’extracteur de fumées, chauffez pastille + patte et utilisez la tresse si deux broches font un pont. »'
   },
   {
     id: 'electronics',
@@ -33,12 +40,13 @@ export const TP_CATALOG = [
     shortTitle: 'Électronique',
     icon: '⚡',
     pole: 'Conception & Circuits',
+    room: TP_STATION_LAYOUT.electronics.room,
     color: '#fbbf24',
-    position: { x: 0, z: -7.2 },
+    position: TP_STATION_LAYOUT.electronics.position,
     brief:
       'Décodez les résistances, appliquez la loi d’Ohm, montez vos composants dans le bon sens et validez au multimètre.',
     teacherHint:
-      '« Vérifiez toujours la polarité de la LED (la grande patte Anode au +) et calculez R = (U_alim - U_LED) / I avant de mettre sous tension ! »'
+      '« En salle U302, vérifiez la polarité de la LED (Anode au +) et calculez R = (U_alim - U_LED) / I avant de mettre sous tension ! »'
   },
   {
     id: 'antivirus',
@@ -46,12 +54,13 @@ export const TP_CATALOG = [
     shortTitle: 'Antivirus',
     icon: '🛡️',
     pole: 'Cybersécurité Poste',
+    room: TP_STATION_LAYOUT.antivirus.room,
     color: '#f43f5e',
-    position: { x: 8.5, z: 3.5 },
+    position: TP_STATION_LAYOUT.antivirus.position,
     brief:
-      'Un poste de la salle est envahi de malwares ! Isolez le réseau, tuez les processus suspects, installez et mettez à jour l’antivirus pour nettoyer le PC.',
+      'Un poste de la salle SOC U305 est envahi de malwares ! Isolez le réseau, tuez les processus suspects, installez et mettez à jour l’antivirus.',
     teacherHint:
-      '« Premier réflexe cyber en entreprise : on débranche le réseau pour stopper l’exfiltration ! Ensuite, processus malveillants, mise à jour de l’antivirus et scan complet ! »'
+      '« En salle Cyber U305, premier réflexe : isolez le réseau pour stopper l’exfiltration, tuez les processus malveillants puis lancez un scan CielGuard complet ! »'
   },
   {
     id: 'vmvlan',
@@ -59,14 +68,17 @@ export const TP_CATALOG = [
     shortTitle: 'VM & VLAN',
     icon: '🌐',
     pole: 'Réseaux & Virtualisation',
+    room: TP_STATION_LAYOUT.vmvlan.room,
     color: '#34d399',
-    position: { x: 8.5, z: -4.5 },
+    position: TP_STATION_LAYOUT.vmvlan.position,
     brief:
-      'Allouez les VMs sur l’hyperviseur, configurez les ports Access/Trunk 802.1Q, le routage inter-VLAN et les règles pare-feu puis testez le ping !',
+      'Allouez les VMs sur l’hyperviseur en U307, configurez les ports Access/Trunk 802.1Q, le routage inter-VLAN et les règles pare-feu puis testez le ping !',
     teacherHint:
-      '« Un port vers un PC = mode ACCESS sur son VLAN. Un lien switch-switch, switch-hyperviseur ou switch-routeur = mode TRUNK 802.1Q avec tous les VLANs autorisés ! »'
+      '« En salle Réseau U307, un port vers un PC = ACCESS sur son VLAN, et un lien switch-hyperviseur ou switch-routeur = TRUNK 802.1Q ! »'
   }
 ];
+
+export { EXTRA_STATIONS };
 
 export const QUICK_EMOTES = [
   { id: 'wave', key: '1', label: '👋 Salut !' },
@@ -77,7 +89,7 @@ export const QUICK_EMOTES = [
   { id: 'party', key: '6', label: '🎉 GG la classe !' }
 ];
 
-export const TEACHER_POS = { x: 0, z: -1.8 };
+export const TEACHER_POS = PLATEAU_TEACHER_POS;
 
 export function detectTouchDevice() {
   if (typeof window === 'undefined') return false;
@@ -86,6 +98,10 @@ export function detectTouchDevice() {
 
 export function getTpById(id) {
   return TP_CATALOG.find((t) => t.id === id) || null;
+}
+
+export function getStationById(id) {
+  return getTpById(id) || EXTRA_STATIONS.find((s) => s.id === id) || null;
 }
 
 export function getMention(avg) {
@@ -114,7 +130,7 @@ export class GameState {
       rank: null,
       rankLabel: 'Apprenti CIEL'
     };
-    this.room = 'salle-e204';
+    this.room = 'plateau-u300';
     this.roomRoster = [];
     this.leaderboard = [];
     this.quality = localStorage.getItem('ciel_quality') || 'high';

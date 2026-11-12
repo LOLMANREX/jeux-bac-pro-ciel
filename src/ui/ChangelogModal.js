@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v2.8 - Nettoyage complet des aperçus de liens et métadonnées';
+    : 'v3.0 - Nouveau Monde : Plateau U300 Complet';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v2.8 — Nettoyage complet des aperçus de liens et métadonnées',
+    version: 'v3.0 — Nouveau Monde : Plateau U300 Complet',
     date: '12/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Refonte architecturale complète du monde 3D à l’échelle réelle (26 m × 24,4 m) d’après le plan du Plateau U300 : Hall central U300 autour de la cage d’escalier vitrée, panneaux lumineux au-dessus de chaque porte, tableau de classement en direct face au spawn et plans d’orientation 3D.',
+      'Toutes les salles spécialisées fidèlement modélisées : U301 (Brasure), U302 (Oscilloscopes & Électronique), U303 (Audiovisuel & Fond vert), U304 (Studio AV & Cabines acoustiques), U305 (SOC Cybersécurité), U306 & Sas U308 (Maintenance PC ESD), U307 (6 îlots Réseau & VM/VLAN), Chambre serveur (Baies 19" & Fibre) et locaux U309 / U311.',
+      'Ajout de 3 nouveaux mini-jeux jouables sur le plateau : Brassage RJ45 / Fibre Optique (Chambre), Assemblage ESD & Diagnostic POST (U306) et Régie DMX / Audio +48V / Matrice SDI (U303 & U304).',
+      'Indicateur de zone en temps réel dans le HUD, synchronisation de la salle actuelle sur les badges multijoueurs 3D et nouvelle mini-carte 2D interactive (touche M).'
+    ]
+  },
+  {
+    version: 'v2.8 — Nettoyage complet des aperçus de liens et métadonnées',
+    date: '12/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Ajout et uniformisation complète des balises SEO et aperçus de liens (meta description, Open Graph og:title / og:description, Twitter Card) dans index.html et admin.html.',
       'Vérification globale de l’intégralité du dépôt et des assets compilés : aucune mention résiduelle de l’ancien intitulé.'

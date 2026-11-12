@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { sanitizeName, sanitizeSkin, TP_IDS, TP_LABELS } from './store.js';
 
-const DEFAULT_ROOMS = ['salle-e204', 'salle-reseau'];
+const DEFAULT_ROOMS = ['plateau-u300', 'salle-reseau'];
 
 function sanitizeRoom(raw) {
   const cleaned = String(raw || '')
@@ -11,7 +11,7 @@ function sanitizeRoom(raw) {
     .replace(/[^a-z0-9_-]/g, '-')
     .replace(/-+/g, '-')
     .slice(0, 22);
-  return cleaned || 'salle-e204';
+  return cleaned || 'plateau-u300';
 }
 
 function clamp(val, min, max) {
@@ -151,6 +151,8 @@ export function attachWsHub(httpServer, store) {
         name: s.name,
         color: s.color,
         activity: s.activity,
+        zoneId: s.zoneId || 'U300',
+        zoneLabel: s.zoneLabel || 'U300 - Couloir Central',
         average: profile?.average ?? null,
         completedCount: profile?.completedCount ?? 0,
         diplomaEarned: Boolean(profile?.diplomaEarned),
@@ -171,6 +173,8 @@ export function attachWsHub(httpServer, store) {
       z: state.z,
       yaw: state.yaw,
       activity: state.activity,
+      zoneId: state.zoneId || 'U300',
+      zoneLabel: state.zoneLabel || 'U300 - Couloir Central',
       xp: profile?.xp ?? 0,
       average: profile?.average ?? null,
       completedCount: profile?.completedCount ?? 0,
@@ -287,12 +291,14 @@ export function attachWsHub(httpServer, store) {
     const state = {
       id: clientId,
       name: null,
-      room: 'salle-e204',
-      x: 0,
+      room: 'plateau-u300',
+      x: -3.95,
       y: 0,
-      z: 6.2,
-      yaw: 0,
+      z: 0.65,
+      yaw: -1.35,
       activity: 'Dans l’atelier',
+      zoneId: 'U300',
+      zoneLabel: 'U300 - Couloir Central',
       color: '#22d3ee',
       skin: sanitizeSkin(null),
       lastPlaytimeFlushMs: 0
@@ -323,11 +329,13 @@ export function attachWsHub(httpServer, store) {
           state.color = skin.outfitColor || profile.color;
           state.room = room;
           state.activity = 'Dans l’atelier';
+          state.zoneId = String(msg.zoneId || 'U300').slice(0, 16);
+          state.zoneLabel = String(msg.zoneLabel || 'U300 - Couloir Central').slice(0, 34);
           state.lastPlaytimeFlushMs = Date.now();
-          state.x = clamp(msg.x ?? 0, -14, 14);
+          state.x = clamp(msg.x ?? -3.95, -13.5, 13.5);
           state.y = clamp(msg.y ?? 0, 0, 3);
-          state.z = clamp(msg.z ?? 6.2, -11, 11);
-          state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : 0;
+          state.z = clamp(msg.z ?? 0.65, -12.5, 12.5);
+          state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : -1.35;
 
           const peers = getRoomPeers(room, ws).map(({ state: p }) => {
             const pProfile = store.getPublicProfile(p.name.toLowerCase());
@@ -366,9 +374,9 @@ export function attachWsHub(httpServer, store) {
 
         case 'move': {
           if (!state.name) return;
-          state.x = clamp(msg.x, -14, 14);
+          state.x = clamp(msg.x, -13.5, 13.5);
           state.y = clamp(msg.y ?? 0, 0, 3);
-          state.z = clamp(msg.z, -11, 11);
+          state.z = clamp(msg.z, -12.5, 12.5);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : state.yaw;
 
           broadcastToRoom(
@@ -423,6 +431,24 @@ export function attachWsHub(httpServer, store) {
             ws
           );
           broadcastLeaderboard();
+          break;
+        }
+
+        case 'zone': {
+          if (!state.name) return;
+          state.zoneId = String(msg.zoneId || 'U300').slice(0, 16);
+          state.zoneLabel = String(msg.zoneLabel || 'U300 - Couloir Central').slice(0, 34);
+          broadcastToRoom(
+            state.room,
+            {
+              type: 'player_zone',
+              id: state.id,
+              zoneId: state.zoneId,
+              zoneLabel: state.zoneLabel,
+              roomRoster: getRoomRoster(state.room)
+            },
+            ws
+          );
           break;
         }
 
