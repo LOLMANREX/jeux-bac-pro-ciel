@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v2.4 - Correctif démarrage & connexion serveur';
+    : 'v2.5 - Posts & Rapports joueurs + Admin complet';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,8 +20,18 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v2.4 — Correctif démarrage & connexion serveur',
+    version: 'v2.5 — Posts & Rapports joueurs + Admin complet',
     tag: 'DERNIÈRE MÀJ',
+    date: '12/11/2026',
+    items: [
+      'Refonte complète de la fenêtre communautaire en « Posts & Rapports » (menu principal et HUD) avec uniquement 2 onglets : « Rapports des utilisateurs » (triés du plus récent au plus ancien) et « Créer un post ».',
+      'Suppression complète de l’ancien onglet FAQ basique et validation obligatoire du nom/pseudo lors de l’envoi d’un post.',
+      'Réorganisation complète de la console /admin en deux sections par onglets : Gestion des Utilisateurs (statut, temps cumulé en heures/minutes, dernière connexion, XP, notes de TP, moyenne /20, réinitialisation et suppression) et Gestion des Posts / Rapports avec modération.'
+    ]
+  },
+  {
+    version: 'v2.4 — Correctif démarrage & connexion serveur',
+    tag: 'HISTORIQUE',
     date: '12/11/2026',
     items: [
       'Correction critique au démarrage : résolution d’une référence circulaire à l’initialisation du HUD qui bloquait l’écran d’accueil.',

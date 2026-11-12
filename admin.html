@@ -69,61 +69,79 @@
           </article>
           <article class="stat-card time-card">
             <div class="stat-label">⏱️ Temps de jeu cumulé (classe)</div>
-            <div id="stat-total-playtime" class="stat-value">0m</div>
+            <div id="stat-total-playtime" class="stat-value">0h 00min</div>
             <div class="stat-sub">Cumul de tous les élèves</div>
+          </article>
+          <article class="stat-card posts-card">
+            <div class="stat-label">💬 Posts &amp; Rapports</div>
+            <div id="stat-posts-total" class="stat-value">0</div>
+            <div class="stat-sub">Messages envoyés en jeu</div>
           </article>
         </section>
 
-        <section class="toolbar-card">
-          <div class="search-wrap">
-            <input
-              id="search-player-input"
-              type="search"
-              placeholder="🔍 Rechercher un élève par pseudo..."
-            />
-          </div>
-          <div class="toolbar-controls">
-            <select id="sort-select" aria-label="Trier les élèves">
-              <option value="lastSeen">Trier : Dernière connexion</option>
-              <option value="playtime">Trier : Temps de jeu</option>
-              <option value="average">Trier : Moyenne TP (/20)</option>
-              <option value="xp">Trier : XP totale</option>
-              <option value="name">Trier : Pseudo (A → Z)</option>
-            </select>
-            <button type="button" id="btn-filter-online" class="btn-secondary">🟢 En ligne uniquement</button>
-          </div>
-        </section>
+        <nav class="admin-tabs" aria-label="Sections d'administration">
+          <button type="button" id="admin-tab-users" class="admin-tab active">
+            👥 Gestion des Utilisateurs <span id="tab-badge-users" class="tab-badge">0</span>
+          </button>
+          <button type="button" id="admin-tab-posts" class="admin-tab">
+            💬 Gestion des Posts / Rapports <span id="tab-badge-posts" class="tab-badge">0</span>
+          </button>
+        </nav>
 
-        <section class="table-card">
-          <div class="table-scroll">
-            <table class="admin-table">
-              <thead>
-                <tr>
-                  <th>Élève &amp; TP</th>
-                  <th>Statut</th>
-                  <th>Temps de jeu</th>
-                  <th>Dernière connexion</th>
-                  <th>Moyenne TP</th>
-                  <th>XP</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="players-tbody"></tbody>
-            </table>
-          </div>
-          <div id="empty-state" class="empty-state hidden">Aucun profil élève ne correspond à votre recherche.</div>
-        </section>
-
-        <section class="suggestions-admin-card">
-          <div class="suggestions-admin-head">
-            <div>
-              <h2>💬 Boîte à idées des élèves</h2>
-              <p class="stat-sub">Propositions soumises depuis la fenêtre « FAQ &amp; Idées »</p>
+        <section id="admin-panel-users" class="admin-panel">
+          <div class="toolbar-card">
+            <div class="search-wrap">
+              <input
+                id="search-player-input"
+                type="search"
+                placeholder="🔍 Rechercher un élève par pseudo..."
+              />
             </div>
-            <span id="stat-suggestions-count" class="sync-pill">0 idée</span>
+            <div class="toolbar-controls">
+              <select id="sort-select" aria-label="Trier les élèves">
+                <option value="lastSeen">Trier : Dernière connexion</option>
+                <option value="playtime">Trier : Temps de jeu</option>
+                <option value="average">Trier : Moyenne TP (/20)</option>
+                <option value="xp">Trier : XP totale</option>
+                <option value="name">Trier : Pseudo (A → Z)</option>
+              </select>
+              <button type="button" id="btn-filter-online" class="btn-secondary">🟢 En ligne uniquement</button>
+            </div>
           </div>
-          <div id="admin-suggestions-list" class="admin-suggestions-list"></div>
-          <div id="admin-suggestions-empty" class="empty-state hidden">Aucune suggestion pour le moment.</div>
+
+          <div class="table-card">
+            <div class="table-scroll">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>Élève &amp; Notes de TP</th>
+                    <th>Statut</th>
+                    <th>Temps de jeu</th>
+                    <th>Dernière connexion</th>
+                    <th>Moyenne (/20)</th>
+                    <th>XP</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="players-tbody"></tbody>
+              </table>
+            </div>
+            <div id="empty-state" class="empty-state hidden">Aucun profil élève ne correspond à votre recherche.</div>
+          </div>
+        </section>
+
+        <section id="admin-panel-posts" class="admin-panel hidden">
+          <div class="suggestions-admin-card">
+            <div class="suggestions-admin-head">
+              <div>
+                <h2>💬 Gestion des Posts / Rapports</h2>
+                <p class="stat-sub">Tous les posts et rapports envoyés depuis « Posts &amp; Rapports »</p>
+              </div>
+              <span id="stat-suggestions-count" class="sync-pill">0 post</span>
+            </div>
+            <div id="admin-suggestions-list" class="admin-suggestions-list"></div>
+            <div id="admin-suggestions-empty" class="empty-state hidden">Aucun post ou rapport pour le moment.</div>
+          </div>
         </section>
       </main>
 

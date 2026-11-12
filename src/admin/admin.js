@@ -14,7 +14,15 @@ const loginErrorEl = document.getElementById('login-error');
 const statTotalPlayers = document.getElementById('stat-total-players');
 const statOnlineCount = document.getElementById('stat-online-count');
 const statTotalPlaytime = document.getElementById('stat-total-playtime');
+const statPostsTotal = document.getElementById('stat-posts-total');
 const lastSyncLabel = document.getElementById('last-sync-label');
+
+const tabUsersBtn = document.getElementById('admin-tab-users');
+const tabPostsBtn = document.getElementById('admin-tab-posts');
+const panelUsers = document.getElementById('admin-panel-users');
+const panelPosts = document.getElementById('admin-panel-posts');
+const tabBadgeUsers = document.getElementById('tab-badge-users');
+const tabBadgePosts = document.getElementById('tab-badge-posts');
 
 const searchInput = document.getElementById('search-player-input');
 const sortSelect = document.getElementById('sort-select');
@@ -40,8 +48,17 @@ let adminToken = sessionStorage.getItem(TOKEN_STORAGE_KEY) || '';
 let allPlayers = [];
 let allSuggestions = [];
 let onlineOnly = false;
+let activeSection = 'users';
 let refreshTimer = null;
 let pendingConfirmAction = null;
+
+function switchAdminSection(section) {
+  activeSection = section === 'posts' ? 'posts' : 'users';
+  tabUsersBtn?.classList.toggle('active', activeSection === 'users');
+  tabPostsBtn?.classList.toggle('active', activeSection === 'posts');
+  panelUsers?.classList.toggle('hidden', activeSection !== 'users');
+  panelPosts?.classList.toggle('hidden', activeSection !== 'posts');
+}
 
 function escapeHtml(str) {
   return String(str || '')
@@ -65,9 +82,11 @@ function formatPlaytime(totalSeconds) {
   const hours = Math.floor(sec / 3600);
   const mins = Math.floor((sec % 3600) / 60);
   const remSec = sec % 60;
-  if (hours > 0) return `${hours}h ${String(mins).padStart(2, '0')}m`;
-  if (mins > 0) return `${mins}m ${String(remSec).padStart(2, '0')}s`;
-  return `${remSec}s`;
+  const hm = `${hours}h ${String(mins).padStart(2, '0')}min`;
+  if (hours === 0 && mins === 0 && remSec > 0) {
+    return `${hm} (${remSec}s)`;
+  }
+  return hm;
 }
 
 function formatDateTime(iso) {
@@ -129,12 +148,19 @@ async function loadPlayers(silent = false) {
   try {
     const [data, sugData] = await Promise.all([
       apiFetch('/api/admin/players'),
-      fetch('/api/suggestions').then((r) => r.json()).catch(() => ({ suggestions: [] }))
+      fetch('/api/suggestions', { cache: 'no-store' })
+        .then((r) => r.json())
+        .catch(() => ({ suggestions: [] }))
     ]);
     allPlayers = Array.isArray(data.players) ? data.players : [];
-    allSuggestions = Array.isArray(sugData.suggestions) ? sugData.suggestions : [];
+    const rawSuggestions = Array.isArray(sugData.suggestions) ? sugData.suggestions : [];
+    allSuggestions = [...rawSuggestions].sort(
+      (a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)
+    );
     const summary = data.summary || {};
-    statTotalPlayers.textContent = String(summary.totalPlayers ?? allPlayers.length);
+    const totalCount = summary.totalPlayers ?? allPlayers.length;
+    statTotalPlayers.textContent = String(totalCount);
+    if (tabBadgeUsers) tabBadgeUsers.textContent = String(totalCount);
     statOnlineCount.textContent = String(
       summary.onlineCount ?? allPlayers.filter((p) => p.online).length
     );
@@ -142,6 +168,8 @@ async function loadPlayers(silent = false) {
       summary.totalPlaytimeSeconds ??
       allPlayers.reduce((acc, p) => acc + (p.playtimeSeconds || 0), 0);
     statTotalPlaytime.textContent = formatPlaytime(totalSec);
+    if (statPostsTotal) statPostsTotal.textContent = String(allSuggestions.length);
+    if (tabBadgePosts) tabBadgePosts.textContent = String(allSuggestions.length);
     lastSyncLabel.textContent = `Sync : ${new Date().toLocaleTimeString('fr-FR', {
       hour: '2-digit',
       minute: '2-digit',
@@ -158,7 +186,7 @@ function renderSuggestionsList() {
   if (!suggestionsListEl || !suggestionsEmptyEl) return;
   if (suggestionsCountEl) {
     const n = allSuggestions.length;
-    suggestionsCountEl.textContent = n > 1 ? `${n} idées` : `${n} idée`;
+    suggestionsCountEl.textContent = n > 1 ? `${n} posts` : `${n} post`;
   }
   suggestionsEmptyEl.classList.toggle('hidden', allSuggestions.length > 0);
   suggestionsListEl.innerHTML = allSuggestions
@@ -167,7 +195,7 @@ function renderSuggestionsList() {
       <article class="admin-suggestion-item">
         <div style="flex:1; min-width:220px;">
           <div class="admin-suggestion-meta">
-            <span class="admin-suggestion-author">💡 ${escapeHtml(s.author)}</span>
+            <span class="admin-suggestion-author">📝 ${escapeHtml(s.author)}</span>
             <span class="admin-suggestion-date">${formatDateTime(s.createdAt)}</span>
           </div>
           <p class="admin-suggestion-text">${escapeHtml(s.message)}</p>
@@ -297,12 +325,12 @@ function openConfirmModal(mode, targetValue, extraLabel = '') {
   confirmBadge.textContent = isDelete || isDeleteSuggestion ? 'SUPPRESSION DÉFINITIVE' : 'RÉINITIALISATION';
   confirmBadge.className = `confirm-badge ${isDelete || isDeleteSuggestion ? 'danger' : 'warn'}`;
   confirmTitle.textContent = isDeleteSuggestion
-    ? `Supprimer la suggestion de "${extraLabel}" ?`
+    ? `Supprimer le post de "${extraLabel}" ?`
     : isDelete
       ? `Supprimer le compte "${targetValue}" ?`
       : `Réinitialiser "${targetValue}" à 0 ?`;
   confirmMessage.textContent = isDeleteSuggestion
-    ? `Cette suggestion sera définitivement supprimée de la boîte à idées.`
+    ? `Ce post / rapport sera définitivement supprimé de la base de données.`
     : isDelete
       ? `Cette action supprimera définitivement le profil "${targetValue}" de db.json et déconnectera l'élève s'il est en ligne.`
       : `Toutes les notes de TP, l'XP, les diplômes et le temps de jeu de "${targetValue}" seront remis à zéro. Son compte et son skin seront conservés.`;
@@ -316,7 +344,7 @@ function openConfirmModal(mode, targetValue, extraLabel = '') {
       const encoded = encodeURIComponent(targetValue);
       if (isDeleteSuggestion) {
         await apiFetch(`/api/admin/suggestions/${encoded}`, { method: 'DELETE' });
-        showToast('Suggestion supprimée.', 'success');
+        showToast('Post / rapport supprimé.', 'success');
       } else if (isDelete) {
         await apiFetch(`/api/admin/players/${encoded}`, { method: 'DELETE' });
         showToast(`Profil "${targetValue}" supprimé.`, 'success');
@@ -386,6 +414,9 @@ loginForm.addEventListener('submit', async (e) => {
 
 refreshBtn.addEventListener('click', () => loadPlayers());
 logoutBtn.addEventListener('click', () => clearSession());
+
+tabUsersBtn?.addEventListener('click', () => switchAdminSection('users'));
+tabPostsBtn?.addEventListener('click', () => switchAdminSection('posts'));
 
 searchInput.addEventListener('input', renderPlayersTable);
 sortSelect.addEventListener('change', renderPlayersTable);

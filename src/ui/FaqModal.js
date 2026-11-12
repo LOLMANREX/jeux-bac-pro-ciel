@@ -1,26 +1,3 @@
-const FAQ_ITEMS = [
-  {
-    q: '💻 Comment jouer sur PC ?',
-    a: 'Déplacez-vous avec ZQSD ou les flèches, appuyez sur Espace pour sauter et Maintenir Shift pour courir. Cliquez dans la vue 3D pour verrouiller la souris (caméra), appuyez sur E devant M. Fortin ou un poste pour interagir, V pour changer de vue (1ère / 3ème personne), T pour le chat et Tab pour le classement.'
-  },
-  {
-    q: '📱 Comment jouer sur Mobile ou Tablette ?',
-    a: 'Utilisez le joystick analogique en bas à gauche pour marcher/courir proportionnellement, glissez le doigt sur la moitié droite de l’écran pour orienter la caméra et appuyez sur les gros boutons à droite pour Interagir, Sauter, activer le Sprint ou changer de vue. Le mode paysage est conseillé.'
-  },
-  {
-    q: '⚡ Comment fonctionnent les 5 TP et la moyenne sur 20 ?',
-    a: 'Approchez-vous des 5 postes de l’atelier (Oscilloscope, Brasure PCB, Électronique, Antivirus, VM & VLAN) ou utilisez l’accès rapide. Chaque TP terminé attribue une note sur 20 et de l’XP. Obtenez au moins 10/20 aux 5 TP pour décrocher le diplôme BAC PRO CIEL et votre mention.'
-  },
-  {
-    q: '🌐 Comment fonctionnent le multijoueur, les skins et le classement ?',
-    a: 'Tous les joueurs qui lancent une Partie Rapide rejoignent la salle commune « salle-e204 ». Votre skin 3D personnalisé est synchronisé instantanément avec toute la classe. Consultez le podium et les notes globales à tout moment avec le bouton 🏆 Classement (ou Tab sur PC).'
-  },
-  {
-    q: '🔄 Que faire si j’ai choisi la mauvaise plateforme au démarrage ?',
-    a: 'Cliquez à tout moment sur le bouton « Plateforme » dans le menu principal ou dans la barre supérieure du jeu pour basculer instantanément entre le Mode PC et le Mode Mobile / Tablette.'
-  }
-];
-
 function escapeHtml(str) {
   return String(str || '')
     .replaceAll('&', '&amp;')
@@ -50,11 +27,10 @@ export class FaqModal {
 
     this.modal = document.getElementById('faq-modal');
     this.closeBtn = document.getElementById('faq-close');
-    this.tabFaq = document.getElementById('faq-tab-faq');
-    this.tabIdeas = document.getElementById('faq-tab-ideas');
-    this.panelFaq = document.getElementById('faq-panel-faq');
-    this.panelIdeas = document.getElementById('faq-panel-ideas');
-    this.faqListEl = document.getElementById('faq-questions-list');
+    this.tabList = document.getElementById('posts-tab-list');
+    this.tabCreate = document.getElementById('posts-tab-create');
+    this.panelList = document.getElementById('posts-panel-list');
+    this.panelCreate = document.getElementById('posts-panel-create');
 
     this.form = document.getElementById('faq-form');
     this.authorInput = document.getElementById('faq-author-input');
@@ -65,32 +41,39 @@ export class FaqModal {
     this.wallEl = document.getElementById('suggestions-wall');
 
     this.onCloseCallback = null;
-    this.activeTab = 'faq';
+    this.activeTab = 'list';
 
-    this._renderFaq();
     this._bindEvents();
   }
 
-  _renderFaq() {
-    if (!this.faqListEl) return;
-    this.faqListEl.innerHTML = FAQ_ITEMS.map(
-      (item) => `
-      <article class="faq-item">
-        <h3>${escapeHtml(item.q)}</h3>
-        <p>${escapeHtml(item.a)}</p>
-      </article>`
-    ).join('');
+  _clearErrors() {
+    this.errorEl?.classList.add('hidden');
+    this.authorInput?.classList.remove('faq-input-error');
+    this.messageInput?.classList.remove('faq-input-error');
+  }
+
+  _showError(text, targetInput = null) {
+    if (this.errorEl) {
+      this.errorEl.textContent = text;
+      this.errorEl.classList.remove('hidden');
+    }
+    if (targetInput) {
+      targetInput.classList.add('faq-input-error');
+      targetInput.focus();
+    }
   }
 
   _switchTab(tab) {
-    this.activeTab = tab === 'ideas' ? 'ideas' : 'faq';
-    this.tabFaq?.classList.toggle('active', this.activeTab === 'faq');
-    this.tabIdeas?.classList.toggle('active', this.activeTab === 'ideas');
-    this.panelFaq?.classList.toggle('hidden', this.activeTab !== 'faq');
-    this.panelIdeas?.classList.toggle('hidden', this.activeTab !== 'ideas');
-    if (this.activeTab === 'ideas') {
-      this._prefillAuthor();
+    this.activeTab = tab === 'create' ? 'create' : 'list';
+    this.tabList?.classList.toggle('active', this.activeTab === 'list');
+    this.tabCreate?.classList.toggle('active', this.activeTab === 'create');
+    this.panelList?.classList.toggle('hidden', this.activeTab !== 'list');
+    this.panelCreate?.classList.toggle('hidden', this.activeTab !== 'create');
+    this._clearErrors();
+    if (this.activeTab === 'list') {
       this.loadSuggestions();
+    } else {
+      this._prefillAuthor();
     }
   }
 
@@ -104,14 +87,19 @@ export class FaqModal {
 
   async loadSuggestions() {
     if (!this.wallEl) return;
-    this.wallEl.innerHTML = '<p class="hint-mini">Chargement des suggestions...</p>';
+    this.wallEl.innerHTML = '<p class="hint-mini">Chargement des rapports...</p>';
+    const controller = new AbortController();
+    const timerId = setTimeout(() => controller.abort(), 4000);
     try {
-      const res = await fetch('/api/suggestions');
+      const res = await fetch('/api/suggestions', { signal: controller.signal });
       const data = await res.json();
-      const list = Array.isArray(data.suggestions) ? data.suggestions : [];
+      const raw = Array.isArray(data.suggestions) ? data.suggestions : [];
+      const list = [...raw].sort(
+        (a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)
+      );
       if (list.length === 0) {
         this.wallEl.innerHTML =
-          '<p class="hint-mini">Aucune idée publiée pour l’instant. Soyez le premier à proposer une amélioration !</p>';
+          '<p class="hint-mini">Aucun post ou rapport publié pour le moment. Ouvrez « Créer un post » pour envoyer le premier message !</p>';
         return;
       }
       this.wallEl.innerHTML = list
@@ -119,7 +107,7 @@ export class FaqModal {
           (s) => `
           <article class="suggestion-card">
             <div class="suggestion-head">
-              <span class="suggestion-author">💡 ${escapeHtml(s.author)}</span>
+              <span class="suggestion-author">📝 ${escapeHtml(s.author)}</span>
               <span class="suggestion-date">${formatDate(s.createdAt)}</span>
             </div>
             <p class="suggestion-body">${escapeHtml(s.message)}</p>
@@ -127,7 +115,10 @@ export class FaqModal {
         )
         .join('');
     } catch {
-      this.wallEl.innerHTML = '<p class="hint-mini">Impossible de charger les propositions pour le moment.</p>';
+      this.wallEl.innerHTML =
+        '<p class="hint-mini">Impossible de charger les rapports pour le moment.</p>';
+    } finally {
+      clearTimeout(timerId);
     }
   }
 
@@ -137,10 +128,15 @@ export class FaqModal {
       if (e.target === this.modal) this.close();
     });
 
-    this.tabFaq?.addEventListener('click', () => this._switchTab('faq'));
-    this.tabIdeas?.addEventListener('click', () => this._switchTab('ideas'));
+    this.tabList?.addEventListener('click', () => this._switchTab('list'));
+    this.tabCreate?.addEventListener('click', () => this._switchTab('create'));
+
+    this.authorInput?.addEventListener('input', () => {
+      this.authorInput.classList.remove('faq-input-error');
+    });
 
     this.messageInput?.addEventListener('input', () => {
+      this.messageInput.classList.remove('faq-input-error');
       if (this.charCountEl) {
         this.charCountEl.textContent = `${this.messageInput.value.length} / 400`;
       }
@@ -148,24 +144,16 @@ export class FaqModal {
 
     this.form?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      this.errorEl?.classList.add('hidden');
+      this._clearErrors();
       const author = this.authorInput?.value.trim() || '';
       const message = this.messageInput?.value.trim() || '';
 
       if (!author) {
-        if (this.errorEl) {
-          this.errorEl.textContent = '⚠️ Le champ « Votre nom / pseudo » est obligatoire.';
-          this.errorEl.classList.remove('hidden');
-        }
-        this.authorInput?.focus();
+        this._showError('⚠️ Le champ « Votre nom / pseudo » est obligatoire.', this.authorInput);
         return;
       }
       if (!message) {
-        if (this.errorEl) {
-          this.errorEl.textContent = '⚠️ Veuillez décrire votre idée ou suggestion avant d’envoyer.';
-          this.errorEl.classList.remove('hidden');
-        }
-        this.messageInput?.focus();
+        this._showError('⚠️ Veuillez saisir votre message / rapport avant d’envoyer.', this.messageInput);
         return;
       }
 
@@ -178,21 +166,15 @@ export class FaqModal {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          if (this.errorEl) {
-            this.errorEl.textContent = data.error || 'Erreur lors de l’envoi de votre proposition.';
-            this.errorEl.classList.remove('hidden');
-          }
+          this._showError(data.error || 'Erreur lors de la publication du post.');
           return;
         }
         if (this.messageInput) this.messageInput.value = '';
         if (this.charCountEl) this.charCountEl.textContent = '0 / 400';
-        this.onToast?.('💡 Merci ! Votre idée a bien été publiée.', 'success');
-        await this.loadSuggestions();
+        this.onToast?.('✅ Votre post a été publié !', 'success');
+        this._switchTab('list');
       } catch {
-        if (this.errorEl) {
-          this.errorEl.textContent = 'Impossible de joindre le serveur pour publier l’idée.';
-          this.errorEl.classList.remove('hidden');
-        }
+        this._showError('Impossible de joindre le serveur pour envoyer le post.');
       } finally {
         if (this.submitBtn) this.submitBtn.disabled = false;
       }
@@ -203,9 +185,9 @@ export class FaqModal {
     return Boolean(this.modal && !this.modal.classList.contains('hidden'));
   }
 
-  open(defaultTab = 'faq', onClose = null) {
+  open(defaultTab = 'list', onClose = null) {
     this.onCloseCallback = onClose;
-    this.errorEl?.classList.add('hidden');
+    this._clearErrors();
     this._prefillAuthor();
     this._switchTab(defaultTab);
     this.modal?.classList.remove('hidden');

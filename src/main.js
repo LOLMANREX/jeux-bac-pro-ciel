@@ -239,7 +239,7 @@ hud = new HudManager(gameState, network, {
   onOpenFaq: () => {
     if (!faqModal) return;
     setModalActive(true, false, false);
-    faqModal.open('faq', () => setModalActive(false, false, false));
+    faqModal.open('list', () => setModalActive(false, false, false));
   },
   onSensitivityChange: (s) => player.setSensitivity(s),
   onQuickNav: (id) => teleportNearTarget(id),
@@ -434,7 +434,7 @@ window.addEventListener('keydown', (e) => {
     e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
 
   if (e.code === 'Escape' && !subModalActive) {
-    if (changelogModal.close() || faqModal.close() || platformModal.close()) {
+    if (changelogModal?.close?.() || faqModal?.close?.() || platformModal?.close?.()) {
       e.preventDefault();
       return;
     }
@@ -448,9 +448,9 @@ window.addEventListener('keydown', (e) => {
     if (
       !hud.isSettingsOpen() &&
       !hud.isSkinOpen() &&
-      !changelogModal.isOpen() &&
-      !faqModal.isOpen() &&
-      !platformModal.isOpen()
+      !changelogModal?.isOpen?.() &&
+      !faqModal?.isOpen?.() &&
+      !platformModal?.isOpen?.()
     ) {
       e.preventDefault();
       sfx.click();
@@ -563,7 +563,7 @@ sceneMgr.start();
 mainMenu = new MainMenu(gameState, network, {
   onOpenSettings: () => hud?.openSettingsModal?.(),
   onOpenPlatform: () => platformModal?.open?.(gameState.touchMode, null, true),
-  onOpenFaq: () => faqModal?.open?.('faq'),
+  onOpenFaq: () => faqModal?.open?.('list'),
   onStartGame: ({ name, room, skin }) => {
     const cleanRoom = room || 'salle-e204';
     notifiedNetError = false;

@@ -1909,34 +1909,16 @@ body.touch-active .chat-drawer {
   border-color: var(--cyan);
   color: #ecfeff;
 }
-.faq-questions-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.faq-item {
-  background: rgba(22, 34, 58, 0.85);
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 12px;
-  padding: 12px 14px;
-}
-.faq-item h3 {
-  margin: 0 0 6px;
-  font-size: 0.96rem;
-  color: var(--cyan);
-}
-.faq-item p {
-  margin: 0;
-  font-size: 0.86rem;
-  line-height: 1.5;
-  color: #e2e8f0;
-}
 .faq-form {
   background: rgba(22, 34, 58, 0.72);
   border: 1px solid rgba(56, 189, 248, 0.24);
   border-radius: 14px;
-  padding: 14px;
-  margin-bottom: 16px;
+  padding: 16px;
+}
+.faq-form input.faq-input-error,
+.faq-form textarea.faq-input-error {
+  border-color: var(--rose);
+  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.2);
 }
 .faq-form textarea {
   width: 100%;
@@ -1967,11 +1949,6 @@ body.touch-active .chat-drawer {
   font-size: 0.82rem;
   margin-bottom: 10px;
 }
-.suggestions-wall-title {
-  margin: 0 0 10px;
-  font-size: 0.96rem;
-  color: #f8fafc;
-}
 .suggestions-wall {
   display: flex;
   flex-direction: column;
@@ -1979,6 +1956,9 @@ body.touch-active .chat-drawer {
   max-height: 280px;
   overflow-y: auto;
   padding-right: 4px;
+}
+.posts-wall {
+  max-height: 410px;
 }
 .suggestion-card {
   background: rgba(15, 23, 42, 0.86);
