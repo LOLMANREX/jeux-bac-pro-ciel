@@ -94,6 +94,23 @@ export function createGameServer(options = {}) {
     res.json(result);
   });
 
+  app.get('/api/suggestions', (_req, res) => {
+    res.json({
+      suggestions: store.getSuggestions()
+    });
+  });
+
+  app.post('/api/suggestions', (req, res) => {
+    const { author, message } = req.body || {};
+    const suggestion = store.addSuggestion(author, message);
+    if (!suggestion) {
+      return res.status(400).json({
+        error: 'Veuillez renseigner votre nom / pseudo ainsi que votre suggestion.'
+      });
+    }
+    return res.status(201).json({ ok: true, suggestion });
+  });
+
   const requireAdmin = (req, res, next) => {
     const headerToken = req.headers['x-admin-token'];
     const authHeader = req.headers.authorization;
@@ -155,6 +172,14 @@ export function createGameServer(options = {}) {
     }
     wsHub.disconnectPlayer(targetName);
     return res.json({ ok: true, name: targetName });
+  });
+
+  app.delete('/api/admin/suggestions/:id', requireAdmin, (req, res) => {
+    const deleted = store.deleteSuggestion(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Suggestion introuvable' });
+    }
+    return res.json({ ok: true, id: req.params.id });
   });
 
   if (fs.existsSync(distDir)) {

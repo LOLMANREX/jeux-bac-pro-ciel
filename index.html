@@ -60,6 +60,14 @@
                   <small>Champ de vision 50°–110°, sensibilité</small>
                 </button>
               </div>
+              <div class="menu-util-row">
+                <button type="button" id="menu-btn-platform" class="btn-hud btn-sm">
+                  🖥️ / 📱 Plateforme
+                </button>
+                <button type="button" id="menu-btn-faq" class="btn-hud btn-sm">
+                  💡 FAQ &amp; Idées
+                </button>
+              </div>
             </div>
 
             <!-- Vue 2 : Lancer / Créer une partie -->
@@ -203,6 +211,12 @@
             <button id="btn-view-mode" class="btn-hud" title="Changer de caméra (Touche V)">🎥 Vue: 1ère</button>
             <button id="btn-touch-toggle" class="btn-hud" title="Activer ou désactiver les contrôles tactiles">
               📱 Tactile
+            </button>
+            <button id="btn-platform-hud" class="btn-hud" title="Choisir Mode PC ou Mode Mobile / Tablette">
+              🖥️/📱 Plateforme
+            </button>
+            <button id="btn-faq-hud" class="btn-hud" title="Aide, FAQ et boîte à idées communautaire">
+              💡 FAQ &amp; Idées
             </button>
             <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris)">⚙️ Paramètres</button>
             <button id="btn-main-menu" class="btn-hud" title="Retour au menu principal">🏠 Menu</button>
@@ -470,6 +484,97 @@
               <div class="preview-badge">APERÇU 3D LIVE</div>
               <canvas id="hud-skin-preview-canvas" width="240" height="290"></canvas>
               <div class="preview-hint">Glissez pour pivoter</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="platform-modal" class="modal-backdrop platform-backdrop hidden">
+        <div class="dialogue-card platform-card">
+          <div class="dialogue-header">
+            <div class="prof-avatar">🎮</div>
+            <div>
+              <div class="prof-tag">BIENVENUE DANS L'ATELIER CIEL 3D</div>
+              <h2>Choisissez votre plateforme</h2>
+            </div>
+            <button id="platform-close" class="icon-close" title="Fermer">✕</button>
+          </div>
+          <p class="platform-intro">
+            Sélectionnez votre appareil pour adapter automatiquement les commandes et l'interface :
+          </p>
+          <div class="platform-cards-grid">
+            <button type="button" id="platform-card-pc" class="platform-choice-card">
+              <span id="platform-rec-pc" class="platform-rec-pill hidden">RECOMMANDÉ</span>
+              <span class="platform-ico">💻</span>
+              <strong class="platform-title">Mode PC</strong>
+              <span class="platform-sub">Clavier ZQSD + Souris</span>
+              <span class="platform-desc">Verrouillage souris (PointerLock), raccourcis clavier et vue libre.</span>
+            </button>
+            <button type="button" id="platform-card-mobile" class="platform-choice-card">
+              <span id="platform-rec-mobile" class="platform-rec-pill hidden">RECOMMANDÉ</span>
+              <span class="platform-ico">📱</span>
+              <strong class="platform-title">Mode Mobile / Tablette</strong>
+              <span class="platform-sub">Joystick virtuel + Contrôles tactiles</span>
+              <span class="platform-desc">Joystick gauche analogique, caméra au doigt à droite et boutons tactiles.</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="faq-modal" class="modal-backdrop hidden">
+        <div class="dialogue-card faq-card">
+          <div class="dialogue-header">
+            <div class="prof-avatar">💡</div>
+            <div>
+              <div class="prof-tag">AIDE &amp; BOÎTE À IDÉES COMMUNAUTAIRE</div>
+              <h2>FAQ &amp; Propositions</h2>
+            </div>
+            <button id="faq-close" class="icon-close" title="Fermer">✕</button>
+          </div>
+
+          <div class="faq-tabs">
+            <button type="button" id="faq-tab-faq" class="faq-tab active">❓ FAQ</button>
+            <button type="button" id="faq-tab-ideas" class="faq-tab">💡 Proposer une fonctionnalité</button>
+          </div>
+
+          <div id="faq-panel-faq" class="faq-panel">
+            <div id="faq-questions-list" class="faq-questions-list"></div>
+          </div>
+
+          <div id="faq-panel-ideas" class="faq-panel hidden">
+            <form id="faq-form" class="faq-form">
+              <div class="menu-field">
+                <label for="faq-author-input">Votre nom / pseudo <span class="req-star">*</span></label>
+                <input
+                  id="faq-author-input"
+                  type="text"
+                  maxlength="40"
+                  placeholder="Ex: Louis_CIEL"
+                  required
+                />
+              </div>
+              <div class="menu-field">
+                <div class="faq-label-row">
+                  <label for="faq-message-input">Votre idée ou suggestion <span class="req-star">*</span></label>
+                  <span id="faq-char-count" class="hint-mini">0 / 400</span>
+                </div>
+                <textarea
+                  id="faq-message-input"
+                  rows="3"
+                  maxlength="400"
+                  placeholder="Décrivez une nouvelle fonctionnalité, un TP ou une amélioration..."
+                  required
+                ></textarea>
+              </div>
+              <div id="faq-form-error" class="faq-form-error hidden"></div>
+              <button type="submit" id="faq-submit-btn" class="btn-primary">
+                🚀 Publier mon idée
+              </button>
+            </form>
+
+            <div class="suggestions-wall-wrap">
+              <h3 class="suggestions-wall-title">💬 Mur des propositions des joueurs</h3>
+              <div id="suggestions-wall" class="suggestions-wall"></div>
             </div>
           </div>
         </div>

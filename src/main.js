@@ -21,6 +21,8 @@ import { MainMenu } from './ui/MainMenu.js';
 import { DialogueModal } from './ui/DialogueModal.js';
 import { ChangelogModal } from './ui/ChangelogModal.js';
 import { TouchControls } from './ui/TouchControls.js';
+import { PlatformModal } from './ui/PlatformModal.js';
+import { FaqModal } from './ui/FaqModal.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
 import { createOscilloscopeGame } from './minigames/OscilloscopeGame.js';
 import { createSolderingGame } from './minigames/SolderingGame.js';
@@ -78,6 +80,15 @@ const remotePlayers = new RemotePlayersManager(sceneMgr.scene);
 const dialogueModal = new DialogueModal();
 const miniGameModal = new MiniGameModal();
 const changelogModal = new ChangelogModal();
+const faqModal = new FaqModal({
+  getDefaultAuthor: () =>
+    document.getElementById('player-name-input')?.value?.trim() ||
+    gameState.profile.name ||
+    localStorage.getItem('ciel_player_name') ||
+    '',
+  onToast: (msg, type) => hud.toast(msg, type)
+});
+let platformModal = null;
 
 document.getElementById('menu-version-badge')?.addEventListener('click', () => {
   sfx.click();
@@ -193,6 +204,16 @@ const hud = new HudManager(gameState, network, {
   onTouchModeChange: (active) => {
     player.setTouchMode(active);
     touchControls?.setVisible(joined && !modalOpen && active);
+    mainMenu?.updatePlatformButton?.(active);
+    platformModal?.syncActiveChoice?.(active);
+  },
+  onOpenPlatform: () => {
+    setModalActive(true, false, false);
+    platformModal.open(gameState.touchMode, () => setModalActive(false, false, false), true);
+  },
+  onOpenFaq: () => {
+    setModalActive(true, false, false);
+    faqModal.open('faq', () => setModalActive(false, false, false));
   },
   onSensitivityChange: (s) => player.setSensitivity(s),
   onQuickNav: (id) => teleportNearTarget(id),
@@ -383,7 +404,7 @@ window.addEventListener('keydown', (e) => {
     e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
 
   if (e.code === 'Escape' && !subModalActive) {
-    if (changelogModal.close()) {
+    if (changelogModal.close() || faqModal.close() || platformModal.close()) {
       e.preventDefault();
       return;
     }
@@ -394,7 +415,13 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (e.code === 'Tab' && joined && !subModalActive && !isTyping) {
-    if (!hud.isSettingsOpen() && !hud.isSkinOpen() && !changelogModal.isOpen()) {
+    if (
+      !hud.isSettingsOpen() &&
+      !hud.isSkinOpen() &&
+      !changelogModal.isOpen() &&
+      !faqModal.isOpen() &&
+      !platformModal.isOpen()
+    ) {
       e.preventDefault();
       sfx.click();
       hud.toggleLeaderboard();
@@ -505,6 +532,8 @@ sceneMgr.start();
 
 const mainMenu = new MainMenu(gameState, network, {
   onOpenSettings: () => hud.openSettingsModal?.(),
+  onOpenPlatform: () => platformModal.open(gameState.touchMode, null, true),
+  onOpenFaq: () => faqModal.open('faq'),
   onStartGame: ({ name, room, skin }) => {
     const cleanRoom = room || 'salle-e204';
     notifiedNetError = false;
@@ -537,3 +566,21 @@ const mainMenu = new MainMenu(gameState, network, {
     }, 500);
   }
 });
+
+platformModal = new PlatformModal({
+  onSelect: (mode) => {
+    sfx.click();
+    const isMobile = mode === 'mobile';
+    gameState.setTouchMode(isMobile);
+    player.setTouchMode(isMobile);
+    hud.syncTouchUi?.();
+    mainMenu.updatePlatformButton(isMobile);
+    hud.toast(
+      isMobile
+        ? '📱 Mode Mobile / Tablette activé (contrôles tactiles)'
+        : '💻 Mode PC activé (Clavier ZQSD + Souris)'
+    );
+  }
+});
+
+platformModal.open(gameState.touchMode, null, false);

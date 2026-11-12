@@ -423,3 +423,65 @@ test('Admin API sécurisée : login, liste, playtime, reset WS et suppression', 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('Suggestions API : validation auteur/message, anti-XSS, tri et suppression admin', async () => {
+  const { server, wsHub } = createGameServer({ dbPath: null });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const emptyAuthor = await fetch(`${baseUrl}/api/suggestions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author: '   ', message: 'Ajouter un TP Fibre Optique' })
+    });
+    assert.equal(emptyAuthor.status, 400);
+
+    const emptyMsg = await fetch(`${baseUrl}/api/suggestions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author: 'Louis', message: '<>' })
+    });
+    assert.equal(emptyMsg.status, 400);
+
+    const createRes = await fetch(`${baseUrl}/api/suggestions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author: '<Louis>', message: 'Ajouter un TP Fibre <script>alert(1)</script>' })
+    });
+    assert.equal(createRes.status, 201);
+    const created = await createRes.json();
+    assert.equal(created.suggestion.author, 'Louis');
+    assert.equal(created.suggestion.message.includes('<'), false);
+
+    const listRes = await fetch(`${baseUrl}/api/suggestions`);
+    assert.equal(listRes.status, 200);
+    const listData = await listRes.json();
+    assert.equal(listData.suggestions.length, 1);
+
+    const unauthDel = await fetch(`${baseUrl}/api/admin/suggestions/${created.suggestion.id}`, {
+      method: 'DELETE'
+    });
+    assert.equal(unauthDel.status, 401);
+
+    const loginRes = await fetch(`${baseUrl}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: process.env.ADMIN_PASSWORD || 'Louisetjade1102' })
+    });
+    const { token } = await loginRes.json();
+
+    const delRes = await fetch(`${baseUrl}/api/admin/suggestions/${created.suggestion.id}`, {
+      method: 'DELETE',
+      headers: { 'x-admin-token': token }
+    });
+    assert.equal(delRes.status, 200);
+
+    const afterList = await (await fetch(`${baseUrl}/api/suggestions`)).json();
+    assert.equal(afterList.suggestions.length, 0);
+  } finally {
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

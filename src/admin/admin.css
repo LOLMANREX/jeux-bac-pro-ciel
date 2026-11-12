@@ -473,6 +473,65 @@ button:active {
   font-size: 0.92rem;
 }
 
+.suggestions-admin-card {
+  margin-top: 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.45);
+}
+.suggestions-admin-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.suggestions-admin-head h2 {
+  margin: 0 0 4px;
+  font-size: 1.2rem;
+}
+.admin-suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.admin-suggestion-item {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.admin-suggestion-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.admin-suggestion-author {
+  font-weight: 800;
+  color: var(--cyan);
+}
+.admin-suggestion-date {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.admin-suggestion-text {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: #e2e8f0;
+  word-break: break-word;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

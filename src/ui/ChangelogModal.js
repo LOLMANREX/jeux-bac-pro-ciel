@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v2.0 - Patch Multijoueur & Classement';
+    : 'v2.3 - Sélecteur PC/Mobile, FAQ & Boîte à idées';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,8 +20,19 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v2.0 — Patch Multijoueur & Classement',
+    version: 'v2.3 — Sélecteur PC/Mobile, FAQ & Boîte à idées',
     tag: 'DERNIÈRE MÀJ',
+    date: '12/11/2026',
+    items: [
+      'Écran de choix de plateforme (Mode PC ou Mode Mobile / Tablette) dès l’ouverture et réouvrable à tout moment.',
+      'Nouvel onglet communautaire « FAQ & Idées » avec tutoriel complet et mur persistant de suggestions des joueurs.',
+      'Contrôles tactiles multi-touch complets (joystick analogique gauche, caméra au doigt à droite, boutons d’action et UI 100 % responsive).',
+      'Console d’administration sécurisée sur /admin (suivi du temps de jeu, réinitialisation, suppression et modération des idées).'
+    ]
+  },
+  {
+    version: 'v2.0 — Patch Multijoueur & Classement',
+    tag: 'HISTORIQUE',
     date: 'Novembre 2026',
     items: [
       'Mode multijoueur temps réel WebSocket (salles partagées, déplacements 3D fluides, emotes/chat).',

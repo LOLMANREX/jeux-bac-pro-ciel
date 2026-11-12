@@ -3,11 +3,13 @@ import { DEFAULT_ROOM } from '../core/network.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 
 export class MainMenu {
-  constructor(gameState, network, { onStartGame, onOpenSettings }) {
+  constructor(gameState, network, { onStartGame, onOpenSettings, onOpenPlatform, onOpenFaq }) {
     this.gameState = gameState;
     this.network = network;
     this.onStartGame = onStartGame;
     this.onOpenSettings = onOpenSettings;
+    this.onOpenPlatform = onOpenPlatform;
+    this.onOpenFaq = onOpenFaq;
 
     this.root = document.getElementById('start-screen');
     this.views = {
@@ -115,6 +117,19 @@ export class MainMenu {
       this.onOpenSettings?.();
     });
 
+    this.platformBtn = document.getElementById('menu-btn-platform');
+    this.platformBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.onOpenPlatform?.();
+    });
+
+    document.getElementById('menu-btn-faq')?.addEventListener('click', () => {
+      sfx.click();
+      this.onOpenFaq?.();
+    });
+
+    this.updatePlatformButton(this.gameState.touchMode);
+
     document.querySelectorAll('[data-back]').forEach((btn) => {
       btn.addEventListener('click', () => {
         sfx.click();
@@ -211,8 +226,14 @@ export class MainMenu {
     this.root.classList.remove('hidden');
     this.renderSkinUi();
     this.preview.setActive(true);
+    this.updatePlatformButton(this.gameState.touchMode);
     this.showView('home');
     this._startPolling();
+  }
+
+  updatePlatformButton(touchMode) {
+    if (!this.platformBtn) return;
+    this.platformBtn.textContent = touchMode ? '📱 Plateforme : Mobile' : '💻 Plateforme : PC';
   }
 
   hide() {

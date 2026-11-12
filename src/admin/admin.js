@@ -24,6 +24,9 @@ const logoutBtn = document.getElementById('btn-logout');
 
 const tbody = document.getElementById('players-tbody');
 const emptyStateEl = document.getElementById('empty-state');
+const suggestionsCountEl = document.getElementById('stat-suggestions-count');
+const suggestionsListEl = document.getElementById('admin-suggestions-list');
+const suggestionsEmptyEl = document.getElementById('admin-suggestions-empty');
 
 const confirmModal = document.getElementById('admin-confirm-modal');
 const confirmBadge = document.getElementById('confirm-badge');
@@ -35,6 +38,7 @@ const toastContainer = document.getElementById('admin-toast-container');
 
 let adminToken = sessionStorage.getItem(TOKEN_STORAGE_KEY) || '';
 let allPlayers = [];
+let allSuggestions = [];
 let onlineOnly = false;
 let refreshTimer = null;
 let pendingConfirmAction = null;
@@ -123,8 +127,12 @@ async function apiFetch(url, options = {}) {
 async function loadPlayers(silent = false) {
   if (!adminToken) return;
   try {
-    const data = await apiFetch('/api/admin/players');
+    const [data, sugData] = await Promise.all([
+      apiFetch('/api/admin/players'),
+      fetch('/api/suggestions').then((r) => r.json()).catch(() => ({ suggestions: [] }))
+    ]);
     allPlayers = Array.isArray(data.players) ? data.players : [];
+    allSuggestions = Array.isArray(sugData.suggestions) ? sugData.suggestions : [];
     const summary = data.summary || {};
     statTotalPlayers.textContent = String(summary.totalPlayers ?? allPlayers.length);
     statOnlineCount.textContent = String(
@@ -140,9 +148,41 @@ async function loadPlayers(silent = false) {
       second: '2-digit'
     })}`;
     renderPlayersTable();
+    renderSuggestionsList();
   } catch (err) {
     if (!silent) showToast(err.message || 'Impossible de charger les élèves', 'error');
   }
+}
+
+function renderSuggestionsList() {
+  if (!suggestionsListEl || !suggestionsEmptyEl) return;
+  if (suggestionsCountEl) {
+    const n = allSuggestions.length;
+    suggestionsCountEl.textContent = n > 1 ? `${n} idées` : `${n} idée`;
+  }
+  suggestionsEmptyEl.classList.toggle('hidden', allSuggestions.length > 0);
+  suggestionsListEl.innerHTML = allSuggestions
+    .map(
+      (s) => `
+      <article class="admin-suggestion-item">
+        <div style="flex:1; min-width:220px;">
+          <div class="admin-suggestion-meta">
+            <span class="admin-suggestion-author">💡 ${escapeHtml(s.author)}</span>
+            <span class="admin-suggestion-date">${formatDateTime(s.createdAt)}</span>
+          </div>
+          <p class="admin-suggestion-text">${escapeHtml(s.message)}</p>
+        </div>
+        <button
+          type="button"
+          class="btn-delete"
+          data-delete-suggestion="${escapeHtml(s.id)}"
+          data-author="${escapeHtml(s.author)}"
+        >
+          🗑️ Supprimer
+        </button>
+      </article>`
+    )
+    .join('');
 }
 
 function getFilteredSortedPlayers() {
@@ -251,30 +291,38 @@ function renderPlayersTable() {
     .join('');
 }
 
-function openConfirmModal(mode, playerName) {
+function openConfirmModal(mode, targetValue, extraLabel = '') {
+  const isDeleteSuggestion = mode === 'delete_suggestion';
   const isDelete = mode === 'delete';
-  confirmBadge.textContent = isDelete ? 'SUPPRESSION DÉFINITIVE' : 'RÉINITIALISATION';
-  confirmBadge.className = `confirm-badge ${isDelete ? 'danger' : 'warn'}`;
-  confirmTitle.textContent = isDelete
-    ? `Supprimer le compte "${playerName}" ?`
-    : `Réinitialiser "${playerName}" à 0 ?`;
-  confirmMessage.textContent = isDelete
-    ? `Cette action supprimera définitivement le profil "${playerName}" de db.json et déconnectera l'élève s'il est en ligne.`
-    : `Toutes les notes de TP, l'XP, les diplômes et le temps de jeu de "${playerName}" seront remis à zéro. Son compte et son skin seront conservés.`;
+  confirmBadge.textContent = isDelete || isDeleteSuggestion ? 'SUPPRESSION DÉFINITIVE' : 'RÉINITIALISATION';
+  confirmBadge.className = `confirm-badge ${isDelete || isDeleteSuggestion ? 'danger' : 'warn'}`;
+  confirmTitle.textContent = isDeleteSuggestion
+    ? `Supprimer la suggestion de "${extraLabel}" ?`
+    : isDelete
+      ? `Supprimer le compte "${targetValue}" ?`
+      : `Réinitialiser "${targetValue}" à 0 ?`;
+  confirmMessage.textContent = isDeleteSuggestion
+    ? `Cette suggestion sera définitivement supprimée de la boîte à idées.`
+    : isDelete
+      ? `Cette action supprimera définitivement le profil "${targetValue}" de db.json et déconnectera l'élève s'il est en ligne.`
+      : `Toutes les notes de TP, l'XP, les diplômes et le temps de jeu de "${targetValue}" seront remis à zéro. Son compte et son skin seront conservés.`;
 
-  confirmExecBtn.className = isDelete ? 'btn-delete' : 'btn-reset';
-  confirmExecBtn.textContent = isDelete ? 'Oui, supprimer définitivement' : 'Oui, réinitialiser à 0';
+  confirmExecBtn.className = isDelete || isDeleteSuggestion ? 'btn-delete' : 'btn-reset';
+  confirmExecBtn.textContent = isDelete || isDeleteSuggestion ? 'Oui, supprimer définitivement' : 'Oui, réinitialiser à 0';
 
   pendingConfirmAction = async () => {
     confirmExecBtn.disabled = true;
     try {
-      const encoded = encodeURIComponent(playerName);
-      if (isDelete) {
+      const encoded = encodeURIComponent(targetValue);
+      if (isDeleteSuggestion) {
+        await apiFetch(`/api/admin/suggestions/${encoded}`, { method: 'DELETE' });
+        showToast('Suggestion supprimée.', 'success');
+      } else if (isDelete) {
         await apiFetch(`/api/admin/players/${encoded}`, { method: 'DELETE' });
-        showToast(`Profil "${playerName}" supprimé.`, 'success');
+        showToast(`Profil "${targetValue}" supprimé.`, 'success');
       } else {
         await apiFetch(`/api/admin/players/${encoded}/reset`, { method: 'POST' });
-        showToast(`Progression de "${playerName}" réinitialisée à 0.`, 'success');
+        showToast(`Progression de "${targetValue}" réinitialisée à 0.`, 'success');
       }
       closeConfirmModal();
       await loadPlayers(true);
@@ -354,6 +402,15 @@ tbody.addEventListener('click', (e) => {
   const name = btn.dataset.name;
   if (!name) return;
   openConfirmModal(action, name);
+});
+
+suggestionsListEl?.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-delete-suggestion]');
+  if (!btn) return;
+  const id = btn.dataset.deleteSuggestion;
+  const author = btn.dataset.author || 'Anonyme';
+  if (!id) return;
+  openConfirmModal('delete_suggestion', id, author);
 });
 
 confirmCancelBtn.addEventListener('click', closeConfirmModal);

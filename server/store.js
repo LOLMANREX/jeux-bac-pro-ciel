@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -42,6 +43,15 @@ export function sanitizeName(rawName) {
     .replace(/[^\p{L}\p{N}_\- #]/gu, '')
     .slice(0, 22);
   return cleaned || 'Eleve_CIEL';
+}
+
+function sanitizeSuggestionText(raw, maxLen) {
+  return String(raw || '')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/[<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen);
 }
 
 export function sanitizeSkin(raw, fallbackColor = DEFAULT_SKIN.outfitColor) {
@@ -118,7 +128,7 @@ function compareProfiles(a, b) {
 export class GameStore {
   constructor(dbFilePath) {
     this.dbFilePath = dbFilePath;
-    this.data = { players: {} };
+    this.data = { players: {}, suggestions: [] };
     if (this.dbFilePath) {
       this._load();
     }
@@ -181,22 +191,37 @@ export class GameStore {
     };
   }
 
+  _normalizeSuggestion(raw) {
+    const base = raw && typeof raw === 'object' ? raw : {};
+    const author = sanitizeSuggestionText(base.author, 40);
+    const message = sanitizeSuggestionText(base.message, 400);
+    if (!author || !message) return null;
+    const id = sanitizeSuggestionText(base.id, 24) || crypto.randomUUID().slice(0, 10);
+    const createdAt = base.createdAt || new Date().toISOString();
+    return { id, author, message, createdAt };
+  }
+
   _load() {
     try {
       if (fs.existsSync(this.dbFilePath)) {
         const raw = fs.readFileSync(this.dbFilePath, 'utf8');
         const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed.players === 'object') {
+        if (parsed && typeof parsed === 'object') {
           const normalizedPlayers = {};
-          for (const [k, val] of Object.entries(parsed.players)) {
-            const norm = this._normalizePlayer(val, k);
-            normalizedPlayers[norm.name.toLowerCase()] = norm;
+          if (parsed.players && typeof parsed.players === 'object') {
+            for (const [k, val] of Object.entries(parsed.players)) {
+              const norm = this._normalizePlayer(val, k);
+              normalizedPlayers[norm.name.toLowerCase()] = norm;
+            }
           }
-          this.data = { players: normalizedPlayers };
+          const normalizedSuggestions = Array.isArray(parsed.suggestions)
+            ? parsed.suggestions.map((s) => this._normalizeSuggestion(s)).filter(Boolean)
+            : [];
+          this.data = { players: normalizedPlayers, suggestions: normalizedSuggestions };
         }
       }
     } catch {
-      this.data = { players: {} };
+      this.data = { players: {}, suggestions: [] };
     }
   }
 
@@ -448,5 +473,43 @@ export class GameStore {
 
   getLeaderboard(limit = 50) {
     return this._getSortedBase().slice(0, limit);
+  }
+
+  getSuggestions() {
+    const list = Array.isArray(this.data.suggestions) ? this.data.suggestions : [];
+    return [...list].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+  }
+
+  addSuggestion(rawAuthor, rawMessage) {
+    const author = sanitizeSuggestionText(rawAuthor, 40);
+    const message = sanitizeSuggestionText(rawMessage, 400);
+    if (!author || !message) {
+      return null;
+    }
+    if (!Array.isArray(this.data.suggestions)) {
+      this.data.suggestions = [];
+    }
+    const entry = {
+      id: crypto.randomUUID().slice(0, 10),
+      author,
+      message,
+      createdAt: new Date().toISOString()
+    };
+    this.data.suggestions.unshift(entry);
+    if (this.data.suggestions.length > 200) {
+      this.data.suggestions = this.data.suggestions.slice(0, 200);
+    }
+    this._save();
+    return entry;
+  }
+
+  deleteSuggestion(id) {
+    if (!Array.isArray(this.data.suggestions)) return false;
+    const cleanId = String(id || '').trim();
+    const before = this.data.suggestions.length;
+    this.data.suggestions = this.data.suggestions.filter((s) => s.id !== cleanId);
+    if (this.data.suggestions.length === before) return false;
+    this._save();
+    return true;
   }
 }

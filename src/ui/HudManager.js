@@ -200,6 +200,16 @@ export class HudManager {
 
     document.getElementById('btn-settings').addEventListener('click', openSettings);
 
+    document.getElementById('btn-platform-hud')?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onOpenPlatform?.();
+    });
+
+    document.getElementById('btn-faq-hud')?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onOpenFaq?.();
+    });
+
     document.getElementById('btn-main-menu')?.addEventListener('click', () => {
       sfx.click();
       this.closeAllModals();
