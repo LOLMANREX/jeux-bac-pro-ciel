@@ -153,6 +153,12 @@
             <div class="preview-hint">Glissez pour faire pivoter le personnage</div>
           </div>
         </div>
+        <button
+          type="button"
+          id="menu-version-badge"
+          class="version-badge menu-corner-badge"
+          title="Ouvrir les notes de mise à jour"
+        ></button>
       </div>
 
       <div id="hud" class="hud hidden">
@@ -243,6 +249,12 @@
           <span>T : Chat</span> •
           <span>1–6 : Émotes</span>
         </div>
+        <button
+          type="button"
+          id="hud-version-badge"
+          class="version-badge hud-corner-badge"
+          title="Ouvrir les notes de mise à jour"
+        ></button>
       </div>
 
       <!-- Boîte de Dialogue RPG M. Fortin -->
@@ -408,6 +420,23 @@
               <canvas id="hud-skin-preview-canvas" width="240" height="290"></canvas>
               <div class="preview-hint">Glissez pour pivoter</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="changelog-modal" class="modal-backdrop hidden">
+        <div class="dialogue-card changelog-card">
+          <div class="dialogue-header">
+            <div class="prof-avatar">📋</div>
+            <div>
+              <div id="changelog-build-meta" class="prof-tag">RAPPORT DE MISE À JOUR</div>
+              <h2>Notes de mise à jour — Atelier CIEL 3D</h2>
+            </div>
+            <button id="changelog-close" class="icon-close" title="Fermer">✕</button>
+          </div>
+          <div id="changelog-list" class="changelog-list"></div>
+          <div class="changelog-footer">
+            <button type="button" id="changelog-done-btn" class="btn-primary">Fermer</button>
           </div>
         </div>
       </div>

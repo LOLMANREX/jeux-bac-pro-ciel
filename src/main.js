@@ -19,6 +19,7 @@ import { buildStudentAvatarMesh, disposeObject3D } from './world/AvatarBuilder.j
 import { HudManager } from './ui/HudManager.js';
 import { MainMenu } from './ui/MainMenu.js';
 import { DialogueModal } from './ui/DialogueModal.js';
+import { ChangelogModal } from './ui/ChangelogModal.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
 import { createOscilloscopeGame } from './minigames/OscilloscopeGame.js';
 import { createSolderingGame } from './minigames/SolderingGame.js';
@@ -74,6 +75,18 @@ const remotePlayers = new RemotePlayersManager(sceneMgr.scene);
 
 const dialogueModal = new DialogueModal();
 const miniGameModal = new MiniGameModal();
+const changelogModal = new ChangelogModal();
+
+document.getElementById('menu-version-badge')?.addEventListener('click', () => {
+  sfx.click();
+  changelogModal.open();
+});
+
+document.getElementById('hud-version-badge')?.addEventListener('click', () => {
+  sfx.click();
+  setModalActive(true, false, false);
+  changelogModal.open(() => setModalActive(false, false, false));
+});
 
 let joined = false;
 let modalOpen = false;
@@ -322,15 +335,19 @@ window.addEventListener('keydown', (e) => {
   const isTyping =
     e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
 
-  if (e.code === 'Escape' && joined && !subModalActive) {
-    if (hud.closeLeaderboard() || hud.closeSkinModal() || hud.closeSettings()) {
+  if (e.code === 'Escape' && !subModalActive) {
+    if (changelogModal.close()) {
+      e.preventDefault();
+      return;
+    }
+    if (joined && (hud.closeLeaderboard() || hud.closeSkinModal() || hud.closeSettings())) {
       e.preventDefault();
       return;
     }
   }
 
   if (e.code === 'Tab' && joined && !subModalActive && !isTyping) {
-    if (!hud.isSettingsOpen() && !hud.isSkinOpen()) {
+    if (!hud.isSettingsOpen() && !hud.isSkinOpen() && !changelogModal.isOpen()) {
       e.preventDefault();
       sfx.click();
       hud.toggleLeaderboard();

@@ -85,9 +85,25 @@ export function createGameServer(options = {}) {
   });
 
   if (fs.existsSync(distDir)) {
-    app.use(express.static(distDir, { maxAge: '1h' }));
+    const setNoCacheHtml = (res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    };
+
+    app.use(
+      express.static(distDir, {
+        maxAge: '1h',
+        setHeaders: (res, filePath) => {
+          if (path.basename(filePath) === 'index.html') {
+            setNoCacheHtml(res);
+          }
+        }
+      })
+    );
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
+      setNoCacheHtml(res);
       res.sendFile(path.join(distDir, 'index.html'));
     });
   } else {

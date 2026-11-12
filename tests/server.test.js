@@ -280,3 +280,37 @@ test('Multi-onglet : deux connexions avec le même pseudo coexistent avec suffix
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('Serveur HTTP sert index.html sans cache pour mobile et 5G', async () => {
+  const tmpDist = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-dist-'));
+  fs.mkdirSync(path.join(tmpDist, 'assets'));
+  fs.writeFileSync(path.join(tmpDist, 'index.html'), '<!doctype html><html><body>OK</body></html>');
+  fs.writeFileSync(path.join(tmpDist, 'assets', 'bundle.js'), 'console.log(1);');
+
+  const { server, wsHub } = createGameServer({ dbPath: null, distDir: tmpDist });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const rootRes = await fetch(`${baseUrl}/`);
+    assert.equal(rootRes.status, 200);
+    const rootCc = rootRes.headers.get('cache-control') || '';
+    assert.ok(rootCc.includes('no-cache'));
+    assert.ok(rootCc.includes('no-store'));
+    assert.ok(rootCc.includes('must-revalidate'));
+
+    const spaRes = await fetch(`${baseUrl}/atelier-ciel`);
+    assert.equal(spaRes.status, 200);
+    const spaCc = spaRes.headers.get('cache-control') || '';
+    assert.ok(spaCc.includes('no-store'));
+
+    const assetRes = await fetch(`${baseUrl}/assets/bundle.js`);
+    assert.equal(assetRes.status, 200);
+    assert.ok((assetRes.headers.get('cache-control') || '').includes('max-age=3600'));
+  } finally {
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDist, { recursive: true, force: true });
+  }
+});

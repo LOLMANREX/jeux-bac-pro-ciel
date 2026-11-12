@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify('v2.0 - Patch Multijoueur & Classement'),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString())
+  },
   server: {
     port: 5173,
     proxy: {
