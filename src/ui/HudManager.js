@@ -31,6 +31,7 @@ export class HudManager {
 
     this.leaderboardModal = document.getElementById('leaderboard-modal');
     this.leaderboardBody = document.getElementById('leaderboard-body');
+    this.settingsModal = document.getElementById('settings-modal');
 
     this.toastContainer = document.getElementById('toast-container');
 
@@ -40,28 +41,99 @@ export class HudManager {
   }
 
   _bindControls() {
-    const qualityBtn = document.getElementById('btn-quality');
-    const qualityOrder = ['high', 'balanced', 'eco'];
-    const qualityLabels = { high: 'Élevée', balanced: 'Équilibrée', eco: 'Éco (PC Lycée)' };
-    const updateQualityLabel = () => {
-      qualityBtn.textContent = `⚙️ Qualité: ${qualityLabels[this.gameState.quality] || 'Élevée'}`;
+    const muteBtn = document.getElementById('btn-mute');
+    const soundCheck = document.getElementById('set-sound');
+    const syncMuteUi = () => {
+      muteBtn.textContent = sfx.muted ? '🔇' : '🔊';
+      if (soundCheck) soundCheck.checked = !sfx.muted;
     };
-    updateQualityLabel();
 
-    qualityBtn.addEventListener('click', () => {
-      sfx.click();
-      const idx = qualityOrder.indexOf(this.gameState.quality);
-      const next = qualityOrder[(idx + 1) % qualityOrder.length];
-      this.gameState.setQuality(next);
-      this.handlers.onQualityChange?.(next);
-      updateQualityLabel();
-      this.toast(`Qualité 3D : ${qualityLabels[next]}`);
+    muteBtn.addEventListener('click', () => {
+      sfx.toggleMute();
+      syncMuteUi();
     });
 
-    const muteBtn = document.getElementById('btn-mute');
-    muteBtn.addEventListener('click', () => {
-      const muted = sfx.toggleMute();
-      muteBtn.textContent = muted ? '🔇' : '🔊';
+    // Settings Modal (FOV, Quality, Sensitivity, Sound)
+    const fovSlider = document.getElementById('set-fov');
+    const fovVal = document.getElementById('set-fov-val');
+    const qualitySelect = document.getElementById('set-quality');
+    const sensSlider = document.getElementById('set-sens');
+    const sensVal = document.getElementById('set-sens-val');
+
+    const syncSettingsUi = () => {
+      if (fovSlider) fovSlider.value = String(this.gameState.fov);
+      if (fovVal) fovVal.textContent = `${this.gameState.fov}°`;
+      if (qualitySelect) qualitySelect.value = this.gameState.quality;
+      if (sensSlider) sensSlider.value = String(this.gameState.mouseSens);
+      if (sensVal) sensVal.textContent = `${this.gameState.mouseSens.toFixed(1)}×`;
+      document.querySelectorAll('.fov-preset').forEach((b) => {
+        b.classList.toggle('active', Number(b.dataset.fov) === this.gameState.fov);
+      });
+      syncMuteUi();
+    };
+    syncSettingsUi();
+
+    document.getElementById('btn-settings').addEventListener('click', () => {
+      sfx.click();
+      syncSettingsUi();
+      this.settingsModal.classList.remove('hidden');
+      this.handlers.onModalOpen?.(true);
+    });
+
+    document.getElementById('settings-close').addEventListener('click', () => {
+      sfx.click();
+      this.settingsModal.classList.add('hidden');
+      this.handlers.onModalOpen?.(false);
+    });
+
+    fovSlider?.addEventListener('input', () => {
+      const fov = Number(fovSlider.value);
+      this.gameState.setFov(fov);
+      this.handlers.onFovChange?.(fov);
+      syncSettingsUi();
+    });
+
+    document.querySelectorAll('.fov-preset').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        sfx.click();
+        const fov = Number(btn.dataset.fov);
+        this.gameState.setFov(fov);
+        this.handlers.onFovChange?.(fov);
+        syncSettingsUi();
+      });
+    });
+
+    qualitySelect?.addEventListener('change', () => {
+      sfx.click();
+      const q = qualitySelect.value;
+      this.gameState.setQuality(q);
+      this.handlers.onQualityChange?.(q);
+      this.toast(`Qualité 3D : ${qualitySelect.options[qualitySelect.selectedIndex].text}`);
+    });
+
+    sensSlider?.addEventListener('input', () => {
+      const s = Number(sensSlider.value);
+      this.gameState.setMouseSens(s);
+      this.handlers.onSensitivityChange?.(s);
+      syncSettingsUi();
+    });
+
+    soundCheck?.addEventListener('change', () => {
+      sfx.setMuted(!soundCheck.checked);
+      syncMuteUi();
+    });
+
+    document.getElementById('set-reset-btn')?.addEventListener('click', () => {
+      sfx.click();
+      this.gameState.setFov(70);
+      this.gameState.setQuality('high');
+      this.gameState.setMouseSens(1.0);
+      sfx.setMuted(false);
+      this.handlers.onFovChange?.(70);
+      this.handlers.onQualityChange?.('high');
+      this.handlers.onSensitivityChange?.(1.0);
+      syncSettingsUi();
+      this.toast('Paramètres réinitialisés (FOV 70°)');
     });
 
     document.getElementById('btn-chat-toggle').addEventListener('click', () => {

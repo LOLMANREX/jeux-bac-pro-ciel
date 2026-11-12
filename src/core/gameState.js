@@ -96,6 +96,10 @@ export class GameState {
     };
     this.room = 'salle-e204';
     this.quality = localStorage.getItem('ciel_quality') || 'high';
+    const savedFov = Number(localStorage.getItem('ciel_fov'));
+    this.fov = Number.isFinite(savedFov) && savedFov >= 50 && savedFov <= 110 ? savedFov : 70;
+    const savedSens = Number(localStorage.getItem('ciel_sens'));
+    this.mouseSens = Number.isFinite(savedSens) && savedSens >= 0.4 && savedSens <= 2.2 ? savedSens : 1.0;
     this.listeners = new Set();
   }
 
@@ -117,6 +121,20 @@ export class GameState {
   setQuality(q) {
     this.quality = q;
     localStorage.setItem('ciel_quality', q);
+    this.emit();
+  }
+
+  setFov(fov) {
+    const clamped = Math.max(50, Math.min(110, Math.round(Number(fov) || 70)));
+    this.fov = clamped;
+    localStorage.setItem('ciel_fov', String(clamped));
+    this.emit();
+  }
+
+  setMouseSens(sens) {
+    const clamped = Math.max(0.4, Math.min(2.2, Math.round(Number(sens) * 10) / 10 || 1.0));
+    this.mouseSens = clamped;
+    localStorage.setItem('ciel_sens', String(clamped));
     this.emit();
   }
 

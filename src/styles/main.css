@@ -607,6 +607,186 @@ button:active {
   margin-top: 16px;
 }
 
+/* RPG Bottom Dialogue Box (M. Fortin) */
+.dialogue-overlay {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(to top, rgba(4, 9, 20, 0.84) 0%, rgba(4, 9, 20, 0.18) 55%, rgba(4, 9, 20, 0) 100%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 20px 20px 26px;
+  z-index: 32;
+}
+
+.vn-dialogue-box {
+  width: min(860px, 100%);
+  background: rgba(11, 19, 36, 0.95);
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(251, 191, 36, 0.6);
+  border-radius: 18px;
+  padding: 16px 20px 18px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75);
+}
+
+.vn-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.vn-speaker-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.vn-avatar {
+  font-size: 1.9rem;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: rgba(251, 191, 36, 0.16);
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vn-role {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--amber);
+}
+
+.vn-name {
+  font-size: 1.12rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.vn-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.vn-step {
+  font-size: 0.78rem;
+  font-family: monospace;
+  color: var(--muted);
+  background: rgba(30, 41, 59, 0.85);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.vn-textbox {
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  min-height: 92px;
+}
+
+.vn-text {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: #f8fafc;
+}
+
+.vn-extra {
+  margin-top: 12px;
+}
+
+.vn-next-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.vn-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn-choice {
+  text-align: left;
+  background: rgba(30, 41, 59, 0.9);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+.btn-choice:hover {
+  border-color: var(--cyan);
+  background: rgba(30, 41, 59, 1);
+  transform: translateX(3px);
+}
+.btn-choice.primary {
+  background: rgba(6, 182, 212, 0.18);
+  border-color: var(--cyan);
+  color: #ecfeff;
+}
+
+/* Settings Modal */
+.settings-card {
+  width: min(500px, 100%);
+}
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.setting-item {
+  background: #16223a;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.setting-item.inline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.setting-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.setting-badge {
+  background: rgba(34, 211, 238, 0.18);
+  color: var(--cyan);
+  padding: 2px 9px;
+  border-radius: 7px;
+  font-family: monospace;
+}
+.setting-item input[type='range'],
+.setting-item select {
+  width: 100%;
+  background: #0b1324;
+  color: var(--text);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+.fov-presets {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 9px;
+}
+
 /* Toasts */
 .toast-container {
   position: fixed;

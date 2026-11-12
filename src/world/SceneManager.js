@@ -59,6 +59,12 @@ export class SceneManager {
     this.scene.add(fill);
   }
 
+  setFov(fov) {
+    const clamped = Math.max(50, Math.min(110, Number(fov) || 70));
+    this.camera.fov = clamped;
+    this.camera.updateProjectionMatrix();
+  }
+
   setQuality(quality) {
     this.quality = quality;
     if (quality === 'eco') {

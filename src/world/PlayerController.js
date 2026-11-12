@@ -16,10 +16,15 @@ export class PlayerController {
     this.lastMouse = { x: 0, y: 0 };
     this.enabled = false;
     this.hasPointerLock = false;
+    this.sensitivity = 1.0;
 
     this.camera.rotation.order = 'YXZ';
     this._applyCamera();
     this._bindEvents();
+  }
+
+  setSensitivity(val) {
+    this.sensitivity = Math.max(0.4, Math.min(2.2, Number(val) || 1.0));
   }
 
   setEnabled(enabled) {
@@ -65,14 +70,14 @@ export class PlayerController {
     window.addEventListener('mousemove', (e) => {
       if (!this.enabled) return;
       if (document.pointerLockElement === this.canvas) {
-        this.yaw -= e.movementX * 0.0023;
-        this.pitch = Math.max(-1.1, Math.min(1.1, this.pitch - e.movementY * 0.0023));
+        this.yaw -= e.movementX * 0.0023 * this.sensitivity;
+        this.pitch = Math.max(-1.1, Math.min(1.1, this.pitch - e.movementY * 0.0023 * this.sensitivity));
       } else if (this.dragging) {
         const dx = e.clientX - this.lastMouse.x;
         const dy = e.clientY - this.lastMouse.y;
         this.lastMouse = { x: e.clientX, y: e.clientY };
-        this.yaw -= dx * 0.004;
-        this.pitch = Math.max(-1.1, Math.min(1.1, this.pitch - dy * 0.004));
+        this.yaw -= dx * 0.004 * this.sensitivity;
+        this.pitch = Math.max(-1.1, Math.min(1.1, this.pitch - dy * 0.004 * this.sensitivity));
       }
     });
 

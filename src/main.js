@@ -33,6 +33,7 @@ const network = new NetworkClient();
 const canvas = document.getElementById('game-canvas');
 const sceneMgr = new SceneManager(canvas);
 sceneMgr.setQuality(gameState.quality);
+sceneMgr.setFov(gameState.fov);
 
 const lab = buildLabWorld(sceneMgr.scene);
 const fortin = createNpcFortin(sceneMgr.scene);
@@ -40,6 +41,7 @@ const allColliders = [...lab.colliders, fortin.collider];
 const allInteractables = [fortin.interactable, ...lab.interactables];
 
 const player = new PlayerController(sceneMgr.camera, canvas, allColliders);
+player.setSensitivity(gameState.mouseSens);
 const remotePlayers = new RemotePlayersManager(sceneMgr.scene);
 
 const dialogueModal = new DialogueModal();
@@ -134,6 +136,8 @@ function teleportNearTarget(id) {
 
 const hud = new HudManager(gameState, network, {
   onQualityChange: (q) => sceneMgr.setQuality(q),
+  onFovChange: (fov) => sceneMgr.setFov(fov),
+  onSensitivityChange: (s) => player.setSensitivity(s),
   onQuickNav: (id) => teleportNearTarget(id),
   onModalOpen: (isOpen) => setModalActive(isOpen, false)
 });

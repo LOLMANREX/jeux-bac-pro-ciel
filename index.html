@@ -84,7 +84,7 @@
             </div>
             <button id="btn-leaderboard" class="btn-hud" title="Classement de la classe">🏆 Classement</button>
             <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur">💬 Chat</button>
-            <button id="btn-quality" class="btn-hud" title="Qualité graphique 3D">⚙️ Qualité: Élevée</button>
+            <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris)">⚙️ Paramètres</button>
             <button id="btn-mute" class="btn-hud" title="Son activé/coupé">🔊</button>
           </div>
         </header>
@@ -130,19 +130,88 @@
         </div>
       </div>
 
-      <!-- Modal Dialogue M. Fortin -->
-      <div id="dialogue-modal" class="modal-backdrop hidden">
-        <div class="dialogue-card">
-          <div class="dialogue-header">
-            <div class="prof-avatar">👨‍🏫</div>
-            <div>
-              <div class="prof-tag">DONNEUR DE QUÊTES • PROFESSEUR PRINCIPAL</div>
-              <h2>M. Fortin — Atelier BAC PRO CIEL</h2>
+      <!-- Boîte de Dialogue RPG M. Fortin -->
+      <div id="dialogue-modal" class="dialogue-overlay hidden">
+        <div class="vn-dialogue-box">
+          <div class="vn-header">
+            <div class="vn-speaker-badge">
+              <span class="vn-avatar">👨‍🏫</span>
+              <div>
+                <div class="vn-role">PROFESSEUR PRINCIPAL • BAC PRO CIEL</div>
+                <div class="vn-name">M. Fortin</div>
+              </div>
             </div>
-            <button id="dialogue-close" class="icon-close" title="Fermer">✕</button>
+            <div class="vn-header-right">
+              <span id="dialogue-step-indicator" class="vn-step"></span>
+              <button id="dialogue-close" class="icon-close" title="Terminer la discussion (Échap)">✕</button>
+            </div>
           </div>
-          <div id="dialogue-body" class="dialogue-body"></div>
-          <div id="dialogue-choices" class="dialogue-choices"></div>
+
+          <div id="dialogue-textbox" class="vn-textbox" title="Cliquer pour accélérer ou passer à la suite">
+            <p id="dialogue-text" class="vn-text"></p>
+            <div id="dialogue-extra" class="vn-extra hidden"></div>
+            <div class="vn-next-row">
+              <button type="button" id="dialogue-next-btn" class="btn-primary btn-sm hidden">Suivant ▶</button>
+            </div>
+          </div>
+
+          <div id="dialogue-choices" class="vn-choices"></div>
+        </div>
+      </div>
+
+      <!-- Modal Paramètres (FOV, Qualité, Souris, Audio) -->
+      <div id="settings-modal" class="modal-backdrop hidden">
+        <div class="dialogue-card settings-card">
+          <div class="dialogue-header">
+            <div class="prof-avatar">⚙️</div>
+            <div>
+              <div class="prof-tag">CONFIGURATION ATELIER 3D</div>
+              <h2>Paramètres du Jeu</h2>
+            </div>
+            <button id="settings-close" class="icon-close" title="Fermer">✕</button>
+          </div>
+          <div class="settings-body">
+            <div class="setting-item">
+              <div class="setting-head">
+                <label for="set-fov">Champ de vision (FOV)</label>
+                <strong id="set-fov-val" class="setting-badge">70°</strong>
+              </div>
+              <input id="set-fov" type="range" min="50" max="110" step="1" value="70" />
+              <div class="fov-presets">
+                <button type="button" class="btn-chip fov-preset" data-fov="60">60° Ciné</button>
+                <button type="button" class="btn-chip fov-preset" data-fov="70">70° Normal</button>
+                <button type="button" class="btn-chip fov-preset" data-fov="90">90° Large</button>
+                <button type="button" class="btn-chip fov-preset" data-fov="105">105° Ultra</button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-head">
+                <label for="set-quality">Qualité graphique 3D</label>
+              </div>
+              <select id="set-quality">
+                <option value="high">Élevée (Ombres + Haute résolution)</option>
+                <option value="balanced">Équilibrée (Fluidité optimale)</option>
+                <option value="eco">Éco — PC Lycée (Sans ombres)</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-head">
+                <label for="set-sens">Sensibilité caméra souris</label>
+                <strong id="set-sens-val" class="setting-badge">1.0×</strong>
+              </div>
+              <input id="set-sens" type="range" min="0.4" max="2.2" step="0.1" value="1.0" />
+            </div>
+
+            <div class="setting-item inline">
+              <label>
+                <input id="set-sound" type="checkbox" checked />
+                Effets sonores activés
+              </label>
+              <button type="button" id="set-reset-btn" class="btn-hud btn-sm">Réinitialiser</button>
+            </div>
+          </div>
         </div>
       </div>
 
