@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Atelier CIEL 3D — Quêtes de M. Fortin (BAC PRO CIEL)</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1324'/%3E%3Cpath d='M14 40 L24 22 L32 38 L42 18 L50 42' fill='none' stroke='%2322d3ee' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='50' cy='42' r='4' fill='%2310b981'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Viewport 3D principal -->
+      <canvas id="game-canvas" aria-label="Atelier 3D BAC PRO CIEL"></canvas>
+
+      <!-- Écran d'accueil / Connexion élève -->
+      <div id="start-screen" class="overlay-screen">
+        <div class="start-card">
+          <div class="badge-pill">BAC PRO CIEL • LYCÉE &amp; ATELIER 3D</div>
+          <h1>Atelier CIEL <span class="accent">3D</span></h1>
+          <p class="subtitle">
+            Bienvenue dans la salle de TP E204 ! Retrouvez le professeur <strong>M. Fortin</strong>,
+            validez vos 5 travaux pratiques et obtenez votre diplôme BAC PRO CIEL.
+          </p>
+
+          <div class="tp-preview-grid">
+            <div class="tp-chip">〰️ Oscilloscope</div>
+            <div class="tp-chip">🔥 Brasure PCB</div>
+            <div class="tp-chip">⚡ Électronique</div>
+            <div class="tp-chip">🛡️ Antivirus &amp; Cyber</div>
+            <div class="tp-chip">🌐 VM &amp; VLAN 802.1Q</div>
+          </div>
+
+          <form id="join-form" class="join-form">
+            <label for="player-name-input">Nom ou pseudo d'élève :</label>
+            <div class="join-row">
+              <input
+                id="player-name-input"
+                type="text"
+                maxlength="18"
+                placeholder="Ex: Lucas_CIEL"
+                required
+              />
+              <select id="room-select" title="Salle serveur">
+                <option value="salle-e204">Salle E204 (Principal)</option>
+                <option value="salle-reseau">Salle Réseau B12</option>
+              </select>
+            </div>
+
+            <div class="controls-hint">
+              <span><strong>ZQSD / Flèches</strong> : Se déplacer</span>
+              <span><strong>Clic + Glisser ou Verrouillage Souris</strong> : Caméra</span>
+              <span><strong>E / Clic</strong> : Interagir</span>
+            </div>
+
+            <button type="submit" id="start-game-btn" class="btn-primary btn-lg">
+              Entrer dans l'Atelier 3D ▶
+            </button>
+          </form>
+
+          <div class="server-status-line" id="start-server-status">
+            <span class="dot dot-pulse"></span> Connexion au serveur CIEL...
+          </div>
+        </div>
+      </div>
+
+      <!-- HUD en jeu -->
+      <div id="hud" class="hud hidden">
+        <!-- Barre supérieure -->
+        <header class="hud-top">
+          <div class="hud-brand">
+            <div class="student-badge">
+              <span id="hud-player-name">Élève</span>
+              <span id="hud-player-xp" class="xp-pill">0 XP</span>
+            </div>
+            <div class="grade-pill" title="Moyenne générale sur les 5 TPs">
+              Moyenne : <strong id="hud-average">-- / 20</strong>
+            </div>
+          </div>
+
+          <div class="hud-actions">
+            <div id="net-pill" class="net-pill" title="État du serveur multijoueur">
+              <span class="dot"></span>
+              <span id="net-text">Serveur</span>
+              <span id="online-count" class="count-badge">1</span>
+            </div>
+            <button id="btn-leaderboard" class="btn-hud" title="Classement de la classe">🏆 Classement</button>
+            <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur">💬 Chat</button>
+            <button id="btn-quality" class="btn-hud" title="Qualité graphique 3D">⚙️ Qualité: Élevée</button>
+            <button id="btn-mute" class="btn-hud" title="Son activé/coupé">🔊</button>
+          </div>
+        </header>
+
+        <!-- Suivi des quêtes de M. Fortin -->
+        <aside class="quest-panel" id="quest-panel">
+          <div class="quest-header">
+            <span>📋 Quêtes de M. Fortin</span>
+            <span id="quest-progress-text">0 / 5</span>
+          </div>
+          <p id="quest-objective-hint" class="quest-hint">
+            Parlez à <strong>M. Fortin</strong> au tableau principal.
+          </p>
+          <ul id="quest-list" class="quest-list"></ul>
+          <div class="quick-nav-title">Accès rapide aux postes :</div>
+          <div id="quick-nav-buttons" class="quick-nav-buttons"></div>
+        </aside>
+
+        <!-- Réticule & invite d'interaction -->
+        <div id="crosshair" class="crosshair"></div>
+        <div id="interact-prompt" class="interact-prompt hidden">
+          <span class="key-cap">E</span> <span id="interact-label">Interagir</span>
+        </div>
+
+        <!-- Chat multijoueur repliable -->
+        <aside id="chat-drawer" class="chat-drawer hidden">
+          <div class="chat-header">
+            <span>💬 Salle <strong id="chat-room-name">E204</strong></span>
+            <button id="btn-chat-close" class="icon-close">✕</button>
+          </div>
+          <div id="chat-messages" class="chat-messages"></div>
+          <form id="chat-form" class="chat-form">
+            <input id="chat-input" type="text" maxlength="160" placeholder="Message aux camarades..." />
+            <button type="submit" class="btn-primary btn-sm">Envoyer</button>
+          </form>
+        </aside>
+
+        <!-- Contrôles bas d'écran -->
+        <div class="hud-bottom-hint">
+          <span>ZQSD / Flèches : Bouger</span> •
+          <span>Clic sur la vue 3D : Caméra libre (Échap pour libérer)</span> •
+          <span>E ou Clic poste : Lancer TP</span>
+        </div>
+      </div>
+
+      <!-- Modal Dialogue M. Fortin -->
+      <div id="dialogue-modal" class="modal-backdrop hidden">
+        <div class="dialogue-card">
+          <div class="dialogue-header">
+            <div class="prof-avatar">👨‍🏫</div>
+            <div>
+              <div class="prof-tag">DONNEUR DE QUÊTES • PROFESSEUR PRINCIPAL</div>
+              <h2>M. Fortin — Atelier BAC PRO CIEL</h2>
+            </div>
+            <button id="dialogue-close" class="icon-close" title="Fermer">✕</button>
+          </div>
+          <div id="dialogue-body" class="dialogue-body"></div>
+          <div id="dialogue-choices" class="dialogue-choices"></div>
+        </div>
+      </div>
+
+      <!-- Modal Classement -->
+      <div id="leaderboard-modal" class="modal-backdrop hidden">
+        <div class="dialogue-card leaderboard-card">
+          <div class="dialogue-header">
+            <div class="prof-avatar">🏆</div>
+            <div>
+              <div class="prof-tag">SERVEUR DE CLASSE • TEMPS RÉEL</div>
+              <h2>Tableau d'honneur BAC PRO CIEL</h2>
+            </div>
+            <button id="leaderboard-close" class="icon-close" title="Fermer">✕</button>
+          </div>
+          <div id="leaderboard-body" class="leaderboard-body"></div>
+        </div>
+      </div>
+
+      <!-- Modal Conteneur des Mini-Jeux -->
+      <div id="minigame-modal" class="modal-backdrop hidden">
+        <div class="minigame-shell">
+          <div class="minigame-topbar">
+            <div class="minigame-title-group">
+              <span id="mg-icon" class="mg-icon">⚡</span>
+              <div>
+                <div id="mg-subtitle" class="mg-subtitle">TP BAC PRO CIEL</div>
+                <h2 id="mg-title">Mini-Jeu</h2>
+              </div>
+            </div>
+            <div class="minigame-meta">
+              <div id="mg-stage-pills" class="stage-pills"></div>
+              <div class="mg-timer" id="mg-timer">00:00</div>
+              <button id="mg-exit-btn" class="btn-danger btn-sm">Quitter le TP ✕</button>
+            </div>
+          </div>
+          <div id="mg-content" class="mg-content"></div>
+        </div>
+      </div>
+
+      <!-- Toast notifications -->
+      <div id="toast-container" class="toast-container"></div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
