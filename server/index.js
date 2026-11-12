@@ -34,6 +34,12 @@ export function createGameServer(options = {}) {
     });
   });
 
+  app.get('/api/rooms', (_req, res) => {
+    res.json({
+      rooms: wsHub.getRoomsSummary()
+    });
+  });
+
   app.get('/api/leaderboard', (_req, res) => {
     res.json({
       leaderboard: store.getLeaderboard(25)

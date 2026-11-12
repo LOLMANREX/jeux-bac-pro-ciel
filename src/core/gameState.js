@@ -1,3 +1,5 @@
+import { DEFAULT_SKIN } from '../world/AvatarBuilder.js';
+
 export const TP_CATALOG = [
   {
     id: 'oscilloscope',
@@ -100,6 +102,12 @@ export class GameState {
     this.fov = Number.isFinite(savedFov) && savedFov >= 50 && savedFov <= 110 ? savedFov : 70;
     const savedSens = Number(localStorage.getItem('ciel_sens'));
     this.mouseSens = Number.isFinite(savedSens) && savedSens >= 0.4 && savedSens <= 2.2 ? savedSens : 1.0;
+    try {
+      const rawSkin = JSON.parse(localStorage.getItem('ciel_skin') || 'null');
+      this.skin = rawSkin ? { ...DEFAULT_SKIN, ...rawSkin } : { ...DEFAULT_SKIN };
+    } catch {
+      this.skin = { ...DEFAULT_SKIN };
+    }
     this.listeners = new Set();
   }
 
@@ -135,6 +143,12 @@ export class GameState {
     const clamped = Math.max(0.4, Math.min(2.2, Math.round(Number(sens) * 10) / 10 || 1.0));
     this.mouseSens = clamped;
     localStorage.setItem('ciel_sens', String(clamped));
+    this.emit();
+  }
+
+  setSkin(skin) {
+    this.skin = { ...DEFAULT_SKIN, ...this.skin, ...skin };
+    localStorage.setItem('ciel_skin', JSON.stringify(this.skin));
     this.emit();
   }
 

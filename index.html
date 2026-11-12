@@ -11,53 +11,142 @@
       <!-- Viewport 3D principal -->
       <canvas id="game-canvas" aria-label="Atelier 3D BAC PRO CIEL"></canvas>
 
-      <!-- Écran d'accueil / Connexion élève -->
-      <div id="start-screen" class="overlay-screen">
-        <div class="start-card">
-          <div class="badge-pill">BAC PRO CIEL • LYCÉE &amp; ATELIER 3D</div>
-          <h1>Atelier CIEL <span class="accent">3D</span></h1>
-          <p class="subtitle">
-            Bienvenue dans la salle de TP E204 ! Retrouvez le professeur <strong>M. Fortin</strong>,
-            validez vos 5 travaux pratiques et obtenez votre diplôme BAC PRO CIEL.
-          </p>
+      <!-- Vrai Menu Principal (sur fond 3D animé) -->
+      <div id="start-screen" class="overlay-screen main-menu-backdrop">
+        <div class="main-menu-shell">
+          <div class="menu-left-panel">
+            <div class="badge-pill">BAC PRO CIEL • LYCÉE &amp; ATELIER 3D</div>
+            <h1>Atelier CIEL <span class="accent">3D</span></h1>
+            <p class="subtitle">
+              Bienvenue en salle <strong>E204</strong> ! Retrouvez <strong>M. Fortin</strong>,
+              validez les 5 TPs (Oscilloscope, Brasure, Électronique, Antivirus, VM/VLAN) et jouez en réseau.
+            </p>
 
-          <div class="tp-preview-grid">
-            <div class="tp-chip">〰️ Oscilloscope</div>
-            <div class="tp-chip">🔥 Brasure PCB</div>
-            <div class="tp-chip">⚡ Électronique</div>
-            <div class="tp-chip">🛡️ Antivirus &amp; Cyber</div>
-            <div class="tp-chip">🌐 VM &amp; VLAN 802.1Q</div>
+            <!-- Vue 1 : Accueil du Menu Principal -->
+            <div id="menu-view-home" class="menu-view">
+              <div class="menu-field">
+                <label for="player-name-input">Votre pseudo d'élève :</label>
+                <input
+                  id="player-name-input"
+                  type="text"
+                  maxlength="18"
+                  placeholder="Ex: Lucas_CIEL"
+                  required
+                />
+              </div>
+
+              <div class="menu-nav-buttons">
+                <button type="button" id="menu-btn-play" class="btn-primary btn-menu">
+                  <span>🚀 Lancer / Créer une partie</span>
+                  <small>Solo ou héberger une salle</small>
+                </button>
+                <button type="button" id="menu-btn-join" class="btn-hud btn-menu">
+                  <span>🌐 Rejoindre une partie (Multijoueur)</span>
+                  <small>Voir les salles actives ou entrer un code</small>
+                </button>
+                <button type="button" id="menu-btn-skin" class="btn-hud btn-menu">
+                  <span>🎨 Personnaliser mon Skin 3D</span>
+                  <small>Blouse, couleur, lunettes, casque...</small>
+                </button>
+                <button type="button" id="menu-btn-settings" class="btn-hud btn-menu">
+                  <span>⚙️ Paramètres (FOV, Qualité, Son)</span>
+                  <small>Champ de vision 50°–110°, sensibilité</small>
+                </button>
+              </div>
+            </div>
+
+            <!-- Vue 2 : Lancer / Créer une partie -->
+            <form id="join-form" class="menu-view hidden">
+              <button type="button" class="btn-back" data-back="home">← Retour au menu</button>
+              <h3>🚀 Lancer une partie</h3>
+              <div class="menu-field">
+                <label for="room-select">Choisir une salle :</label>
+                <select id="room-select">
+                  <option value="salle-e204">Salle E204 (Principal)</option>
+                  <option value="salle-reseau">Salle Réseau B12</option>
+                  <option value="custom">Code de salle personnalisé...</option>
+                </select>
+              </div>
+              <div id="custom-room-wrap" class="menu-field hidden">
+                <label for="custom-room-input">Code de votre salle :</label>
+                <input id="custom-room-input" type="text" maxlength="22" placeholder="Ex: classe-1ciel" />
+              </div>
+              <div class="controls-hint">
+                <span><strong>ZQSD / Flèches</strong> : Bouger</span>
+                <span><strong>Espace</strong> : Sauter</span>
+                <span><strong>Souris</strong> : Caméra</span>
+                <span><strong>E</strong> : Interagir</span>
+              </div>
+              <button type="submit" id="start-game-btn" class="btn-primary btn-lg">
+                Entrer dans l'Atelier 3D ▶
+              </button>
+            </form>
+
+            <!-- Vue 3 : Rejoindre une partie Multijoueur -->
+            <div id="menu-view-join" class="menu-view hidden">
+              <button type="button" class="btn-back" data-back="home">← Retour au menu</button>
+              <div class="view-head-row">
+                <h3>🌐 Rejoindre une partie</h3>
+                <button type="button" id="btn-refresh-rooms" class="btn-hud btn-sm">🔄 Actualiser</button>
+              </div>
+              <div id="rooms-list" class="rooms-list">
+                <p class="hint-mini">Chargement des salles en ligne...</p>
+              </div>
+              <div class="join-direct-row">
+                <input id="direct-room-input" type="text" maxlength="22" placeholder="Code de salle (ex: salle-e204)" />
+                <button type="button" id="btn-direct-join" class="btn-primary btn-sm">Rejoindre ▶</button>
+              </div>
+            </div>
+
+            <!-- Vue 4 : Personnaliser son Skin -->
+            <div id="menu-view-skin" class="menu-view hidden">
+              <button type="button" class="btn-back" data-back="home">← Retour au menu</button>
+              <div class="view-head-row">
+                <h3>🎨 Personnalisation du Skin</h3>
+                <button type="button" id="btn-skin-random" class="btn-hud btn-sm">🎲 Aléatoire</button>
+              </div>
+
+              <div class="skin-controls">
+                <div class="skin-group">
+                  <label>Style de tenue</label>
+                  <div id="skin-style-list" class="btn-group"></div>
+                </div>
+                <div class="skin-group">
+                  <label>Couleur de tenue</label>
+                  <div id="skin-color-list" class="swatch-row"></div>
+                </div>
+                <div class="skin-group">
+                  <label>Tête / Accessoire</label>
+                  <div id="skin-hat-list" class="btn-group"></div>
+                </div>
+                <div class="skin-group-inline">
+                  <div>
+                    <label>Peau</label>
+                    <div id="skin-tone-list" class="swatch-row"></div>
+                  </div>
+                  <div>
+                    <label>Pantalon</label>
+                    <div id="skin-pants-list" class="swatch-row"></div>
+                  </div>
+                </div>
+              </div>
+
+              <button type="button" class="btn-primary btn-lg" data-back="home">
+                ✅ Valider mon Skin
+              </button>
+            </div>
+
+            <div class="server-status-line" id="start-server-status">
+              <span class="dot dot-pulse"></span> Connexion au serveur CIEL...
+            </div>
           </div>
 
-          <form id="join-form" class="join-form">
-            <label for="player-name-input">Nom ou pseudo d'élève :</label>
-            <div class="join-row">
-              <input
-                id="player-name-input"
-                type="text"
-                maxlength="18"
-                placeholder="Ex: Lucas_CIEL"
-                required
-              />
-              <select id="room-select" title="Salle serveur">
-                <option value="salle-e204">Salle E204 (Principal)</option>
-                <option value="salle-reseau">Salle Réseau B12</option>
-              </select>
-            </div>
-
-            <div class="controls-hint">
-              <span><strong>ZQSD / Flèches</strong> : Se déplacer</span>
-              <span><strong>Clic + Glisser ou Verrouillage Souris</strong> : Caméra</span>
-              <span><strong>E / Clic</strong> : Interagir</span>
-            </div>
-
-            <button type="submit" id="start-game-btn" class="btn-primary btn-lg">
-              Entrer dans l'Atelier 3D ▶
-            </button>
-          </form>
-
-          <div class="server-status-line" id="start-server-status">
-            <span class="dot dot-pulse"></span> Connexion au serveur CIEL...
+          <!-- Panneau droit : Aperçu 3D en direct du Skin -->
+          <div class="menu-right-preview">
+            <div class="preview-badge">APERÇU 3D EN DIRECT</div>
+            <canvas id="skin-preview-canvas" width="320" height="380"></canvas>
+            <div id="preview-player-tag" class="preview-player-tag">Eleve_CIEL</div>
+            <div class="preview-hint">Glissez pour faire pivoter le personnage</div>
           </div>
         </div>
       </div>
@@ -85,6 +174,7 @@
             <button id="btn-leaderboard" class="btn-hud" title="Classement de la classe">🏆 Classement</button>
             <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur">💬 Chat</button>
             <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris)">⚙️ Paramètres</button>
+            <button id="btn-main-menu" class="btn-hud" title="Retour au menu principal">🏠 Menu</button>
             <button id="btn-mute" class="btn-hud" title="Son activé/coupé">🔊</button>
           </div>
         </header>
@@ -125,7 +215,8 @@
         <!-- Contrôles bas d'écran -->
         <div class="hud-bottom-hint">
           <span>ZQSD / Flèches : Bouger</span> •
-          <span>Clic sur la vue 3D : Caméra libre (Échap pour libérer)</span> •
+          <span>Espace : Sauter</span> •
+          <span>Clic vue 3D : Caméra libre (Échap pour libérer)</span> •
           <span>E ou Clic poste : Lancer TP</span>
         </div>
       </div>

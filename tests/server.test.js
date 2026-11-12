@@ -64,19 +64,35 @@ test('Serveur HTTP + WebSocket multijoueur synchronise 2 élèves en temps réel
 
     const p1SeesP2 = nextMsg(ws1, 'player_joined');
     const p2Welcome = nextMsg(ws2, 'welcome');
-    ws2.send(JSON.stringify({ type: 'join', name: 'Bob', room: 'salle-e204' }));
+    ws2.send(
+      JSON.stringify({
+        type: 'join',
+        name: 'Bob',
+        room: 'salle-e204',
+        skin: { outfitColor: '#10b981', outfitStyle: 'cyber', hat: 'headset' }
+      })
+    );
 
     const [joinedMsg, w2] = await Promise.all([p1SeesP2, p2Welcome]);
     assert.equal(joinedMsg.player.name, 'Bob');
+    assert.equal(joinedMsg.player.skin.outfitStyle, 'cyber');
+    assert.equal(joinedMsg.player.skin.hat, 'headset');
     assert.equal(w2.peers.length, 1);
     assert.equal(w2.peers[0].name, 'Alice');
 
-    // Movement sync
+    // Movement + jump Y sync
     const p1SeesMove = nextMsg(ws1, 'player_moved');
-    ws2.send(JSON.stringify({ type: 'move', x: 3.5, y: 0, z: -2.1, yaw: 1.2 }));
+    ws2.send(JSON.stringify({ type: 'move', x: 3.5, y: 0.95, z: -2.1, yaw: 1.2 }));
     const moved = await p1SeesMove;
     assert.equal(moved.x, 3.5);
+    assert.equal(moved.y, 0.95);
     assert.equal(moved.z, -2.1);
+
+    // Rooms list API
+    const roomsRes = await fetch(`${baseUrl}/api/rooms`);
+    const roomsData = await roomsRes.json();
+    const e204 = roomsData.rooms.find((r) => r.room === 'salle-e204');
+    assert.equal(e204.count, 2);
 
     // Score submission over WS
     const scoreRecorded = nextMsg(ws1, 'score_recorded');

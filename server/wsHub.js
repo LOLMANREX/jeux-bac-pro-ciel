@@ -2,7 +2,31 @@ import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { sanitizeName, TP_IDS } from './store.js';
 
-const VALID_ROOMS = new Set(['salle-e204', 'salle-reseau']);
+const DEFAULT_ROOMS = ['salle-e204', 'salle-reseau'];
+
+function sanitizeRoom(raw) {
+  const cleaned = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 22);
+  return cleaned || 'salle-e204';
+}
+
+function sanitizeSkin(raw) {
+  const s = raw && typeof raw === 'object' ? raw : {};
+  const hexOk = (v, fallback) => (/^#[0-9a-fA-F]{6}$/.test(String(v || '')) ? String(v) : fallback);
+  const styles = new Set(['blouse', 'hoodie', 'cyber']);
+  const hats = new Set(['none', 'cap', 'headset', 'glasses']);
+  return {
+    outfitColor: hexOk(s.outfitColor, '#22d3ee'),
+    outfitStyle: styles.has(s.outfitStyle) ? s.outfitStyle : 'blouse',
+    hat: hats.has(s.hat) ? s.hat : 'glasses',
+    skinTone: hexOk(s.skinTone, '#f1c29b'),
+    pantsColor: hexOk(s.pantsColor, '#1e293b')
+  };
+}
 
 function clamp(val, min, max) {
   const num = Number(val);
@@ -50,7 +74,8 @@ export function attachWsHub(httpServer, store) {
       z: 6.5,
       yaw: 0,
       activity: 'Connexion...',
-      color: '#22d3ee'
+      color: '#22d3ee',
+      skin: sanitizeSkin(null)
     };
     clients.set(ws, state);
 
@@ -66,11 +91,13 @@ export function attachWsHub(httpServer, store) {
       switch (msg.type) {
         case 'join': {
           const name = sanitizeName(msg.name);
-          const room = VALID_ROOMS.has(msg.room) ? msg.room : 'salle-e204';
+          const room = sanitizeRoom(msg.room);
+          const skin = sanitizeSkin(msg.skin);
           const profile = store.getOrCreatePlayer(name);
 
           state.name = profile.name;
-          state.color = profile.color;
+          state.color = skin.outfitColor || profile.color;
+          state.skin = skin;
           state.room = room;
           state.activity = 'Dans l’atelier';
           state.x = clamp(msg.x ?? 0, -14, 14);
@@ -82,6 +109,7 @@ export function attachWsHub(httpServer, store) {
             id: p.id,
             name: p.name,
             color: p.color,
+            skin: p.skin,
             x: p.x,
             y: p.y,
             z: p.z,
@@ -109,6 +137,7 @@ export function attachWsHub(httpServer, store) {
                 id: state.id,
                 name: state.name,
                 color: state.color,
+                skin: state.skin,
                 x: state.x,
                 y: state.y,
                 z: state.z,
@@ -245,6 +274,20 @@ export function attachWsHub(httpServer, store) {
         if (s.name) count++;
       }
       return count;
+    },
+    getRoomsSummary: () => {
+      const map = new Map();
+      for (const def of DEFAULT_ROOMS) {
+        map.set(def, { room: def, count: 0, players: [] });
+      }
+      for (const s of clients.values()) {
+        if (!s.name) continue;
+        if (!map.has(s.room)) map.set(s.room, { room: s.room, count: 0, players: [] });
+        const entry = map.get(s.room);
+        entry.count++;
+        entry.players.push(s.name);
+      }
+      return [...map.values()];
     },
     close: () => wss.close()
   };

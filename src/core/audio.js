@@ -47,6 +47,11 @@ class SoundEngine {
     this.playTone(620, 0.045, 'triangle', 0.06);
   }
 
+  jump() {
+    this.playTone(280, 0.06, 'sine', 0.05);
+    setTimeout(() => this.playTone(420, 0.07, 'sine', 0.04), 35);
+  }
+
   interact() {
     this.playTone(523.25, 0.07, 'sine', 0.07);
     setTimeout(() => this.playTone(659.25, 0.09, 'sine', 0.07), 55);

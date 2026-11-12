@@ -1,12 +1,16 @@
 import * as THREE from 'three';
 
 export class PlayerController {
-  constructor(camera, canvas, colliders = []) {
+  constructor(camera, canvas, colliders = [], options = {}) {
     this.camera = camera;
     this.canvas = canvas;
     this.colliders = colliders;
+    this.onJump = options.onJump || null;
 
-    this.position = new THREE.Vector3(0, 1.68, 7.2);
+    this.groundY = 1.68;
+    this.position = new THREE.Vector3(0, this.groundY, 7.2);
+    this.velocityY = 0;
+    this.isGrounded = true;
     this.yaw = 0;
     this.pitch = -0.05;
     this.speed = 5.4;
@@ -94,7 +98,9 @@ export class PlayerController {
   }
 
   teleportTo(targetPos, lookAtPos) {
-    this.position.set(targetPos.x, 1.68, targetPos.z);
+    this.position.set(targetPos.x, this.groundY, targetPos.z);
+    this.velocityY = 0;
+    this.isGrounded = true;
     if (lookAtPos) {
       const dx = lookAtPos.x - targetPos.x;
       const dz = lookAtPos.z - targetPos.z;
@@ -151,6 +157,23 @@ export class PlayerController {
       }
       if (!this._collides(this.position.x, this.position.z + dz)) {
         this.position.z += dz;
+      }
+    }
+
+    // Jump with Spacebar
+    if (this.keys.has('Space') && this.isGrounded) {
+      this.velocityY = 6.2;
+      this.isGrounded = false;
+      this.onJump?.();
+    }
+
+    if (!this.isGrounded) {
+      this.velocityY -= 18.5 * dt;
+      this.position.y += this.velocityY * dt;
+      if (this.position.y <= this.groundY) {
+        this.position.y = this.groundY;
+        this.velocityY = 0;
+        this.isGrounded = true;
       }
     }
 

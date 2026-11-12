@@ -73,11 +73,19 @@ export class HudManager {
     };
     syncSettingsUi();
 
-    document.getElementById('btn-settings').addEventListener('click', () => {
+    const openSettings = () => {
       sfx.click();
       syncSettingsUi();
       this.settingsModal.classList.remove('hidden');
       this.handlers.onModalOpen?.(true);
+    };
+    this.openSettingsModal = openSettings;
+
+    document.getElementById('btn-settings').addEventListener('click', openSettings);
+
+    document.getElementById('btn-main-menu')?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onReturnToMenu?.();
     });
 
     document.getElementById('settings-close').addEventListener('click', () => {
@@ -198,6 +206,12 @@ export class HudManager {
     this.hudEl.classList.remove('hidden');
     this.chatRoomNameEl.textContent = this.gameState.room;
     this.refresh();
+  }
+
+  hide() {
+    this.hudEl.classList.add('hidden');
+    this.chatDrawer.classList.add('hidden');
+    this.interactPromptEl.classList.add('hidden');
   }
 
   refresh() {

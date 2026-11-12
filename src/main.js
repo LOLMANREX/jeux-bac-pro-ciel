@@ -11,6 +11,7 @@ import { createNpcFortin } from './world/NpcFortin.js';
 import { PlayerController } from './world/PlayerController.js';
 import { RemotePlayersManager } from './world/RemotePlayers.js';
 import { HudManager } from './ui/HudManager.js';
+import { MainMenu } from './ui/MainMenu.js';
 import { DialogueModal } from './ui/DialogueModal.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
 import { createOscilloscopeGame } from './minigames/OscilloscopeGame.js';
@@ -40,7 +41,9 @@ const fortin = createNpcFortin(sceneMgr.scene);
 const allColliders = [...lab.colliders, fortin.collider];
 const allInteractables = [fortin.interactable, ...lab.interactables];
 
-const player = new PlayerController(sceneMgr.camera, canvas, allColliders);
+const player = new PlayerController(sceneMgr.camera, canvas, allColliders, {
+  onJump: () => sfx.jump()
+});
 player.setSensitivity(gameState.mouseSens);
 const remotePlayers = new RemotePlayersManager(sceneMgr.scene);
 
@@ -139,8 +142,19 @@ const hud = new HudManager(gameState, network, {
   onFovChange: (fov) => sceneMgr.setFov(fov),
   onSensitivityChange: (s) => player.setSensitivity(s),
   onQuickNav: (id) => teleportNearTarget(id),
-  onModalOpen: (isOpen) => setModalActive(isOpen, false)
+  onModalOpen: (isOpen) => setModalActive(isOpen, false),
+  onReturnToMenu: () => returnToMainMenu()
 });
+
+function returnToMainMenu() {
+  joined = false;
+  modalOpen = false;
+  player.setEnabled(false);
+  network.disconnect();
+  remotePlayers.clearAll();
+  hud.hide();
+  mainMenu.show();
+}
 
 // Networking bindings
 network.on('status', ({ connected }) => {
@@ -243,13 +257,23 @@ canvas.addEventListener('mouseup', (e) => {
 
 // Main 3D update loop
 sceneMgr.addUpdater((dt, elapsed) => {
-  player.update(dt);
   lab.update(elapsed);
-  fortin.update(elapsed, player.position, gameState.profile.diplomaEarned);
+  fortin.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned);
   remotePlayers.update(dt);
 
-  if (joined && !modalOpen) {
-    network.sendMove(player.position.x, 0, player.position.z, player.yaw);
+  if (!joined) {
+    // Gentle cinematic camera orbit across the 3D workshop on Main Menu
+    const angle = elapsed * 0.14;
+    sceneMgr.camera.position.set(Math.sin(angle) * 9.5, 3.2, Math.cos(angle) * 7.5 + 1.2);
+    sceneMgr.camera.lookAt(0, 1.3, -2.2);
+    return;
+  }
+
+  player.update(dt);
+
+  if (!modalOpen) {
+    const jumpY = Math.max(0, player.position.y - player.groundY);
+    network.sendMove(player.position.x, jumpY, player.position.z, player.yaw);
 
     // Find nearest interactable
     let best = null;
@@ -270,43 +294,22 @@ sceneMgr.addUpdater((dt, elapsed) => {
 
 sceneMgr.start();
 
-// Start screen & server health probe
-const startScreen = document.getElementById('start-screen');
-const joinForm = document.getElementById('join-form');
-const nameInput = document.getElementById('player-name-input');
-const roomSelect = document.getElementById('room-select');
-const startStatus = document.getElementById('start-server-status');
+const mainMenu = new MainMenu(gameState, network, {
+  onOpenSettings: () => hud.openSettingsModal?.(),
+  onStartGame: ({ name, room, skin }) => {
+    gameState.room = room;
+    gameState.setProfile({ ...gameState.profile, name });
+    joined = true;
 
-nameInput.value = localStorage.getItem('ciel_player_name') || '';
+    hud.show();
+    player.setEnabled(true);
+    network.connect(name, room, skin);
 
-network.checkHealth().then((health) => {
-  if (health?.ok) {
-    startStatus.innerHTML = `<span class="dot online"></span> Serveur CIEL en ligne (${health.playersOnline} joueur(s) connecté(s))`;
-  } else {
-    startStatus.innerHTML = `<span class="dot"></span> Mode local prêt (serveur en attente)`;
+    // Orient player cleanly toward M. Fortin at start
+    player.teleportTo({ x: 0, z: 6.2 }, FORTIN_POS);
+
+    setTimeout(() => {
+      hud.toast('Approchez-vous de M. Fortin et appuyez sur E pour commencer !');
+    }, 500);
   }
-});
-
-joinForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const name = nameInput.value.trim() || 'Eleve_CIEL';
-  const room = roomSelect.value || 'salle-e204';
-  localStorage.setItem('ciel_player_name', name);
-
-  sfx.interact();
-  gameState.room = room;
-  gameState.setProfile({ ...gameState.profile, name });
-  joined = true;
-
-  startScreen.classList.add('hidden');
-  hud.show();
-  player.setEnabled(true);
-  network.connect(name, room);
-
-  // Orient player cleanly toward M. Fortin at start
-  player.teleportTo({ x: 0, z: 6.2 }, FORTIN_POS);
-
-  setTimeout(() => {
-    hud.toast('Approchez-vous de M. Fortin et appuyez sur E pour commencer !');
-  }, 500);
 });

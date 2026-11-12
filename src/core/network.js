@@ -42,9 +42,33 @@ export class NetworkClient {
     }
   }
 
-  connect(name, room = 'salle-e204') {
-    this.pendingJoin = { name, room };
+  async fetchRooms() {
+    try {
+      const res = await fetch('/api/rooms');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.rooms || [];
+    } catch {
+      return [];
+    }
+  }
+
+  connect(name, room = 'salle-e204', skin = null) {
+    this.pendingJoin = { name, room, skin };
     this._openSocket();
+  }
+
+  disconnect() {
+    this.pendingJoin = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this.connected = false;
   }
 
   _openSocket() {
@@ -68,7 +92,8 @@ export class NetworkClient {
         this.send({
           type: 'join',
           name: this.pendingJoin.name,
-          room: this.pendingJoin.room
+          room: this.pendingJoin.room,
+          skin: this.pendingJoin.skin
         });
       }
     });

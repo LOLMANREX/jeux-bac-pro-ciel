@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildStudentAvatarMesh } from './AvatarBuilder.js';
 
 function makeStudentBadge(name, color, activity) {
   const canvas = document.createElement('canvas');
@@ -52,58 +53,37 @@ export class RemotePlayersManager {
       return;
     }
 
-    const group = new THREE.Group();
-    group.position.set(p.x || 0, 0, p.z || 6);
+    const accentColor = p.skin?.outfitColor || p.color || '#22d3ee';
+    const { group, leftLeg, rightLeg } = buildStudentAvatarMesh(p.skin || { outfitColor: accentColor });
+    group.position.set(p.x || 0, p.y || 0, p.z || 6);
 
-    const bodyMat = new THREE.MeshStandardMaterial({ color: p.color || '#22d3ee', roughness: 0.55 });
-    const legMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.7 });
-    const skinMat = new THREE.MeshStandardMaterial({ color: '#f1c29b', roughness: 0.7 });
-
-    const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.7, 0.18), legMat);
-    leftLeg.position.set(-0.12, 0.35, 0);
-    group.add(leftLeg);
-
-    const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.7, 0.18), legMat);
-    rightLeg.position.set(0.12, 0.35, 0);
-    group.add(rightLeg);
-
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.66, 0.28), bodyMat);
-    torso.position.y = 1.05;
-    torso.castShadow = true;
-    group.add(torso);
-
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.32), skinMat);
-    head.position.y = 1.56;
-    head.castShadow = true;
-    group.add(head);
-
-    const badgeTex = makeStudentBadge(p.name, p.color || '#22d3ee', p.activity);
+    const badgeTex = makeStudentBadge(p.name, accentColor, p.activity);
     const badgeMat = new THREE.SpriteMaterial({ map: badgeTex, transparent: true, depthTest: false });
     const badge = new THREE.Sprite(badgeMat);
     badge.scale.set(2.0, 0.55, 1);
-    badge.position.set(0, 2.2, 0);
+    badge.position.set(0, 2.25, 0);
     group.add(badge);
 
     this.scene.add(group);
     this.peers.set(p.id, {
       id: p.id,
       name: p.name,
-      color: p.color || '#22d3ee',
+      color: accentColor,
       activity: p.activity || 'Dans l’atelier',
       group,
       leftLeg,
       rightLeg,
       badge,
-      targetPos: new THREE.Vector3(p.x || 0, 0, p.z || 6),
+      targetPos: new THREE.Vector3(p.x || 0, p.y || 0, p.z || 6),
       targetYaw: p.yaw || 0,
       walkPhase: 0
     });
   }
 
-  movePeer(id, x, _y, z, yaw) {
+  movePeer(id, x, y, z, yaw) {
     const peer = this.peers.get(id);
     if (!peer) return;
-    peer.targetPos.set(x, 0, z);
+    peer.targetPos.set(x, Math.max(0, Number(y) || 0), z);
     peer.targetYaw = yaw || 0;
   }
 
@@ -126,17 +106,26 @@ export class RemotePlayersManager {
     this.peers.delete(id);
   }
 
+  clearAll() {
+    for (const id of [...this.peers.keys()]) {
+      this.removePeer(id);
+    }
+  }
+
   update(dt) {
     for (const peer of this.peers.values()) {
-      const dist = peer.group.position.distanceTo(peer.targetPos);
-      peer.group.position.lerp(peer.targetPos, Math.min(1, dt * 10));
+      const horizDist = Math.hypot(
+        peer.group.position.x - peer.targetPos.x,
+        peer.group.position.z - peer.targetPos.z
+      );
+      peer.group.position.lerp(peer.targetPos, Math.min(1, dt * 12));
 
       let diff = peer.targetYaw - peer.group.rotation.y;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       peer.group.rotation.y += diff * Math.min(1, dt * 10);
 
-      if (dist > 0.04) {
+      if (horizDist > 0.04) {
         peer.walkPhase += dt * 12;
         peer.leftLeg.rotation.x = Math.sin(peer.walkPhase) * 0.45;
         peer.rightLeg.rotation.x = -Math.sin(peer.walkPhase) * 0.45;
