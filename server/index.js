@@ -19,7 +19,13 @@ export function createGameServer(options = {}) {
 
   const store = new GameStore(dbPath);
   const app = express();
+  app.set('trust proxy', 1);
   app.use(express.json());
+  app.use('/api', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    next();
+  });
 
   const server = http.createServer(app);
   const wsHub = attachWsHub(server, store);

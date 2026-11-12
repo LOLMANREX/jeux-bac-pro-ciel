@@ -39,8 +39,8 @@ function isValidHex(val) {
 export function sanitizeName(rawName) {
   const cleaned = String(rawName || '')
     .trim()
-    .replace(/[^\p{L}\p{N}_\- ]/gu, '')
-    .slice(0, 18);
+    .replace(/[^\p{L}\p{N}_\- #]/gu, '')
+    .slice(0, 22);
   return cleaned || 'Eleve_CIEL';
 }
 

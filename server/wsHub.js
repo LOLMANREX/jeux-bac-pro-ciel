@@ -21,9 +21,40 @@ function clamp(val, min, max) {
 }
 
 export function attachWsHub(httpServer, store) {
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: '/ws',
+    perMessageDeflate: false
+  });
   const clients = new Map();
   const roomChats = new Map();
+
+  function resolveUniqueSessionName(rawName, currentWs) {
+    const clean = sanitizeName(rawName);
+    const base = clean.replace(/#\d+$/, '').trim().slice(0, 18) || 'Eleve_CIEL';
+    const activeLower = new Set();
+    for (const [sock, s] of clients.entries()) {
+      if (sock !== currentWs && s.name && sock.readyState === 1) {
+        activeLower.add(s.name.toLowerCase());
+      }
+    }
+    if (!activeLower.has(clean.toLowerCase())) {
+      return clean;
+    }
+    let idx = 2;
+    while (activeLower.has(`${base}#${idx}`.toLowerCase())) {
+      idx++;
+    }
+    return `${base}#${idx}`;
+  }
+
+  function getTotalOnlineCount() {
+    let count = 0;
+    for (const [sock, s] of clients.entries()) {
+      if (s.name && sock.readyState === 1) count++;
+    }
+    return count;
+  }
 
   function getRoomPeers(roomId, excludeWs = null) {
     const peers = [];
@@ -191,7 +222,32 @@ export function attachWsHub(httpServer, store) {
     }
   }
 
+  const heartbeatInterval = setInterval(() => {
+    for (const [sock] of clients.entries()) {
+      if (sock.readyState !== 1) continue;
+      if (sock.isAlive === false) {
+        sock.terminate();
+        continue;
+      }
+      sock.isAlive = false;
+      sock.ping();
+    }
+  }, 25000);
+  heartbeatInterval.unref?.();
+
+  wss.on('error', () => {});
+
+  wss.on('close', () => {
+    clearInterval(heartbeatInterval);
+  });
+
   wss.on('connection', (ws) => {
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+    ws.on('error', () => {});
+
     const clientId = crypto.randomUUID().slice(0, 8);
     const state = {
       id: clientId,
@@ -208,6 +264,7 @@ export function attachWsHub(httpServer, store) {
     clients.set(ws, state);
 
     ws.on('message', (rawBuffer) => {
+      ws.isAlive = true;
       let msg;
       try {
         msg = JSON.parse(rawBuffer.toString('utf8'));
@@ -218,7 +275,7 @@ export function attachWsHub(httpServer, store) {
 
       switch (msg.type) {
         case 'join': {
-          const name = sanitizeName(msg.name);
+          const name = resolveUniqueSessionName(msg.name, ws);
           const room = sanitizeRoom(msg.room);
           const incomingSkin = msg.skin && typeof msg.skin === 'object' ? msg.skin : null;
           const profile = store.getOrCreatePlayer(name, incomingSkin);
@@ -399,7 +456,15 @@ export function attachWsHub(httpServer, store) {
         }
 
         case 'ping': {
-          ws.send(JSON.stringify({ type: 'pong', t: Date.now() }));
+          const roomCount = state.name ? getRoomPeers(state.room, ws).length + 1 : 0;
+          ws.send(
+            JSON.stringify({
+              type: 'pong',
+              t: Date.now(),
+              onlineCount: roomCount,
+              totalOnline: getTotalOnlineCount()
+            })
+          );
           break;
         }
       }
@@ -423,13 +488,7 @@ export function attachWsHub(httpServer, store) {
   });
 
   return {
-    getOnlineCount: () => {
-      let count = 0;
-      for (const s of clients.values()) {
-        if (s.name) count++;
-      }
-      return count;
-    },
+    getOnlineCount: getTotalOnlineCount,
     getRoomsSummary: () => {
       const map = new Map();
       for (const def of DEFAULT_ROOMS) {
@@ -476,6 +535,9 @@ export function attachWsHub(httpServer, store) {
       }
       broadcastLeaderboard();
     },
-    close: () => wss.close()
+    close: () => {
+      clearInterval(heartbeatInterval);
+      return wss.close();
+    }
   };
 }

@@ -1,4 +1,5 @@
 import { sfx } from '../core/audio.js';
+import { DEFAULT_ROOM } from '../core/network.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 
 export class MainMenu {
@@ -45,7 +46,27 @@ export class MainMenu {
     this._initName();
     this.renderSkinUi();
     this._bindEvents();
+    this.pollTimer = null;
+    this._startPolling();
+  }
+
+  _startPolling() {
+    this._stopPolling();
     this.refreshHealth();
+    this.pollTimer = setInterval(() => {
+      if (!this.visible) return;
+      this.refreshHealth();
+      if (!this.views.join.classList.contains('hidden')) {
+        this.refreshRooms(true);
+      }
+    }, 4000);
+  }
+
+  _stopPolling() {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
   }
 
   _initName() {
@@ -66,8 +87,14 @@ export class MainMenu {
       this.previewTag.textContent = val || 'Eleve_CIEL';
     });
 
+    document.getElementById('menu-btn-quickplay')?.addEventListener('click', () => {
+      this._launchWithRoom(DEFAULT_ROOM);
+    });
+
     document.getElementById('menu-btn-play').addEventListener('click', () => {
       sfx.click();
+      this.roomSelect.value = DEFAULT_ROOM;
+      this.customRoomWrap.classList.add('hidden');
       this.showView('play');
     });
 
@@ -114,7 +141,7 @@ export class MainMenu {
     });
 
     document.getElementById('btn-direct-join').addEventListener('click', () => {
-      const code = this.directRoomInput.value.trim() || 'salle-e204';
+      const code = this.directRoomInput.value.trim() || DEFAULT_ROOM;
       this._launchWithRoom(code);
     });
 
@@ -140,8 +167,10 @@ export class MainMenu {
     });
   }
 
-  async refreshRooms() {
-    this.roomsListEl.innerHTML = '<p class="hint-mini">Recherche des salles actives...</p>';
+  async refreshRooms(silent = false) {
+    if (!silent) {
+      this.roomsListEl.innerHTML = '<p class="hint-mini">Recherche des salles actives...</p>';
+    }
     const rooms = await this.network.fetchRooms();
     if (!rooms || rooms.length === 0) {
       this.roomsListEl.innerHTML = '<p class="hint-mini">Aucune salle détectée pour le moment.</p>';
@@ -170,9 +199,10 @@ export class MainMenu {
   async refreshHealth() {
     const health = await this.network.checkHealth();
     if (health?.ok) {
-      this.statusEl.innerHTML = `<span class="dot online"></span> Serveur CIEL en ligne (${health.playersOnline} joueur(s) connecté(s))`;
+      this.statusEl.innerHTML = `<span class="dot online"></span> Serveur CIEL connecté — <strong>${health.playersOnline}</strong> joueur(s) en ligne`;
     } else {
-      this.statusEl.innerHTML = `<span class="dot"></span> Mode local prêt (serveur en attente)`;
+      const reason = health?.error ? ` (${health.error})` : '';
+      this.statusEl.innerHTML = `<span class="dot error"></span> Serveur multijoueur inaccessible${reason} — Mode solo local`;
     }
   }
 
@@ -182,11 +212,12 @@ export class MainMenu {
     this.renderSkinUi();
     this.preview.setActive(true);
     this.showView('home');
-    this.refreshHealth();
+    this._startPolling();
   }
 
   hide() {
     this.visible = false;
+    this._stopPolling();
     this.preview.setActive(false);
     this.root.classList.add('hidden');
   }

@@ -17,6 +17,8 @@ export class HudManager {
     this.netText = document.getElementById('net-text');
     this.netRoomTag = document.getElementById('net-room-tag');
     this.onlineCountEl = document.getElementById('online-count');
+    this.netErrorBanner = document.getElementById('net-error-banner');
+    this.netErrorText = document.getElementById('net-error-text');
     this.rosterPopover = document.getElementById('room-roster-popover');
 
     this.questProgressEl = document.getElementById('quest-progress-text');
@@ -222,6 +224,11 @@ export class HudManager {
       } else {
         this.rosterPopover.classList.add('hidden');
       }
+    });
+
+    document.getElementById('btn-net-retry')?.addEventListener('click', () => {
+      sfx.click();
+      this.network.reconnectNow();
     });
 
     document.addEventListener('click', (e) => {
@@ -461,6 +468,7 @@ export class HudManager {
 
   hide() {
     this.closeAllModals();
+    this.netErrorBanner?.classList.add('hidden');
     this.hudEl.classList.add('hidden');
     this.chatDrawer.classList.add('hidden');
     this.interactPromptEl.classList.add('hidden');
@@ -497,9 +505,39 @@ export class HudManager {
     }).join('');
   }
 
-  setNetworkStatus(connected, onlineCount) {
-    this.netPill.classList.toggle('online', connected);
-    this.netText.textContent = connected ? 'En ligne' : 'Reconnexion...';
+  setNetworkStatus(statusInput, onlineCount) {
+    const status =
+      typeof statusInput === 'object' && statusInput !== null
+        ? statusInput
+        : { state: statusInput ? 'connected' : 'reconnecting', connected: Boolean(statusInput) };
+
+    const isConnected = Boolean(status.connected);
+    const isConnecting = status.state === 'connecting';
+    const isReconnecting = !isConnected && !isConnecting && status.state !== 'disconnected';
+
+    this.netPill.classList.toggle('online', isConnected);
+    this.netPill.classList.toggle('connecting', isConnecting);
+    this.netPill.classList.toggle('error', isReconnecting);
+
+    if (isConnected) {
+      this.netText.textContent = 'Connecté';
+      this.netPill.title = `Connecté en temps réel (${status.url || this.network.wsUrl || '/ws'})`;
+      this.netErrorBanner?.classList.add('hidden');
+    } else if (isConnecting) {
+      this.netText.textContent = 'Connexion...';
+      this.netPill.title = `Connexion WebSocket vers ${status.url || '/ws'}`;
+    } else {
+      const attemptTxt = status.attempt ? ` (#${status.attempt})` : '';
+      this.netText.textContent = `Hors ligne${attemptTxt}`;
+      const errDetail = status.error || 'Connexion WebSocket indisponible';
+      this.netPill.title = errDetail;
+      if (this.netErrorBanner && this.netErrorText && status.state === 'reconnecting') {
+        const sec = Math.max(1, Math.round((status.delayMs || 2000) / 1000));
+        this.netErrorText.textContent = `⚠️ ${errDetail} — Nouvelle tentative dans ${sec}s...`;
+        this.netErrorBanner.classList.remove('hidden');
+      }
+    }
+
     if (this.netRoomTag) this.netRoomTag.textContent = this.gameState.room;
     if (typeof onlineCount === 'number') {
       const label = onlineCount > 1 ? `${onlineCount} élèves` : `${onlineCount} élève`;

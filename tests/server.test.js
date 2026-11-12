@@ -6,6 +6,7 @@ import test from 'node:test';
 import { WebSocket } from 'ws';
 import { createGameServer } from '../server/index.js';
 import { GameStore, TP_IDS } from '../server/store.js';
+import { buildWebSocketUrl } from '../src/core/network.js';
 
 test('GameStore enregistre les notes /20 et débloque le diplôme après 5 TPs >= 10', () => {
   const store = new GameStore(null); // in-memory mode
@@ -197,5 +198,85 @@ test('GameStore assure la rétrocompatibilité db.json et persiste skin, moyenne
     assert.equal(lb[0].rank, 1);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('buildWebSocketUrl gère HTTPS/WSS et HTTP/WS dynamiquement sans port codé en dur', () => {
+  assert.equal(
+    buildWebSocketUrl({ protocol: 'https:', host: 'ciel.monlycee.fr' }),
+    'wss://ciel.monlycee.fr/ws'
+  );
+  assert.equal(
+    buildWebSocketUrl({ protocol: 'http:', host: '192.168.1.50:8080' }),
+    'ws://192.168.1.50:8080/ws'
+  );
+});
+
+test('Multi-onglet : deux connexions avec le même pseudo coexistent avec suffixe #2 dans salle-e204', async () => {
+  const { server, wsHub } = createGameServer({ dbPath: null });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const wsUrl = `ws://127.0.0.1:${port}/ws`;
+
+  try {
+    const ws1 = new WebSocket(wsUrl);
+    const ws2 = new WebSocket(wsUrl);
+
+    const waitType = (sock, type) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Timeout ${type}`)), 3000);
+        const handler = (raw) => {
+          const msg = JSON.parse(raw.toString('utf8'));
+          if (msg.type === type) {
+            clearTimeout(timer);
+            sock.off('message', handler);
+            resolve(msg);
+          }
+        };
+        sock.on('message', handler);
+      });
+
+    await Promise.all([
+      new Promise((r) => ws1.once('open', r)),
+      new Promise((r) => ws2.once('open', r))
+    ]);
+
+    const w1Promise = waitType(ws1, 'welcome');
+    ws1.send(JSON.stringify({ type: 'join', name: 'Lucas' }));
+    const w1 = await w1Promise;
+    assert.equal(w1.room, 'salle-e204');
+    assert.equal(w1.profile.name, 'Lucas');
+
+    const w2Promise = waitType(ws2, 'welcome');
+    const p1Joined = waitType(ws1, 'player_joined');
+    ws2.send(JSON.stringify({ type: 'join', name: 'Lucas' }));
+    const [w2, joined] = await Promise.all([w2Promise, p1Joined]);
+
+    assert.equal(w2.room, 'salle-e204');
+    assert.equal(w2.profile.name, 'Lucas#2');
+    assert.equal(w2.onlineCount, 2);
+    assert.equal(w2.peers.length, 1);
+    assert.equal(joined.player.name, 'Lucas#2');
+    assert.equal(joined.onlineCount, 2);
+    assert.equal(ws1.readyState, WebSocket.OPEN);
+    assert.equal(ws2.readyState, WebSocket.OPEN);
+
+    const pongPromise = waitType(ws2, 'pong');
+    ws2.send(JSON.stringify({ type: 'ping' }));
+    const pong = await pongPromise;
+    assert.equal(pong.onlineCount, 2);
+    assert.equal(pong.totalOnline, 2);
+
+    const healthRes = await fetch(`${baseUrl}/api/health`);
+    assert.ok((healthRes.headers.get('cache-control') || '').includes('no-store'));
+    const health = await healthRes.json();
+    assert.equal(health.playersOnline, 2);
+
+    ws1.close();
+    ws2.close();
+  } finally {
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
   }
 });

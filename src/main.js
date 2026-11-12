@@ -197,20 +197,40 @@ function returnToMainMenu() {
   mainMenu.show();
 }
 
-network.on('status', ({ connected }) => {
-  hud.setNetworkStatus(connected);
+let notifiedNetError = false;
+
+network.on('status', (status) => {
+  hud.setNetworkStatus(status);
+  if (status.state === 'reconnecting' && !notifiedNetError) {
+    notifiedNetError = true;
+    hud.toast(
+      `Connexion WebSocket perdue (${status.error || 'erreur réseau'}) — Reconnexion auto...`,
+      'error'
+    );
+  }
+});
+
+network.on('pong', ({ onlineCount }) => {
+  if (typeof onlineCount === 'number') {
+    hud.setNetworkStatus({ state: 'connected', connected: true }, onlineCount);
+  }
 });
 
 network.on('welcome', (msg) => {
+  const requestedName = gameState.profile.name;
+  notifiedNetError = false;
   gameState.setProfile(msg.profile);
   lab.updateStationBadges(msg.profile.grades);
   remotePlayers.setPeers(msg.peers);
   gameState.setRoomRoster(msg.roomRoster || []);
   gameState.setLeaderboard(msg.leaderboard || []);
   remotePlayers.syncLeaderboardRanks(msg.leaderboard || []);
-  hud.setNetworkStatus(true, msg.onlineCount);
+  hud.setNetworkStatus({ state: 'connected', connected: true }, msg.onlineCount);
   hud.clearChat();
   (msg.chatHistory || []).forEach((m) => hud.appendChatMessage(m, false));
+  if (requestedName && msg.profile?.name && requestedName !== msg.profile.name) {
+    hud.toast(`Multi-onglet détecté : connecté sous "${msg.profile.name}"`, 'info');
+  }
   hud.toast(`Connecté en ${msg.room} (${msg.onlineCount} élève(s) en ligne)`, 'success');
 });
 
@@ -421,7 +441,9 @@ sceneMgr.start();
 const mainMenu = new MainMenu(gameState, network, {
   onOpenSettings: () => hud.openSettingsModal?.(),
   onStartGame: ({ name, room, skin }) => {
-    gameState.room = room;
+    const cleanRoom = room || 'salle-e204';
+    notifiedNetError = false;
+    gameState.room = cleanRoom;
     gameState.setProfile({ ...gameState.profile, name, skin });
     rebuildLocalAvatar(skin);
     joined = true;
@@ -431,7 +453,7 @@ const mainMenu = new MainMenu(gameState, network, {
     player.setCameraMode(gameState.cameraMode);
     player.setEnabled(true);
     player.teleportTo({ x: 0, z: 6.2 }, FORTIN_POS);
-    network.connect(name, room, skin, {
+    network.connect(name, cleanRoom, skin, {
       x: 0,
       y: 0,
       z: 6.2,

@@ -36,9 +36,13 @@
               </div>
 
               <div class="menu-nav-buttons">
-                <button type="button" id="menu-btn-play" class="btn-primary btn-menu">
-                  <span>🚀 Lancer / Créer une partie</span>
-                  <small>Solo ou héberger une salle</small>
+                <button type="button" id="menu-btn-quickplay" class="btn-primary btn-menu">
+                  <span>⚡ Partie Rapide (Salle E204)</span>
+                  <small>Rejoindre directement la salle commune avec la classe</small>
+                </button>
+                <button type="button" id="menu-btn-play" class="btn-hud btn-menu">
+                  <span>🚀 Choisir / Créer une salle</span>
+                  <small>Salle E204, Réseau B12 ou code personnalisé</small>
                 </button>
                 <button type="button" id="menu-btn-join" class="btn-hud btn-menu">
                   <span>🌐 Rejoindre une partie (Multijoueur)</span>
@@ -193,6 +197,11 @@
             <button id="btn-mute" class="btn-hud" title="Son activé/coupé">🔊</button>
           </div>
         </header>
+
+        <div id="net-error-banner" class="net-error-banner hidden">
+          <span id="net-error-text"></span>
+          <button type="button" id="btn-net-retry" class="btn-hud btn-sm">🔄 Réessayer</button>
+        </div>
 
         <aside class="quest-panel" id="quest-panel">
           <div class="quest-header">

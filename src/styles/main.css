@@ -1328,3 +1328,34 @@ button:active {
   display: block;
   flex-shrink: 0;
 }
+
+.dot.error,
+.net-pill.error .dot {
+  background: var(--rose);
+  box-shadow: 0 0 8px var(--rose);
+}
+.net-pill.connecting .dot {
+  background: var(--amber);
+}
+.net-pill.error {
+  border-color: rgba(244, 63, 94, 0.55);
+}
+
+.net-error-banner {
+  margin: 0 16px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(127, 29, 29, 0.92);
+  border: 1px solid rgba(244, 63, 94, 0.65);
+  color: #fecdd3;
+  font-size: 0.83rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.toast-error {
+  border-left-color: var(--rose);
+}

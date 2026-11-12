@@ -1,3 +1,11 @@
+export const DEFAULT_ROOM = 'salle-e204';
+
+export function buildWebSocketUrl(loc = typeof window !== 'undefined' ? window.location : null) {
+  if (!loc || !loc.host) return '';
+  const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${loc.host}/ws`;
+}
+
 function qNum(v) {
   return Math.round((Number(v) || 0) * 1000) / 1000;
 }
@@ -14,6 +22,11 @@ export class NetworkClient {
     this.moveFlushTimer = null;
     this.pendingJoin = null;
     this.reconnectTimer = null;
+    this.heartbeatTimer = null;
+    this.reconnectAttempts = 0;
+    this.manualClose = false;
+    this.lastError = null;
+    this.wsUrl = '';
   }
 
   on(event, fn) {
@@ -30,17 +43,17 @@ export class NetworkClient {
 
   async checkHealth() {
     try {
-      const res = await fetch('/api/health');
-      if (!res.ok) return null;
+      const res = await fetch('/api/health', { cache: 'no-store' });
+      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
       return await res.json();
-    } catch {
-      return null;
+    } catch (err) {
+      return { ok: false, error: err?.message || 'Serveur inaccessible' };
     }
   }
 
   async fetchLeaderboard() {
     try {
-      const res = await fetch('/api/leaderboard');
+      const res = await fetch('/api/leaderboard', { cache: 'no-store' });
       if (!res.ok) return [];
       const data = await res.json();
       return data.leaderboard || [];
@@ -51,7 +64,7 @@ export class NetworkClient {
 
   async fetchRooms() {
     try {
-      const res = await fetch('/api/rooms');
+      const res = await fetch('/api/rooms', { cache: 'no-store' });
       if (!res.ok) return [];
       const data = await res.json();
       return data.rooms || [];
@@ -60,15 +73,43 @@ export class NetworkClient {
     }
   }
 
-  connect(name, room = 'salle-e204', skin = null, spawn = { x: 0, y: 0, z: 6.2, yaw: 0 }) {
-    this.pendingJoin = { name, room, skin, spawn };
+  connect(name, room = DEFAULT_ROOM, skin = null, spawn = { x: 0, y: 0, z: 6.2, yaw: 0 }) {
+    this._teardownSocket();
+    this.manualClose = false;
+    this.reconnectAttempts = 0;
+    this.lastError = null;
+    this.pendingJoin = { name, room: room || DEFAULT_ROOM, skin, spawn };
     this._openSocket();
   }
 
   disconnect() {
+    this.manualClose = true;
     this.pendingJoin = null;
     this.lastSentMove = null;
     this.pendingMove = null;
+    this.reconnectAttempts = 0;
+    this._teardownSocket();
+    this.emit('status', { state: 'disconnected', connected: false, manual: true });
+  }
+
+  reconnectNow() {
+    if (!this.pendingJoin || this.connected) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this._openSocket();
+  }
+
+  _stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  _teardownSocket() {
+    this._stopHeartbeat();
     if (this.moveFlushTimer) {
       clearTimeout(this.moveFlushTimer);
       this.moveFlushTimer = null;
@@ -78,29 +119,46 @@ export class NetworkClient {
       this.reconnectTimer = null;
     }
     if (this.ws) {
-      this.ws.close();
+      const oldWs = this.ws;
       this.ws = null;
+      try {
+        oldWs.close();
+      } catch {
+        this.connected = false;
+      }
     }
     this.connected = false;
   }
 
   _openSocket() {
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${window.location.host}/ws`;
 
+    const url = buildWebSocketUrl();
+    this.wsUrl = url;
+    this.emit('status', { state: 'connecting', connected: false, url });
+
+    let socket;
     try {
-      this.ws = new WebSocket(url);
-    } catch {
-      this._scheduleReconnect();
+      socket = new WebSocket(url);
+      this.ws = socket;
+    } catch (err) {
+      this.lastError = err?.message || `Impossible d'ouvrir ${url}`;
+      this._handleDisconnect(0, this.lastError, socket);
       return;
     }
 
-    this.ws.addEventListener('open', () => {
+    socket.addEventListener('open', () => {
+      if (this.ws !== socket) return;
       this.connected = true;
-      this.emit('status', { connected: true });
+      this.reconnectAttempts = 0;
+      this.lastError = null;
+      this.emit('status', { state: 'connected', connected: true, url });
+
       if (this.pendingJoin) {
         const sp = this.pendingJoin.spawn || {};
         this.send({
@@ -114,9 +172,17 @@ export class NetworkClient {
           yaw: qNum(sp.yaw ?? 0)
         });
       }
+
+      this._stopHeartbeat();
+      this.heartbeatTimer = setInterval(() => {
+        if (this.connected) {
+          this.send({ type: 'ping' });
+        }
+      }, 20000);
     });
 
-    this.ws.addEventListener('message', (ev) => {
+    socket.addEventListener('message', (ev) => {
+      if (this.ws !== socket) return;
       let msg;
       try {
         msg = JSON.parse(ev.data);
@@ -125,27 +191,61 @@ export class NetworkClient {
       }
       if (msg.type === 'welcome') {
         this.clientId = msg.id;
+        if (this.pendingJoin && msg.profile?.name) {
+          this.pendingJoin.name = msg.profile.name;
+        }
       }
       this.emit(msg.type, msg);
     });
 
-    this.ws.addEventListener('close', () => {
+    socket.addEventListener('error', () => {
+      if (this.ws !== socket) return;
       this.connected = false;
-      this.emit('status', { connected: false });
-      this._scheduleReconnect();
+      this.lastError = `Échec WebSocket (${url})`;
+      this.emit('network_error', { url, message: this.lastError });
     });
 
-    this.ws.addEventListener('error', () => {
-      this.connected = false;
+    socket.addEventListener('close', (ev) => {
+      if (this.ws !== socket) return;
+      this.ws = null;
+      this._handleDisconnect(ev.code, ev.reason, socket);
     });
   }
 
-  _scheduleReconnect() {
-    if (this.reconnectTimer || !this.pendingJoin) return;
+  _handleDisconnect(code, reason) {
+    this._stopHeartbeat();
+    this.connected = false;
+    if (this.manualClose || !this.pendingJoin) {
+      return;
+    }
+
+    this.reconnectAttempts += 1;
+    const delayMs = Math.min(
+      10000,
+      Math.round(1500 * Math.pow(1.4, Math.min(this.reconnectAttempts - 1, 5)))
+    );
+    const errorMsg =
+      reason ||
+      this.lastError ||
+      `Connexion WebSocket fermée (code ${code || 1006}) sur ${this.wsUrl}`;
+
+    this.emit('status', {
+      state: 'reconnecting',
+      connected: false,
+      attempt: this.reconnectAttempts,
+      delayMs,
+      code,
+      url: this.wsUrl,
+      error: errorMsg
+    });
+
+    if (this.reconnectTimer) return;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this._openSocket();
-    }, 2500);
+      if (!this.manualClose && this.pendingJoin) {
+        this._openSocket();
+      }
+    }, delayMs);
   }
 
   send(payload) {
