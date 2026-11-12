@@ -1,6 +1,5 @@
-import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
-import { buildStudentAvatarMesh, SKIN_OPTIONS } from '../world/AvatarBuilder.js';
+import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 
 export class MainMenu {
   constructor(gameState, network, { onStartGame, onOpenSettings }) {
@@ -27,15 +26,24 @@ export class MainMenu {
     this.statusEl = document.getElementById('start-server-status');
 
     this.visible = true;
-    this.animId = null;
-    this.previewYaw = 0.35;
-    this.previewDragging = false;
-    this.lastMouseX = 0;
-    this.avatarGroup = null;
+    this.skinIds = {
+      style: 'skin-style-list',
+      color: 'skin-color-list',
+      hat: 'skin-hat-list',
+      tone: 'skin-tone-list',
+      pants: 'skin-pants-list'
+    };
+
+    this.preview = new SkinPreview3D(
+      document.getElementById('skin-preview-canvas'),
+      () => this.gameState.skin,
+      320,
+      380
+    );
+    this.preview.setActive(true);
 
     this._initName();
-    this._initPreview3D();
-    this._renderSkinControls();
+    this.renderSkinUi();
     this._bindEvents();
     this.refreshHealth();
   }
@@ -46,162 +54,10 @@ export class MainMenu {
     this.previewTag.textContent = saved || 'Eleve_CIEL';
   }
 
-  _initPreview3D() {
-    const canvas = document.getElementById('skin-preview-canvas');
-    if (!canvas) return;
-    this.previewRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-    this.previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.previewRenderer.setSize(320, 380, false);
-
-    this.previewScene = new THREE.Scene();
-    this.previewCamera = new THREE.PerspectiveCamera(40, 320 / 380, 0.1, 20);
-    this.previewCamera.position.set(0, 1.15, 3.2);
-    this.previewCamera.lookAt(0, 0.95, 0);
-
-    const hemi = new THREE.HemisphereLight('#f8fafc', '#1e293b', 1.1);
-    this.previewScene.add(hemi);
-    const dir = new THREE.DirectionalLight('#ffffff', 1.3);
-    dir.position.set(2, 4, 3);
-    this.previewScene.add(dir);
-
-    // Pedestal
-    const pedestal = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.75, 0.85, 0.1, 32),
-      new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4, metalness: 0.5 })
-    );
-    pedestal.position.y = -0.05;
-    this.previewScene.add(pedestal);
-
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.72, 0.78, 32),
-      new THREE.MeshBasicMaterial({ color: '#22d3ee', side: THREE.DoubleSide })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.01;
-    this.previewScene.add(ring);
-
-    this.rebuildPreviewAvatar();
-
-    canvas.addEventListener('mousedown', (e) => {
-      this.previewDragging = true;
-      this.lastMouseX = e.clientX;
+  renderSkinUi() {
+    renderSkinControls(this.skinIds, this.gameState, () => {
+      this.preview.rebuild();
     });
-    window.addEventListener('mouseup', () => {
-      this.previewDragging = false;
-    });
-    window.addEventListener('mousemove', (e) => {
-      if (!this.previewDragging || !this.visible) return;
-      const dx = e.clientX - this.lastMouseX;
-      this.lastMouseX = e.clientX;
-      this.previewYaw += dx * 0.014;
-    });
-
-    const tick = () => {
-      this.animId = requestAnimationFrame(tick);
-      if (!this.visible) return;
-      if (!this.previewDragging) {
-        this.previewYaw += 0.008;
-      }
-      if (this.avatarGroup) {
-        this.avatarGroup.rotation.y = this.previewYaw;
-      }
-      this.previewRenderer.render(this.previewScene, this.previewCamera);
-    };
-    tick();
-  }
-
-  rebuildPreviewAvatar() {
-    if (!this.previewScene) return;
-    if (this.avatarGroup) {
-      this.previewScene.remove(this.avatarGroup);
-    }
-    const { group } = buildStudentAvatarMesh(this.gameState.skin);
-    this.avatarGroup = group;
-    this.previewScene.add(this.avatarGroup);
-  }
-
-  _renderSkinControls() {
-    const skin = this.gameState.skin;
-
-    const styleList = document.getElementById('skin-style-list');
-    styleList.innerHTML = SKIN_OPTIONS.outfitStyles
-      .map(
-        (s) =>
-          `<button type="button" class="btn-chip ${skin.outfitStyle === s.id ? 'active' : ''}" data-style="${s.id}">${s.name}</button>`
-      )
-      .join('');
-    styleList.querySelectorAll('button').forEach((btn) =>
-      btn.addEventListener('click', () => {
-        sfx.click();
-        this.gameState.setSkin({ outfitStyle: btn.dataset.style });
-        this.rebuildPreviewAvatar();
-        this._renderSkinControls();
-      })
-    );
-
-    const colorList = document.getElementById('skin-color-list');
-    colorList.innerHTML = SKIN_OPTIONS.outfitColors
-      .map(
-        (c) =>
-          `<button type="button" class="swatch ${skin.outfitColor === c.id ? 'active' : ''}" style="background:${c.id}" title="${c.name}" data-col="${c.id}"></button>`
-      )
-      .join('');
-    colorList.querySelectorAll('button').forEach((btn) =>
-      btn.addEventListener('click', () => {
-        sfx.click();
-        this.gameState.setSkin({ outfitColor: btn.dataset.col });
-        this.rebuildPreviewAvatar();
-        this._renderSkinControls();
-      })
-    );
-
-    const hatList = document.getElementById('skin-hat-list');
-    hatList.innerHTML = SKIN_OPTIONS.hats
-      .map(
-        (h) =>
-          `<button type="button" class="btn-chip ${skin.hat === h.id ? 'active' : ''}" data-hat="${h.id}">${h.name}</button>`
-      )
-      .join('');
-    hatList.querySelectorAll('button').forEach((btn) =>
-      btn.addEventListener('click', () => {
-        sfx.click();
-        this.gameState.setSkin({ hat: btn.dataset.hat });
-        this.rebuildPreviewAvatar();
-        this._renderSkinControls();
-      })
-    );
-
-    const toneList = document.getElementById('skin-tone-list');
-    toneList.innerHTML = SKIN_OPTIONS.skinTones
-      .map(
-        (t) =>
-          `<button type="button" class="swatch ${skin.skinTone === t.id ? 'active' : ''}" style="background:${t.id}" title="${t.name}" data-tone="${t.id}"></button>`
-      )
-      .join('');
-    toneList.querySelectorAll('button').forEach((btn) =>
-      btn.addEventListener('click', () => {
-        sfx.click();
-        this.gameState.setSkin({ skinTone: btn.dataset.tone });
-        this.rebuildPreviewAvatar();
-        this._renderSkinControls();
-      })
-    );
-
-    const pantsList = document.getElementById('skin-pants-list');
-    pantsList.innerHTML = SKIN_OPTIONS.pantsColors
-      .map(
-        (p) =>
-          `<button type="button" class="swatch ${skin.pantsColor === p.id ? 'active' : ''}" style="background:${p.id}" title="${p.name}" data-pants="${p.id}"></button>`
-      )
-      .join('');
-    pantsList.querySelectorAll('button').forEach((btn) =>
-      btn.addEventListener('click', () => {
-        sfx.click();
-        this.gameState.setSkin({ pantsColor: btn.dataset.pants });
-        this.rebuildPreviewAvatar();
-        this._renderSkinControls();
-      })
-    );
   }
 
   _bindEvents() {
@@ -223,6 +79,7 @@ export class MainMenu {
 
     document.getElementById('menu-btn-skin').addEventListener('click', () => {
       sfx.click();
+      this.renderSkinUi();
       this.showView('skin');
     });
 
@@ -263,16 +120,9 @@ export class MainMenu {
 
     document.getElementById('btn-skin-random').addEventListener('click', () => {
       sfx.click();
-      const pick = (arr) => arr[Math.floor(Math.random() * arr.length)].id;
-      this.gameState.setSkin({
-        outfitStyle: pick(SKIN_OPTIONS.outfitStyles),
-        outfitColor: pick(SKIN_OPTIONS.outfitColors),
-        hat: pick(SKIN_OPTIONS.hats),
-        skinTone: pick(SKIN_OPTIONS.skinTones),
-        pantsColor: pick(SKIN_OPTIONS.pantsColors)
-      });
-      this.rebuildPreviewAvatar();
-      this._renderSkinControls();
+      this.gameState.setSkin(pickRandomSkin());
+      this.preview.rebuild();
+      this.renderSkinUi();
     });
   }
 
@@ -329,12 +179,15 @@ export class MainMenu {
   show() {
     this.visible = true;
     this.root.classList.remove('hidden');
+    this.renderSkinUi();
+    this.preview.setActive(true);
     this.showView('home');
     this.refreshHealth();
   }
 
   hide() {
     this.visible = false;
+    this.preview.setActive(false);
     this.root.classList.add('hidden');
   }
 }

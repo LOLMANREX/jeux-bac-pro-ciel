@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { animateAvatarLimbs } from './AvatarBuilder.js';
 
 export class PlayerController {
   constructor(camera, canvas, colliders = [], options = {}) {
@@ -11,6 +12,7 @@ export class PlayerController {
     this.position = new THREE.Vector3(0, this.groundY, 7.2);
     this.velocityY = 0;
     this.isGrounded = true;
+    this.wasGrounded = true;
     this.yaw = 0;
     this.pitch = -0.05;
     this.speed = 5.4;
@@ -24,7 +26,6 @@ export class PlayerController {
     this.cameraMode = 'first';
     this.avatar = null;
     this.avatarVisible = false;
-    this.walkPhase = 0;
 
     this.camera.rotation.order = 'YXZ';
     this._applyCamera();
@@ -34,6 +35,7 @@ export class PlayerController {
   setAvatar(avatarObj) {
     this.avatar = avatarObj;
     this._syncAvatarVisibility();
+    this._applyCamera();
   }
 
   setAvatarVisible(visible) {
@@ -57,11 +59,15 @@ export class PlayerController {
     this.sensitivity = Math.max(0.4, Math.min(2.2, Number(val) || 1.0));
   }
 
+  clearKeys() {
+    this.keys.clear();
+    this.dragging = false;
+  }
+
   setEnabled(enabled) {
     this.enabled = Boolean(enabled);
     if (!this.enabled) {
-      this.keys.clear();
-      this.dragging = false;
+      this.clearKeys();
       if (document.pointerLockElement === this.canvas) {
         document.exitPointerLock?.();
       }
@@ -83,8 +89,7 @@ export class PlayerController {
     });
 
     window.addEventListener('blur', () => {
-      this.keys.clear();
-      this.dragging = false;
+      this.clearKeys();
     });
 
     this.canvas.addEventListener('mousedown', (e) => {
@@ -127,6 +132,7 @@ export class PlayerController {
     this.position.set(targetPos.x, this.groundY, targetPos.z);
     this.velocityY = 0;
     this.isGrounded = true;
+    this.wasGrounded = true;
     if (lookAtPos) {
       const dx = lookAtPos.x - targetPos.x;
       const dz = lookAtPos.z - targetPos.z;
@@ -137,7 +143,6 @@ export class PlayerController {
   }
 
   _collides(nx, nz) {
-    // Room boundaries
     if (nx < -13.1 || nx > 13.1 || nz < -10.1 || nz > 10.1) return true;
     for (const c of this.colliders) {
       if (
@@ -153,7 +158,7 @@ export class PlayerController {
   }
 
   update(dt) {
-    if (!this.enabled) return;
+    if (!this.enabled) return { isMoving: false, landed: false };
 
     let forward = 0;
     let right = 0;
@@ -164,52 +169,40 @@ export class PlayerController {
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) right -= 1;
 
     let isMoving = false;
+    const sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 1.45 : 1;
+
     if (forward !== 0 || right !== 0) {
-      isMoving = true;
       const len = Math.hypot(forward, right);
       forward /= len;
       right /= len;
 
-      const sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 1.45 : 1;
       const moveDist = this.speed * sprint * dt;
-
       const sinY = Math.sin(this.yaw);
       const cosY = Math.cos(this.yaw);
 
-      // Camera forward vector is (-sinY, -cosY), right vector is (cosY, -sinY)
       const dx = (-sinY * forward + cosY * right) * moveDist;
       const dz = (-cosY * forward - sinY * right) * moveDist;
 
+      let moved = false;
       if (!this._collides(this.position.x + dx, this.position.z)) {
         this.position.x += dx;
+        moved = true;
       }
       if (!this._collides(this.position.x, this.position.z + dz)) {
         this.position.z += dz;
+        moved = true;
       }
+      isMoving = moved;
     }
 
-    // Animate local 3rd-person avatar legs
-    if (this.avatar) {
-      if (!this.isGrounded) {
-        this.avatar.leftLeg.rotation.x = 0.35;
-        this.avatar.rightLeg.rotation.x = -0.25;
-      } else if (isMoving) {
-        this.walkPhase += dt * 12;
-        this.avatar.leftLeg.rotation.x = Math.sin(this.walkPhase) * 0.5;
-        this.avatar.rightLeg.rotation.x = -Math.sin(this.walkPhase) * 0.5;
-      } else {
-        this.avatar.leftLeg.rotation.x *= 0.8;
-        this.avatar.rightLeg.rotation.x *= 0.8;
-      }
-    }
-
-    // Jump with Spacebar
     if (this.keys.has('Space') && this.isGrounded) {
       this.velocityY = 6.2;
       this.isGrounded = false;
       this.onJump?.();
     }
 
+    this.wasGrounded = this.isGrounded;
+    let landed = false;
     if (!this.isGrounded) {
       this.velocityY -= 18.5 * dt;
       this.position.y += this.velocityY * dt;
@@ -217,10 +210,18 @@ export class PlayerController {
         this.position.y = this.groundY;
         this.velocityY = 0;
         this.isGrounded = true;
+        landed = true;
       }
     }
 
+    animateAvatarLimbs(this.avatar, dt, {
+      isMoving,
+      isGrounded: this.isGrounded,
+      speedRatio: sprint
+    });
+
     this._applyCamera();
+    return { isMoving, landed };
   }
 
   _applyCamera() {
@@ -245,7 +246,6 @@ export class PlayerController {
       const dirY = -sinP + 0.14;
       const dirZ = cosY * cosP;
 
-      // Step along camera ray to avoid clipping outside classroom walls
       let dist = 3.25;
       for (let d = 0.5; d <= 3.25; d += 0.25) {
         const cx = targetX + dirX * d;

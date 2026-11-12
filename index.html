@@ -151,9 +151,7 @@
         </div>
       </div>
 
-      <!-- HUD en jeu -->
       <div id="hud" class="hud hidden">
-        <!-- Barre supérieure -->
         <header class="hud-top">
           <div class="hud-brand">
             <div class="student-badge">
@@ -166,13 +164,29 @@
           </div>
 
           <div class="hud-actions">
-            <div id="net-pill" class="net-pill" title="État du serveur multijoueur">
-              <span class="dot"></span>
-              <span id="net-text">Serveur</span>
-              <span id="online-count" class="count-badge">1</span>
+            <div class="net-wrapper">
+              <button
+                type="button"
+                id="net-pill"
+                class="net-pill"
+                title="État du serveur et élèves connectés dans la salle"
+              >
+                <span class="dot"></span>
+                <span id="net-text">Serveur</span>
+                <span id="net-room-tag" class="net-room-tag">salle-e204</span>
+                <span id="online-count" class="count-badge">1 élève</span>
+              </button>
+              <div id="room-roster-popover" class="room-roster-popover hidden"></div>
             </div>
-            <button id="btn-leaderboard" class="btn-hud" title="Classement de la classe">🏆 Classement</button>
-            <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur">💬 Chat</button>
+            <button id="btn-leaderboard" class="btn-hud" title="Classement de la classe (Touche Tab)">
+              🏆 Classement <kbd class="key-mini">Tab</kbd>
+            </button>
+            <button id="btn-skin-ingame" class="btn-hud" title="Changer de skin 3D en direct">
+              🎨 Skin
+            </button>
+            <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur (Touche T)">
+              💬 Chat <span id="chat-unread-badge" class="unread-badge hidden">0</span>
+            </button>
             <button id="btn-view-mode" class="btn-hud" title="Changer de caméra (Touche V)">🎥 Vue: 1ère</button>
             <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris)">⚙️ Paramètres</button>
             <button id="btn-main-menu" class="btn-hud" title="Retour au menu principal">🏠 Menu</button>
@@ -180,7 +194,6 @@
           </div>
         </header>
 
-        <!-- Suivi des quêtes de M. Fortin -->
         <aside class="quest-panel" id="quest-panel">
           <div class="quest-header">
             <span>📋 Quêtes de M. Fortin</span>
@@ -194,16 +207,16 @@
           <div id="quick-nav-buttons" class="quick-nav-buttons"></div>
         </aside>
 
-        <!-- Réticule & invite d'interaction -->
         <div id="crosshair" class="crosshair"></div>
         <div id="interact-prompt" class="interact-prompt hidden">
           <span class="key-cap">E</span> <span id="interact-label">Interagir</span>
         </div>
 
-        <!-- Chat multijoueur repliable -->
+        <div id="emote-bar" class="emote-bar" title="Émotes rapides (Touches 1 à 6)"></div>
+
         <aside id="chat-drawer" class="chat-drawer hidden">
           <div class="chat-header">
-            <span>💬 Salle <strong id="chat-room-name">E204</strong></span>
+            <span>💬 Salle <strong id="chat-room-name">E204</strong> (<span id="chat-room-count">1</span>)</span>
             <button id="btn-chat-close" class="icon-close">✕</button>
           </div>
           <div id="chat-messages" class="chat-messages"></div>
@@ -213,12 +226,13 @@
           </form>
         </aside>
 
-        <!-- Contrôles bas d'écran -->
         <div class="hud-bottom-hint">
-          <span>ZQSD / Flèches : Bouger</span> •
+          <span>ZQSD : Bouger</span> •
           <span>Espace : Sauter</span> •
-          <span>V : Vue 1ère / 3ème pers.</span> •
-          <span>E ou Clic poste : Lancer TP</span>
+          <span>V : Caméra</span> •
+          <span>Tab : Classement</span> •
+          <span>T : Chat</span> •
+          <span>1–6 : Émotes</span>
         </div>
       </div>
 
@@ -317,18 +331,75 @@
         </div>
       </div>
 
-      <!-- Modal Classement -->
       <div id="leaderboard-modal" class="modal-backdrop hidden">
         <div class="dialogue-card leaderboard-card">
           <div class="dialogue-header">
             <div class="prof-avatar">🏆</div>
             <div>
-              <div class="prof-tag">SERVEUR DE CLASSE • TEMPS RÉEL</div>
+              <div class="prof-tag">CLASSEMENT EN TEMPS RÉEL • TOUCHE TAB</div>
               <h2>Tableau d'honneur BAC PRO CIEL</h2>
             </div>
-            <button id="leaderboard-close" class="icon-close" title="Fermer">✕</button>
+            <div class="lb-head-actions">
+              <span id="leaderboard-summary" class="lb-summary-pill"></span>
+              <button type="button" id="btn-leaderboard-refresh" class="btn-hud btn-sm" title="Actualiser">🔄</button>
+              <button id="leaderboard-close" class="icon-close" title="Fermer (Tab / Échap)">✕</button>
+            </div>
           </div>
+          <div id="leaderboard-podium" class="leaderboard-podium"></div>
           <div id="leaderboard-body" class="leaderboard-body"></div>
+        </div>
+      </div>
+
+      <div id="skin-modal" class="modal-backdrop hidden">
+        <div class="dialogue-card skin-modal-card">
+          <div class="dialogue-header">
+            <div class="prof-avatar">🎨</div>
+            <div>
+              <div class="prof-tag">SYNCHRONISATION TEMPS RÉEL</div>
+              <h2>Modifier mon Skin 3D</h2>
+            </div>
+            <button id="hud-skin-close" class="icon-close" title="Fermer (Échap)">✕</button>
+          </div>
+          <div class="skin-modal-grid">
+            <div class="skin-modal-controls">
+              <div class="view-head-row">
+                <span class="hint-mini">Visible instantanément par toute la classe</span>
+                <button type="button" id="btn-hud-skin-random" class="btn-hud btn-sm">🎲 Aléatoire</button>
+              </div>
+              <div class="skin-controls">
+                <div class="skin-group">
+                  <label>Style de tenue</label>
+                  <div id="hud-skin-style-list" class="btn-group"></div>
+                </div>
+                <div class="skin-group">
+                  <label>Couleur de tenue</label>
+                  <div id="hud-skin-color-list" class="swatch-row"></div>
+                </div>
+                <div class="skin-group">
+                  <label>Tête / Accessoire</label>
+                  <div id="hud-skin-hat-list" class="btn-group"></div>
+                </div>
+                <div class="skin-group-inline">
+                  <div>
+                    <label>Peau</label>
+                    <div id="hud-skin-tone-list" class="swatch-row"></div>
+                  </div>
+                  <div>
+                    <label>Pantalon</label>
+                    <div id="hud-skin-pants-list" class="swatch-row"></div>
+                  </div>
+                </div>
+              </div>
+              <button type="button" id="btn-hud-skin-done" class="btn-primary btn-lg">
+                ✅ Appliquer et Fermer
+              </button>
+            </div>
+            <div class="menu-right-preview">
+              <div class="preview-badge">APERÇU 3D LIVE</div>
+              <canvas id="hud-skin-preview-canvas" width="240" height="290"></canvas>
+              <div class="preview-hint">Glissez pour pivoter</div>
+            </div>
+          </div>
         </div>
       </div>
 

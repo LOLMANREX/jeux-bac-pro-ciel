@@ -68,6 +68,15 @@ export const TP_CATALOG = [
   }
 ];
 
+export const QUICK_EMOTES = [
+  { id: 'wave', key: '1', label: '👋 Salut !' },
+  { id: 'gg', key: '2', label: '👍 Bien joué !' },
+  { id: 'tp', key: '3', label: '⚡ Go TP !' },
+  { id: 'help', key: '4', label: '🤔 Besoin d’aide' },
+  { id: 'fire', key: '5', label: '🔥 En feu !' },
+  { id: 'party', key: '6', label: '🎉 GG la classe !' }
+];
+
 export const FORTIN_POS = { x: 0, z: -1.8 };
 
 export function getTpById(id) {
@@ -88,15 +97,21 @@ export class GameState {
     this.profile = {
       name: 'Eleve_CIEL',
       color: '#22d3ee',
+      skin: { ...DEFAULT_SKIN },
       xp: 0,
       questAccepted: false,
       grades: {},
       bestTimes: {},
       average: null,
       completedCount: 0,
-      diplomaEarned: false
+      diplomaEarned: false,
+      diplomas: [],
+      rank: null,
+      rankLabel: 'Apprenti CIEL'
     };
     this.room = 'salle-e204';
+    this.roomRoster = [];
+    this.leaderboard = [];
     this.quality = localStorage.getItem('ciel_quality') || 'high';
     this.cameraMode = localStorage.getItem('ciel_camera_mode') === 'third' ? 'third' : 'first';
     const savedFov = Number(localStorage.getItem('ciel_fov'));
@@ -124,6 +139,18 @@ export class GameState {
   setProfile(profile) {
     if (!profile) return;
     this.profile = { ...this.profile, ...profile };
+    this.emit();
+  }
+
+  setLeaderboard(list) {
+    if (!Array.isArray(list)) return;
+    this.leaderboard = list;
+    this.emit();
+  }
+
+  setRoomRoster(roster) {
+    if (!Array.isArray(roster)) return;
+    this.roomRoster = roster;
     this.emit();
   }
 

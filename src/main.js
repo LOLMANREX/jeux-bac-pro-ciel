@@ -3,14 +3,19 @@ import './styles/minigames.css';
 
 import * as THREE from 'three';
 import { sfx } from './core/audio.js';
-import { FORTIN_POS, GameState, getTpById, TP_CATALOG } from './core/gameState.js';
+import { FORTIN_POS, GameState, getTpById, QUICK_EMOTES, TP_CATALOG } from './core/gameState.js';
 import { NetworkClient } from './core/network.js';
 import { SceneManager } from './world/SceneManager.js';
 import { buildLabWorld } from './world/LabBuilder.js';
 import { createNpcFortin } from './world/NpcFortin.js';
 import { PlayerController } from './world/PlayerController.js';
-import { RemotePlayersManager } from './world/RemotePlayers.js';
-import { buildStudentAvatarMesh } from './world/AvatarBuilder.js';
+import {
+  createSpeechBubble,
+  RemotePlayersManager,
+  showSpeechBubble,
+  updateSpeechBubble
+} from './world/RemotePlayers.js';
+import { buildStudentAvatarMesh, disposeObject3D } from './world/AvatarBuilder.js';
 import { HudManager } from './ui/HudManager.js';
 import { MainMenu } from './ui/MainMenu.js';
 import { DialogueModal } from './ui/DialogueModal.js';
@@ -49,11 +54,16 @@ player.setSensitivity(gameState.mouseSens);
 player.setCameraMode(gameState.cameraMode);
 
 let localAvatar = null;
+const localBubble = createSpeechBubble(2.94);
+
 function rebuildLocalAvatar(skin) {
   if (localAvatar?.group) {
+    localAvatar.group.remove(localBubble);
     sceneMgr.scene.remove(localAvatar.group);
+    disposeObject3D(localAvatar.group, new Set([localBubble]));
   }
   localAvatar = buildStudentAvatarMesh(skin);
+  localAvatar.group.add(localBubble);
   sceneMgr.scene.add(localAvatar.group);
   player.setAvatar(localAvatar);
 }
@@ -67,10 +77,12 @@ const miniGameModal = new MiniGameModal();
 
 let joined = false;
 let modalOpen = false;
+let subModalActive = false;
 let nearestTarget = null;
 
-function setModalActive(active, pauseScene = false) {
+function setModalActive(active, pauseScene = false, lockActivity = false) {
   modalOpen = active;
+  subModalActive = lockActivity;
   player.setEnabled(joined && !active);
   sceneMgr.setPaused(pauseScene);
 }
@@ -87,11 +99,10 @@ function openTp(tpId) {
 
   sfx.interact();
   network.sendActivity(`En ${tp.shortTitle}`);
-  setModalActive(true, true);
+  setModalActive(true, true, true);
 
   miniGameModal.open(tpId, factory, {
     onComplete: ({ tpId: doneId, score, durationSec }) => {
-      // Optimistically update locally in case offline
       const p = { ...gameState.profile, grades: { ...gameState.profile.grades } };
       const prev = typeof p.grades[doneId] === 'number' ? p.grades[doneId] : -1;
       if (score > prev) p.grades[doneId] = score;
@@ -104,11 +115,11 @@ function openTp(tpId) {
       gameState.setProfile(p);
       lab.updateStationBadges(p.grades);
 
-      network.submitScore(gameState.profile.name, doneId, score, durationSec);
+      network.submitScore(gameState.profile.name, doneId, score, durationSec, gameState.skin);
     },
     onClose: ({ replayTpId } = {}) => {
       network.sendActivity('Dans l’atelier');
-      setModalActive(false, false);
+      setModalActive(false, false, false);
       if (replayTpId) {
         openTp(replayTpId);
       }
@@ -119,7 +130,7 @@ function openTp(tpId) {
 function openFortinDialogue() {
   sfx.interact();
   network.sendActivity('Parle à M. Fortin');
-  setModalActive(true, false);
+  setModalActive(true, false, true);
   dialogueModal.open(gameState, {
     onAcceptQuest: () => {
       gameState.setProfile({ ...gameState.profile, questAccepted: true });
@@ -131,7 +142,7 @@ function openFortinDialogue() {
     },
     onClose: () => {
       network.sendActivity('Dans l’atelier');
-      setModalActive(false, false);
+      setModalActive(false, false, false);
     }
   });
 }
@@ -139,6 +150,7 @@ function openFortinDialogue() {
 function teleportNearTarget(id) {
   if (id === 'fortin') {
     player.teleportTo({ x: 0, z: 0.9 }, FORTIN_POS);
+    network.sendMove(player.position.x, 0, player.position.z, player.yaw, true);
     hud.toast('Devant M. Fortin — Appuyez sur E pour lui parler');
     return;
   }
@@ -149,6 +161,7 @@ function teleportNearTarget(id) {
   else if (tp.position.x > 4) offset.x -= 2.3;
   else offset.z += 2.3;
   player.teleportTo(offset, tp.position);
+  network.sendMove(player.position.x, 0, player.position.z, player.yaw, true);
   hud.toast(`${tp.icon} Devant ${tp.title} — Appuyez sur E pour lancer le TP`);
 }
 
@@ -158,13 +171,24 @@ const hud = new HudManager(gameState, network, {
   onCameraModeChange: (mode) => player.setCameraMode(mode),
   onSensitivityChange: (s) => player.setSensitivity(s),
   onQuickNav: (id) => teleportNearTarget(id),
-  onModalOpen: (isOpen) => setModalActive(isOpen, false),
+  onModalOpen: (isOpen) => setModalActive(isOpen, false, false),
+  onSkinChange: (skin) => {
+    rebuildLocalAvatar(skin);
+    network.sendSkinUpdate(skin);
+  },
+  onLocalChatSent: (text) => {
+    showSpeechBubble(localBubble, text, { isEmote: false, color: gameState.skin.outfitColor });
+  },
+  onLocalEmote: (emote) => {
+    showSpeechBubble(localBubble, emote.label, { isEmote: true, color: gameState.skin.outfitColor });
+  },
   onReturnToMenu: () => returnToMainMenu()
 });
 
 function returnToMainMenu() {
   joined = false;
   modalOpen = false;
+  subModalActive = false;
   player.setEnabled(false);
   player.setAvatarVisible(false);
   network.disconnect();
@@ -173,7 +197,6 @@ function returnToMainMenu() {
   mainMenu.show();
 }
 
-// Networking bindings
 network.on('status', ({ connected }) => {
   hud.setNetworkStatus(connected);
 });
@@ -182,8 +205,12 @@ network.on('welcome', (msg) => {
   gameState.setProfile(msg.profile);
   lab.updateStationBadges(msg.profile.grades);
   remotePlayers.setPeers(msg.peers);
+  gameState.setRoomRoster(msg.roomRoster || []);
+  gameState.setLeaderboard(msg.leaderboard || []);
+  remotePlayers.syncLeaderboardRanks(msg.leaderboard || []);
   hud.setNetworkStatus(true, msg.onlineCount);
-  (msg.chatHistory || []).forEach((m) => hud.appendChatMessage(m));
+  hud.clearChat();
+  (msg.chatHistory || []).forEach((m) => hud.appendChatMessage(m, false));
   hud.toast(`Connecté en ${msg.room} (${msg.onlineCount} élève(s) en ligne)`, 'success');
 });
 
@@ -198,8 +225,9 @@ network.on('score_recorded', (res) => {
   hud.toast(`+${res.xpGain} XP enregistrés sur le serveur !`, 'success');
 });
 
-network.on('player_joined', ({ player: p, onlineCount }) => {
+network.on('player_joined', ({ player: p, onlineCount, roomRoster }) => {
   remotePlayers.upsertPeer(p);
+  if (roomRoster) gameState.setRoomRoster(roomRoster);
   hud.setNetworkStatus(true, onlineCount);
   hud.toast(`${p.name} a rejoint l’atelier !`);
 });
@@ -208,21 +236,62 @@ network.on('player_moved', ({ id, x, y, z, yaw }) => {
   remotePlayers.movePeer(id, x, y, z, yaw);
 });
 
-network.on('player_activity', ({ id, activity }) => {
-  remotePlayers.setActivity(id, activity);
+network.on('player_skin_updated', ({ id, skin }) => {
+  remotePlayers.setSkin(id, skin);
 });
 
-network.on('player_left', ({ id, name, onlineCount }) => {
+network.on('player_activity', ({ id, activity, roomRoster }) => {
+  remotePlayers.setActivity(id, activity);
+  if (roomRoster) gameState.setRoomRoster(roomRoster);
+});
+
+network.on('player_stats_updated', ({ id, profile }) => {
+  remotePlayers.setStats(id, profile);
+});
+
+network.on('player_emote', ({ id, label, color }) => {
+  remotePlayers.showBubble(id, label, { isEmote: true, color });
+});
+
+network.on('tp_announcement', ({ playerId, tpLabel, score, diplomaEarned, message, color }) => {
+  sfx.interact();
+  hud.toast(diplomaEarned ? `🎓 ${message}` : `📢 ${message}`, diplomaEarned ? 'success' : 'info');
+  if (playerId) {
+    remotePlayers.showBubble(playerId, `${score}/20 au ${tpLabel} !`, {
+      isEmote: true,
+      color: diplomaEarned ? '#fbbf24' : color || '#22d3ee'
+    });
+  }
+});
+
+network.on('leaderboard_updated', ({ leaderboard }) => {
+  gameState.setLeaderboard(leaderboard);
+  remotePlayers.syncLeaderboardRanks(leaderboard);
+  const me = leaderboard?.find(
+    (row) => row.name?.toLowerCase() === gameState.profile.name?.toLowerCase()
+  );
+  if (me && (me.rank !== gameState.profile.rank || me.rankLabel !== gameState.profile.rankLabel)) {
+    gameState.setProfile({ ...gameState.profile, rank: me.rank, rankLabel: me.rankLabel });
+  }
+});
+
+network.on('player_left', ({ id, name, onlineCount, roomRoster }) => {
   remotePlayers.removePeer(id);
+  if (roomRoster) gameState.setRoomRoster(roomRoster);
   hud.setNetworkStatus(true, onlineCount);
   if (name) hud.toast(`${name} a quitté la salle.`);
 });
 
 network.on('chat_message', ({ message }) => {
-  hud.appendChatMessage(message);
+  hud.appendChatMessage(message, true);
+  if (!message.system && message.playerId && message.playerId !== network.clientId) {
+    remotePlayers.showBubble(message.playerId, message.text, {
+      isEmote: false,
+      color: message.color || '#22d3ee'
+    });
+  }
 });
 
-// Proximity & Interaction detection
 function interactWith(target) {
   if (!target) return;
   if (target.id === 'fortin') openFortinDialogue();
@@ -230,8 +299,27 @@ function interactWith(target) {
 }
 
 window.addEventListener('keydown', (e) => {
-  if (!joined || modalOpen) return;
-  if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+  const isTyping =
+    e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
+
+  if (e.code === 'Escape' && joined && !subModalActive) {
+    if (hud.closeLeaderboard() || hud.closeSkinModal() || hud.closeSettings()) {
+      e.preventDefault();
+      return;
+    }
+  }
+
+  if (e.code === 'Tab' && joined && !subModalActive && !isTyping) {
+    if (!hud.isSettingsOpen() && !hud.isSkinOpen()) {
+      e.preventDefault();
+      sfx.click();
+      hud.toggleLeaderboard();
+      return;
+    }
+  }
+
+  if (!joined || modalOpen || isTyping) return;
+
   if (e.code === 'KeyE' && nearestTarget) {
     e.preventDefault();
     interactWith(nearestTarget);
@@ -243,6 +331,16 @@ window.addEventListener('keydown', (e) => {
     player.setCameraMode(next);
     hud.syncCameraUi?.();
     hud.toast(next === 'third' ? '🎥 Caméra 3ème personne' : '🎥 Caméra 1ère personne');
+  } else if (e.code === 'KeyT') {
+    e.preventDefault();
+    player.clearKeys();
+    hud.toggleChat(true, true);
+  } else if (e.code.startsWith('Digit') || e.code.startsWith('Numpad')) {
+    const num = Number(e.code.replace('Digit', '').replace('Numpad', ''));
+    if (num >= 1 && num <= QUICK_EMOTES.length) {
+      e.preventDefault();
+      hud.triggerEmote(num - 1);
+    }
   }
 });
 
@@ -251,7 +349,6 @@ document.getElementById('interact-prompt')?.addEventListener('click', () => {
   interactWith(nearestTarget);
 });
 
-// Click interaction & pointer lock on 3D canvas
 const raycaster = new THREE.Raycaster();
 let downPos = { x: 0, y: 0 };
 canvas.addEventListener('mousedown', (e) => {
@@ -262,7 +359,6 @@ canvas.addEventListener('mouseup', (e) => {
   const dragDist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
   if (dragDist > 6) return;
 
-  // Check if clicking near a station / Fortin
   const ndc = new THREE.Vector2(
     (e.clientX / window.innerWidth) * 2 - 1,
     -(e.clientY / window.innerHeight) * 2 + 1
@@ -276,31 +372,34 @@ canvas.addEventListener('mouseup', (e) => {
     }
   }
 
-  // Otherwise enter smooth pointer-lock camera if desired
   player.requestPointerLock();
 });
 
-// Main 3D update loop
 sceneMgr.addUpdater((dt, elapsed) => {
   lab.update(elapsed);
   fortin.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned);
   remotePlayers.update(dt);
+  updateSpeechBubble(localBubble, dt);
 
   if (!joined) {
-    // Gentle cinematic camera orbit across the 3D workshop on Main Menu
     const angle = elapsed * 0.14;
     sceneMgr.camera.position.set(Math.sin(angle) * 9.5, 3.2, Math.cos(angle) * 7.5 + 1.2);
     sceneMgr.camera.lookAt(0, 1.3, -2.2);
     return;
   }
 
-  player.update(dt);
+  const step = player.update(dt);
 
   if (!modalOpen) {
     const jumpY = Math.max(0, player.position.y - player.groundY);
-    network.sendMove(player.position.x, jumpY, player.position.z, player.yaw);
+    network.sendMove(
+      player.position.x,
+      jumpY,
+      player.position.z,
+      player.yaw,
+      Boolean(step?.landed)
+    );
 
-    // Find nearest interactable
     let best = null;
     let bestDist = Infinity;
     for (const item of allInteractables) {
@@ -323,7 +422,7 @@ const mainMenu = new MainMenu(gameState, network, {
   onOpenSettings: () => hud.openSettingsModal?.(),
   onStartGame: ({ name, room, skin }) => {
     gameState.room = room;
-    gameState.setProfile({ ...gameState.profile, name });
+    gameState.setProfile({ ...gameState.profile, name, skin });
     rebuildLocalAvatar(skin);
     joined = true;
 
@@ -331,10 +430,13 @@ const mainMenu = new MainMenu(gameState, network, {
     player.setAvatarVisible(true);
     player.setCameraMode(gameState.cameraMode);
     player.setEnabled(true);
-    network.connect(name, room, skin);
-
-    // Orient player cleanly toward M. Fortin at start
     player.teleportTo({ x: 0, z: 6.2 }, FORTIN_POS);
+    network.connect(name, room, skin, {
+      x: 0,
+      y: 0,
+      z: 6.2,
+      yaw: player.yaw
+    });
 
     setTimeout(() => {
       hud.toast('Approchez-vous de M. Fortin et appuyez sur E pour commencer !');

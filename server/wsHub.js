@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
-import { sanitizeName, TP_IDS } from './store.js';
+import { sanitizeName, sanitizeSkin, TP_IDS, TP_LABELS } from './store.js';
 
 const DEFAULT_ROOMS = ['salle-e204', 'salle-reseau'];
 
@@ -14,20 +14,6 @@ function sanitizeRoom(raw) {
   return cleaned || 'salle-e204';
 }
 
-function sanitizeSkin(raw) {
-  const s = raw && typeof raw === 'object' ? raw : {};
-  const hexOk = (v, fallback) => (/^#[0-9a-fA-F]{6}$/.test(String(v || '')) ? String(v) : fallback);
-  const styles = new Set(['blouse', 'hoodie', 'cyber']);
-  const hats = new Set(['none', 'cap', 'headset', 'glasses']);
-  return {
-    outfitColor: hexOk(s.outfitColor, '#22d3ee'),
-    outfitStyle: styles.has(s.outfitStyle) ? s.outfitStyle : 'blouse',
-    hat: hats.has(s.hat) ? s.hat : 'glasses',
-    skinTone: hexOk(s.skinTone, '#f1c29b'),
-    pantsColor: hexOk(s.pantsColor, '#1e293b')
-  };
-}
-
 function clamp(val, min, max) {
   const num = Number(val);
   if (!Number.isFinite(num)) return 0;
@@ -36,13 +22,13 @@ function clamp(val, min, max) {
 
 export function attachWsHub(httpServer, store) {
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
-  const clients = new Map(); // ws -> clientState
-  const roomChats = new Map(); // roomId -> array of recent chat items
+  const clients = new Map();
+  const roomChats = new Map();
 
   function getRoomPeers(roomId, excludeWs = null) {
     const peers = [];
     for (const [sock, state] of clients.entries()) {
-      if (sock !== excludeWs && state.room === roomId && sock.readyState === 1) {
+      if (sock !== excludeWs && state.name && state.room === roomId && sock.readyState === 1) {
         peers.push({ sock, state });
       }
     }
@@ -56,11 +42,153 @@ export function attachWsHub(httpServer, store) {
     }
   }
 
+  function broadcastToAll(payload, excludeWs = null) {
+    const raw = JSON.stringify(payload);
+    for (const [sock, state] of clients.entries()) {
+      if (sock !== excludeWs && state.name && sock.readyState === 1) {
+        sock.send(raw);
+      }
+    }
+  }
+
+  function buildOnlineMap() {
+    const map = new Map();
+    for (const [sock, s] of clients.entries()) {
+      if (!s.name || sock.readyState !== 1) continue;
+      map.set(s.name.toLowerCase(), {
+        id: s.id,
+        name: s.name,
+        room: s.room,
+        activity: s.activity
+      });
+    }
+    return map;
+  }
+
+  function getEnrichedLeaderboard(limit = 50) {
+    const onlineMap = buildOnlineMap();
+    return store.getLeaderboard(limit).map((entry) => {
+      const active = onlineMap.get(entry.name.toLowerCase());
+      return {
+        ...entry,
+        online: Boolean(active),
+        onlineRoom: active ? active.room : null,
+        onlineActivity: active ? active.activity : null
+      };
+    });
+  }
+
+  function getRoomRoster(roomId) {
+    const roster = [];
+    for (const [sock, s] of clients.entries()) {
+      if (!s.name || s.room !== roomId || sock.readyState !== 1) continue;
+      const profile = store.getPublicProfile(s.name.toLowerCase());
+      roster.push({
+        id: s.id,
+        name: s.name,
+        color: s.color,
+        activity: s.activity,
+        average: profile?.average ?? null,
+        completedCount: profile?.completedCount ?? 0,
+        diplomaEarned: Boolean(profile?.diplomaEarned),
+        rank: profile?.rank ?? null
+      });
+    }
+    return roster;
+  }
+
+  function buildPeerPayload(state, profile) {
+    return {
+      id: state.id,
+      name: state.name,
+      color: state.color,
+      skin: state.skin,
+      x: state.x,
+      y: state.y,
+      z: state.z,
+      yaw: state.yaw,
+      activity: state.activity,
+      xp: profile?.xp ?? 0,
+      average: profile?.average ?? null,
+      completedCount: profile?.completedCount ?? 0,
+      diplomaEarned: Boolean(profile?.diplomaEarned),
+      rank: profile?.rank ?? null,
+      rankLabel: profile?.rankLabel ?? 'Apprenti CIEL'
+    };
+  }
+
   function pushChat(roomId, msg) {
     if (!roomChats.has(roomId)) roomChats.set(roomId, []);
     const list = roomChats.get(roomId);
     list.push(msg);
-    if (list.length > 30) list.shift();
+    if (list.length > 40) list.shift();
+  }
+
+  function broadcastLeaderboard(excludeWs = null) {
+    broadcastToAll(
+      {
+        type: 'leaderboard_updated',
+        leaderboard: getEnrichedLeaderboard(50)
+      },
+      excludeWs
+    );
+  }
+
+  function announceScoreInRoom(state, tpId, result, excludeWs = null) {
+    const tpLabel = TP_LABELS[tpId] || tpId;
+    const message = result.profile.diplomaEarned
+      ? `${state.name} a obtenu ${result.score}/20 au ${tpLabel} et décroche le BAC PRO CIEL (${result.profile.average}/20) !`
+      : `${state.name} a obtenu ${result.score}/20 au ${tpLabel} !`;
+
+    broadcastToRoom(
+      state.room,
+      {
+        type: 'tp_announcement',
+        playerId: state.id,
+        playerName: state.name,
+        color: state.color,
+        tpId,
+        tpLabel,
+        score: result.score,
+        xpGain: result.xpGain,
+        isNewBest: result.isNewBest,
+        diplomaEarned: result.profile.diplomaEarned,
+        average: result.profile.average,
+        message
+      },
+      excludeWs
+    );
+
+    broadcastToRoom(
+      state.room,
+      {
+        type: 'player_stats_updated',
+        id: state.id,
+        profile: {
+          xp: result.profile.xp,
+          average: result.profile.average,
+          completedCount: result.profile.completedCount,
+          diplomaEarned: result.profile.diplomaEarned,
+          rank: result.profile.rank,
+          rankLabel: result.profile.rankLabel
+        }
+      },
+      excludeWs
+    );
+
+    if (result.score >= 16 || result.profile.diplomaEarned) {
+      const sysMsg = {
+        id: crypto.randomUUID().slice(0, 8),
+        system: true,
+        author: 'M. Fortin',
+        text: result.profile.diplomaEarned
+          ? `Félicitations à ${state.name} qui décroche le BAC PRO CIEL (${result.profile.average}/20) !`
+          : `Bravo ${state.name} pour son ${result.score}/20 au ${tpLabel} !`,
+        at: new Date().toISOString()
+      };
+      pushChat(state.room, sysMsg);
+      broadcastToRoom(state.room, { type: 'chat_message', message: sysMsg });
+    }
   }
 
   wss.on('connection', (ws) => {
@@ -71,9 +199,9 @@ export function attachWsHub(httpServer, store) {
       room: 'salle-e204',
       x: 0,
       y: 0,
-      z: 6.5,
+      z: 6.2,
       yaw: 0,
-      activity: 'Connexion...',
+      activity: 'Dans l’atelier',
       color: '#22d3ee',
       skin: sanitizeSkin(null)
     };
@@ -92,30 +220,25 @@ export function attachWsHub(httpServer, store) {
         case 'join': {
           const name = sanitizeName(msg.name);
           const room = sanitizeRoom(msg.room);
-          const skin = sanitizeSkin(msg.skin);
-          const profile = store.getOrCreatePlayer(name);
+          const incomingSkin = msg.skin && typeof msg.skin === 'object' ? msg.skin : null;
+          const profile = store.getOrCreatePlayer(name, incomingSkin);
+          const skin = sanitizeSkin(profile.skin, profile.color);
 
           state.name = profile.name;
-          state.color = skin.outfitColor || profile.color;
           state.skin = skin;
+          state.color = skin.outfitColor || profile.color;
           state.room = room;
           state.activity = 'Dans l’atelier';
           state.x = clamp(msg.x ?? 0, -14, 14);
-          state.y = 0;
-          state.z = clamp(msg.z ?? 6.5, -11, 11);
+          state.y = clamp(msg.y ?? 0, 0, 3);
+          state.z = clamp(msg.z ?? 6.2, -11, 11);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : 0;
 
-          const peers = getRoomPeers(room, ws).map(({ state: p }) => ({
-            id: p.id,
-            name: p.name,
-            color: p.color,
-            skin: p.skin,
-            x: p.x,
-            y: p.y,
-            z: p.z,
-            yaw: p.yaw,
-            activity: p.activity
-          }));
+          const peers = getRoomPeers(room, ws).map(({ state: p }) => {
+            const pProfile = store.getPublicProfile(p.name.toLowerCase());
+            return buildPeerPayload(p, pProfile);
+          });
+          const roomRoster = getRoomRoster(room);
 
           ws.send(
             JSON.stringify({
@@ -124,8 +247,10 @@ export function attachWsHub(httpServer, store) {
               room,
               profile,
               peers,
+              roomRoster,
               chatHistory: roomChats.get(room) || [],
-              onlineCount: peers.length + 1
+              onlineCount: peers.length + 1,
+              leaderboard: getEnrichedLeaderboard(50)
             })
           );
 
@@ -133,21 +258,14 @@ export function attachWsHub(httpServer, store) {
             room,
             {
               type: 'player_joined',
-              player: {
-                id: state.id,
-                name: state.name,
-                color: state.color,
-                skin: state.skin,
-                x: state.x,
-                y: state.y,
-                z: state.z,
-                yaw: state.yaw,
-                activity: state.activity
-              },
-              onlineCount: peers.length + 1
+              player: buildPeerPayload(state, profile),
+              onlineCount: peers.length + 1,
+              roomRoster
             },
             ws
           );
+
+          broadcastLeaderboard(ws);
           break;
         }
 
@@ -173,6 +291,29 @@ export function attachWsHub(httpServer, store) {
           break;
         }
 
+        case 'update_skin': {
+          if (!state.name) return;
+          const profile = store.updatePlayerSkin(state.name, msg.skin);
+          state.skin = profile.skin;
+          state.color = profile.color;
+
+          ws.send(JSON.stringify({ type: 'profile_updated', profile }));
+
+          broadcastToRoom(
+            state.room,
+            {
+              type: 'player_skin_updated',
+              id: state.id,
+              name: state.name,
+              skin: state.skin,
+              color: state.color
+            },
+            ws
+          );
+          broadcastLeaderboard();
+          break;
+        }
+
         case 'activity': {
           if (!state.name) return;
           state.activity = String(msg.activity || 'Dans l’atelier').slice(0, 36);
@@ -181,7 +322,29 @@ export function attachWsHub(httpServer, store) {
             {
               type: 'player_activity',
               id: state.id,
-              activity: state.activity
+              activity: state.activity,
+              roomRoster: getRoomRoster(state.room)
+            },
+            ws
+          );
+          broadcastLeaderboard();
+          break;
+        }
+
+        case 'emote': {
+          if (!state.name) return;
+          const label = String(msg.label || '').trim().slice(0, 36);
+          const emoteId = String(msg.emoteId || '').trim().slice(0, 16);
+          if (!label) return;
+          broadcastToRoom(
+            state.room,
+            {
+              type: 'player_emote',
+              id: state.id,
+              name: state.name,
+              color: state.color,
+              emoteId,
+              label
             },
             ws
           );
@@ -212,19 +375,8 @@ export function attachWsHub(httpServer, store) {
             })
           );
 
-          if (result.score >= 16 || result.profile.diplomaEarned) {
-            const sysMsg = {
-              id: crypto.randomUUID().slice(0, 8),
-              system: true,
-              author: 'M. Fortin',
-              text: result.profile.diplomaEarned
-                ? `Félicitations à ${state.name} qui décroche le BAC PRO CIEL (${result.profile.average}/20) !`
-                : `Bravo ${state.name} pour son ${result.score}/20 au TP ${msg.tpId.toUpperCase()} !`,
-              at: new Date().toISOString()
-            };
-            pushChat(state.room, sysMsg);
-            broadcastToRoom(state.room, { type: 'chat_message', message: sysMsg });
-          }
+          announceScoreInRoom(state, msg.tpId, result, ws);
+          broadcastLeaderboard();
           break;
         }
 
@@ -235,6 +387,7 @@ export function attachWsHub(httpServer, store) {
           const chatMsg = {
             id: crypto.randomUUID().slice(0, 8),
             system: false,
+            playerId: state.id,
             author: state.name,
             color: state.color,
             text,
@@ -256,13 +409,15 @@ export function attachWsHub(httpServer, store) {
       const leaving = clients.get(ws);
       clients.delete(ws);
       if (leaving && leaving.name) {
-        const remaining = getRoomPeers(leaving.room).length;
+        const roomRoster = getRoomRoster(leaving.room);
         broadcastToRoom(leaving.room, {
           type: 'player_left',
           id: leaving.id,
           name: leaving.name,
-          onlineCount: remaining
+          onlineCount: roomRoster.length,
+          roomRoster
         });
+        broadcastLeaderboard();
       }
     });
   });
@@ -288,6 +443,38 @@ export function attachWsHub(httpServer, store) {
         entry.players.push(s.name);
       }
       return [...map.values()];
+    },
+    getEnrichedLeaderboard,
+    notifySkinUpdated: (profile) => {
+      if (!profile?.name) return;
+      const key = profile.name.toLowerCase();
+      for (const [sock, s] of clients.entries()) {
+        if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
+          s.skin = profile.skin;
+          s.color = profile.color;
+          broadcastToRoom(
+            s.room,
+            {
+              type: 'player_skin_updated',
+              id: s.id,
+              name: s.name,
+              skin: s.skin,
+              color: s.color
+            },
+            sock
+          );
+        }
+      }
+      broadcastLeaderboard();
+    },
+    notifyScore: (name, tpId, result) => {
+      const key = String(name || '').toLowerCase();
+      for (const [sock, s] of clients.entries()) {
+        if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
+          announceScoreInRoom(s, tpId, result, sock);
+        }
+      }
+      broadcastLeaderboard();
     },
     close: () => wss.close()
   };

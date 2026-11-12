@@ -42,12 +42,22 @@ export function createGameServer(options = {}) {
 
   app.get('/api/leaderboard', (_req, res) => {
     res.json({
-      leaderboard: store.getLeaderboard(25)
+      leaderboard: wsHub.getEnrichedLeaderboard(50)
     });
   });
 
   app.get('/api/profile/:name', (req, res) => {
     const profile = store.getOrCreatePlayer(req.params.name);
+    res.json({ profile });
+  });
+
+  app.post('/api/profile/skin', (req, res) => {
+    const { name, skin } = req.body || {};
+    if (!name || !skin || typeof skin !== 'object') {
+      return res.status(400).json({ error: 'Paramètres invalides' });
+    }
+    const profile = store.updatePlayerSkin(name, skin);
+    wsHub.notifySkinUpdated(profile);
     res.json({ profile });
   });
 
@@ -59,11 +69,12 @@ export function createGameServer(options = {}) {
   });
 
   app.post('/api/score', (req, res) => {
-    const { name, tpId, score, durationSec } = req.body || {};
+    const { name, tpId, score, durationSec, skin } = req.body || {};
     if (!name || !TP_IDS.includes(tpId)) {
       return res.status(400).json({ error: 'Paramètres invalides' });
     }
-    const result = store.recordTpScore(name, tpId, score, durationSec);
+    const result = store.recordTpScore(name, tpId, score, durationSec, skin);
+    wsHub.notifyScore(name, tpId, result);
     res.json(result);
   });
 

@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { WebSocket } from 'ws';
 import { createGameServer } from '../server/index.js';
@@ -105,11 +108,94 @@ test('Serveur HTTP + WebSocket multijoueur synchronise 2 élèves en temps réel
     const lbRes = await fetch(`${baseUrl}/api/leaderboard`);
     const lb = await lbRes.json();
     assert.equal(lb.leaderboard[0].name, 'Alice');
+    assert.equal(lb.leaderboard[0].online, true);
+
+    const p1SkinUpdate = nextMsg(ws1, 'player_skin_updated');
+    const p1LbSkinUpdate = nextMsg(ws1, 'leaderboard_updated');
+    ws2.send(
+      JSON.stringify({
+        type: 'update_skin',
+        skin: { outfitColor: '#f43f5e', outfitStyle: 'hoodie', hat: 'cap' }
+      })
+    );
+    const [skinEv, lbAfterSkin] = await Promise.all([p1SkinUpdate, p1LbSkinUpdate]);
+    assert.equal(skinEv.skin.outfitColor, '#f43f5e');
+    assert.equal(skinEv.skin.outfitStyle, 'hoodie');
+    assert.equal(skinEv.skin.hat, 'cap');
+    const bobEntry = lbAfterSkin.leaderboard.find((e) => e.name === 'Bob');
+    assert.equal(bobEntry.skin.outfitColor, '#f43f5e');
+
+    const p1Emote = nextMsg(ws1, 'player_emote');
+    ws2.send(JSON.stringify({ type: 'emote', emoteId: 'wave', label: '👋 Salut !' }));
+    const emoteEv = await p1Emote;
+    assert.equal(emoteEv.label, '👋 Salut !');
+
+    const p2Announcement = nextMsg(ws2, 'tp_announcement');
+    const p2Stats = nextMsg(ws2, 'player_stats_updated');
+    ws1.send(JSON.stringify({ type: 'submit_score', tpId: 'vmvlan', score: 17, durationSec: 55 }));
+    const [ann, stats] = await Promise.all([p2Announcement, p2Stats]);
+    assert.ok(ann.message.includes('Alice'));
+    assert.ok(ann.message.includes('17/20'));
+    assert.equal(stats.profile.average, 17.5);
 
     ws1.close();
     ws2.close();
   } finally {
     wsHub.close();
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('GameStore assure la rétrocompatibilité db.json et persiste skin, moyenne et diplômes', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-store-'));
+  const tmpDb = path.join(tmpDir, 'db.json');
+  try {
+    fs.writeFileSync(
+      tmpDb,
+      JSON.stringify({
+        players: {
+          louis: {
+            name: 'Louis',
+            color: '#a78bfa',
+            xp: 241,
+            questAccepted: true,
+            grades: { soldering: 12.7 },
+            bestTimes: { soldering: 48 },
+            diplomaEarned: false,
+            updatedAt: '2026-11-12T20:17:23.572Z'
+          }
+        }
+      })
+    );
+
+    const store = new GameStore(tmpDb);
+    const legacy = store.getOrCreatePlayer('Louis');
+    assert.equal(legacy.name, 'Louis');
+    assert.equal(legacy.xp, 241);
+    assert.equal(legacy.average, 12.7);
+    assert.equal(legacy.skin.outfitColor, '#a78bfa');
+    assert.deepEqual(legacy.diplomas, []);
+
+    store.updatePlayerSkin('Louis', {
+      outfitColor: '#10b981',
+      outfitStyle: 'cyber',
+      hat: 'headset'
+    });
+    for (const id of ['oscilloscope', 'electronics', 'antivirus', 'vmvlan']) {
+      store.recordTpScore('Louis', id, 17, 40);
+    }
+
+    const reloaded = new GameStore(tmpDb);
+    const persisted = reloaded.getOrCreatePlayer('Louis');
+    assert.equal(persisted.skin.outfitColor, '#10b981');
+    assert.equal(persisted.skin.outfitStyle, 'cyber');
+    assert.equal(persisted.diplomaEarned, true);
+    assert.ok(persisted.average > 15);
+    assert.ok(persisted.diplomas.length >= 1);
+
+    const lb = reloaded.getLeaderboard(10);
+    assert.equal(lb[0].rank, 1);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

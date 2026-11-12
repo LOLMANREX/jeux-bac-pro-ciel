@@ -1,3 +1,7 @@
+function qNum(v) {
+  return Math.round((Number(v) || 0) * 1000) / 1000;
+}
+
 export class NetworkClient {
   constructor() {
     this.ws = null;
@@ -5,6 +9,9 @@ export class NetworkClient {
     this.clientId = null;
     this.handlers = new Map();
     this.lastMoveSent = 0;
+    this.lastSentMove = null;
+    this.pendingMove = null;
+    this.moveFlushTimer = null;
     this.pendingJoin = null;
     this.reconnectTimer = null;
   }
@@ -53,13 +60,19 @@ export class NetworkClient {
     }
   }
 
-  connect(name, room = 'salle-e204', skin = null) {
-    this.pendingJoin = { name, room, skin };
+  connect(name, room = 'salle-e204', skin = null, spawn = { x: 0, y: 0, z: 6.2, yaw: 0 }) {
+    this.pendingJoin = { name, room, skin, spawn };
     this._openSocket();
   }
 
   disconnect() {
     this.pendingJoin = null;
+    this.lastSentMove = null;
+    this.pendingMove = null;
+    if (this.moveFlushTimer) {
+      clearTimeout(this.moveFlushTimer);
+      this.moveFlushTimer = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -89,11 +102,16 @@ export class NetworkClient {
       this.connected = true;
       this.emit('status', { connected: true });
       if (this.pendingJoin) {
+        const sp = this.pendingJoin.spawn || {};
         this.send({
           type: 'join',
           name: this.pendingJoin.name,
           room: this.pendingJoin.room,
-          skin: this.pendingJoin.skin
+          skin: this.pendingJoin.skin,
+          x: qNum(sp.x ?? 0),
+          y: qNum(sp.y ?? 0),
+          z: qNum(sp.z ?? 6.2),
+          yaw: qNum(sp.yaw ?? 0)
         });
       }
     });
@@ -138,15 +156,76 @@ export class NetworkClient {
     return false;
   }
 
-  sendMove(x, y, z, yaw) {
+  sendMove(x, y, z, yaw, force = false) {
+    const next = { x: qNum(x), y: qNum(y), z: qNum(z), yaw: qNum(yaw) };
+    if (this.pendingJoin) {
+      this.pendingJoin.spawn = next;
+    }
+    if (!force && this.lastSentMove) {
+      const samePos =
+        Math.abs(next.x - this.lastSentMove.x) < 0.002 &&
+        Math.abs(next.y - this.lastSentMove.y) < 0.002 &&
+        Math.abs(next.z - this.lastSentMove.z) < 0.002 &&
+        Math.abs(next.yaw - this.lastSentMove.yaw) < 0.004;
+      if (samePos) return;
+    }
+
     const now = performance.now();
-    if (now - this.lastMoveSent < 60) return; // ~16 Hz cap
-    this.lastMoveSent = now;
-    this.send({ type: 'move', x, y, z, yaw });
+    const elapsed = now - this.lastMoveSent;
+    if (force || elapsed >= 45) {
+      if (this.moveFlushTimer) {
+        clearTimeout(this.moveFlushTimer);
+        this.moveFlushTimer = null;
+      }
+      this.pendingMove = null;
+      this.lastMoveSent = now;
+      this.lastSentMove = next;
+      this.send({ type: 'move', ...next });
+      return;
+    }
+
+    this.pendingMove = next;
+    if (!this.moveFlushTimer) {
+      this.moveFlushTimer = setTimeout(() => {
+        this.moveFlushTimer = null;
+        if (!this.pendingMove) return;
+        const flush = this.pendingMove;
+        this.pendingMove = null;
+        this.lastMoveSent = performance.now();
+        this.lastSentMove = flush;
+        this.send({ type: 'move', ...flush });
+      }, Math.max(10, 48 - elapsed));
+    }
+  }
+
+  async sendSkinUpdate(skin) {
+    if (this.pendingJoin) {
+      this.pendingJoin.skin = { ...skin };
+    }
+    const sent = this.send({ type: 'update_skin', skin });
+    if (!sent && this.pendingJoin?.name) {
+      try {
+        const res = await fetch('/api/profile/skin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: this.pendingJoin.name, skin })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          this.emit('profile_updated', { profile: data.profile });
+        }
+      } catch {
+        return;
+      }
+    }
   }
 
   sendActivity(activity) {
     this.send({ type: 'activity', activity });
+  }
+
+  sendEmote(emoteId, label) {
+    return this.send({ type: 'emote', emoteId, label });
   }
 
   sendChat(text) {
@@ -167,19 +246,19 @@ export class NetworkClient {
           this.emit('profile_updated', { profile: data.profile });
         }
       } catch {
-        // Offline fallback handled locally
+        return;
       }
     }
   }
 
-  async submitScore(name, tpId, score, durationSec) {
+  async submitScore(name, tpId, score, durationSec, skin = null) {
     const sent = this.send({ type: 'submit_score', tpId, score, durationSec });
     if (!sent) {
       try {
         const res = await fetch('/api/score', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, tpId, score, durationSec })
+          body: JSON.stringify({ name, tpId, score, durationSec, skin })
         });
         if (res.ok) {
           const data = await res.json();
