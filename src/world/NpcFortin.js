@@ -125,7 +125,7 @@ export function createNpcFortin(scene) {
   root.add(diamond);
 
   // Nameplate
-  const label = createLabel('M. Fortin', 'Prof. BAC PRO CIEL • Quêtes');
+  const label = createLabel('M. Fortin', 'Prof. BAC PRO CIEL • Salle E204');
   label.position.set(0, 2.85, 0);
   root.add(label);
 

@@ -148,7 +148,7 @@ function openFortinDialogue() {
     onAcceptQuest: () => {
       gameState.setProfile({ ...gameState.profile, questAccepted: true });
       network.acceptQuest(gameState.profile.name);
-      hud.toast('Quêtes de M. Fortin acceptées ! Choisissez un poste de TP.');
+      hud.toast('Programme des TP démarré ! Choisissez un poste de TP.');
     },
     onTeleportTp: (tpId) => {
       teleportNearTarget(tpId);
