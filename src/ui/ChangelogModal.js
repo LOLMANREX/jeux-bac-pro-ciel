@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v2.7 - Boutons HUD tactiles sur mobile & textes unifiés';
+    : 'v2.8 - Nettoyage complet des aperçus de liens et métadonnées';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,18 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v2.7 — Boutons HUD tactiles sur mobile & textes unifiés',
+    version: 'v2.8 — Nettoyage complet des aperçus de liens et métadonnées',
     date: '12/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Ajout et uniformisation complète des balises SEO et aperçus de liens (meta description, Open Graph og:title / og:description, Twitter Card) dans index.html et admin.html.',
+      'Vérification globale de l’intégralité du dépôt et des assets compilés : aucune mention résiduelle de l’ancien intitulé.'
+    ]
+  },
+  {
+    version: 'v2.7 — Boutons HUD tactiles sur mobile & textes unifiés',
+    date: '12/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Priorité tactile garantie sur les boutons en haut à droite du HUD (Chat, Paramètres, Menu principal) sur smartphone et tablette avec zone de toucher agrandie (min. 44px).',
       'La zone tactile de rotation de caméra n’intercepte plus les appuis sur les boutons du HUD.',

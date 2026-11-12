@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v2.7 - Boutons HUD tactiles sur mobile & textes unifiés'),
+    __APP_VERSION__: JSON.stringify('v2.8 - Nettoyage complet des aperçus de liens et métadonnées'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {
