@@ -2,6 +2,15 @@ import { sfx } from '../core/audio.js';
 import { DEFAULT_ROOM } from '../core/network.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 
+function escapeHtml(text) {
+  return String(text || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 export class MainMenu {
   constructor(gameState, network, { onStartGame, onOpenSettings, onOpenPlatform, onOpenFaq }) {
     this.gameState = gameState;
@@ -37,18 +46,25 @@ export class MainMenu {
       pants: 'skin-pants-list'
     };
 
-    this.preview = new SkinPreview3D(
-      document.getElementById('skin-preview-canvas'),
-      () => this.gameState.skin,
-      320,
-      380
-    );
-    this.preview.setActive(true);
+    try {
+      this.preview = new SkinPreview3D(
+        document.getElementById('skin-preview-canvas'),
+        () => this.gameState.skin,
+        320,
+        380
+      );
+      this.preview.setActive(true);
+    } catch (err) {
+      console.warn('Aperçu 3D indisponible:', err);
+      this.preview = null;
+    }
 
     this._initName();
     this.renderSkinUi();
     this._bindEvents();
     this.pollTimer = null;
+    this.healthPending = false;
+    this.roomsPending = false;
     this._startPolling();
   }
 
@@ -58,7 +74,7 @@ export class MainMenu {
     this.pollTimer = setInterval(() => {
       if (!this.visible) return;
       this.refreshHealth();
-      if (!this.views.join.classList.contains('hidden')) {
+      if (this.views.join && !this.views.join.classList.contains('hidden')) {
         this.refreshRooms(true);
       }
     }, 4000);
@@ -73,46 +89,46 @@ export class MainMenu {
 
   _initName() {
     const saved = localStorage.getItem('ciel_player_name') || '';
-    this.nameInput.value = saved;
-    this.previewTag.textContent = saved || 'Eleve_CIEL';
+    if (this.nameInput) this.nameInput.value = saved;
+    if (this.previewTag) this.previewTag.textContent = saved || 'Eleve_CIEL';
   }
 
   renderSkinUi() {
     renderSkinControls(this.skinIds, this.gameState, () => {
-      this.preview.rebuild();
+      this.preview?.rebuild?.();
     });
   }
 
   _bindEvents() {
-    this.nameInput.addEventListener('input', () => {
+    this.nameInput?.addEventListener('input', () => {
       const val = this.nameInput.value.trim();
-      this.previewTag.textContent = val || 'Eleve_CIEL';
+      if (this.previewTag) this.previewTag.textContent = val || 'Eleve_CIEL';
     });
 
     document.getElementById('menu-btn-quickplay')?.addEventListener('click', () => {
       this._launchWithRoom(DEFAULT_ROOM);
     });
 
-    document.getElementById('menu-btn-play').addEventListener('click', () => {
+    document.getElementById('menu-btn-play')?.addEventListener('click', () => {
       sfx.click();
-      this.roomSelect.value = DEFAULT_ROOM;
-      this.customRoomWrap.classList.add('hidden');
+      if (this.roomSelect) this.roomSelect.value = DEFAULT_ROOM;
+      this.customRoomWrap?.classList.add('hidden');
       this.showView('play');
     });
 
-    document.getElementById('menu-btn-join').addEventListener('click', () => {
+    document.getElementById('menu-btn-join')?.addEventListener('click', () => {
       sfx.click();
       this.showView('join');
       this.refreshRooms();
     });
 
-    document.getElementById('menu-btn-skin').addEventListener('click', () => {
+    document.getElementById('menu-btn-skin')?.addEventListener('click', () => {
       sfx.click();
       this.renderSkinUi();
       this.showView('skin');
     });
 
-    document.getElementById('menu-btn-settings').addEventListener('click', () => {
+    document.getElementById('menu-btn-settings')?.addEventListener('click', () => {
       sfx.click();
       this.onOpenSettings?.();
     });
@@ -160,16 +176,16 @@ export class MainMenu {
       this._launchWithRoom(code);
     });
 
-    document.getElementById('btn-skin-random').addEventListener('click', () => {
+    document.getElementById('btn-skin-random')?.addEventListener('click', () => {
       sfx.click();
       this.gameState.setSkin(pickRandomSkin());
-      this.preview.rebuild();
+      this.preview?.rebuild?.();
       this.renderSkinUi();
     });
   }
 
   _launchWithRoom(room) {
-    const name = this.nameInput.value.trim() || 'Eleve_CIEL';
+    const name = this.nameInput?.value?.trim() || 'Eleve_CIEL';
     localStorage.setItem('ciel_player_name', name);
     sfx.interact();
     this.hide();
@@ -183,49 +199,74 @@ export class MainMenu {
   }
 
   async refreshRooms(silent = false) {
+    if (!this.roomsListEl || this.roomsPending) return;
+    this.roomsPending = true;
     if (!silent) {
       this.roomsListEl.innerHTML = '<p class="hint-mini">Recherche des salles actives...</p>';
     }
-    const rooms = await this.network.fetchRooms();
-    if (!rooms || rooms.length === 0) {
-      this.roomsListEl.innerHTML = '<p class="hint-mini">Aucune salle détectée pour le moment.</p>';
-      return;
-    }
-    this.roomsListEl.innerHTML = rooms
-      .map(
-        (r) => `
+    try {
+      const rooms = await this.network.fetchRooms(3000);
+      if (!rooms || rooms.length === 0) {
+        this.roomsListEl.innerHTML = '<p class="hint-mini">Aucune salle détectée pour le moment.</p>';
+        return;
+      }
+      this.roomsListEl.innerHTML = rooms
+        .map(
+          (r) => `
       <div class="room-row">
         <div>
-          <strong>🏫 ${r.room}</strong>
-          <div class="hint-mini">${r.count} élève(s) : ${r.players.length ? r.players.join(', ') : 'Salle prête'}</div>
+          <strong>🏫 ${escapeHtml(r.room)}</strong>
+          <div class="hint-mini">${r.count} élève(s) : ${
+            r.players?.length ? r.players.map((p) => escapeHtml(p)).join(', ') : 'Salle prête'
+          }</div>
         </div>
-        <button type="button" class="btn-primary btn-sm join-room-btn" data-room="${r.room}">Rejoindre</button>
+        <button type="button" class="btn-primary btn-sm join-room-btn" data-room="${escapeHtml(r.room)}">Rejoindre</button>
       </div>`
-      )
-      .join('');
+        )
+        .join('');
 
-    this.roomsListEl.querySelectorAll('.join-room-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        this._launchWithRoom(btn.dataset.room);
+      this.roomsListEl.querySelectorAll('.join-room-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this._launchWithRoom(btn.dataset.room);
+        });
       });
-    });
+    } catch {
+      if (!silent) {
+        this.roomsListEl.innerHTML = '<p class="hint-mini">Impossible de récupérer les salles.</p>';
+      }
+    } finally {
+      this.roomsPending = false;
+    }
   }
 
   async refreshHealth() {
-    const health = await this.network.checkHealth();
-    if (health?.ok) {
-      this.statusEl.innerHTML = `<span class="dot online"></span> Serveur CIEL connecté — <strong>${health.playersOnline}</strong> joueur(s) en ligne`;
-    } else {
-      const reason = health?.error ? ` (${health.error})` : '';
-      this.statusEl.innerHTML = `<span class="dot error"></span> Serveur multijoueur inaccessible${reason} — Mode solo local`;
+    if (!this.statusEl || this.healthPending) return;
+    this.healthPending = true;
+    try {
+      const health = await this.network.checkHealth(3000);
+      if (health?.ok) {
+        const count = Number.isFinite(health.playersOnline) ? health.playersOnline : 0;
+        this.statusEl.innerHTML = `<span class="dot online"></span> Serveur CIEL en ligne — <strong>${count}</strong> joueur(s) connecté(s)`;
+      } else if (health?.timeout) {
+        this.statusEl.innerHTML =
+          '<span class="dot warn"></span> Serveur lent ou inaccessible (timeout 3s) — Mode solo disponible';
+      } else {
+        const reason = health?.error ? ` (${escapeHtml(health.error)})` : '';
+        this.statusEl.innerHTML = `<span class="dot error"></span> Serveur multijoueur hors ligne${reason} — Mode solo local`;
+      }
+    } catch {
+      this.statusEl.innerHTML =
+        '<span class="dot error"></span> Serveur multijoueur hors ligne — Mode solo local';
+    } finally {
+      this.healthPending = false;
     }
   }
 
   show() {
     this.visible = true;
-    this.root.classList.remove('hidden');
+    this.root?.classList.remove('hidden');
     this.renderSkinUi();
-    this.preview.setActive(true);
+    this.preview?.setActive?.(true);
     this.updatePlatformButton(this.gameState.touchMode);
     this.showView('home');
     this._startPolling();
@@ -239,7 +280,7 @@ export class MainMenu {
   hide() {
     this.visible = false;
     this._stopPolling();
-    this.preview.setActive(false);
-    this.root.classList.add('hidden');
+    this.preview?.setActive?.(false);
+    this.root?.classList.add('hidden');
   }
 }

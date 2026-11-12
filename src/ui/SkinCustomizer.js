@@ -95,86 +95,94 @@ export class SkinPreview3D {
     if (this.initialized || !this.canvas) return;
     this.initialized = true;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.setSize(this.width, this.height, false);
+    try {
+      this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      this.renderer.setSize(this.width, this.height, false);
 
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(40, this.width / this.height, 0.1, 20);
-    this.camera.position.set(0, 1.15, 3.2);
-    this.camera.lookAt(0, 0.95, 0);
+      this.scene = new THREE.Scene();
+      this.camera = new THREE.PerspectiveCamera(40, this.width / this.height, 0.1, 20);
+      this.camera.position.set(0, 1.15, 3.2);
+      this.camera.lookAt(0, 0.95, 0);
 
-    const hemi = new THREE.HemisphereLight('#f8fafc', '#1e293b', 1.1);
-    this.scene.add(hemi);
-    const dir = new THREE.DirectionalLight('#ffffff', 1.3);
-    dir.position.set(2, 4, 3);
-    this.scene.add(dir);
+      const hemi = new THREE.HemisphereLight('#f8fafc', '#1e293b', 1.1);
+      this.scene.add(hemi);
+      const dir = new THREE.DirectionalLight('#ffffff', 1.3);
+      dir.position.set(2, 4, 3);
+      this.scene.add(dir);
 
-    const pedestal = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.75, 0.85, 0.1, 32),
-      new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4, metalness: 0.5 })
-    );
-    pedestal.position.y = -0.05;
-    this.scene.add(pedestal);
+      const pedestal = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.75, 0.85, 0.1, 32),
+        new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4, metalness: 0.5 })
+      );
+      pedestal.position.y = -0.05;
+      this.scene.add(pedestal);
 
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.72, 0.78, 32),
-      new THREE.MeshBasicMaterial({ color: '#22d3ee', side: THREE.DoubleSide })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.01;
-    this.scene.add(ring);
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.72, 0.78, 32),
+        new THREE.MeshBasicMaterial({ color: '#22d3ee', side: THREE.DoubleSide })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.01;
+      this.scene.add(ring);
 
-    this.canvas.addEventListener('mousedown', (e) => {
-      this.dragging = true;
-      this.lastMouseX = e.clientX;
-    });
-    window.addEventListener('mouseup', () => {
-      this.dragging = false;
-    });
-    window.addEventListener('mousemove', (e) => {
-      if (!this.dragging || !this.active) return;
-      const dx = e.clientX - this.lastMouseX;
-      this.lastMouseX = e.clientX;
-      this.yaw += dx * 0.014;
-    });
-    this.canvas.addEventListener(
-      'touchstart',
-      (e) => {
-        if (!this.active || !e.touches[0]) return;
-        e.preventDefault();
+      this.canvas.addEventListener('mousedown', (e) => {
         this.dragging = true;
-        this.lastMouseX = e.touches[0].clientX;
-      },
-      { passive: false }
-    );
-    window.addEventListener(
-      'touchmove',
-      (e) => {
-        if (!this.dragging || !this.active || !e.touches[0]) return;
-        const dx = e.touches[0].clientX - this.lastMouseX;
-        this.lastMouseX = e.touches[0].clientX;
+        this.lastMouseX = e.clientX;
+      });
+      window.addEventListener('mouseup', () => {
+        this.dragging = false;
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!this.dragging || !this.active) return;
+        const dx = e.clientX - this.lastMouseX;
+        this.lastMouseX = e.clientX;
         this.yaw += dx * 0.014;
-      },
-      { passive: true }
-    );
-    window.addEventListener('touchend', () => {
-      this.dragging = false;
-    });
-    window.addEventListener('touchcancel', () => {
-      this.dragging = false;
-    });
+      });
+      this.canvas.addEventListener(
+        'touchstart',
+        (e) => {
+          if (!this.active || !e.touches[0]) return;
+          e.preventDefault();
+          this.dragging = true;
+          this.lastMouseX = e.touches[0].clientX;
+        },
+        { passive: false }
+      );
+      window.addEventListener(
+        'touchmove',
+        (e) => {
+          if (!this.dragging || !this.active || !e.touches[0]) return;
+          const dx = e.touches[0].clientX - this.lastMouseX;
+          this.lastMouseX = e.touches[0].clientX;
+          this.yaw += dx * 0.014;
+        },
+        { passive: true }
+      );
+      window.addEventListener('touchend', () => {
+        this.dragging = false;
+      });
+      window.addEventListener('touchcancel', () => {
+        this.dragging = false;
+      });
 
-    this.rebuild();
+      this.rebuild();
 
-    const tick = () => {
-      this.animId = requestAnimationFrame(tick);
-      if (!this.active) return;
-      if (!this.dragging) this.yaw += 0.008;
-      if (this.avatarGroup) this.avatarGroup.rotation.y = this.yaw;
-      this.renderer.render(this.scene, this.camera);
-    };
-    tick();
+      const tick = () => {
+        this.animId = requestAnimationFrame(tick);
+        if (!this.active || !this.renderer || !this.scene || !this.camera) return;
+        if (!this.dragging) this.yaw += 0.008;
+        if (this.avatarGroup) this.avatarGroup.rotation.y = this.yaw;
+        this.renderer.render(this.scene, this.camera);
+      };
+      tick();
+    } catch (err) {
+      this.initialized = false;
+      this.renderer = null;
+      this.scene = null;
+      this.camera = null;
+      console.warn('WebGL aperçu 3D indisponible:', err);
+    }
   }
 
   setActive(active) {
@@ -193,6 +201,10 @@ export class SkinPreview3D {
     }
     const { group } = buildStudentAvatarMesh(this.getSkinFn());
     this.avatarGroup = group;
+    this.avatarGroup.rotation.y = this.yaw;
     this.scene.add(this.avatarGroup);
+    if (this.renderer && this.camera) {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 }

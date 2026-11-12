@@ -425,6 +425,14 @@ button:active {
   background: var(--emerald);
   box-shadow: 0 0 8px var(--emerald);
 }
+.dot.warn {
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber);
+}
+.dot.error {
+  background: var(--danger);
+  box-shadow: 0 0 8px var(--danger);
+}
 
 /* HUD */
 .hud {

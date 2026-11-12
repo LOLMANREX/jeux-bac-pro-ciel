@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v2.3 - Sélecteur PC/Mobile, FAQ & Boîte à idées'),
+    __APP_VERSION__: JSON.stringify('v2.4 - Correctif démarrage & connexion serveur'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

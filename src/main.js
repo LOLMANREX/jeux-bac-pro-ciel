@@ -77,36 +77,60 @@ player.setAvatarVisible(false);
 
 const remotePlayers = new RemotePlayersManager(sceneMgr.scene);
 
-const dialogueModal = new DialogueModal();
-const miniGameModal = new MiniGameModal();
-const changelogModal = new ChangelogModal();
-const faqModal = new FaqModal({
-  getDefaultAuthor: () =>
-    document.getElementById('player-name-input')?.value?.trim() ||
-    gameState.profile.name ||
-    localStorage.getItem('ciel_player_name') ||
-    '',
-  onToast: (msg, type) => hud.toast(msg, type)
-});
+let hud = null;
+let mainMenu = null;
 let platformModal = null;
+let touchControls = null;
+let dialogueModal = null;
+let miniGameModal = null;
+let changelogModal = null;
+let faqModal = null;
+
+try {
+  dialogueModal = new DialogueModal();
+  miniGameModal = new MiniGameModal();
+} catch (err) {
+  console.warn('Modales de dialogue/TP:', err);
+}
+
+try {
+  changelogModal = new ChangelogModal();
+} catch (err) {
+  console.warn('Modale changelog:', err);
+}
+
+try {
+  faqModal = new FaqModal({
+    getDefaultAuthor: () =>
+      document.getElementById('player-name-input')?.value?.trim() ||
+      gameState.profile.name ||
+      localStorage.getItem('ciel_player_name') ||
+      '',
+    onToast: (msg, type) => hud?.toast?.(msg, type)
+  });
+} catch (err) {
+  console.warn('Modale FAQ:', err);
+}
 
 document.getElementById('menu-version-badge')?.addEventListener('click', () => {
   sfx.click();
-  changelogModal.open();
+  changelogModal?.open?.();
 });
 
 document.getElementById('hud-version-badge')?.addEventListener('click', () => {
   sfx.click();
   setModalActive(true, false, false);
-  changelogModal.open(() => setModalActive(false, false, false));
+  if (changelogModal) {
+    changelogModal.open(() => setModalActive(false, false, false));
+  } else {
+    setModalActive(false, false, false);
+  }
 });
 
 let joined = false;
 let modalOpen = false;
 let subModalActive = false;
 let nearestTarget = null;
-
-let touchControls = null;
 
 function setModalActive(active, pauseScene = false, lockActivity = false) {
   modalOpen = active;
@@ -194,7 +218,7 @@ function teleportNearTarget(id) {
   hud.toast(`${tp.icon} Devant ${tp.title} — Appuyez sur E pour lancer le TP`);
 }
 
-const hud = new HudManager(gameState, network, {
+hud = new HudManager(gameState, network, {
   onQualityChange: (q) => sceneMgr.setQuality(q),
   onFovChange: (fov) => sceneMgr.setFov(fov),
   onCameraModeChange: (mode) => {
@@ -208,10 +232,12 @@ const hud = new HudManager(gameState, network, {
     platformModal?.syncActiveChoice?.(active);
   },
   onOpenPlatform: () => {
+    if (!platformModal) return;
     setModalActive(true, false, false);
     platformModal.open(gameState.touchMode, () => setModalActive(false, false, false), true);
   },
   onOpenFaq: () => {
+    if (!faqModal) return;
     setModalActive(true, false, false);
     faqModal.open('faq', () => setModalActive(false, false, false));
   },
@@ -236,23 +262,27 @@ function toggleCameraMode() {
   const next = gameState.cameraMode === 'third' ? 'first' : 'third';
   gameState.setCameraMode(next);
   player.setCameraMode(next);
-  hud.syncCameraUi?.();
+  hud?.syncCameraUi?.();
   touchControls?.syncCameraMode(next);
-  hud.toast(next === 'third' ? '🎥 Caméra 3ème personne' : '🎥 Caméra 1ère personne');
+  hud?.toast?.(next === 'third' ? '🎥 Caméra 3ème personne' : '🎥 Caméra 1ère personne');
 }
 
-touchControls = new TouchControls(player, {
-  onInteract: () => {
-    if (joined && !modalOpen && nearestTarget) interactWith(nearestTarget);
-  },
-  onToggleCamera: () => {
-    if (joined && !modalOpen) toggleCameraMode();
-  },
-  onTapLookZone: (x, y) => {
-    if (joined && !modalOpen) tryRaycastInteract(x, y);
-  }
-});
-touchControls.syncCameraMode(gameState.cameraMode);
+try {
+  touchControls = new TouchControls(player, {
+    onInteract: () => {
+      if (joined && !modalOpen && nearestTarget) interactWith(nearestTarget);
+    },
+    onToggleCamera: () => {
+      if (joined && !modalOpen) toggleCameraMode();
+    },
+    onTapLookZone: (x, y) => {
+      if (joined && !modalOpen) tryRaycastInteract(x, y);
+    }
+  });
+  touchControls.syncCameraMode(gameState.cameraMode);
+} catch (err) {
+  console.warn('Contrôles tactiles indisponibles:', err);
+}
 
 function returnToMainMenu() {
   joined = false;
@@ -260,11 +290,11 @@ function returnToMainMenu() {
   subModalActive = false;
   player.setEnabled(false);
   player.setAvatarVisible(false);
-  touchControls.setVisible(false);
+  touchControls?.setVisible(false);
   network.disconnect();
   remotePlayers.clearAll();
-  hud.hide();
-  mainMenu.show();
+  hud?.hide?.();
+  mainMenu?.show?.();
 }
 
 let notifiedNetError = false;
@@ -523,17 +553,17 @@ sceneMgr.addUpdater((dt, elapsed) => {
       }
     }
     nearestTarget = best;
-    hud.setInteractPrompt(best);
-    touchControls.setInteractTarget(best);
+    hud?.setInteractPrompt?.(best);
+    touchControls?.setInteractTarget?.(best);
   }
 });
 
 sceneMgr.start();
 
-const mainMenu = new MainMenu(gameState, network, {
-  onOpenSettings: () => hud.openSettingsModal?.(),
-  onOpenPlatform: () => platformModal.open(gameState.touchMode, null, true),
-  onOpenFaq: () => faqModal.open('faq'),
+mainMenu = new MainMenu(gameState, network, {
+  onOpenSettings: () => hud?.openSettingsModal?.(),
+  onOpenPlatform: () => platformModal?.open?.(gameState.touchMode, null, true),
+  onOpenFaq: () => faqModal?.open?.('faq'),
   onStartGame: ({ name, room, skin }) => {
     const cleanRoom = room || 'salle-e204';
     notifiedNetError = false;
@@ -547,8 +577,8 @@ const mainMenu = new MainMenu(gameState, network, {
     player.setCameraMode(gameState.cameraMode);
     player.setTouchMode(gameState.touchMode);
     player.setEnabled(true);
-    touchControls.syncCameraMode(gameState.cameraMode);
-    touchControls.setVisible(gameState.touchMode);
+    touchControls?.syncCameraMode?.(gameState.cameraMode);
+    touchControls?.setVisible?.(gameState.touchMode);
     player.teleportTo({ x: 0, z: 6.2 }, FORTIN_POS);
     network.connect(name, cleanRoom, skin, {
       x: 0,
@@ -558,7 +588,7 @@ const mainMenu = new MainMenu(gameState, network, {
     });
 
     setTimeout(() => {
-      hud.toast(
+      hud?.toast?.(
         gameState.touchMode
           ? 'Approchez-vous de M. Fortin et touchez Parler pour commencer !'
           : 'Approchez-vous de M. Fortin et appuyez sur E pour commencer !'
@@ -567,20 +597,23 @@ const mainMenu = new MainMenu(gameState, network, {
   }
 });
 
-platformModal = new PlatformModal({
-  onSelect: (mode) => {
-    sfx.click();
-    const isMobile = mode === 'mobile';
-    gameState.setTouchMode(isMobile);
-    player.setTouchMode(isMobile);
-    hud.syncTouchUi?.();
-    mainMenu.updatePlatformButton(isMobile);
-    hud.toast(
-      isMobile
-        ? '📱 Mode Mobile / Tablette activé (contrôles tactiles)'
-        : '💻 Mode PC activé (Clavier ZQSD + Souris)'
-    );
-  }
-});
-
-platformModal.open(gameState.touchMode, null, false);
+try {
+  platformModal = new PlatformModal({
+    onSelect: (mode) => {
+      sfx.click();
+      const isMobile = mode === 'mobile';
+      gameState.setTouchMode(isMobile);
+      player.setTouchMode(isMobile);
+      hud?.syncTouchUi?.();
+      mainMenu?.updatePlatformButton?.(isMobile);
+      hud?.toast?.(
+        isMobile
+          ? '📱 Mode Mobile / Tablette activé (contrôles tactiles)'
+          : '💻 Mode PC activé (Clavier ZQSD + Souris)'
+      );
+    }
+  });
+  platformModal.open(gameState.touchMode, null, false);
+} catch (err) {
+  console.warn('Sélecteur de plateforme indisponible:', err);
+}

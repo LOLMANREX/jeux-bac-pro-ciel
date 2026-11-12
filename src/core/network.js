@@ -41,19 +41,34 @@ export class NetworkClient {
     for (const fn of set) fn(data);
   }
 
-  async checkHealth() {
+  async _fetchWithTimeout(url, options = {}, timeoutMs = 3000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch('/api/health', { cache: 'no-store' });
-      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-      return await res.json();
-    } catch (err) {
-      return { ok: false, error: err?.message || 'Serveur inaccessible' };
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  async fetchLeaderboard() {
+  async checkHealth(timeoutMs = 3000) {
     try {
-      const res = await fetch('/api/leaderboard', { cache: 'no-store' });
+      const res = await this._fetchWithTimeout('/api/health', { cache: 'no-store' }, timeoutMs);
+      if (!res.ok) return { ok: false, timeout: false, error: `HTTP ${res.status}` };
+      return await res.json();
+    } catch (err) {
+      const isTimeout = err?.name === 'AbortError';
+      return {
+        ok: false,
+        timeout: isTimeout,
+        error: isTimeout ? 'Délai dépassé (3s)' : err?.message || 'Serveur inaccessible'
+      };
+    }
+  }
+
+  async fetchLeaderboard(timeoutMs = 4000) {
+    try {
+      const res = await this._fetchWithTimeout('/api/leaderboard', { cache: 'no-store' }, timeoutMs);
       if (!res.ok) return [];
       const data = await res.json();
       return data.leaderboard || [];
@@ -62,9 +77,9 @@ export class NetworkClient {
     }
   }
 
-  async fetchRooms() {
+  async fetchRooms(timeoutMs = 3000) {
     try {
-      const res = await fetch('/api/rooms', { cache: 'no-store' });
+      const res = await this._fetchWithTimeout('/api/rooms', { cache: 'no-store' }, timeoutMs);
       if (!res.ok) return [];
       const data = await res.json();
       return data.rooms || [];

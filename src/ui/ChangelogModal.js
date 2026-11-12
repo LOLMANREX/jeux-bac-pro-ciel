@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v2.3 - Sélecteur PC/Mobile, FAQ & Boîte à idées';
+    : 'v2.4 - Correctif démarrage & connexion serveur';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,8 +20,19 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v2.3 — Sélecteur PC/Mobile, FAQ & Boîte à idées',
+    version: 'v2.4 — Correctif démarrage & connexion serveur',
     tag: 'DERNIÈRE MÀJ',
+    date: '12/11/2026',
+    items: [
+      'Correction critique au démarrage : résolution d’une référence circulaire à l’initialisation du HUD qui bloquait l’écran d’accueil.',
+      'Rétablissement immédiat de l’aperçu 3D en direct du personnage sur le menu principal avec protection WebGL.',
+      'Ajout d’un timeout strict de 3 secondes (AbortController) sur /api/health et /api/rooms pour ne plus jamais bloquer sur « Connexion au serveur CIEL… ».',
+      'Isolation des modales secondaires (Plateforme, FAQ, Changelog) dans des blocs protégés : le lancement d’une partie reste toujours possible.'
+    ]
+  },
+  {
+    version: 'v2.3 — Sélecteur PC/Mobile, FAQ & Boîte à idées',
+    tag: 'HISTORIQUE',
     date: '12/11/2026',
     items: [
       'Écran de choix de plateforme (Mode PC ou Mode Mobile / Tablette) dès l’ouverture et réouvrable à tout moment.',
