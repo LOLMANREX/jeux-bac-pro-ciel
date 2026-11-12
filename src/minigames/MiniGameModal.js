@@ -83,7 +83,7 @@ export class MiniGameModal {
     const passed = score >= 10;
     const mention =
       score >= 18
-        ? 'Félicitations de M. Fortin !'
+        ? 'Félicitations du Professeur CIEL !'
         : score >= 15
           ? 'Très solide maîtrise CIEL !'
           : score >= 10
@@ -97,7 +97,7 @@ export class MiniGameModal {
           <div class="mg-result-status">${passed ? '✅ COMPÉTENCE VALIDÉE' : '⚠️ À RETRAVAILLER'}</div>
         </div>
         <h3>${tp.icon} ${tp.title}</h3>
-        <p class="mg-result-prof">👨‍🏫 <strong>M. Fortin :</strong> « ${mention} »</p>
+        <p class="mg-result-prof">👨‍🏫 <strong>Professeur CIEL :</strong> « ${mention} »</p>
         <div class="mg-result-meta">⏱️ Temps réalisé : <strong>${this._formatSec(durationSec)}</strong></div>
         <div class="mg-result-summary">${summaryHtml || ''}</div>
         <div class="mg-result-actions">

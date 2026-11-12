@@ -20,7 +20,7 @@ const TP_DEEP_EXPLANATIONS = {
   antivirus: [
     '« Quand un poste est envahi de popups ou chiffre des fichiers, le pire réflexe serait de le laisser connecté au réseau du lycée ! »',
     '« Toujours isoler la carte réseau en premier. Ensuite, inspecte le Gestionnaire des tâches : cherche les faux noms comme svch0st.exe avec un zéro ! »',
-    '« Enfin, installe ou mets à jour FortinGuard EDR, bloque les ports backdoor au pare-feu et mets chaque menace en quarantaine. »'
+    '« Enfin, installe ou mets à jour CielGuard EDR, bloque les ports backdoor au pare-feu et mets chaque menace en quarantaine. »'
   ],
   vmvlan: [
     '« Dans une vraie infra CIEL, un serveur physique héberge plusieurs VMs grâce à l’hyperviseur : attention à ne pas saturer la RAM ou le CPU ! »',
@@ -175,7 +175,7 @@ export class DialogueModal {
           <div class="diploma-banner">
             <div class="diploma-seal">🎓 DIPLÔME BAC PRO CIEL VALIDÉ</div>
             <div class="diploma-grade">Moyenne Générale : <strong>${p.average}/20</strong> — ${mention}</div>
-            <div class="diploma-student">Décerné à <strong>${p.name}</strong> par M. Fortin</div>
+            <div class="diploma-student">Décerné à <strong>${p.name}</strong> par le Professeur CIEL</div>
           </div>
         `,
         choices: [
@@ -184,7 +184,7 @@ export class DialogueModal {
             action: () => this._showReportCardNode()
           },
           {
-            label: '💬 « Merci M. Fortin ! Je vais tenter d’améliorer encore mes scores ! »',
+            label: '💬 « Merci Professeur CIEL ! Je vais tenter d’améliorer encore mes scores ! »',
             primary: true,
             action: () => this.close()
           }
@@ -250,7 +250,7 @@ export class DialogueModal {
 
   _explainTpNode(tpId) {
     const tp = getTpById(tpId);
-    const lines = TP_DEEP_EXPLANATIONS[tpId] || [tp.fortinHint];
+    const lines = TP_DEEP_EXPLANATIONS[tpId] || [tp.teacherHint];
     this._playNode({
       lines,
       choices: [
@@ -279,12 +279,12 @@ export class DialogueModal {
     const p = this.gameState.profile;
     const avgTxt = p.average !== null ? `${p.average.toFixed(1)}/20` : 'pas encore de note';
     const extraHtml = `
-      <div class="fortin-tp-grid">
+      <div class="teacher-tp-grid">
         ${TP_CATALOG.map((tp) => {
           const grade = p.grades?.[tp.id];
           const ok = typeof grade === 'number' && grade >= 10;
           return `
-            <div class="fortin-tp-item ${ok ? 'done' : ''}">
+            <div class="teacher-tp-item ${ok ? 'done' : ''}">
               <span>${tp.icon} ${tp.shortTitle}</span>
               <span class="tp-grade-pill">${typeof grade === 'number' ? `${grade.toFixed(1)}/20` : 'À faire'}</span>
             </div>`;
@@ -300,7 +300,7 @@ export class DialogueModal {
       extraHtml,
       choices: [
         {
-          label: '↩️ Continuer à discuter avec M. Fortin',
+          label: '↩️ Continuer à discuter avec le Professeur CIEL',
           action: () => this._startMainConversation()
         },
         {

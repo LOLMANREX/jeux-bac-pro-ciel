@@ -243,7 +243,7 @@ export function attachWsHub(httpServer, store) {
       const sysMsg = {
         id: crypto.randomUUID().slice(0, 8),
         system: true,
-        author: 'M. Fortin',
+        author: 'Professeur CIEL',
         text: result.profile.diplomaEarned
           ? `Félicitations à ${state.name} qui décroche le BAC PRO CIEL (${result.profile.average}/20) !`
           : `Bravo ${state.name} pour son ${result.score}/20 au ${tpLabel} !`,

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FORTIN_POS } from '../core/gameState.js';
+import { TEACHER_POS } from '../core/gameState.js';
 
 function createLabel(text, subtext) {
   const canvas = document.createElement('canvas');
@@ -33,11 +33,10 @@ function createLabel(text, subtext) {
   return sprite;
 }
 
-export function createNpcFortin(scene) {
+export function createNpcTeacher(scene) {
   const root = new THREE.Group();
-  root.position.set(FORTIN_POS.x, 0, FORTIN_POS.z);
+  root.position.set(TEACHER_POS.x, 0, TEACHER_POS.z);
 
-  // Legs
   const pantMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.8 });
   const shoeMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.7 });
   [-0.14, 0.14].forEach((lx) => {
@@ -51,7 +50,6 @@ export function createNpcFortin(scene) {
     root.add(shoe);
   });
 
-  // Lab coat / torso
   const torsoGroup = new THREE.Group();
   torsoGroup.position.set(0, 1.15, 0);
   root.add(torsoGroup);
@@ -69,7 +67,6 @@ export function createNpcFortin(scene) {
   shirtStripe.position.y = 0.02;
   torsoGroup.add(shirtStripe);
 
-  // Badge
   const badge = new THREE.Mesh(
     new THREE.BoxGeometry(0.11, 0.07, 0.02),
     new THREE.MeshBasicMaterial({ color: '#22d3ee' })
@@ -77,7 +74,6 @@ export function createNpcFortin(scene) {
   badge.position.set(0.16, 0.18, 0.18);
   torsoGroup.add(badge);
 
-  // Arms + Tablet
   const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.62, 0.18), coatMat);
   leftArm.position.set(-0.37, -0.02, 0);
   torsoGroup.add(leftArm);
@@ -95,7 +91,6 @@ export function createNpcFortin(scene) {
   tablet.rotation.x = 0.4;
   torsoGroup.add(tablet);
 
-  // Head + glasses
   const headGroup = new THREE.Group();
   headGroup.position.set(0, 0.58, 0);
   torsoGroup.add(headGroup);
@@ -108,7 +103,6 @@ export function createNpcFortin(scene) {
   hair.position.set(0, 0.18, -0.01);
   headGroup.add(hair);
 
-  // Glasses frames
   const glassMat = new THREE.MeshStandardMaterial({ color: '#0f172a', metalness: 0.5 });
   [-0.085, 0.085].forEach((gx) => {
     const frame = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.03), glassMat);
@@ -116,7 +110,6 @@ export function createNpcFortin(scene) {
     headGroup.add(frame);
   });
 
-  // Quest diamond beacon above head
   const diamond = new THREE.Mesh(
     new THREE.OctahedronGeometry(0.18, 0),
     new THREE.MeshBasicMaterial({ color: '#fbbf24' })
@@ -124,12 +117,10 @@ export function createNpcFortin(scene) {
   diamond.position.set(0, 2.38, 0);
   root.add(diamond);
 
-  // Nameplate
-  const label = createLabel('M. Fortin', 'Prof. BAC PRO CIEL • Salle E204');
+  const label = createLabel('Professeur CIEL', 'Enseignant BAC PRO CIEL • Salle E204');
   label.position.set(0, 2.85, 0);
   root.add(label);
 
-  // Floor ring
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.95, 1.1, 32),
     new THREE.MeshBasicMaterial({ color: '#fbbf24', side: THREE.DoubleSide, transparent: true, opacity: 0.75 })
@@ -141,10 +132,10 @@ export function createNpcFortin(scene) {
   scene.add(root);
 
   const interactable = {
-    id: 'fortin',
+    id: 'teacher',
     type: 'npc',
-    label: '👨‍🏫 Parler à M. Fortin',
-    position: new THREE.Vector3(FORTIN_POS.x, 1.2, FORTIN_POS.z),
+    label: '👨‍🏫 Parler au Professeur CIEL',
+    position: new THREE.Vector3(TEACHER_POS.x, 1.2, TEACHER_POS.z),
     interactRadius: 3.1,
     mesh: root
   };
@@ -155,7 +146,6 @@ export function createNpcFortin(scene) {
     diamond.position.y = 2.35 + Math.sin(elapsed * 3.0) * 0.08;
     diamond.material.color.set(diplomaEarned ? '#10b981' : '#fbbf24');
 
-    // Gently face player when within 7 meters
     if (playerPos) {
       const dx = playerPos.x - root.position.x;
       const dz = playerPos.z - root.position.z;
@@ -172,7 +162,12 @@ export function createNpcFortin(scene) {
   return {
     root,
     interactable,
-    collider: { minX: FORTIN_POS.x - 0.55, maxX: FORTIN_POS.x + 0.55, minZ: FORTIN_POS.z - 0.55, maxZ: FORTIN_POS.z + 0.55 },
+    collider: {
+      minX: TEACHER_POS.x - 0.55,
+      maxX: TEACHER_POS.x + 0.55,
+      minZ: TEACHER_POS.z - 0.55,
+      maxZ: TEACHER_POS.z + 0.55
+    },
     update
   };
 }

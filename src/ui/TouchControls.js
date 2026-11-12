@@ -8,6 +8,8 @@ export class TouchControls {
     this.joyBase = document.getElementById('touch-joystick-base');
     this.joyKnob = document.getElementById('touch-joystick-knob');
     this.lookZone = document.getElementById('touch-look-zone');
+    this.hudTopEl = document.querySelector('.hud-top');
+    this.hudActionsEl = document.querySelector('.hud-actions');
 
     this.btnInteract = document.getElementById('touch-btn-interact');
     this.btnJump = document.getElementById('touch-btn-jump');
@@ -73,7 +75,7 @@ export class TouchControls {
     const lbl = this.btnInteract.querySelector('.tb-lbl');
     if (lbl) {
       if (!target) lbl.textContent = 'Interagir';
-      else if (target.id === 'fortin') lbl.textContent = 'Parler';
+      else if (target.id === 'teacher') lbl.textContent = 'Parler';
       else lbl.textContent = 'Lancer TP';
     }
   }
@@ -185,6 +187,28 @@ export class TouchControls {
     });
   }
 
+  _isUiOverlayTouch(clientX, clientY, target) {
+    if (
+      target &&
+      typeof target.closest === 'function' &&
+      target.closest(
+        '.hud-top, .hud-brand, .hud-actions, button, a, input, select, textarea, .quest-panel, .chat-drawer, .modal-backdrop, .dialogue-overlay'
+      )
+    ) {
+      return true;
+    }
+    const boxes = [this.hudActionsEl, this.hudTopEl];
+    for (const el of boxes) {
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      if (clientX >= r.left - 6 && clientX <= r.right + 6 && clientY >= r.top - 6 && clientY <= r.bottom + 6) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   _bindLookZone() {
     if (!this.lookZone) return;
 
@@ -192,10 +216,11 @@ export class TouchControls {
       'touchstart',
       (e) => {
         if (!this.visible || !this.player.enabled) return;
-        e.preventDefault();
-        if (this.lookTouchId !== null) return;
         const t = e.changedTouches[0];
         if (!t) return;
+        if (this._isUiOverlayTouch(t.clientX, t.clientY, e.target)) return;
+        e.preventDefault();
+        if (this.lookTouchId !== null) return;
         this.lookTouchId = t.identifier;
         this.lookLast = { x: t.clientX, y: t.clientY };
         this.lookStart = { x: t.clientX, y: t.clientY };

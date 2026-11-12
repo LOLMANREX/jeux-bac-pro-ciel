@@ -5,7 +5,7 @@ export const AV_STAGES = [
     id: 1,
     name: '1. Adware & Cheval de Troie',
     brief:
-      'Le PC de TP est envahi de popups ! 1) Coupez le réseau pour stopper les malwares, 2) Tuez les processus suspects, 3) Installez l’antivirus FortinGuard, mettez à jour sa base et lancez le scan complet !',
+      'Le PC de TP est envahi de popups ! 1) Coupez le réseau pour stopper les malwares, 2) Tuez les processus suspects, 3) Installez l’antivirus CielGuard, mettez à jour sa base et lancez le scan complet !',
     processes: [
       { pid: 412, name: 'explorer.exe', cpu: 2, legit: true, desc: 'Interface Bureau' },
       { pid: 884, name: 'ciel_tp_viewer.exe', cpu: 4, legit: true, desc: 'Lecteur de TP' },
@@ -27,7 +27,7 @@ export const AV_STAGES = [
       'Alerte critique : un CryptoLocker chiffre les documents et exfiltre sur le port 4444 ! Isolez le réseau, fermez le port malveillant au pare-feu, tuez le processus chiffreurs, puis nettoyez à l’antivirus.',
     processes: [
       { pid: 310, name: 'winlogon.exe', cpu: 1, legit: true, desc: 'Session Windows' },
-      { pid: 720, name: 'FortinGuard_Agent', cpu: 3, legit: true, desc: 'Service Sécurité' },
+      { pid: 720, name: 'CielGuard_Agent', cpu: 3, legit: true, desc: 'Service Sécurité' },
       { pid: 3190, name: 'cryptolocker_v3.exe', cpu: 64, legit: false, desc: 'Chiffrement actif !' },
       { pid: 3402, name: 'ncat_reverse.exe', cpu: 19, legit: false, desc: 'Shell distant C2' }
     ],
@@ -211,7 +211,7 @@ export function createAntivirusGame(api) {
         </div>
 
         <div class="os-tabs">
-          <button type="button" class="os-tab ${activeTab === 'av' ? 'active' : ''}" data-tab="av">🛡️ Antivirus FortinGuard</button>
+          <button type="button" class="os-tab ${activeTab === 'av' ? 'active' : ''}" data-tab="av">🛡️ Antivirus CielGuard</button>
           <button type="button" class="os-tab ${activeTab === 'tasks' ? 'active' : ''}" data-tab="tasks">📊 Gestionnaire des Tâches (${state.processes.filter((p) => p.alive).length})</button>
           <button type="button" class="os-tab ${activeTab === 'firewall' ? 'active' : ''}" data-tab="firewall">🧱 Pare-feu & Démarrage</button>
         </div>
@@ -244,8 +244,8 @@ export function createAntivirusGame(api) {
         body.innerHTML = `
           <div class="av-install-box">
             <h4>💾 Aucun Antivirus actif détecté sur ce poste !</h4>
-            <p>Branchez la clé USB de dépannage de M. Fortin et installez <strong>FortinGuard EDR</strong>.</p>
-            <button type="button" id="av-install-btn" class="btn-primary">💿 Installer FortinGuard EDR (Clé USB)</button>
+            <p>Branchez la clé USB de dépannage du Professeur CIEL et installez <strong>CielGuard EDR</strong>.</p>
+            <button type="button" id="av-install-btn" class="btn-primary">💿 Installer CielGuard EDR (Clé USB)</button>
           </div>
         `;
         document.getElementById('av-install-btn')?.addEventListener('click', () => {
@@ -512,7 +512,7 @@ export function createAntivirusGame(api) {
             `<ul>
               <li>✅ Réflexe d'isolation réseau appliqué</li>
               <li>✅ Processus malveillants & typosquatting (<code>svch0st.exe</code>) éliminés</li>
-              <li>✅ Antivirus FortinGuard installé, mis à jour et menaces mises en quarantaine</li>
+              <li>✅ Antivirus CielGuard installé, mis à jour et menaces mises en quarantaine</li>
               <li>✅ Pare-feu et tâches planifiées sécurisés</li>
             </ul>`
           );
@@ -520,7 +520,7 @@ export function createAntivirusGame(api) {
       } else {
         sfx.error();
         const errs = [];
-        if (!state.avInstalled) errs.push('Installez FortinGuard EDR.');
+        if (!state.avInstalled) errs.push('Installez CielGuard EDR.');
         if (!state.avUpdated) errs.push('Mettez à jour les définitions virales.');
         if (!state.scanDone) errs.push('Lancez l’analyse complète.');
         if (ev.badProcsAlive > 0) errs.push(`${ev.badProcsAlive} processus malveillant(s) encore actif(s).`);

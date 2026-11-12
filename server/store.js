@@ -92,7 +92,7 @@ export function computeDiplomas(grades = {}, average = null, diplomaEarned = fal
   const mention = computeMention(avg);
   const list = [`BAC PRO CIEL — ${mention}`];
   if (avg !== null && avg >= 16) {
-    list.push('Tableau d’Excellence M. Fortin');
+    list.push('Tableau d’Excellence Professeur CIEL');
   }
   return list;
 }

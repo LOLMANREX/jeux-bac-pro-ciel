@@ -3,11 +3,11 @@ import './styles/minigames.css';
 
 import * as THREE from 'three';
 import { sfx } from './core/audio.js';
-import { FORTIN_POS, GameState, getTpById, QUICK_EMOTES, TP_CATALOG } from './core/gameState.js';
+import { GameState, getTpById, QUICK_EMOTES, TEACHER_POS, TP_CATALOG } from './core/gameState.js';
 import { NetworkClient } from './core/network.js';
 import { SceneManager } from './world/SceneManager.js';
 import { buildLabWorld } from './world/LabBuilder.js';
-import { createNpcFortin } from './world/NpcFortin.js';
+import { createNpcTeacher } from './world/NpcTeacher.js';
 import { PlayerController } from './world/PlayerController.js';
 import {
   createSpeechBubble,
@@ -47,9 +47,9 @@ sceneMgr.setQuality(gameState.quality);
 sceneMgr.setFov(gameState.fov);
 
 const lab = buildLabWorld(sceneMgr.scene);
-const fortin = createNpcFortin(sceneMgr.scene);
-const allColliders = [...lab.colliders, fortin.collider];
-const allInteractables = [fortin.interactable, ...lab.interactables];
+const teacher = createNpcTeacher(sceneMgr.scene);
+const allColliders = [...lab.colliders, teacher.collider];
+const allInteractables = [teacher.interactable, ...lab.interactables];
 
 const player = new PlayerController(sceneMgr.camera, canvas, allColliders, {
   onJump: () => sfx.jump()
@@ -190,9 +190,9 @@ function openTp(tpId) {
   });
 }
 
-function openFortinDialogue() {
+function openTeacherDialogue() {
   sfx.interact();
-  network.sendActivity('Parle à M. Fortin');
+  network.sendActivity('Parle au Professeur CIEL');
   setModalActive(true, false, true);
   dialogueModal.open(gameState, {
     onAcceptQuest: () => {
@@ -211,10 +211,10 @@ function openFortinDialogue() {
 }
 
 function teleportNearTarget(id) {
-  if (id === 'fortin') {
-    player.teleportTo({ x: 0, z: 0.9 }, FORTIN_POS);
+  if (id === 'teacher') {
+    player.teleportTo({ x: 0, z: 0.9 }, TEACHER_POS);
     network.sendMove(player.position.x, 0, player.position.z, player.yaw, true);
-    hud.toast('Devant M. Fortin — Appuyez sur E pour lui parler');
+    hud.toast('Devant le Professeur CIEL — Appuyez sur E pour lui parler');
     return;
   }
   const tp = getTpById(id);
@@ -442,7 +442,7 @@ network.on('chat_message', ({ message }) => {
 
 function interactWith(target) {
   if (!target) return;
-  if (target.id === 'fortin') openFortinDialogue();
+  if (target.id === 'teacher') openTeacherDialogue();
   else openTp(target.id);
 }
 
@@ -535,7 +535,7 @@ canvas.addEventListener('mouseup', (e) => {
 
 sceneMgr.addUpdater((dt, elapsed) => {
   lab.update(elapsed);
-  fortin.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned);
+  teacher.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned);
   remotePlayers.update(dt);
   updateSpeechBubble(localBubble, dt);
 
@@ -603,7 +603,7 @@ mainMenu = new MainMenu(gameState, network, {
     player.setEnabled(true);
     touchControls?.syncCameraMode?.(gameState.cameraMode);
     touchControls?.setVisible?.(gameState.touchMode);
-    player.teleportTo({ x: 0, z: 6.2 }, FORTIN_POS);
+    player.teleportTo({ x: 0, z: 6.2 }, TEACHER_POS);
     network.connect(name, cleanRoom, skin, {
       x: 0,
       y: 0,
@@ -615,8 +615,8 @@ mainMenu = new MainMenu(gameState, network, {
     setTimeout(() => {
       hud?.toast?.(
         gameState.touchMode
-          ? 'Approchez-vous de M. Fortin et touchez Parler pour commencer !'
-          : 'Approchez-vous de M. Fortin et appuyez sur E pour commencer !'
+          ? 'Approchez-vous du Professeur CIEL et touchez Parler pour commencer !'
+          : 'Approchez-vous du Professeur CIEL et appuyez sur E pour commencer !'
       );
     }, 500);
   }

@@ -1,7 +1,7 @@
 {
   "name": "jeux-bac-pro-ciel",
   "version": "1.0.0",
-  "description": "Jeu 3D éducatif BAC PRO CIEL avec M. Fortin, 5 mini-jeux métiers et serveur prêt pour le multijoueur",
+  "description": "Jeu 3D éducatif BAC PRO CIEL avec Professeur CIEL, 5 mini-jeux métiers et serveur prêt pour le multijoueur",
   "type": "module",
   "scripts": {
     "dev:server": "node server/index.js",

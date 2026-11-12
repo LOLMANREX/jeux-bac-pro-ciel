@@ -450,31 +450,49 @@ button:active {
 }
 
 .hud-top {
+  position: relative;
+  z-index: 30;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
   gap: 12px;
   flex-wrap: wrap;
+  pointer-events: none;
 }
 
 .hud-brand {
+  position: relative;
+  z-index: 30;
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  pointer-events: none;
+}
+.hud-brand > * {
+  pointer-events: auto;
 }
 
 .hud-actions {
+  position: relative;
+  z-index: 31;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: nowrap;
   margin-left: auto;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 .hud-actions .btn-hud {
   white-space: nowrap;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .student-badge,
@@ -617,7 +635,7 @@ button:active {
 .btn-quick:hover {
   border-color: var(--cyan);
 }
-.btn-quick.fortin {
+.btn-quick.teacher {
   border-color: rgba(251, 191, 36, 0.55);
   color: #fde68a;
 }
@@ -806,13 +824,13 @@ button:active {
   color: #e2e8f0;
   font-size: 0.94rem;
 }
-.fortin-tp-grid {
+.teacher-tp-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
   gap: 8px;
   margin: 14px 0;
 }
-.fortin-tp-item {
+.teacher-tp-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -822,7 +840,7 @@ button:active {
   border: 1px solid rgba(148, 163, 184, 0.2);
   font-size: 0.84rem;
 }
-.fortin-tp-item.done {
+.teacher-tp-item.done {
   border-color: var(--emerald);
   background: rgba(16, 185, 129, 0.12);
 }
@@ -830,7 +848,7 @@ button:active {
   font-weight: 700;
   color: var(--cyan);
 }
-.fortin-tip {
+.teacher-tip {
   background: rgba(34, 211, 238, 0.12);
   border-left: 3px solid var(--cyan);
   padding: 10px 12px;
@@ -864,7 +882,6 @@ button:active {
   margin-top: 16px;
 }
 
-/* RPG Bottom Dialogue Box (M. Fortin) */
 .dialogue-overlay {
   position: fixed;
   inset: 0;
@@ -1552,7 +1569,7 @@ button:active {
   position: fixed;
   left: 44%;
   right: 0;
-  top: 58px;
+  top: 76px;
   bottom: 0;
   pointer-events: auto;
   touch-action: none;
@@ -1684,6 +1701,11 @@ body.touch-active .emote-bar {
 body.touch-active .interact-prompt {
   bottom: 168px;
 }
+body.touch-active .hud-actions .btn-hud {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 9px 14px;
+}
 body.touch-active .hud-corner-badge {
   left: 50%;
   right: auto;
@@ -1746,9 +1768,14 @@ body.touch-active .chat-drawer {
     flex-wrap: nowrap;
   }
   .hud-actions .btn-hud {
-    padding: 6px 10px;
-    font-size: 0.76rem;
-    min-height: 36px;
+    padding: 9px 11px;
+    font-size: 0.79rem;
+    min-height: 44px;
+    min-width: 44px;
+    border-radius: 11px;
+  }
+  .touch-look-zone {
+    top: 116px;
   }
   .student-badge,
   .grade-pill,
@@ -1759,12 +1786,11 @@ body.touch-active .chat-drawer {
     min-height: 34px;
   }
   .quest-panel {
-    top: auto;
     left: 10px;
     bottom: auto;
     margin-left: 0;
     position: fixed;
-    top: 96px;
+    top: 112px;
     width: min(260px, calc(100vw - 20px));
     max-height: 54dvh;
     overflow-y: auto;
@@ -1776,7 +1802,7 @@ body.touch-active .chat-drawer {
     width: min(280px, calc(100vw - 24px));
   }
   .toast-container {
-    top: 96px;
+    top: 112px;
     right: 10px;
     max-width: calc(100vw - 20px);
   }
@@ -2016,5 +2042,15 @@ body.touch-active .chat-drawer {
   .platform-choice-card {
     min-height: 135px;
     padding: 16px 14px;
+  }
+}
+
+@media (max-width: 390px) {
+  .hud-actions {
+    gap: 4px;
+  }
+  .hud-actions .btn-hud {
+    padding: 8px 8px;
+    font-size: 0.74rem;
   }
 }

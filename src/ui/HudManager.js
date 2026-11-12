@@ -477,18 +477,18 @@ export class HudManager {
 
   _renderQuickNav() {
     this.quickNavEl.innerHTML = '';
-    const fortinBtn = document.createElement('button');
-    fortinBtn.type = 'button';
-    fortinBtn.className = 'btn-quick fortin';
-    fortinBtn.textContent = '👨‍🏫 M. Fortin';
-    fortinBtn.addEventListener('click', () => {
+    const teacherBtn = document.createElement('button');
+    teacherBtn.type = 'button';
+    teacherBtn.className = 'btn-quick teacher';
+    teacherBtn.textContent = '👨‍🏫 Professeur CIEL';
+    teacherBtn.addEventListener('click', () => {
       sfx.click();
-      this.handlers.onQuickNav?.('fortin');
+      this.handlers.onQuickNav?.('teacher');
       if (window.innerWidth <= 900 || window.innerHeight <= 560) {
         this.setQuestCollapsed?.(true);
       }
     });
-    this.quickNavEl.appendChild(fortinBtn);
+    this.quickNavEl.appendChild(teacherBtn);
 
     TP_CATALOG.forEach((tp) => {
       const btn = document.createElement('button');
@@ -587,9 +587,9 @@ export class HudManager {
     this.questProgressEl.textContent = `${completed} / 5`;
 
     if (!p.questAccepted) {
-      this.questHintEl.innerHTML = 'Allez parler à <strong>M. Fortin</strong> (👨‍🏫) au centre de la salle.';
+      this.questHintEl.innerHTML = 'Allez parler au <strong>Professeur CIEL</strong> (👨‍🏫) au centre de la salle.';
     } else if (p.diplomaEarned) {
-      this.questHintEl.innerHTML = `🎓 <strong>BAC PRO CIEL validé !</strong> (${getMention(p.average)}) — Retournez voir M. Fortin !`;
+      this.questHintEl.innerHTML = `🎓 <strong>BAC PRO CIEL validé !</strong> (${getMention(p.average)}) — Retournez voir le Professeur CIEL !`;
     } else {
       const next = this.gameState.getNextSuggestedTp();
       this.questHintEl.innerHTML = next

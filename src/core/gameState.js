@@ -11,7 +11,7 @@ export const TP_CATALOG = [
     position: { x: -8.5, z: -4.5 },
     brief:
       'Calibrez la base de temps, le gain vertical et le déclenchement (Trigger) pour mesurer fréquence, amplitude et PWM.',
-    fortinHint:
+    teacherHint:
       '« Pensez d’abord à placer le niveau de Trigger dans l’amplitude du signal pour le figer à l’écran, puis ajustez V/div et ms/div pour lire 2 à 4 périodes propres ! »'
   },
   {
@@ -24,7 +24,7 @@ export const TP_CATALOG = [
     position: { x: -8.5, z: 3.5 },
     brief:
       'Réglez votre station à ~350°C sans plomb, activez l’extracteur de fumées, chauffez pastille + patte et formez une brasure brillante.',
-    fortinHint:
+    teacherHint:
       '« Trop froid, c’est une soudure sèche. Trop chaud, vous décollez la pastille ! Entre 340°C et 365°C, chauffez 1 à 2 secondes et utilisez la tresse si deux broches font un pont. »'
   },
   {
@@ -37,7 +37,7 @@ export const TP_CATALOG = [
     position: { x: 0, z: -7.2 },
     brief:
       'Décodez les résistances, appliquez la loi d’Ohm, montez vos composants dans le bon sens et validez au multimètre.',
-    fortinHint:
+    teacherHint:
       '« Vérifiez toujours la polarité de la LED (la grande patte Anode au +) et calculez R = (U_alim - U_LED) / I avant de mettre sous tension ! »'
   },
   {
@@ -50,7 +50,7 @@ export const TP_CATALOG = [
     position: { x: 8.5, z: 3.5 },
     brief:
       'Un poste de la salle est envahi de malwares ! Isolez le réseau, tuez les processus suspects, installez et mettez à jour l’antivirus pour nettoyer le PC.',
-    fortinHint:
+    teacherHint:
       '« Premier réflexe cyber en entreprise : on débranche le réseau pour stopper l’exfiltration ! Ensuite, processus malveillants, mise à jour de l’antivirus et scan complet ! »'
   },
   {
@@ -63,7 +63,7 @@ export const TP_CATALOG = [
     position: { x: 8.5, z: -4.5 },
     brief:
       'Allouez les VMs sur l’hyperviseur, configurez les ports Access/Trunk 802.1Q, le routage inter-VLAN et les règles pare-feu puis testez le ping !',
-    fortinHint:
+    teacherHint:
       '« Un port vers un PC = mode ACCESS sur son VLAN. Un lien switch-switch, switch-hyperviseur ou switch-routeur = mode TRUNK 802.1Q avec tous les VLANs autorisés ! »'
   }
 ];
@@ -77,7 +77,7 @@ export const QUICK_EMOTES = [
   { id: 'party', key: '6', label: '🎉 GG la classe !' }
 ];
 
-export const FORTIN_POS = { x: 0, z: -1.8 };
+export const TEACHER_POS = { x: 0, z: -1.8 };
 
 export function detectTouchDevice() {
   if (typeof window === 'undefined') return false;

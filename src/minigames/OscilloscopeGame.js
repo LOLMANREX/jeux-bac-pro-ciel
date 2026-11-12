@@ -332,7 +332,7 @@ export function createOscilloscopeGame(api) {
       sfx.interact();
       hintsUsed++;
       fb.className = 'mg-feedback info';
-      fb.textContent = `👨‍🏫 M. Fortin : ${stage.hint}`;
+      fb.textContent = `👨‍🏫 Professeur CIEL : ${stage.hint}`;
     });
 
     document.getElementById('sc-validate-btn')?.addEventListener('click', () => {

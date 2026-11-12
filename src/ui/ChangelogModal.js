@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v2.6 - HUD épuré & Tableau de classement mural 3D';
+    : 'v2.7 - Boutons HUD tactiles sur mobile & textes unifiés';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,19 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v2.6 — HUD épuré & Tableau de classement mural 3D',
+    version: 'v2.7 — Boutons HUD tactiles sur mobile & textes unifiés',
     date: '12/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Priorité tactile garantie sur les boutons en haut à droite du HUD (Chat, Paramètres, Menu principal) sur smartphone et tablette avec zone de toucher agrandie (min. 44px).',
+      'La zone tactile de rotation de caméra n’intercepte plus les appuis sur les boutons du HUD.',
+      'Unification complète de l’ensemble des textes du jeu, des mini-jeux et du serveur autour du personnage « Professeur CIEL ».'
+    ]
+  },
+  {
+    version: 'v2.6 — HUD épuré & Tableau de classement mural 3D',
+    date: '12/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Épure complète du HUD en jeu : conservation des 3 boutons essentiels alignés en haut à droite (Chat, Paramètres, Menu principal) sur PC comme sur Mobile.',
       'Intégration d’un grand écran numérique 3D directement fixé sur le mur principal de la salle E204 affichant le classement en direct (« 🏆 CLASSEMENT EN DIRECT - BAC PRO CIEL »).',
@@ -77,7 +87,7 @@ export const CHANGELOG_RELEASES = [
     tag: 'INITIAL',
     date: 'Novembre 2026',
     items: [
-      'Atelier 3D BAC PRO CIEL en salle E204 avec M. Fortin (boîte de dialogue interactive).',
+      'Atelier 3D BAC PRO CIEL en salle E204 avec Professeur CIEL (boîte de dialogue interactive).',
       '5 mini-jeux métiers : Oscilloscope, Brasure PCB, Électronique, Antivirus et VM/VLAN.',
       'Vue 1ère et 3ème personne (touche V), saut (Espace) et réglages FOV.'
     ]

@@ -452,7 +452,6 @@ export function buildLabWorld(scene) {
     scene.add(strip);
   });
 
-  // Main whiteboard behind M. Fortin
   const boardTex = makeCanvasTexture(1024, 420, (ctx, w, h) => {
     ctx.fillStyle = '#f8fafc';
     ctx.fillRect(0, 0, w, h);
@@ -566,7 +565,6 @@ export function buildLabWorld(scene) {
     return g;
   }
 
-  // M. Fortin's teacher desk (just behind him so player walks up cleanly in front of him)
   createDesk(0, -3.5, 0, true);
   addBoxCollider(0, -3.5, 2.8, 1.5);
 
