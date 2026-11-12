@@ -1,6 +1,7 @@
 import './admin.css';
 import { renderSkinPreviewSvg } from '../world/AvatarBuilder.js';
 import { TP_CATALOG } from '../core/gameState.js';
+import { MapEditor } from './MapEditor.js';
 
 const TOKEN_STORAGE_KEY = 'ciel_admin_token';
 
@@ -19,8 +20,11 @@ const lastSyncLabel = document.getElementById('last-sync-label');
 
 const tabUsersBtn = document.getElementById('admin-tab-users');
 const tabPostsBtn = document.getElementById('admin-tab-posts');
+const tabMapBtn = document.getElementById('admin-tab-map');
 const panelUsers = document.getElementById('admin-panel-users');
 const panelPosts = document.getElementById('admin-panel-posts');
+const panelMap = document.getElementById('admin-panel-map');
+const mapEditorRoot = document.getElementById('map-editor-root');
 const tabBadgeUsers = document.getElementById('tab-badge-users');
 const tabBadgePosts = document.getElementById('tab-badge-posts');
 
@@ -51,13 +55,29 @@ let onlineOnly = false;
 let activeSection = 'users';
 let refreshTimer = null;
 let pendingConfirmAction = null;
+let mapEditor = null;
+
+function ensureMapEditor() {
+  if (!mapEditor && mapEditorRoot) {
+    mapEditor = new MapEditor(mapEditorRoot, { apiFetch, showToast });
+  }
+  return mapEditor;
+}
 
 function switchAdminSection(section) {
-  activeSection = section === 'posts' ? 'posts' : 'users';
+  activeSection = section === 'posts' ? 'posts' : section === 'map' ? 'map' : 'users';
   tabUsersBtn?.classList.toggle('active', activeSection === 'users');
   tabPostsBtn?.classList.toggle('active', activeSection === 'posts');
+  tabMapBtn?.classList.toggle('active', activeSection === 'map');
   panelUsers?.classList.toggle('hidden', activeSection !== 'users');
   panelPosts?.classList.toggle('hidden', activeSection !== 'posts');
+  panelMap?.classList.toggle('hidden', activeSection !== 'map');
+  dashboardEl?.classList.toggle('dashboard-wide', activeSection === 'map');
+  if (activeSection === 'map') {
+    ensureMapEditor()?.activate();
+  } else {
+    mapEditor?.deactivate();
+  }
 }
 
 function escapeHtml(str) {
@@ -413,10 +433,14 @@ loginForm.addEventListener('submit', async (e) => {
 });
 
 refreshBtn.addEventListener('click', () => loadPlayers());
-logoutBtn.addEventListener('click', () => clearSession());
+logoutBtn.addEventListener('click', () => {
+  switchAdminSection('users');
+  clearSession();
+});
 
 tabUsersBtn?.addEventListener('click', () => switchAdminSection('users'));
 tabPostsBtn?.addEventListener('click', () => switchAdminSection('posts'));
+tabMapBtn?.addEventListener('click', () => switchAdminSection('map'));
 
 searchInput.addEventListener('input', renderPlayersTable);
 sortSelect.addEventListener('change', renderPlayersTable);

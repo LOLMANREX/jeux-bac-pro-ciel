@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v3.0 - Nouveau Monde : Plateau U300 Complet'),
+    __APP_VERSION__: JSON.stringify('v3.1 - Éditeur de Map Admin sur-mesure (Sandbox CIEL)'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

@@ -33,9 +33,16 @@ function createLabel(text, subtext) {
   return sprite;
 }
 
-export function createNpcTeacher(scene) {
+export function createNpcTeacher(parent, opts = {}) {
+  const tx = Number.isFinite(Number(opts.x)) ? Number(opts.x) : TEACHER_POS.x;
+  const tz = Number.isFinite(Number(opts.z)) ? Number(opts.z) : TEACHER_POS.z;
+  const rotRad = ((Number(opts.rotation) || 0) * Math.PI) / 180;
+  const customLabel = opts.label || 'Professeur CIEL';
+  const customDialogue = String(opts.dialogue || '').trim();
+
   const root = new THREE.Group();
-  root.position.set(TEACHER_POS.x, 0, TEACHER_POS.z);
+  root.position.set(tx, 0, tz);
+  root.rotation.y = rotRad;
 
   const pantMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.8 });
   const shoeMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.7 });
@@ -117,7 +124,7 @@ export function createNpcTeacher(scene) {
   diamond.position.set(0, 2.38, 0);
   root.add(diamond);
 
-  const label = createLabel('Professeur CIEL', 'Enseignant BAC PRO CIEL • Plateau U300');
+  const label = createLabel(customLabel, 'Enseignant BAC PRO CIEL • Plateau U300');
   label.position.set(0, 2.85, 0);
   root.add(label);
 
@@ -129,14 +136,15 @@ export function createNpcTeacher(scene) {
   ring.position.y = 0.03;
   root.add(ring);
 
-  scene.add(root);
+  parent.add(root);
 
   const interactable = {
     id: 'teacher',
     type: 'npc',
-    label: '👨‍🏫 Parler au Professeur CIEL',
-    position: new THREE.Vector3(TEACHER_POS.x, 1.2, TEACHER_POS.z),
-    interactRadius: 3.1,
+    label: `👨‍🏫 Parler à ${customLabel}`,
+    dialogue: customDialogue,
+    position: new THREE.Vector3(tx, 1.2, tz),
+    interactRadius: opts.interactRadius || 3.1,
     mesh: root
   };
 
@@ -163,10 +171,10 @@ export function createNpcTeacher(scene) {
     root,
     interactable,
     collider: {
-      minX: TEACHER_POS.x - 0.55,
-      maxX: TEACHER_POS.x + 0.55,
-      minZ: TEACHER_POS.z - 0.55,
-      maxZ: TEACHER_POS.z + 0.55
+      minX: tx - 0.55,
+      maxX: tx + 0.55,
+      minZ: tz - 0.55,
+      maxZ: tz + 0.55
     },
     update
   };

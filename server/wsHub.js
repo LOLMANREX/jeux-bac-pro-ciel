@@ -332,9 +332,9 @@ export function attachWsHub(httpServer, store) {
           state.zoneId = String(msg.zoneId || 'U300').slice(0, 16);
           state.zoneLabel = String(msg.zoneLabel || 'U300 - Couloir Central').slice(0, 34);
           state.lastPlaytimeFlushMs = Date.now();
-          state.x = clamp(msg.x ?? -3.95, -13.5, 13.5);
+          state.x = clamp(msg.x ?? -3.95, -35, 35);
           state.y = clamp(msg.y ?? 0, 0, 3);
-          state.z = clamp(msg.z ?? 0.65, -12.5, 12.5);
+          state.z = clamp(msg.z ?? 0.65, -35, 35);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : -1.35;
 
           const peers = getRoomPeers(room, ws).map(({ state: p }) => {
@@ -374,9 +374,9 @@ export function attachWsHub(httpServer, store) {
 
         case 'move': {
           if (!state.name) return;
-          state.x = clamp(msg.x, -13.5, 13.5);
+          state.x = clamp(msg.x, -35, 35);
           state.y = clamp(msg.y ?? 0, 0, 3);
-          state.z = clamp(msg.z, -12.5, 12.5);
+          state.z = clamp(msg.z, -35, 35);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : state.yaw;
 
           broadcastToRoom(
@@ -648,6 +648,12 @@ export function attachWsHub(httpServer, store) {
         }
       }
       broadcastLeaderboard();
+    },
+    broadcastMapUpdated: (mapData) => {
+      broadcastToAll({
+        type: 'map_updated',
+        map: mapData
+      });
     },
     close: () => {
       clearInterval(heartbeatInterval);

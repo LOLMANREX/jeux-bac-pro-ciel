@@ -9,6 +9,7 @@ export class PlayerController {
     this.colliders = colliders;
     this.onJump = options.onJump || null;
 
+    this.bounds = { ...WORLD_BOUNDS };
     this.groundY = PLATEAU_SPAWN.y;
     this.position = new THREE.Vector3(PLATEAU_SPAWN.x, this.groundY, PLATEAU_SPAWN.z);
     this.velocityY = 0;
@@ -185,16 +186,40 @@ export class PlayerController {
     this._applyCamera();
   }
 
+  setColliders(colliders) {
+    this.colliders = Array.isArray(colliders) ? colliders : [];
+  }
+
+  setBounds(bounds) {
+    if (bounds && typeof bounds === 'object') {
+      this.bounds = { ...this.bounds, ...bounds };
+    }
+  }
+
   _collides(nx, nz) {
+    const bnd = this.bounds || WORLD_BOUNDS;
     if (
-      nx - this.radius < WORLD_BOUNDS.minX + 0.14 ||
-      nx + this.radius > WORLD_BOUNDS.maxX - 0.14 ||
-      nz - this.radius < WORLD_BOUNDS.minZ + 0.14 ||
-      nz + this.radius > WORLD_BOUNDS.maxZ - 0.14
+      nx - this.radius < bnd.minX + 0.14 ||
+      nx + this.radius > bnd.maxX - 0.14 ||
+      nz - this.radius < bnd.minZ + 0.14 ||
+      nz + this.radius > bnd.maxZ - 0.14
     ) {
       return true;
     }
     for (const c of this.colliders) {
+      if (typeof c.cx === 'number') {
+        const dx = nx - c.cx;
+        const dz = nz - c.cz;
+        const along = dx * c.ux + dz * c.uz;
+        const perp = -dx * c.uz + dz * c.ux;
+        if (
+          Math.abs(along) < c.hw + this.radius &&
+          Math.abs(perp) < c.hd + this.radius
+        ) {
+          return true;
+        }
+        continue;
+      }
       if (
         nx + this.radius > c.minX &&
         nx - this.radius < c.maxX &&
@@ -297,18 +322,19 @@ export class PlayerController {
       const dirY = -sinP + 0.14;
       const dirZ = cosY * cosP;
 
+      const bnd = this.bounds || WORLD_BOUNDS;
       let dist = 3.25;
       for (let d = 0.5; d <= 3.25; d += 0.25) {
         const cx = targetX + dirX * d;
         const cz = targetZ + dirZ * d;
         const cy = targetY + dirY * d;
         if (
-          cx < WORLD_BOUNDS.minX + 0.25 ||
-          cx > WORLD_BOUNDS.maxX - 0.25 ||
-          cz < WORLD_BOUNDS.minZ + 0.25 ||
-          cz > WORLD_BOUNDS.maxZ - 0.25 ||
+          cx < bnd.minX + 0.25 ||
+          cx > bnd.maxX - 0.25 ||
+          cz < bnd.minZ + 0.25 ||
+          cz > bnd.maxZ - 0.25 ||
           cy < 0.45 ||
-          cy > WORLD_BOUNDS.height - 0.3
+          cy > bnd.height - 0.3
         ) {
           dist = Math.max(0.65, d - 0.25);
           break;
@@ -317,7 +343,7 @@ export class PlayerController {
 
       this.camera.position.set(
         targetX + dirX * dist,
-        Math.max(0.45, Math.min(WORLD_BOUNDS.height - 0.3, targetY + dirY * dist)),
+        Math.max(0.45, Math.min(bnd.height - 0.3, targetY + dirY * dist)),
         targetZ + dirZ * dist
       );
       this.camera.lookAt(targetX, targetY + 0.12, targetZ);

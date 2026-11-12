@@ -4,7 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { GameStore, TP_IDS, TP_LABELS } from './store.js';
+import { GameStore, MapStore, TP_IDS, TP_LABELS } from './store.js';
 import { attachWsHub } from './wsHub.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -23,14 +23,21 @@ export function createGameServer(options = {}) {
     options.dbPath === undefined
       ? path.join(__dirname, 'data', 'db.json')
       : options.dbPath;
+  const mapPath =
+    options.mapPath !== undefined
+      ? options.mapPath
+      : dbPath === null
+        ? null
+        : path.join(path.dirname(dbPath), 'map.json');
   const distDir = options.distDir || path.join(ROOT_DIR, 'dist');
 
   const store = new GameStore(dbPath);
+  const mapStore = new MapStore(mapPath);
   const adminPassword = options.adminPassword || process.env.ADMIN_PASSWORD || 'Louisetjade1102';
   const adminTokens = new Map();
   const app = express();
   app.set('trust proxy', 1);
-  app.use(express.json());
+  app.use(express.json({ limit: '4mb' }));
   app.use('/api', (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -48,6 +55,10 @@ export function createGameServer(options = {}) {
       tps: TP_IDS,
       timestamp: new Date().toISOString()
     });
+  });
+
+  app.get('/api/map', (_req, res) => {
+    res.json(mapStore.getMap());
   });
 
   app.get('/api/rooms', (_req, res) => {
@@ -182,6 +193,17 @@ export function createGameServer(options = {}) {
     return res.json({ ok: true, id: req.params.id });
   });
 
+  app.put('/api/admin/map', requireAdmin, (req, res) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : null;
+    const candidate = body?.map && typeof body.map === 'object' ? body.map : body;
+    if (!candidate || typeof candidate !== 'object' || !Array.isArray(candidate.walls) || !Array.isArray(candidate.objects)) {
+      return res.status(400).json({ error: 'Format de carte JSON invalide (murs ou objets manquants)' });
+    }
+    const saved = mapStore.saveMap(candidate);
+    wsHub.broadcastMapUpdated(saved);
+    return res.json({ ok: true, map: saved });
+  });
+
   if (fs.existsSync(distDir)) {
     const setNoCacheHtml = (res) => {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -222,7 +244,7 @@ export function createGameServer(options = {}) {
     });
   }
 
-  return { app, server, store, wsHub };
+  return { app, server, store, mapStore, wsHub };
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === __filename;

@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v3.0 - Nouveau Monde : Plateau U300 Complet';
+    : 'v3.1 - Éditeur de Map Admin sur-mesure (Sandbox CIEL)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v3.0 — Nouveau Monde : Plateau U300 Complet',
+    version: 'v3.1 — Éditeur de Map Admin sur-mesure (Sandbox CIEL)',
     date: '12/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Nouvel onglet exclusif « 🗺 Éditeur de Map » dans la console /admin avec plan 2D interactif sur grille aimantée (1m, 0.5m, 0.25m ou libre) et aperçu 3D temps réel côte-à-côte (Three.js).',
+      'Catalogue complet en 4 catégories : Architecture & Salles (murs pleins, cloisons vitrées, portes simples/doubles avec découpe automatique des passages, zones de salles, spawn, classement 3D, escalier), Bornes TP & PNJ (9 TP CIEL + Professeur à dialogue personnalisable), Mobilier scolaire et Matériel technique CIEL (Studio AV, Baies 19" LED, PC Gamer Cyber, Bancs électroniques, SOC).',
+      'Outils avancés de construction : import d’un calque plan PNG/JPG sous la grille, sélection, déplacement, rotation libre/par crans, redimensionnement, duplication, Annuler/Rétablir (Ctrl+Z / Ctrl+Y), Export/Import JSON et preset Plateau U300.',
+      'Persistance sécurisée dans server/data/map.json et publication en direct (« Sauvegarder & Publier en direct ») mettant à jour instantanément le monde 3D, les collisions et la mini-carte de tous les joueurs connectés.'
+    ]
+  },
+  {
+    version: 'v3.0 — Nouveau Monde : Plateau U300 Complet',
+    date: '12/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Refonte architecturale complète du monde 3D à l’échelle réelle (26 m × 24,4 m) d’après le plan du Plateau U300 : Hall central U300 autour de la cage d’escalier vitrée, panneaux lumineux au-dessus de chaque porte, tableau de classement en direct face au spawn et plans d’orientation 3D.',
       'Toutes les salles spécialisées fidèlement modélisées : U301 (Brasure), U302 (Oscilloscopes & Électronique), U303 (Audiovisuel & Fond vert), U304 (Studio AV & Cabines acoustiques), U305 (SOC Cybersécurité), U306 & Sas U308 (Maintenance PC ESD), U307 (6 îlots Réseau & VM/VLAN), Chambre serveur (Baies 19" & Fibre) et locaux U309 / U311.',

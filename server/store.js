@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createDefaultMap, normalizeMapData } from '../src/world/mapSchema.js';
 
 export const TP_IDS = ['oscilloscope', 'soldering', 'electronics', 'antivirus', 'vmvlan'];
 
@@ -511,5 +512,54 @@ export class GameStore {
     if (this.data.suggestions.length === before) return false;
     this._save();
     return true;
+  }
+}
+
+export class MapStore {
+  constructor(mapFilePath) {
+    this.mapFilePath = mapFilePath;
+    this.mapData = createDefaultMap();
+    this._load();
+  }
+
+  _load() {
+    if (!this.mapFilePath) return;
+    try {
+      if (fs.existsSync(this.mapFilePath)) {
+        const raw = fs.readFileSync(this.mapFilePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          this.mapData = normalizeMapData(parsed);
+        }
+      }
+    } catch {
+      this.mapData = createDefaultMap();
+    }
+  }
+
+  _save() {
+    if (!this.mapFilePath) return;
+    try {
+      fs.mkdirSync(path.dirname(this.mapFilePath), { recursive: true });
+      const tmp = `${this.mapFilePath}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(this.mapData, null, 2), 'utf8');
+      fs.renameSync(tmp, this.mapFilePath);
+    } catch {
+      return;
+    }
+  }
+
+  getMap() {
+    return this.mapData;
+  }
+
+  saveMap(rawMap) {
+    const next = normalizeMapData({
+      ...rawMap,
+      updatedAt: new Date().toISOString()
+    });
+    this.mapData = next;
+    this._save();
+    return this.mapData;
   }
 }

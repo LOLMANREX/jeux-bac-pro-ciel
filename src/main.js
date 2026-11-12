@@ -3,12 +3,16 @@ import './styles/minigames.css';
 
 import * as THREE from 'three';
 import { sfx } from './core/audio.js';
-import { GameState, getTpById, getStationById, QUICK_EMOTES, TEACHER_POS, TP_CATALOG } from './core/gameState.js';
+import { GameState, getTpById, getStationById, QUICK_EMOTES, TP_CATALOG } from './core/gameState.js';
 import { NetworkClient } from './core/network.js';
 import { SceneManager } from './world/SceneManager.js';
-import { PLATEAU_SPAWN, getZoneAtPosition, getStationTeleportSpot } from './world/plateauLayout.js';
+import {
+  createDefaultMap,
+  getStationTeleportInMap,
+  getZoneAtPositionInMap,
+  normalizeMapData
+} from './world/mapSchema.js';
 import { buildLabWorld } from './world/LabBuilder.js';
-import { createNpcTeacher } from './world/NpcTeacher.js';
 import { PlayerController } from './world/PlayerController.js';
 import {
   createSpeechBubble,
@@ -56,14 +60,13 @@ const sceneMgr = new SceneManager(canvas);
 sceneMgr.setQuality(gameState.quality);
 sceneMgr.setFov(gameState.fov);
 
-const lab = buildLabWorld(sceneMgr.scene);
-const teacher = createNpcTeacher(sceneMgr.scene);
-const allColliders = [...lab.colliders, teacher.collider];
-const allInteractables = [teacher.interactable, ...lab.interactables];
+let currentMapData = createDefaultMap();
+const lab = buildLabWorld(sceneMgr.scene, currentMapData);
 
-const player = new PlayerController(sceneMgr.camera, canvas, allColliders, {
+const player = new PlayerController(sceneMgr.camera, canvas, lab.colliders, {
   onJump: () => sfx.jump()
 });
+player.setBounds(currentMapData.bounds);
 player.setSensitivity(gameState.mouseSens);
 player.setCameraMode(gameState.cameraMode);
 player.setTouchMode(gameState.touchMode);
@@ -137,6 +140,48 @@ function syncWallLeaderboard(entries = gameState.leaderboard) {
   lab.updateLeaderboardBoard?.(entries, gameState.profile.name);
 }
 
+function getSpawnPose(mapData) {
+  const sp = mapData?.spawn || { x: 0, z: 2, yaw: 0 };
+  const yaw = typeof sp.yaw === 'number' ? sp.yaw : 0;
+  return {
+    pos: { x: sp.x, z: sp.z },
+    lookAt: { x: sp.x - Math.sin(yaw) * 4, z: sp.z - Math.cos(yaw) * 4 },
+    yaw
+  };
+}
+
+function applyMapData(rawMap, liveUpdate = false) {
+  if (!rawMap) return;
+  currentMapData = normalizeMapData(rawMap);
+  lab.rebuildWorld(currentMapData);
+  lab.updateStationBadges({ ...gameState.profile.grades, ...extraStationGrades });
+  player.setColliders(lab.colliders);
+  player.setBounds(currentMapData.bounds);
+  hud?.miniMap?.setMapData?.(currentMapData);
+  syncWallLeaderboard();
+
+  if (liveUpdate && joined) {
+    const b = currentMapData.bounds;
+    const pos = player.position;
+    const outOfBounds =
+      pos.x < b.minX + 0.5 || pos.x > b.maxX - 0.5 || pos.z < b.minZ + 0.5 || pos.z > b.maxZ - 0.5;
+    if (outOfBounds || player._collides?.(pos.x, pos.z)) {
+      const pose = getSpawnPose(currentMapData);
+      player.teleportTo(pose.pos, pose.lookAt);
+    }
+    const zone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z);
+    lastZoneId = zone.id;
+    hud?.setCurrentZone?.(zone);
+  }
+}
+
+async function fetchInitialMap() {
+  const remoteMap = await network.fetchMap(3500);
+  if (remoteMap) {
+    applyMapData(remoteMap, false);
+  }
+}
+
 async function refreshWallLeaderboard() {
   if (wallLeaderboardPending) return;
   wallLeaderboardPending = true;
@@ -206,11 +251,12 @@ function openTp(tpId) {
   });
 }
 
-function openTeacherDialogue() {
+function openTeacherDialogue(customDialogue = '') {
   sfx.interact();
   network.sendActivity('Parle au Professeur CIEL');
   setModalActive(true, false, true);
   dialogueModal.open(gameState, {
+    customDialogue,
     onAcceptQuest: () => {
       gameState.setProfile({ ...gameState.profile, questAccepted: true });
       network.acceptQuest(gameState.profile.name);
@@ -227,20 +273,20 @@ function openTeacherDialogue() {
 }
 
 function teleportNearTarget(id) {
-  const spot = getStationTeleportSpot(id);
+  const spot = getStationTeleportInMap(currentMapData, id);
   if (!spot) return;
   player.teleportTo(spot.pos, spot.lookAt);
-  const zone = getZoneAtPosition(player.position.x, player.position.z);
+  const zone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z);
   hud?.setCurrentZone?.(zone);
   network.sendMove(player.position.x, 0, player.position.z, player.yaw, true);
   network.sendZone(zone.id, zone.badgeText.replace('📍 ', ''));
   if (id === 'teacher') {
-    hud.toast('Devant le Professeur CIEL (Hall U300) — Appuyez sur E pour lui parler');
+    hud.toast('Devant le Professeur CIEL — Appuyez sur E pour lui parler');
     return;
   }
   const st = getStationById(id);
   if (st) {
-    hud.toast(`${st.icon} Salle ${st.room} : ${st.shortTitle} — Appuyez sur E pour commencer`);
+    hud.toast(`${st.icon} ${spot.label || st.shortTitle} — Appuyez sur E pour commencer`);
   }
 }
 
@@ -374,6 +420,12 @@ network.on('profile_reset', ({ profile, message }) => {
   hud.toast(message || 'Votre progression a été réinitialisée par l’administrateur.', 'error');
 });
 
+network.on('map_updated', ({ map }) => {
+  if (!map) return;
+  applyMapData(map, true);
+  hud?.toast?.('🗺️ Carte mise à jour en direct par l’administrateur !', 'success');
+});
+
 network.on('account_deleted', ({ message }) => {
   returnToMainMenu();
   hud.toast(message || 'Votre compte a été supprimé par l’administrateur.', 'error');
@@ -463,7 +515,7 @@ network.on('chat_message', ({ message }) => {
 
 function interactWith(target) {
   if (!target) return;
-  if (target.id === 'teacher') openTeacherDialogue();
+  if (target.id === 'teacher') openTeacherDialogue(target.dialogue || '');
   else openTp(target.id);
 }
 
@@ -534,7 +586,7 @@ function tryRaycastInteract(clientX, clientY) {
     -(clientY / window.innerHeight) * 2 + 1
   );
   raycaster.setFromCamera(ndc, sceneMgr.camera);
-  for (const item of allInteractables) {
+  for (const item of lab.interactables) {
     const hits = raycaster.intersectObject(item.mesh, true);
     if (hits.length > 0 && hits[0].distance < 7.5) {
       interactWith(item);
@@ -562,8 +614,7 @@ let lastZoneId = '';
 let lastMiniMapDrawAt = 0;
 
 sceneMgr.addUpdater((dt, elapsed) => {
-  lab.update(elapsed);
-  teacher.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned);
+  lab.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned);
   remotePlayers.update(dt);
   updateSpeechBubble(localBubble, dt);
 
@@ -575,7 +626,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
   }
 
   const step = player.update(dt);
-  const currentZone = getZoneAtPosition(player.position.x, player.position.z);
+  const currentZone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z);
   if (currentZone.id !== lastZoneId) {
     lastZoneId = currentZone.id;
     hud?.setCurrentZone?.(currentZone);
@@ -604,7 +655,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
 
     let best = null;
     let bestDist = Infinity;
-    for (const item of allInteractables) {
+    for (const item of lab.interactables) {
       const dx = player.position.x - item.position.x;
       const dz = player.position.z - item.position.z;
       const d = Math.hypot(dx, dz);
@@ -620,6 +671,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
 });
 
 sceneMgr.start();
+fetchInitialMap();
 refreshWallLeaderboard();
 
 setInterval(() => {
@@ -647,14 +699,16 @@ mainMenu = new MainMenu(gameState, network, {
     player.setEnabled(true);
     touchControls?.syncCameraMode?.(gameState.cameraMode);
     touchControls?.setVisible?.(gameState.touchMode);
-    player.teleportTo(PLATEAU_SPAWN, PLATEAU_SPAWN.lookAt);
-    const startZone = getZoneAtPosition(PLATEAU_SPAWN.x, PLATEAU_SPAWN.z);
+    hud?.miniMap?.setMapData?.(currentMapData);
+    const pose = getSpawnPose(currentMapData);
+    player.teleportTo(pose.pos, pose.lookAt);
+    const startZone = getZoneAtPositionInMap(currentMapData, pose.pos.x, pose.pos.z);
     lastZoneId = startZone.id;
     hud?.setCurrentZone?.(startZone);
     network.connect(name, cleanRoom, skin, {
-      x: PLATEAU_SPAWN.x,
+      x: pose.pos.x,
       y: 0,
-      z: PLATEAU_SPAWN.z,
+      z: pose.pos.z,
       yaw: player.yaw,
       zoneId: startZone.id,
       zoneLabel: startZone.badgeText.replace('📍 ', '')

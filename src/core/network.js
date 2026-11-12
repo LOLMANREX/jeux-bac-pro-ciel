@@ -399,4 +399,23 @@ export class NetworkClient {
     }
     return null;
   }
+
+  async fetchMap(timeoutMs = 3500) {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      const res = await fetch('/api/map', {
+        signal: controller ? controller.signal : undefined
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data?.map && typeof data.map === 'object') return data.map;
+      if (data && Array.isArray(data.walls) && Array.isArray(data.objects)) return data;
+      return null;
+    } catch {
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
 }

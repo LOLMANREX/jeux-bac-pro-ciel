@@ -93,6 +93,49 @@ export class DialogueModal {
     const p = this.gameState.profile;
     const nextTp = this.gameState.getNextSuggestedTp();
     const completed = p.completedCount || 0;
+    const customText = String(this.handlers?.customDialogue || '').trim();
+
+    if (customText) {
+      const customLines = customText
+        .split(/\r?\n+/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((l) => (l.startsWith('«') ? l : `« ${l} »`));
+      this._playNode({
+        lines: customLines,
+        choices: [
+          ...(!p.questAccepted
+            ? [
+                {
+                  label: '💬 « Compris ! Je lance les TPs ! »',
+                  primary: true,
+                  action: () => {
+                    sfx.success();
+                    this.handlers.onAcceptQuest?.();
+                    this.close();
+                  }
+                }
+              ]
+            : nextTp
+              ? [
+                  {
+                    label: `⚡ Aller vers ${nextTp.icon} ${nextTp.shortTitle}`,
+                    primary: true,
+                    action: () => {
+                      this.close();
+                      this.handlers.onTeleportTp?.(nextTp.id);
+                    }
+                  }
+                ]
+              : []),
+          {
+            label: '👍 « Merci Monsieur ! »',
+            action: () => this.close()
+          }
+        ]
+      });
+      return;
+    }
 
     if (!p.questAccepted) {
       this._playNode({

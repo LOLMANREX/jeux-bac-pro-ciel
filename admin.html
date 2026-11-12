@@ -103,6 +103,9 @@
           <button type="button" id="admin-tab-posts" class="admin-tab">
             💬 Gestion des Posts / Rapports <span id="tab-badge-posts" class="tab-badge">0</span>
           </button>
+          <button type="button" id="admin-tab-map" class="admin-tab">
+            🗺 Éditeur de Map <span class="tab-badge">2D / 3D</span>
+          </button>
         </nav>
 
         <section id="admin-panel-users" class="admin-panel">
@@ -159,6 +162,10 @@
             <div id="admin-suggestions-list" class="admin-suggestions-list"></div>
             <div id="admin-suggestions-empty" class="empty-state hidden">Aucun post ou rapport pour le moment.</div>
           </div>
+        </section>
+
+        <section id="admin-panel-map" class="admin-panel hidden">
+          <div id="map-editor-root"></div>
         </section>
       </main>
 
