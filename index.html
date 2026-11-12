@@ -182,9 +182,6 @@
             <div class="grade-pill" title="Moyenne générale sur les 5 TPs">
               Moyenne : <strong id="hud-average">-- / 20</strong>
             </div>
-          </div>
-
-          <div class="hud-actions">
             <div class="net-wrapper">
               <button
                 type="button"
@@ -199,28 +196,14 @@
               </button>
               <div id="room-roster-popover" class="room-roster-popover hidden"></div>
             </div>
-            <button id="btn-leaderboard" class="btn-hud" title="Classement de la classe (Touche Tab)">
-              🏆 Classement <kbd class="key-mini">Tab</kbd>
-            </button>
-            <button id="btn-skin-ingame" class="btn-hud" title="Changer de skin 3D en direct">
-              🎨 Skin
-            </button>
+          </div>
+
+          <div class="hud-actions">
             <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur (Touche T)">
               💬 Chat <span id="chat-unread-badge" class="unread-badge hidden">0</span>
             </button>
-            <button id="btn-view-mode" class="btn-hud" title="Changer de caméra (Touche V)">🎥 Vue: 1ère</button>
-            <button id="btn-touch-toggle" class="btn-hud" title="Activer ou désactiver les contrôles tactiles">
-              📱 Tactile
-            </button>
-            <button id="btn-platform-hud" class="btn-hud" title="Choisir Mode PC ou Mode Mobile / Tablette">
-              🖥️/📱 Plateforme
-            </button>
-            <button id="btn-faq-hud" class="btn-hud" title="Consulter les rapports des joueurs ou créer un post">
-              💬 Posts &amp; Rapports
-            </button>
             <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris)">⚙️ Paramètres</button>
-            <button id="btn-main-menu" class="btn-hud" title="Retour au menu principal">🏠 Menu</button>
-            <button id="btn-mute" class="btn-hud" title="Son activé/coupé">🔊</button>
+            <button id="btn-main-menu" class="btn-hud" title="Retour au menu principal">🏠 Menu principal</button>
           </div>
         </header>
 
@@ -314,12 +297,6 @@
           <span>T : Chat</span> •
           <span>1–6 : Émotes</span>
         </div>
-        <button
-          type="button"
-          id="hud-version-badge"
-          class="version-badge hud-corner-badge"
-          title="Ouvrir les notes de mise à jour"
-        ></button>
       </div>
 
       <!-- Boîte de Dialogue RPG M. Fortin -->
@@ -412,6 +389,13 @@
                 Effets sonores activés
               </label>
               <button type="button" id="set-reset-btn" class="btn-hud btn-sm">Réinitialiser</button>
+            </div>
+
+            <div class="setting-item inline">
+              <label>
+                <input id="set-touch-mode" type="checkbox" />
+                Contrôles tactiles (Mobile / Tablette)
+              </label>
             </div>
           </div>
         </div>

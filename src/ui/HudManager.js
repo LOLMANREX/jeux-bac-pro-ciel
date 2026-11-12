@@ -94,11 +94,11 @@ export class HudManager {
     const muteBtn = document.getElementById('btn-mute');
     const soundCheck = document.getElementById('set-sound');
     const syncMuteUi = () => {
-      muteBtn.textContent = sfx.muted ? '🔇' : '🔊';
+      if (muteBtn) muteBtn.textContent = sfx.muted ? '🔇' : '🔊';
       if (soundCheck) soundCheck.checked = !sfx.muted;
     };
 
-    muteBtn.addEventListener('click', () => {
+    muteBtn?.addEventListener('click', () => {
       sfx.toggleMute();
       syncMuteUi();
     });
@@ -139,6 +139,7 @@ export class HudManager {
       this.toast(next === 'third' ? '🎥 Caméra 3ème personne' : '🎥 Caméra 1ère personne');
     });
 
+    const touchCheck = document.getElementById('set-touch-mode');
     const syncTouchUi = () => {
       const active = Boolean(this.gameState.touchMode);
       document.body.classList.toggle('touch-active', active);
@@ -146,10 +147,20 @@ export class HudManager {
         this.touchToggleBtn.classList.toggle('btn-active', active);
         this.touchToggleBtn.textContent = active ? '📱 Tactile: ON' : '📱 Tactile: OFF';
       }
+      if (touchCheck) touchCheck.checked = active;
       this.handlers.onTouchModeChange?.(active);
     };
     this.syncTouchUi = syncTouchUi;
     syncTouchUi();
+
+    touchCheck?.addEventListener('change', () => {
+      sfx.click();
+      this.gameState.setTouchMode(touchCheck.checked);
+      syncTouchUi();
+      this.toast(
+        touchCheck.checked ? '📱 Interface tactile activée' : '🖱️ Interface PC (Clavier/Souris) activée'
+      );
+    });
 
     this.touchToggleBtn?.addEventListener('click', () => {
       sfx.click();
@@ -198,7 +209,7 @@ export class HudManager {
     };
     this.openSettingsModal = openSettings;
 
-    document.getElementById('btn-settings').addEventListener('click', openSettings);
+    document.getElementById('btn-settings')?.addEventListener('click', openSettings);
 
     document.getElementById('btn-platform-hud')?.addEventListener('click', () => {
       sfx.click();
@@ -216,7 +227,7 @@ export class HudManager {
       this.handlers.onReturnToMenu?.();
     });
 
-    document.getElementById('settings-close').addEventListener('click', () => {
+    document.getElementById('settings-close')?.addEventListener('click', () => {
       sfx.click();
       this.closeSettings();
     });
@@ -296,16 +307,16 @@ export class HudManager {
       }
     });
 
-    document.getElementById('btn-chat-toggle').addEventListener('click', () => {
+    document.getElementById('btn-chat-toggle')?.addEventListener('click', () => {
       sfx.click();
       this.toggleChat();
     });
-    document.getElementById('btn-chat-close').addEventListener('click', () => {
+    document.getElementById('btn-chat-close')?.addEventListener('click', () => {
       sfx.click();
       this.toggleChat(false);
     });
 
-    this.chatInput.addEventListener('keydown', (e) => {
+    this.chatInput?.addEventListener('keydown', (e) => {
       if (e.code === 'Escape') {
         e.preventDefault();
         this.chatInput.blur();
@@ -313,7 +324,7 @@ export class HudManager {
       }
     });
 
-    this.chatForm.addEventListener('submit', (e) => {
+    this.chatForm?.addEventListener('submit', (e) => {
       e.preventDefault();
       const txt = this.chatInput.value.trim();
       if (!txt) return;
@@ -322,7 +333,7 @@ export class HudManager {
       this.chatInput.value = '';
     });
 
-    document.getElementById('btn-leaderboard').addEventListener('click', () => {
+    document.getElementById('btn-leaderboard')?.addEventListener('click', () => {
       sfx.click();
       this.openLeaderboard();
     });
@@ -334,7 +345,7 @@ export class HudManager {
       this.renderLeaderboard(list);
     });
 
-    document.getElementById('leaderboard-close').addEventListener('click', () => {
+    document.getElementById('leaderboard-close')?.addEventListener('click', () => {
       sfx.click();
       this.closeLeaderboard();
     });

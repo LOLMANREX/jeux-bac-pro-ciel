@@ -458,12 +458,23 @@ button:active {
   flex-wrap: wrap;
 }
 
-.hud-brand,
-.hud-actions {
+.hud-brand {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.hud-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+  margin-left: auto;
+}
+.hud-actions .btn-hud {
+  white-space: nowrap;
 }
 
 .student-badge,
@@ -1099,7 +1110,7 @@ button:active {
 .room-roster-popover {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  left: 0;
   width: 290px;
   background: rgba(11, 19, 36, 0.96);
   backdrop-filter: blur(10px);
@@ -1725,12 +1736,19 @@ body.touch-active .chat-drawer {
     padding: 8px 10px;
     gap: 6px;
   }
-  .hud-brand,
-  .hud-actions {
+  .hud-brand {
     gap: 6px;
   }
   .hud-actions {
     width: 100%;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+  .hud-actions .btn-hud {
+    padding: 6px 10px;
+    font-size: 0.76rem;
+    min-height: 36px;
   }
   .student-badge,
   .grade-pill,

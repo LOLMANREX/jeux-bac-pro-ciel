@@ -117,20 +117,29 @@ document.getElementById('menu-version-badge')?.addEventListener('click', () => {
   changelogModal?.open?.();
 });
 
-document.getElementById('hud-version-badge')?.addEventListener('click', () => {
-  sfx.click();
-  setModalActive(true, false, false);
-  if (changelogModal) {
-    changelogModal.open(() => setModalActive(false, false, false));
-  } else {
-    setModalActive(false, false, false);
-  }
-});
-
 let joined = false;
 let modalOpen = false;
 let subModalActive = false;
 let nearestTarget = null;
+let wallLeaderboardPending = false;
+
+function syncWallLeaderboard(entries = gameState.leaderboard) {
+  lab.updateLeaderboardBoard?.(entries, gameState.profile.name);
+}
+
+async function refreshWallLeaderboard() {
+  if (wallLeaderboardPending) return;
+  wallLeaderboardPending = true;
+  try {
+    const list = await network.fetchLeaderboard(3000);
+    if (Array.isArray(list) && (list.length > 0 || gameState.leaderboard.length === 0)) {
+      gameState.setLeaderboard(list);
+      syncWallLeaderboard(list);
+    }
+  } finally {
+    wallLeaderboardPending = false;
+  }
+}
 
 function setModalActive(active, pauseScene = false, lockActivity = false) {
   modalOpen = active;
@@ -169,6 +178,7 @@ function openTp(tpId) {
       lab.updateStationBadges(p.grades);
 
       network.submitScore(gameState.profile.name, doneId, score, durationSec, gameState.skin);
+      setTimeout(() => refreshWallLeaderboard(), 450);
     },
     onClose: ({ replayTpId } = {}) => {
       network.sendActivity('Dans l’atelier');
@@ -325,6 +335,7 @@ network.on('welcome', (msg) => {
   gameState.setRoomRoster(msg.roomRoster || []);
   gameState.setLeaderboard(msg.leaderboard || []);
   remotePlayers.syncLeaderboardRanks(msg.leaderboard || []);
+  syncWallLeaderboard(msg.leaderboard || []);
   hud.setNetworkStatus({ state: 'connected', connected: true }, msg.onlineCount);
   hud.clearChat();
   (msg.chatHistory || []).forEach((m) => hud.appendChatMessage(m, false));
@@ -337,11 +348,13 @@ network.on('welcome', (msg) => {
 network.on('profile_updated', ({ profile }) => {
   gameState.setProfile(profile);
   lab.updateStationBadges(profile.grades);
+  syncWallLeaderboard();
 });
 
 network.on('profile_reset', ({ profile, message }) => {
   gameState.setProfile(profile);
   lab.updateStationBadges(profile.grades);
+  refreshWallLeaderboard();
   hud.toast(message || 'Votre progression a été réinitialisée par l’administrateur.', 'error');
 });
 
@@ -353,6 +366,7 @@ network.on('account_deleted', ({ message }) => {
 network.on('score_recorded', (res) => {
   gameState.setProfile(res.profile);
   lab.updateStationBadges(res.profile.grades);
+  refreshWallLeaderboard();
   hud.toast(`+${res.xpGain} XP enregistrés sur le serveur !`, 'success');
 });
 
@@ -360,6 +374,7 @@ network.on('player_joined', ({ player: p, onlineCount, roomRoster }) => {
   remotePlayers.upsertPeer(p);
   if (roomRoster) gameState.setRoomRoster(roomRoster);
   hud.setNetworkStatus(true, onlineCount);
+  refreshWallLeaderboard();
   hud.toast(`${p.name} a rejoint l’atelier !`);
 });
 
@@ -398,6 +413,7 @@ network.on('tp_announcement', ({ playerId, tpLabel, score, diplomaEarned, messag
 network.on('leaderboard_updated', ({ leaderboard }) => {
   gameState.setLeaderboard(leaderboard);
   remotePlayers.syncLeaderboardRanks(leaderboard);
+  syncWallLeaderboard(leaderboard);
   const me = leaderboard?.find(
     (row) => row.name?.toLowerCase() === gameState.profile.name?.toLowerCase()
   );
@@ -410,6 +426,7 @@ network.on('player_left', ({ id, name, onlineCount, roomRoster }) => {
   remotePlayers.removePeer(id);
   if (roomRoster) gameState.setRoomRoster(roomRoster);
   hud.setNetworkStatus(true, onlineCount);
+  refreshWallLeaderboard();
   if (name) hud.toast(`${name} a quitté la salle.`);
 });
 
@@ -559,6 +576,13 @@ sceneMgr.addUpdater((dt, elapsed) => {
 });
 
 sceneMgr.start();
+refreshWallLeaderboard();
+
+setInterval(() => {
+  if (joined && !subModalActive) {
+    refreshWallLeaderboard();
+  }
+}, 12000);
 
 mainMenu = new MainMenu(gameState, network, {
   onOpenSettings: () => hud?.openSettingsModal?.(),
@@ -586,6 +610,7 @@ mainMenu = new MainMenu(gameState, network, {
       z: 6.2,
       yaw: player.yaw
     });
+    refreshWallLeaderboard();
 
     setTimeout(() => {
       hud?.toast?.(

@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v2.5 - Posts & Rapports joueurs + Admin complet';
+    : 'v2.6 - HUD épuré & Tableau de classement mural 3D';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,8 +20,18 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v2.5 — Posts & Rapports joueurs + Admin complet',
+    version: 'v2.6 — HUD épuré & Tableau de classement mural 3D',
+    date: '12/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Épure complète du HUD en jeu : conservation des 3 boutons essentiels alignés en haut à droite (Chat, Paramètres, Menu principal) sur PC comme sur Mobile.',
+      'Intégration d’un grand écran numérique 3D directement fixé sur le mur principal de la salle E204 affichant le classement en direct (« 🏆 CLASSEMENT EN DIRECT - BAC PRO CIEL »).',
+      'Mise à jour temps réel du tableau 3D via CanvasTexture optimisée (rang, pseudo, moyenne /20, XP et pastille En ligne / Hors ligne) sans impact sur les FPS.'
+    ]
+  },
+  {
+    version: 'v2.5 — Posts & Rapports joueurs + Admin complet',
+    tag: 'HISTORIQUE',
     date: '12/11/2026',
     items: [
       'Refonte complète de la fenêtre communautaire en « Posts & Rapports » (menu principal et HUD) avec uniquement 2 onglets : « Rapports des utilisateurs » (triés du plus récent au plus ancien) et « Créer un post ».',

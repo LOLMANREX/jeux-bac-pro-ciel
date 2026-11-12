@@ -80,6 +80,303 @@ function makeStationLabelSprite(title, icon, color) {
   return sprite;
 }
 
+function formatRankOrdinal(rank) {
+  return rank === 1 ? '1er' : `${rank}e`;
+}
+
+function truncateBoardText(ctx, text, maxWidth) {
+  const str = String(text || '');
+  if (ctx.measureText(str).width <= maxWidth) return str;
+  let cut = str;
+  while (cut.length > 1 && ctx.measureText(`${cut}…`).width > maxWidth) {
+    cut = cut.slice(0, -1);
+  }
+  return `${cut}…`;
+}
+
+function createWallLeaderboardBoard(scene) {
+  const W = 1280;
+  const H = 744;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = 4;
+
+  const boardGroup = new THREE.Group();
+  boardGroup.position.set(7.7, 2.78, -10.72);
+
+  const glowFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(5.76, 3.5, 0.08),
+    new THREE.MeshBasicMaterial({ color: '#06b6d4' })
+  );
+  glowFrame.position.z = -0.02;
+  boardGroup.add(glowFrame);
+
+  const bezel = new THREE.Mesh(
+    new THREE.BoxGeometry(5.6, 3.34, 0.14),
+    new THREE.MeshStandardMaterial({ color: '#0b1324', metalness: 0.65, roughness: 0.35 })
+  );
+  boardGroup.add(bezel);
+
+  const headerLed = new THREE.Mesh(
+    new THREE.BoxGeometry(5.36, 0.04, 0.03),
+    new THREE.MeshBasicMaterial({ color: '#22d3ee' })
+  );
+  headerLed.position.set(0, 1.62, 0.08);
+  boardGroup.add(headerLed);
+
+  const screenMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.36, 3.12),
+    new THREE.MeshBasicMaterial({ map: texture })
+  );
+  screenMesh.position.z = 0.085;
+  boardGroup.add(screenMesh);
+
+  scene.add(boardGroup);
+
+  let lastSignature = '';
+
+  function update(entries = [], localPlayerName = '') {
+    const safeList = Array.isArray(entries) ? entries : [];
+    const sorted = [...safeList].sort((a, b) => {
+      const avgA = typeof a.average === 'number' ? a.average : -1;
+      const avgB = typeof b.average === 'number' ? b.average : -1;
+      if (avgB !== avgA) return avgB - avgA;
+      const xpDiff = (b.xp || 0) - (a.xp || 0);
+      if (xpDiff !== 0) return xpDiff;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'fr');
+    });
+
+    const topRows = sorted.slice(0, 8);
+    const localKey = String(localPlayerName || '').trim().toLowerCase();
+    const onlineTotal = sorted.filter((r) => r.online).length;
+    const signature =
+      topRows
+        .map(
+          (r, idx) =>
+            `${idx + 1}:${r.name}:${typeof r.average === 'number' ? r.average.toFixed(1) : '--'}:${r.xp || 0}:${r.online ? 1 : 0}:${r.diplomaEarned ? 1 : 0}`
+        )
+        .join('|') + `||${onlineTotal}/${sorted.length}||${localKey}`;
+
+    if (signature === lastSignature) return;
+    lastSignature = signature;
+
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, '#060d1e');
+    bgGrad.addColorStop(1, '#0b1730');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.06)';
+    ctx.lineWidth = 1;
+    for (let gx = 0; gx <= W; gx += 64) {
+      ctx.beginPath();
+      ctx.moveTo(gx, 0);
+      ctx.lineTo(gx, H);
+      ctx.stroke();
+    }
+    for (let gy = 0; gy <= H; gy += 64) {
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      ctx.lineTo(W, gy);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.45)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(10, 10, W - 20, H - 20);
+
+    const headGrad = ctx.createLinearGradient(18, 18, W - 18, 96);
+    headGrad.addColorStop(0, '#082f49');
+    headGrad.addColorStop(1, '#0f172a');
+    ctx.fillStyle = headGrad;
+    ctx.beginPath();
+    ctx.roundRect(22, 20, W - 44, 78, 14);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.55)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 31px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🏆 CLASSEMENT EN DIRECT - BAC PRO CIEL', 44, 59);
+
+    ctx.fillStyle = onlineTotal > 0 ? 'rgba(16, 185, 129, 0.18)' : 'rgba(100, 116, 139, 0.22)';
+    ctx.strokeStyle = onlineTotal > 0 ? '#10b981' : '#64748b';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(W - 310, 36, 266, 46, 23);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = onlineTotal > 0 ? '#10b981' : '#94a3b8';
+    ctx.beginPath();
+    ctx.arc(W - 282, 59, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = onlineTotal > 0 ? '#a7f3d0' : '#cbd5e1';
+    ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${onlineTotal} en ligne • ${sorted.length} classé(s)`, W - 264, 59);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('RANG', 44, 126);
+    ctx.fillText('ÉLÈVE', 165, 126);
+    ctx.fillText('STATUT', 660, 126);
+    ctx.fillText('MOYENNE', 900, 126);
+    ctx.textAlign = 'right';
+    ctx.fillText('XP', W - 48, 126);
+
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(28, 146);
+    ctx.lineTo(W - 28, 146);
+    ctx.stroke();
+
+    if (topRows.length === 0) {
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+      ctx.beginPath();
+      ctx.roundRect(44, 240, W - 88, 180, 18);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+      ctx.stroke();
+
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = 'bold 30px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('En attente des premiers résultats de TP...', W / 2, 315);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '22px system-ui, -apple-system, sans-serif';
+      ctx.fillText('Terminez un poste de TP pour apparaître automatiquement au classement !', W / 2, 365);
+    } else {
+      topRows.forEach((entry, idx) => {
+        const rank = idx + 1;
+        const rowY = 158 + idx * 66;
+        const rowH = 58;
+        const isSelf = localKey && String(entry.name || '').trim().toLowerCase() === localKey;
+
+        ctx.fillStyle = isSelf
+          ? 'rgba(6, 182, 212, 0.22)'
+          : idx % 2 === 0
+            ? 'rgba(15, 23, 42, 0.88)'
+            : 'rgba(22, 34, 58, 0.72)';
+        ctx.beginPath();
+        ctx.roundRect(26, rowY, W - 52, rowH, 12);
+        ctx.fill();
+
+        if (isSelf) {
+          ctx.strokeStyle = '#22d3ee';
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+        } else if (rank <= 3) {
+          ctx.strokeStyle =
+            rank === 1
+              ? 'rgba(251, 191, 36, 0.55)'
+              : rank === 2
+                ? 'rgba(203, 213, 225, 0.45)'
+                : 'rgba(251, 146, 60, 0.45)';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+
+        const rankColor =
+          rank === 1 ? '#fbbf24' : rank === 2 ? '#e2e8f0' : rank === 3 ? '#fb923c' : '#38bdf8';
+        ctx.fillStyle = rankColor;
+        ctx.beginPath();
+        ctx.roundRect(42, rowY + 10, 92, 38, 10);
+        ctx.fill();
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 24px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(formatRankOrdinal(rank), 88, rowY + rowH / 2);
+
+        const displayName = entry.diplomaEarned ? `${entry.name} 🎓` : String(entry.name || 'Élève');
+        ctx.fillStyle = isSelf ? '#67e8f9' : '#f8fafc';
+        ctx.font = 'bold 26px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(truncateBoardText(ctx, displayName, 460), 165, rowY + rowH / 2);
+
+        const isOnline = Boolean(entry.online);
+        ctx.fillStyle = isOnline ? 'rgba(16, 185, 129, 0.16)' : 'rgba(100, 116, 139, 0.18)';
+        ctx.strokeStyle = isOnline ? 'rgba(16, 185, 129, 0.6)' : 'rgba(100, 116, 139, 0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(654, rowY + 11, 186, 36, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = isOnline ? '#10b981' : '#64748b';
+        ctx.beginPath();
+        ctx.arc(678, rowY + rowH / 2, 7, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = isOnline ? '#6ee7b7' : '#cbd5e1';
+        ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(isOnline ? 'En ligne' : 'Hors ligne', 696, rowY + rowH / 2);
+
+        const hasAvg = typeof entry.average === 'number';
+        const avgColor = !hasAvg ? '#94a3b8' : entry.average >= 10 ? '#34d399' : '#fb7185';
+        ctx.fillStyle = avgColor;
+        ctx.font = 'bold 26px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(hasAvg ? `${entry.average.toFixed(1)} / 20` : '-- / 20', 900, rowY + rowH / 2);
+
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = 'bold 25px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${entry.xp || 0} XP`, W - 48, rowY + rowH / 2);
+      });
+    }
+
+    const meIndex = localKey
+      ? sorted.findIndex((r) => String(r.name || '').trim().toLowerCase() === localKey)
+      : -1;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.beginPath();
+    ctx.roundRect(26, H - 48, W - 52, 30, 8);
+    ctx.fill();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    if (meIndex >= 0) {
+      const me = sorted[meIndex];
+      const meAvg = typeof me.average === 'number' ? `${me.average.toFixed(1)} / 20` : '-- / 20';
+      ctx.fillStyle = '#67e8f9';
+      ctx.fillText(
+        `Votre position : ${formatRankOrdinal(meIndex + 1)} sur ${sorted.length}  •  Moyenne : ${meAvg}  •  ${me.xp || 0} XP`,
+        W / 2,
+        H - 33
+      );
+    } else {
+      ctx.fillText('Actualisation automatique en temps réel • Salle BAC PRO CIEL', W / 2, H - 33);
+    }
+
+    texture.needsUpdate = true;
+  }
+
+  update([], '');
+
+  return {
+    group: boardGroup,
+    update
+  };
+}
+
 export function buildLabWorld(scene) {
   const colliders = []; // { minX, maxX, minZ, maxZ }
   const interactables = []; // { id, label, type, position, interactRadius, ring, mesh }
@@ -185,6 +482,8 @@ export function buildLabWorld(scene) {
   );
   whiteboard.position.set(0, 2.7, -10.74);
   scene.add(whiteboard);
+
+  const wallLeaderboard = createWallLeaderboardBoard(scene);
 
   // Educational CIEL Posters on side walls
   const posters = [
@@ -587,10 +886,15 @@ export function buildLabWorld(scene) {
     }
   }
 
+  function updateLeaderboardBoard(entries = [], localPlayerName = '') {
+    wallLeaderboard.update(entries, localPlayerName);
+  }
+
   return {
     colliders,
     interactables,
     update,
-    updateStationBadges
+    updateStationBadges,
+    updateLeaderboardBoard
   };
 }
