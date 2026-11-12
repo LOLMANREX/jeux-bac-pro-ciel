@@ -98,6 +98,7 @@ export class GameState {
     };
     this.room = 'salle-e204';
     this.quality = localStorage.getItem('ciel_quality') || 'high';
+    this.cameraMode = localStorage.getItem('ciel_camera_mode') === 'third' ? 'third' : 'first';
     const savedFov = Number(localStorage.getItem('ciel_fov'));
     this.fov = Number.isFinite(savedFov) && savedFov >= 50 && savedFov <= 110 ? savedFov : 70;
     const savedSens = Number(localStorage.getItem('ciel_sens'));
@@ -149,6 +150,12 @@ export class GameState {
   setSkin(skin) {
     this.skin = { ...DEFAULT_SKIN, ...this.skin, ...skin };
     localStorage.setItem('ciel_skin', JSON.stringify(this.skin));
+    this.emit();
+  }
+
+  setCameraMode(mode) {
+    this.cameraMode = mode === 'third' ? 'third' : 'first';
+    localStorage.setItem('ciel_camera_mode', this.cameraMode);
     this.emit();
   }
 

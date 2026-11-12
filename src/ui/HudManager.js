@@ -53,9 +53,11 @@ export class HudManager {
       syncMuteUi();
     });
 
-    // Settings Modal (FOV, Quality, Sensitivity, Sound)
+    // Settings Modal (FOV, Camera Mode, Quality, Sensitivity, Sound)
     const fovSlider = document.getElementById('set-fov');
     const fovVal = document.getElementById('set-fov-val');
+    const cameraSelect = document.getElementById('set-camera-mode');
+    const viewModeBtn = document.getElementById('btn-view-mode');
     const qualitySelect = document.getElementById('set-quality');
     const sensSlider = document.getElementById('set-sens');
     const sensVal = document.getElementById('set-sens-val');
@@ -63,6 +65,11 @@ export class HudManager {
     const syncSettingsUi = () => {
       if (fovSlider) fovSlider.value = String(this.gameState.fov);
       if (fovVal) fovVal.textContent = `${this.gameState.fov}°`;
+      if (cameraSelect) cameraSelect.value = this.gameState.cameraMode;
+      if (viewModeBtn) {
+        viewModeBtn.textContent =
+          this.gameState.cameraMode === 'third' ? '🎥 Vue: 3ème' : '🎥 Vue: 1ère';
+      }
       if (qualitySelect) qualitySelect.value = this.gameState.quality;
       if (sensSlider) sensSlider.value = String(this.gameState.mouseSens);
       if (sensVal) sensVal.textContent = `${this.gameState.mouseSens.toFixed(1)}×`;
@@ -71,7 +78,25 @@ export class HudManager {
       });
       syncMuteUi();
     };
+    this.syncCameraUi = syncSettingsUi;
     syncSettingsUi();
+
+    viewModeBtn?.addEventListener('click', () => {
+      sfx.click();
+      const next = this.gameState.cameraMode === 'third' ? 'first' : 'third';
+      this.gameState.setCameraMode(next);
+      this.handlers.onCameraModeChange?.(next);
+      syncSettingsUi();
+      this.toast(next === 'third' ? '🎥 Caméra 3ème personne' : '🎥 Caméra 1ère personne');
+    });
+
+    cameraSelect?.addEventListener('change', () => {
+      sfx.click();
+      const mode = cameraSelect.value;
+      this.gameState.setCameraMode(mode);
+      this.handlers.onCameraModeChange?.(mode);
+      syncSettingsUi();
+    });
 
     const openSettings = () => {
       sfx.click();
@@ -134,10 +159,12 @@ export class HudManager {
     document.getElementById('set-reset-btn')?.addEventListener('click', () => {
       sfx.click();
       this.gameState.setFov(70);
+      this.gameState.setCameraMode('first');
       this.gameState.setQuality('high');
       this.gameState.setMouseSens(1.0);
       sfx.setMuted(false);
       this.handlers.onFovChange?.(70);
+      this.handlers.onCameraModeChange?.('first');
       this.handlers.onQualityChange?.('high');
       this.handlers.onSensitivityChange?.(1.0);
       syncSettingsUi();

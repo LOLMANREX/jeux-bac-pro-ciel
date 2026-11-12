@@ -173,6 +173,7 @@
             </div>
             <button id="btn-leaderboard" class="btn-hud" title="Classement de la classe">🏆 Classement</button>
             <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur">💬 Chat</button>
+            <button id="btn-view-mode" class="btn-hud" title="Changer de caméra (Touche V)">🎥 Vue: 1ère</button>
             <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris)">⚙️ Paramètres</button>
             <button id="btn-main-menu" class="btn-hud" title="Retour au menu principal">🏠 Menu</button>
             <button id="btn-mute" class="btn-hud" title="Son activé/coupé">🔊</button>
@@ -216,7 +217,7 @@
         <div class="hud-bottom-hint">
           <span>ZQSD / Flèches : Bouger</span> •
           <span>Espace : Sauter</span> •
-          <span>Clic vue 3D : Caméra libre (Échap pour libérer)</span> •
+          <span>V : Vue 1ère / 3ème pers.</span> •
           <span>E ou Clic poste : Lancer TP</span>
         </div>
       </div>
@@ -274,6 +275,16 @@
                 <button type="button" class="btn-chip fov-preset" data-fov="90">90° Large</button>
                 <button type="button" class="btn-chip fov-preset" data-fov="105">105° Ultra</button>
               </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-head">
+                <label for="set-camera-mode">Mode Caméra (Touche V)</label>
+              </div>
+              <select id="set-camera-mode">
+                <option value="first">1ère personne (Immersion FPS)</option>
+                <option value="third">3ème personne (Voir son skin 3D)</option>
+              </select>
             </div>
 
             <div class="setting-item">

@@ -21,10 +21,36 @@ export class PlayerController {
     this.enabled = false;
     this.hasPointerLock = false;
     this.sensitivity = 1.0;
+    this.cameraMode = 'first';
+    this.avatar = null;
+    this.avatarVisible = false;
+    this.walkPhase = 0;
 
     this.camera.rotation.order = 'YXZ';
     this._applyCamera();
     this._bindEvents();
+  }
+
+  setAvatar(avatarObj) {
+    this.avatar = avatarObj;
+    this._syncAvatarVisibility();
+  }
+
+  setAvatarVisible(visible) {
+    this.avatarVisible = Boolean(visible);
+    this._syncAvatarVisibility();
+  }
+
+  setCameraMode(mode) {
+    this.cameraMode = mode === 'third' ? 'third' : 'first';
+    this._syncAvatarVisibility();
+    this._applyCamera();
+  }
+
+  _syncAvatarVisibility() {
+    if (this.avatar?.group) {
+      this.avatar.group.visible = this.avatarVisible && this.cameraMode === 'third';
+    }
   }
 
   setSensitivity(val) {
@@ -137,7 +163,9 @@ export class PlayerController {
     if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) right += 1;
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) right -= 1;
 
+    let isMoving = false;
     if (forward !== 0 || right !== 0) {
+      isMoving = true;
       const len = Math.hypot(forward, right);
       forward /= len;
       right /= len;
@@ -157,6 +185,21 @@ export class PlayerController {
       }
       if (!this._collides(this.position.x, this.position.z + dz)) {
         this.position.z += dz;
+      }
+    }
+
+    // Animate local 3rd-person avatar legs
+    if (this.avatar) {
+      if (!this.isGrounded) {
+        this.avatar.leftLeg.rotation.x = 0.35;
+        this.avatar.rightLeg.rotation.x = -0.25;
+      } else if (isMoving) {
+        this.walkPhase += dt * 12;
+        this.avatar.leftLeg.rotation.x = Math.sin(this.walkPhase) * 0.5;
+        this.avatar.rightLeg.rotation.x = -Math.sin(this.walkPhase) * 0.5;
+      } else {
+        this.avatar.leftLeg.rotation.x *= 0.8;
+        this.avatar.rightLeg.rotation.x *= 0.8;
       }
     }
 
@@ -181,8 +224,49 @@ export class PlayerController {
   }
 
   _applyCamera() {
+    const jumpOffset = Math.max(0, this.position.y - this.groundY);
+    if (this.avatar?.group) {
+      this.avatar.group.position.set(this.position.x, jumpOffset, this.position.z);
+      this.avatar.group.rotation.y = this.yaw + Math.PI;
+    }
+
+    if (this.cameraMode === 'third') {
+      const targetX = this.position.x;
+      const targetY = jumpOffset + 1.48;
+      const targetZ = this.position.z;
+
+      const clampedPitch = Math.max(-0.55, Math.min(0.85, this.pitch));
+      const sinY = Math.sin(this.yaw);
+      const cosY = Math.cos(this.yaw);
+      const cosP = Math.cos(clampedPitch);
+      const sinP = Math.sin(clampedPitch);
+
+      const dirX = sinY * cosP;
+      const dirY = -sinP + 0.14;
+      const dirZ = cosY * cosP;
+
+      // Step along camera ray to avoid clipping outside classroom walls
+      let dist = 3.25;
+      for (let d = 0.5; d <= 3.25; d += 0.25) {
+        const cx = targetX + dirX * d;
+        const cz = targetZ + dirZ * d;
+        const cy = targetY + dirY * d;
+        if (cx < -13.3 || cx > 13.3 || cz < -10.3 || cz > 10.3 || cy < 0.45 || cy > 4.9) {
+          dist = Math.max(0.65, d - 0.25);
+          break;
+        }
+      }
+
+      this.camera.position.set(
+        targetX + dirX * dist,
+        Math.max(0.45, Math.min(4.9, targetY + dirY * dist)),
+        targetZ + dirZ * dist
+      );
+      this.camera.lookAt(targetX, targetY + 0.12, targetZ);
+      return;
+    }
+
     this.camera.position.copy(this.position);
-    this.camera.rotation.y = this.yaw;
-    this.camera.rotation.x = this.pitch;
+    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
   }
 }

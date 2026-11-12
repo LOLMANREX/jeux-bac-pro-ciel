@@ -120,7 +120,7 @@ export class RemotePlayersManager {
       );
       peer.group.position.lerp(peer.targetPos, Math.min(1, dt * 12));
 
-      let diff = peer.targetYaw - peer.group.rotation.y;
+      let diff = (peer.targetYaw + Math.PI) - peer.group.rotation.y;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       peer.group.rotation.y += diff * Math.min(1, dt * 10);

@@ -10,6 +10,7 @@ import { buildLabWorld } from './world/LabBuilder.js';
 import { createNpcFortin } from './world/NpcFortin.js';
 import { PlayerController } from './world/PlayerController.js';
 import { RemotePlayersManager } from './world/RemotePlayers.js';
+import { buildStudentAvatarMesh } from './world/AvatarBuilder.js';
 import { HudManager } from './ui/HudManager.js';
 import { MainMenu } from './ui/MainMenu.js';
 import { DialogueModal } from './ui/DialogueModal.js';
@@ -45,6 +46,20 @@ const player = new PlayerController(sceneMgr.camera, canvas, allColliders, {
   onJump: () => sfx.jump()
 });
 player.setSensitivity(gameState.mouseSens);
+player.setCameraMode(gameState.cameraMode);
+
+let localAvatar = null;
+function rebuildLocalAvatar(skin) {
+  if (localAvatar?.group) {
+    sceneMgr.scene.remove(localAvatar.group);
+  }
+  localAvatar = buildStudentAvatarMesh(skin);
+  sceneMgr.scene.add(localAvatar.group);
+  player.setAvatar(localAvatar);
+}
+rebuildLocalAvatar(gameState.skin);
+player.setAvatarVisible(false);
+
 const remotePlayers = new RemotePlayersManager(sceneMgr.scene);
 
 const dialogueModal = new DialogueModal();
@@ -140,6 +155,7 @@ function teleportNearTarget(id) {
 const hud = new HudManager(gameState, network, {
   onQualityChange: (q) => sceneMgr.setQuality(q),
   onFovChange: (fov) => sceneMgr.setFov(fov),
+  onCameraModeChange: (mode) => player.setCameraMode(mode),
   onSensitivityChange: (s) => player.setSensitivity(s),
   onQuickNav: (id) => teleportNearTarget(id),
   onModalOpen: (isOpen) => setModalActive(isOpen, false),
@@ -150,6 +166,7 @@ function returnToMainMenu() {
   joined = false;
   modalOpen = false;
   player.setEnabled(false);
+  player.setAvatarVisible(false);
   network.disconnect();
   remotePlayers.clearAll();
   hud.hide();
@@ -218,6 +235,14 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyE' && nearestTarget) {
     e.preventDefault();
     interactWith(nearestTarget);
+  } else if (e.code === 'KeyV') {
+    e.preventDefault();
+    sfx.click();
+    const next = gameState.cameraMode === 'third' ? 'first' : 'third';
+    gameState.setCameraMode(next);
+    player.setCameraMode(next);
+    hud.syncCameraUi?.();
+    hud.toast(next === 'third' ? '🎥 Caméra 3ème personne' : '🎥 Caméra 1ère personne');
   }
 });
 
@@ -299,9 +324,12 @@ const mainMenu = new MainMenu(gameState, network, {
   onStartGame: ({ name, room, skin }) => {
     gameState.room = room;
     gameState.setProfile({ ...gameState.profile, name });
+    rebuildLocalAvatar(skin);
     joined = true;
 
     hud.show();
+    player.setAvatarVisible(true);
+    player.setCameraMode(gameState.cameraMode);
     player.setEnabled(true);
     network.connect(name, room, skin);
 
