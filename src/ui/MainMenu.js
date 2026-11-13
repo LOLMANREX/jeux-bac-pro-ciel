@@ -12,30 +12,42 @@ function escapeHtml(text) {
 }
 
 export class MainMenu {
-  constructor(gameState, network, { onStartGame, onOpenSettings, onOpenPlatform, onOpenFaq }) {
+  constructor(
+    gameState,
+    network,
+    { onStartGame, onOpenSettings, onOpenPlatform, onOpenFaq, onOpenChangelog, onOpenBattlePass }
+  ) {
     this.gameState = gameState;
     this.network = network;
     this.onStartGame = onStartGame;
     this.onOpenSettings = onOpenSettings;
     this.onOpenPlatform = onOpenPlatform;
     this.onOpenFaq = onOpenFaq;
+    this.onOpenChangelog = onOpenChangelog;
+    this.onOpenBattlePass = onOpenBattlePass;
 
     this.root = document.getElementById('start-screen');
     this.views = {
       home: document.getElementById('menu-view-home'),
-      play: document.getElementById('join-form'),
-      join: document.getElementById('menu-view-join'),
       skin: document.getElementById('menu-view-skin')
     };
 
     this.nameInput = document.getElementById('player-name-input');
     this.previewTag = document.getElementById('preview-player-tag');
+    this.previewRankEl = document.getElementById('preview-player-rank');
+    this.badgeNameEl = document.getElementById('menu-badge-name');
+    this.badgeLevelEl = document.getElementById('menu-badge-level');
+    this.badgeXpBarEl = document.getElementById('menu-badge-xp-bar');
+    this.badgeXpEl = document.getElementById('menu-badge-xp');
+    this.badgeAvgEl = document.getElementById('menu-badge-avg');
+
+    this.joinForm = document.getElementById('join-form');
     this.roomSelect = document.getElementById('room-select');
     this.customRoomWrap = document.getElementById('custom-room-wrap');
     this.customRoomInput = document.getElementById('custom-room-input');
     this.roomsListEl = document.getElementById('rooms-list');
-    this.directRoomInput = document.getElementById('direct-room-input');
     this.statusEl = document.getElementById('start-server-status');
+    this.platformBtn = document.getElementById('menu-btn-platform');
 
     this.visible = true;
     this.skinIds = {
@@ -50,8 +62,9 @@ export class MainMenu {
       this.preview = new SkinPreview3D(
         document.getElementById('skin-preview-canvas'),
         () => this.gameState.skin,
-        320,
-        380
+        420,
+        460,
+        { interactivePodium: true }
       );
       this.preview.setActive(true);
     } catch (err) {
@@ -61,7 +74,12 @@ export class MainMenu {
 
     this._initName();
     this.renderSkinUi();
+    this.syncPlayerBadge();
     this._bindEvents();
+    this.gameState.subscribe(() => {
+      if (this.visible) this.syncPlayerBadge();
+    });
+
     this.pollTimer = null;
     this.healthPending = false;
     this.roomsPending = false;
@@ -71,12 +89,11 @@ export class MainMenu {
   _startPolling() {
     this._stopPolling();
     this.refreshHealth();
+    this.refreshRooms();
     this.pollTimer = setInterval(() => {
       if (!this.visible) return;
       this.refreshHealth();
-      if (this.views.join && !this.views.join.classList.contains('hidden')) {
-        this.refreshRooms(true);
-      }
+      this.refreshRooms(true);
     }, 4000);
   }
 
@@ -90,7 +107,32 @@ export class MainMenu {
   _initName() {
     const saved = localStorage.getItem('ciel_player_name') || '';
     if (this.nameInput) this.nameInput.value = saved;
-    if (this.previewTag) this.previewTag.textContent = saved || 'Eleve_CIEL';
+    this.syncPlayerBadge();
+  }
+
+  syncPlayerBadge() {
+    const typed = this.nameInput?.value?.trim() || '';
+    const displayName = typed || this.gameState.profile.name || 'Eleve_CIEL';
+    const lookupKey = displayName.toLowerCase();
+    const lbMatch = (this.gameState.leaderboard || []).find(
+      (row) => row.name?.toLowerCase() === lookupKey
+    );
+    const sameProfile = this.gameState.profile.name?.toLowerCase() === lookupKey;
+    const stats = lbMatch || (sameProfile ? this.gameState.profile : null);
+
+    const xp = Number.isFinite(stats?.xp) ? stats.xp : 0;
+    const level = Math.max(1, Math.floor(xp / 100) + 1);
+    const xpPct = Math.max(0, Math.min(100, xp % 100));
+    const avg = typeof stats?.average === 'number' ? `${stats.average.toFixed(1)} / 20` : '-- / 20';
+    const rankLabel = stats?.rankLabel || 'Apprenti CIEL';
+
+    if (this.previewTag) this.previewTag.textContent = displayName;
+    if (this.previewRankEl) this.previewRankEl.textContent = rankLabel.toUpperCase();
+    if (this.badgeNameEl) this.badgeNameEl.textContent = displayName;
+    if (this.badgeLevelEl) this.badgeLevelEl.textContent = `Niv. ${level}`;
+    if (this.badgeXpBarEl) this.badgeXpBarEl.style.width = `${xpPct}%`;
+    if (this.badgeXpEl) this.badgeXpEl.textContent = `${xp} XP`;
+    if (this.badgeAvgEl) this.badgeAvgEl.textContent = avg;
   }
 
   renderSkinUi() {
@@ -101,31 +143,36 @@ export class MainMenu {
 
   _bindEvents() {
     this.nameInput?.addEventListener('input', () => {
-      const val = this.nameInput.value.trim();
-      if (this.previewTag) this.previewTag.textContent = val || 'Eleve_CIEL';
+      this.syncPlayerBadge();
     });
 
     document.getElementById('menu-btn-quickplay')?.addEventListener('click', () => {
       this._launchWithRoom(DEFAULT_ROOM);
     });
 
-    document.getElementById('menu-btn-play')?.addEventListener('click', () => {
-      sfx.click();
-      if (this.roomSelect) this.roomSelect.value = DEFAULT_ROOM;
-      this.customRoomWrap?.classList.add('hidden');
-      this.showView('play');
+    document.querySelectorAll('[data-nav]').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        sfx.click();
+        const target = tab.dataset.nav;
+        if (target === 'skin') this.renderSkinUi();
+        this.showView(target);
+      });
     });
 
-    document.getElementById('menu-btn-join')?.addEventListener('click', () => {
-      sfx.click();
-      this.showView('join');
-      this.refreshRooms();
-    });
-
-    document.getElementById('menu-btn-skin')?.addEventListener('click', () => {
+    document.getElementById('podium-skin-shortcut')?.addEventListener('click', () => {
       sfx.click();
       this.renderSkinUi();
       this.showView('skin');
+    });
+
+    document.getElementById('nav-btn-battlepass')?.addEventListener('click', () => {
+      sfx.click();
+      this.onOpenBattlePass?.();
+    });
+
+    document.getElementById('menu-btn-battlepass')?.addEventListener('click', () => {
+      sfx.click();
+      this.onOpenBattlePass?.();
     });
 
     document.getElementById('menu-btn-settings')?.addEventListener('click', () => {
@@ -133,7 +180,6 @@ export class MainMenu {
       this.onOpenSettings?.();
     });
 
-    this.platformBtn = document.getElementById('menu-btn-platform');
     this.platformBtn?.addEventListener('click', () => {
       sfx.click();
       this.onOpenPlatform?.();
@@ -142,6 +188,11 @@ export class MainMenu {
     document.getElementById('menu-btn-faq')?.addEventListener('click', () => {
       sfx.click();
       this.onOpenFaq?.();
+    });
+
+    document.getElementById('menu-btn-changelog')?.addEventListener('click', () => {
+      sfx.click();
+      this.onOpenChangelog?.();
     });
 
     this.updatePlatformButton(this.gameState.touchMode);
@@ -153,27 +204,22 @@ export class MainMenu {
       });
     });
 
-    this.roomSelect.addEventListener('change', () => {
-      this.customRoomWrap.classList.toggle('hidden', this.roomSelect.value !== 'custom');
+    this.roomSelect?.addEventListener('change', () => {
+      this.customRoomWrap?.classList.toggle('hidden', this.roomSelect.value !== 'custom');
     });
 
-    this.views.play.addEventListener('submit', (e) => {
+    this.joinForm?.addEventListener('submit', (e) => {
       e.preventDefault();
-      let room = this.roomSelect.value;
+      let room = this.roomSelect?.value || DEFAULT_ROOM;
       if (room === 'custom') {
-        room = this.customRoomInput.value.trim() || 'salle-perso';
+        room = this.customRoomInput?.value?.trim() || 'salle-perso';
       }
       this._launchWithRoom(room);
     });
 
-    document.getElementById('btn-refresh-rooms').addEventListener('click', () => {
+    document.getElementById('btn-refresh-rooms')?.addEventListener('click', () => {
       sfx.click();
       this.refreshRooms();
-    });
-
-    document.getElementById('btn-direct-join').addEventListener('click', () => {
-      const code = this.directRoomInput.value.trim() || DEFAULT_ROOM;
-      this._launchWithRoom(code);
     });
 
     document.getElementById('btn-skin-random')?.addEventListener('click', () => {
@@ -193,8 +239,12 @@ export class MainMenu {
   }
 
   showView(name) {
+    const viewName = this.views[name] ? name : 'home';
     Object.entries(this.views).forEach(([k, el]) => {
-      el?.classList.toggle('hidden', k !== name);
+      el?.classList.toggle('hidden', k !== viewName);
+    });
+    document.querySelectorAll('[data-nav]').forEach((tab) => {
+      tab.classList.toggle('active', tab.dataset.nav === viewName);
     });
   }
 
@@ -207,20 +257,20 @@ export class MainMenu {
     try {
       const rooms = await this.network.fetchRooms(3000);
       if (!rooms || rooms.length === 0) {
-        this.roomsListEl.innerHTML = '<p class="hint-mini">Aucune salle détectée pour le moment.</p>';
+        this.roomsListEl.innerHTML = '<p class="hint-mini">Aucune salle active — Plateau U300 prêt !</p>';
         return;
       }
       this.roomsListEl.innerHTML = rooms
         .map(
           (r) => `
-      <div class="room-row">
-        <div>
+      <div class="room-row aaa-room-row">
+        <div class="aaa-room-meta">
           <strong>🏫 ${escapeHtml(r.room)}</strong>
           <div class="hint-mini">${r.count} élève(s) : ${
             r.players?.length ? r.players.map((p) => escapeHtml(p)).join(', ') : 'Salle prête'
           }</div>
         </div>
-        <button type="button" class="btn-primary btn-sm join-room-btn" data-room="${escapeHtml(r.room)}">Rejoindre</button>
+        <button type="button" class="aaa-join-mini-btn join-room-btn" data-room="${escapeHtml(r.room)}">Rejoindre ▶</button>
       </div>`
         )
         .join('');
@@ -249,14 +299,14 @@ export class MainMenu {
         this.statusEl.innerHTML = `<span class="dot online"></span> Serveur CIEL en ligne — <strong>${count}</strong> joueur(s) connecté(s)`;
       } else if (health?.timeout) {
         this.statusEl.innerHTML =
-          '<span class="dot warn"></span> Serveur lent ou inaccessible (timeout 3s) — Mode solo disponible';
+          '<span class="dot warn"></span> Serveur lent (timeout 3s) — Mode solo disponible';
       } else {
         const reason = health?.error ? ` (${escapeHtml(health.error)})` : '';
-        this.statusEl.innerHTML = `<span class="dot error"></span> Serveur multijoueur hors ligne${reason} — Mode solo local`;
+        this.statusEl.innerHTML = `<span class="dot error"></span> Serveur hors ligne${reason} — Mode solo local`;
       }
     } catch {
       this.statusEl.innerHTML =
-        '<span class="dot error"></span> Serveur multijoueur hors ligne — Mode solo local';
+        '<span class="dot error"></span> Serveur hors ligne — Mode solo local';
     } finally {
       this.healthPending = false;
     }
@@ -266,6 +316,7 @@ export class MainMenu {
     this.visible = true;
     this.root?.classList.remove('hidden');
     this.renderSkinUi();
+    this.syncPlayerBadge();
     this.preview?.setActive?.(true);
     this.updatePlatformButton(this.gameState.touchMode);
     this.showView('home');
@@ -274,7 +325,7 @@ export class MainMenu {
 
   updatePlatformButton(touchMode) {
     if (!this.platformBtn) return;
-    this.platformBtn.textContent = touchMode ? '📱 Plateforme : Mobile' : '💻 Plateforme : PC';
+    this.platformBtn.textContent = touchMode ? 'PLATEFORME 📱' : 'PLATEFORME 💻';
   }
 
   hide() {

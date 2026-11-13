@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v3.3 - Zones de salles polygonales (Formes en L & U)';
+    : 'v3.4 - Nouveau Menu Principal AAA & Passe de Combat Saison 1';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v3.3 — Zones de salles polygonales (Formes en L & U)',
+    version: 'v3.4 — Nouveau Menu Principal AAA & Passe de Combat Saison 1',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Refonte intégrale du Menu Principal façon jeu AAA moderne (Valorant / Fortnite / Cyberpunk), 100 % responsive PC & Mobile : barre de navigation supérieure complète (JOUER, PASSE DE COMBAT 🔥, SKINS & CASIER, POSTS & RAPPORTS, NOTES DE MÀJ, PLATEFORME, PARAMÈTRES) et badge joueur dynamique (Niveau, barre d’XP et Moyenne /20).',
+      'Podium 3D cybernétique interactif au centre/droite avec socle hexagonal lumineux, halo néon cyan/magenta animé, rotation fluide à inertie (souris & tactile) et affichage en direct du pseudo et du rang au-dessus du personnage.',
+      'Panneau Lobby tout-en-un : saisie du pseudo, bouton animé « ⚡ JOUER — REJOINDRE LE PLATEAU U300 », sélection/création de salle multijoueur, liste des salles actives en direct et état du serveur en temps réel.',
+      'Ajout du « Passe de Combat CIEL — Saison 1 » (10 paliers légendaires/mythiques jusqu’aux Perms Admin complètes à 10,00 €) avec sa modale parodique exclusive « T’est un pigeon » !'
+    ]
+  },
+  {
+    version: 'v3.3 — Zones de salles polygonales (Formes en L & U)',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Extension du schéma de carte (mapSchema.js & server/store.js) pour prendre en charge des zones/salles polygonales arbitraires (points: [{ x, z }, ...] à 3 sommets ou plus), avec rétrocompatibilité totale des anciennes zones rectangulaires.',
       'Nouvel outil « Zone Polygonale (Forme libre / L) » dans l’éditeur /admin : tracé interactif point par point aimanté sur la grille avec aperçu élastique temps réel, fermeture par clic sur le 1er sommet surligné / double-clic / Entrée, annulation par Échap, édition de chaque sommet par poignées déplaçables et affichage du nom au centroïde.',

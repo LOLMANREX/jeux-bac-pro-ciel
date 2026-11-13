@@ -28,159 +28,182 @@
   </head>
   <body>
     <div id="app">
-      <!-- Viewport 3D principal -->
       <canvas id="game-canvas" aria-label="Atelier 3D BAC PRO CIEL"></canvas>
 
-      <!-- Vrai Menu Principal (sur fond 3D animé) -->
-      <div id="start-screen" class="overlay-screen main-menu-backdrop">
-        <div class="main-menu-shell">
-          <div class="menu-left-panel">
-            <div class="badge-pill">BAC PRO CIEL • LYCÉE &amp; ATELIER 3D</div>
-            <h1>Atelier CIEL <span class="accent">3D</span></h1>
-            <p class="subtitle">
-              Bienvenue sur le Plateau <strong>U300</strong> ! Retrouvez le <strong>Professeur CIEL</strong> dans le hall central,
-              explorez U301 à U307 + Chambre serveur, validez vos TPs et jouez en réseau.
-            </p>
-
-            <!-- Vue 1 : Accueil du Menu Principal -->
-            <div id="menu-view-home" class="menu-view">
-              <div class="menu-field">
-                <label for="player-name-input">Votre pseudo d'élève :</label>
-                <input
-                  id="player-name-input"
-                  type="text"
-                  maxlength="18"
-                  placeholder="Ex: Lucas_CIEL"
-                  required
-                />
+      <div id="start-screen" class="overlay-screen aaa-menu-overlay">
+        <div class="aaa-bg-grid" aria-hidden="true"></div>
+        <div class="aaa-menu-container">
+          <header class="aaa-topbar">
+            <div class="aaa-brand">
+              <div class="aaa-logo-emblem" aria-hidden="true">
+                <svg viewBox="0 0 40 40" width="34" height="34">
+                  <polygon points="20,2 37,11 37,29 20,38 3,29 3,11" fill="#082f49" stroke="#22d3ee" stroke-width="2.2" />
+                  <path d="M11 24L17 14L22 23L29 12" fill="none" stroke="#67e8f9" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                  <circle cx="29" cy="12" r="2.6" fill="#10b981" />
+                </svg>
               </div>
-
-              <div class="menu-nav-buttons">
-                <button type="button" id="menu-btn-quickplay" class="btn-primary btn-menu">
-                  <span>⚡ Partie Rapide (Plateau U300)</span>
-                  <small>Rejoindre directement le plateau U300 commun avec la classe</small>
-                </button>
-                <button type="button" id="menu-btn-play" class="btn-hud btn-menu">
-                  <span>🚀 Choisir / Créer une salle</span>
-                  <small>Plateau U300, Réseau B12 ou code personnalisé</small>
-                </button>
-                <button type="button" id="menu-btn-join" class="btn-hud btn-menu">
-                  <span>🌐 Rejoindre une partie (Multijoueur)</span>
-                  <small>Voir les salles actives ou entrer un code</small>
-                </button>
-                <button type="button" id="menu-btn-skin" class="btn-hud btn-menu">
-                  <span>🎨 Personnaliser mon Skin 3D</span>
-                  <small>Blouse, couleur, lunettes, casque...</small>
-                </button>
-                <button type="button" id="menu-btn-settings" class="btn-hud btn-menu">
-                  <span>⚙️ Paramètres (FOV, Qualité, Son)</span>
-                  <small>Champ de vision 50°–110°, sensibilité</small>
-                </button>
-              </div>
-              <div class="menu-util-row">
-                <button type="button" id="menu-btn-platform" class="btn-hud btn-sm">
-                  🖥️ / 📱 Plateforme
-                </button>
-                <button type="button" id="menu-btn-faq" class="btn-hud btn-sm">
-                  💬 Posts &amp; Rapports
-                </button>
+              <div class="aaa-brand-text">
+                <div class="aaa-brand-title">ATELIER CIEL <span class="aaa-accent-3d">3D</span></div>
+                <div class="aaa-brand-sub">BAC PRO CIEL • SAISON 1 • PLATEAU U300</div>
               </div>
             </div>
 
-            <!-- Vue 2 : Lancer / Créer une partie -->
-            <form id="join-form" class="menu-view hidden">
-              <button type="button" class="btn-back" data-back="home">← Retour au menu</button>
-              <h3>🚀 Lancer une partie</h3>
-              <div class="menu-field">
-                <label for="room-select">Choisir une salle :</label>
-                <select id="room-select">
-                  <option value="plateau-u300">Plateau U300 — Filière CIEL (Principal)</option>
-                  <option value="salle-reseau">Salle Réseau B12</option>
-                  <option value="custom">Code de salle personnalisé...</option>
-                </select>
-              </div>
-              <div id="custom-room-wrap" class="menu-field hidden">
-                <label for="custom-room-input">Code de votre salle :</label>
-                <input id="custom-room-input" type="text" maxlength="22" placeholder="Ex: classe-1ciel" />
-              </div>
-              <div class="controls-hint">
-                <span><strong>ZQSD / Flèches</strong> : Bouger</span>
-                <span><strong>Espace</strong> : Sauter</span>
-                <span><strong>Souris</strong> : Caméra</span>
-                <span><strong>E</strong> : Interagir</span>
-              </div>
-              <button type="submit" id="start-game-btn" class="btn-primary btn-lg">
-                Entrer dans l'Atelier 3D ▶
-              </button>
-            </form>
+            <nav class="aaa-nav-tabs" aria-label="Navigation du menu principal">
+              <button type="button" id="nav-btn-play" class="aaa-nav-tab active" data-nav="home">JOUER</button>
+              <button type="button" id="nav-btn-battlepass" class="aaa-nav-tab aaa-nav-tab-bp">PASSE DE COMBAT 🔥</button>
+              <button type="button" id="nav-btn-skin" class="aaa-nav-tab" data-nav="skin">SKINS &amp; CASIER</button>
+              <button type="button" id="menu-btn-faq" class="aaa-nav-tab">POSTS &amp; RAPPORTS</button>
+              <button type="button" id="menu-btn-changelog" class="aaa-nav-tab">NOTES DE MÀJ</button>
+              <button type="button" id="menu-btn-platform" class="aaa-nav-tab">PLATEFORME 💻/📱</button>
+              <button type="button" id="menu-btn-settings" class="aaa-nav-tab">PARAMÈTRES</button>
+            </nav>
 
-            <!-- Vue 3 : Rejoindre une partie Multijoueur -->
-            <div id="menu-view-join" class="menu-view hidden">
-              <button type="button" class="btn-back" data-back="home">← Retour au menu</button>
-              <div class="view-head-row">
-                <h3>🌐 Rejoindre une partie</h3>
-                <button type="button" id="btn-refresh-rooms" class="btn-hud btn-sm">🔄 Actualiser</button>
+            <div class="aaa-player-card">
+              <div class="aaa-pc-top">
+                <span id="menu-badge-name" class="aaa-pc-name">Eleve_CIEL</span>
+                <span id="menu-badge-level" class="aaa-pc-lvl">Niv. 1</span>
               </div>
-              <div id="rooms-list" class="rooms-list">
-                <p class="hint-mini">Chargement des salles en ligne...</p>
+              <div class="aaa-pc-xp-wrap">
+                <div class="aaa-pc-xp-track">
+                  <div id="menu-badge-xp-bar" class="aaa-pc-xp-fill" style="width: 0%"></div>
+                </div>
+                <span id="menu-badge-xp" class="aaa-pc-xp-txt">0 XP</span>
               </div>
-              <div class="join-direct-row">
-                <input id="direct-room-input" type="text" maxlength="22" placeholder="Code de salle (ex: plateau-u300)" />
-                <button type="button" id="btn-direct-join" class="btn-primary btn-sm">Rejoindre ▶</button>
+              <div class="aaa-pc-bottom">
+                <span class="aaa-pc-avg-label">MOYENNE</span>
+                <strong id="menu-badge-avg" class="aaa-pc-avg">-- / 20</strong>
               </div>
             </div>
+          </header>
 
-            <!-- Vue 4 : Personnaliser son Skin -->
-            <div id="menu-view-skin" class="menu-view hidden">
-              <button type="button" class="btn-back" data-back="home">← Retour au menu</button>
-              <div class="view-head-row">
-                <h3>🎨 Personnalisation du Skin</h3>
-                <button type="button" id="btn-skin-random" class="btn-hud btn-sm">🎲 Aléatoire</button>
-              </div>
+          <main class="aaa-main-stage">
+            <section class="aaa-left-panel">
+              <div id="menu-view-home" class="menu-view aaa-lobby-view">
+                <div class="aaa-section-kicker">OPÉRATION PLATEAU U300 • MULTIJOUEUR</div>
 
-              <div class="skin-controls">
-                <div class="skin-group">
-                  <label>Style de tenue</label>
-                  <div id="skin-style-list" class="btn-group"></div>
-                </div>
-                <div class="skin-group">
-                  <label>Couleur de tenue</label>
-                  <div id="skin-color-list" class="swatch-row"></div>
-                </div>
-                <div class="skin-group">
-                  <label>Tête / Accessoire</label>
-                  <div id="skin-hat-list" class="btn-group"></div>
-                </div>
-                <div class="skin-group-inline">
-                  <div>
-                    <label>Peau</label>
-                    <div id="skin-tone-list" class="swatch-row"></div>
+                <div class="aaa-pseudo-box">
+                  <label for="player-name-input">IDENTIFIANT ÉLÈVE (PSEUDO)</label>
+                  <div class="aaa-input-shell">
+                    <span class="aaa-input-ico">⚡</span>
+                    <input
+                      id="player-name-input"
+                      type="text"
+                      maxlength="18"
+                      placeholder="Ex: Lucas_CIEL"
+                      required
+                    />
                   </div>
-                  <div>
-                    <label>Pantalon</label>
-                    <div id="skin-pants-list" class="swatch-row"></div>
+                </div>
+
+                <button type="button" id="menu-btn-quickplay" class="aaa-play-cta">
+                  <span class="aaa-cta-glint" aria-hidden="true"></span>
+                  <span class="aaa-cta-main">⚡ JOUER — REJOINDRE LE PLATEAU U300</span>
+                  <span class="aaa-cta-sub">Déploiement immédiat dans le hall principal avec ta classe</span>
+                </button>
+
+                <button type="button" id="menu-btn-battlepass" class="aaa-bp-cta">
+                  <span class="aaa-bp-shine" aria-hidden="true"></span>
+                  <span class="aaa-bp-left">
+                    <span class="aaa-bp-title">👑 PASSE DE COMBAT (SAISON 1)</span>
+                    <span class="aaa-bp-sub">10 paliers légendaires, Skins RTX &amp; Perm Admin</span>
+                  </span>
+                  <span class="aaa-bp-price-tag">10,00 €</span>
+                </button>
+
+                <div class="aaa-server-strip" id="start-server-status">
+                  <span class="dot dot-pulse"></span> Connexion au serveur CIEL...
+                </div>
+
+                <div class="aaa-rooms-panel">
+                  <div class="aaa-rooms-head">
+                    <span>🌐 SALLES MULTIJOUEUR EN DIRECT</span>
+                    <button type="button" id="btn-refresh-rooms" class="aaa-icon-btn" title="Actualiser les salles">🔄</button>
+                  </div>
+
+                  <form id="join-form" class="aaa-room-creator">
+                    <div class="aaa-room-select-row">
+                      <select id="room-select" aria-label="Choisir une salle multijoueur">
+                        <option value="plateau-u300">Plateau U300 — Filière CIEL (Principal)</option>
+                        <option value="salle-reseau">Salle Réseau B12</option>
+                        <option value="custom">Créer / code personnalisé...</option>
+                      </select>
+                      <button type="submit" id="start-game-btn" class="aaa-room-go-btn">Entrer ▶</button>
+                    </div>
+                    <div id="custom-room-wrap" class="aaa-custom-room-wrap hidden">
+                      <input
+                        id="custom-room-input"
+                        type="text"
+                        maxlength="22"
+                        placeholder="Nom / code de votre salle (ex: classe-1ciel)"
+                      />
+                    </div>
+                  </form>
+
+                  <div id="rooms-list" class="rooms-list aaa-rooms-list">
+                    <p class="hint-mini">Recherche des salles actives...</p>
                   </div>
                 </div>
               </div>
 
-              <button type="button" class="btn-primary btn-lg" data-back="home">
-                ✅ Valider mon Skin
-              </button>
-            </div>
+              <div id="menu-view-skin" class="menu-view aaa-skin-view hidden">
+                <div class="aaa-skin-header">
+                  <button type="button" class="btn-back" data-back="home">← Retour au Lobby</button>
+                  <button type="button" id="btn-skin-random" class="btn-hud btn-sm">🎲 Aléatoire</button>
+                </div>
+                <h2 class="aaa-skin-title">🎨 SKINS &amp; CASIER 3D</h2>
 
-            <div class="server-status-line" id="start-server-status">
-              <span class="dot dot-pulse"></span> Connexion au serveur CIEL...
-            </div>
-          </div>
+                <div class="skin-controls aaa-skin-controls">
+                  <div class="skin-group">
+                    <label>Style de tenue</label>
+                    <div id="skin-style-list" class="btn-group"></div>
+                  </div>
+                  <div class="skin-group">
+                    <label>Couleur de tenue</label>
+                    <div id="skin-color-list" class="swatch-row"></div>
+                  </div>
+                  <div class="skin-group">
+                    <label>Tête / Accessoire</label>
+                    <div id="skin-hat-list" class="btn-group"></div>
+                  </div>
+                  <div class="skin-group-inline">
+                    <div>
+                      <label>Peau</label>
+                      <div id="skin-tone-list" class="swatch-row"></div>
+                    </div>
+                    <div>
+                      <label>Pantalon</label>
+                      <div id="skin-pants-list" class="swatch-row"></div>
+                    </div>
+                  </div>
+                </div>
 
-          <!-- Panneau droit : Aperçu 3D en direct du Skin -->
-          <div class="menu-right-preview">
-            <div class="preview-badge">APERÇU 3D EN DIRECT</div>
-            <canvas id="skin-preview-canvas" width="320" height="380"></canvas>
-            <div id="preview-player-tag" class="preview-player-tag">Eleve_CIEL</div>
-            <div class="preview-hint">Glissez pour faire pivoter le personnage</div>
-          </div>
+                <button type="button" class="aaa-play-cta aaa-skin-validate" data-back="home">
+                  <span class="aaa-cta-main">✅ ÉQUIPER MON SKIN &amp; RETOUR AU LOBBY</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="aaa-podium-panel" aria-label="Podium 3D interactif du personnage">
+              <div class="aaa-podium-halo" aria-hidden="true"></div>
+              <div class="aaa-podium-corners" aria-hidden="true"></div>
+
+              <div class="aaa-podium-overhead">
+                <span id="preview-player-rank" class="aaa-podium-rank">APPRENTI CIEL</span>
+                <div id="preview-player-tag" class="aaa-podium-name">Eleve_CIEL</div>
+              </div>
+
+              <div class="aaa-podium-canvas-wrap">
+                <canvas id="skin-preview-canvas" width="420" height="460"></canvas>
+              </div>
+
+              <div class="aaa-podium-footer">
+                <span class="aaa-podium-hint">🔄 Glissez à la souris ou au doigt pour faire pivoter</span>
+                <button type="button" id="podium-skin-shortcut" class="aaa-podium-skin-btn">🎨 Personnaliser</button>
+              </div>
+            </section>
+          </main>
         </div>
+
         <button
           type="button"
           id="menu-version-badge"
@@ -636,7 +659,54 @@
         </div>
       </div>
 
-      <!-- Toast notifications -->
+      <div id="battlepass-modal" class="modal-backdrop bp-backdrop hidden">
+        <div class="dialogue-card bp-modal-card">
+          <div class="bp-modal-header">
+            <div class="bp-title-group">
+              <div class="bp-season-pill">ÉDITION OR &amp; CYBER NÉON • OFFRE SPÉCIALE</div>
+              <h2>👑 PASSE DE COMBAT CIEL — SAISON 1</h2>
+            </div>
+            <button type="button" id="bp-close-btn" class="icon-close bp-close-btn" title="Fermer (Échap)">✕</button>
+          </div>
+
+          <div class="bp-cta-bar bp-cta-top">
+            <button type="button" class="bp-buy-btn">
+              <span class="bp-buy-shine" aria-hidden="true"></span>
+              💳 ACHETER LE PASSE PREMIUM — 10,00 € (Débloquer les Skins &amp; Perm Admin)
+            </button>
+          </div>
+
+          <div class="bp-track-shell">
+            <button type="button" id="bp-scroll-left" class="bp-scroll-arrow" title="Défiler à gauche">◀</button>
+            <div id="bp-track-list" class="bp-track-scroll" aria-label="Frise des 10 paliers du Passe de Combat"></div>
+            <button type="button" id="bp-scroll-right" class="bp-scroll-arrow" title="Défiler à droite">▶</button>
+          </div>
+
+          <div class="bp-cta-bar bp-cta-bottom">
+            <button type="button" class="bp-buy-btn">
+              <span class="bp-buy-shine" aria-hidden="true"></span>
+              💳 ACHETER LE PASSE PREMIUM — 10,00 € (Débloquer les Skins &amp; Perm Admin)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="pigeon-troll-modal" class="modal-backdrop pigeon-backdrop hidden">
+        <div class="pigeon-troll-card" role="dialog" aria-modal="true" aria-labelledby="pigeon-troll-title">
+          <div class="pigeon-rays" aria-hidden="true"></div>
+          <div class="pigeon-icon-stage" aria-hidden="true">
+            <span class="pigeon-emoji">🐦</span>
+          </div>
+          <h2 id="pigeon-troll-title" class="pigeon-title">T'est un pigeon</h2>
+          <p id="pigeon-troll-sub" class="pigeon-sub">
+            Tu croyais vraiment acheter les perms Admin et des skins pour 10 € ? Retourne faire tes TPs en salle U300 😂🐦
+          </p>
+          <button type="button" id="pigeon-troll-close" class="pigeon-close-btn">
+            Rouuu-rouuu, j’ai compris
+          </button>
+        </div>
+      </div>
+
       <div id="toast-container" class="toast-container"></div>
     </div>
 

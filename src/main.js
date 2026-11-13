@@ -28,6 +28,7 @@ import { ChangelogModal } from './ui/ChangelogModal.js';
 import { TouchControls } from './ui/TouchControls.js';
 import { PlatformModal } from './ui/PlatformModal.js';
 import { FaqModal } from './ui/FaqModal.js';
+import { BattlePassModal } from './ui/BattlePassModal.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
 import { createOscilloscopeGame } from './minigames/OscilloscopeGame.js';
 import { createSolderingGame } from './minigames/SolderingGame.js';
@@ -99,6 +100,7 @@ let dialogueModal = null;
 let miniGameModal = null;
 let changelogModal = null;
 let faqModal = null;
+let battlePassModal = null;
 
 try {
   dialogueModal = new DialogueModal();
@@ -111,6 +113,12 @@ try {
   changelogModal = new ChangelogModal();
 } catch (err) {
   console.warn('Modale changelog:', err);
+}
+
+try {
+  battlePassModal = new BattlePassModal();
+} catch (err) {
+  console.warn('Modale Passe de Combat:', err);
 }
 
 try {
@@ -526,11 +534,18 @@ window.addEventListener('keydown', (e) => {
     e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
 
   if (e.code === 'Escape' && !subModalActive) {
-    if (changelogModal?.close?.() || faqModal?.close?.() || platformModal?.close?.()) {
+    if (
+      battlePassModal?.closeTrollModal?.() ||
+      battlePassModal?.close?.() ||
+      changelogModal?.close?.() ||
+      faqModal?.close?.() ||
+      platformModal?.close?.() ||
+      hud?.closeSettings?.()
+    ) {
       e.preventDefault();
       return;
     }
-    if (joined && (hud.closeLeaderboard() || hud.closeSkinModal() || hud.closeSettings())) {
+    if (joined && (hud.closeLeaderboard() || hud.closeSkinModal())) {
       e.preventDefault();
       return;
     }
@@ -540,6 +555,7 @@ window.addEventListener('keydown', (e) => {
     if (
       !hud.isSettingsOpen() &&
       !hud.isSkinOpen() &&
+      !battlePassModal?.isOpen?.() &&
       !changelogModal?.isOpen?.() &&
       !faqModal?.isOpen?.() &&
       !platformModal?.isOpen?.()
@@ -690,6 +706,8 @@ mainMenu = new MainMenu(gameState, network, {
   onOpenSettings: () => hud?.openSettingsModal?.(),
   onOpenPlatform: () => platformModal?.open?.(gameState.touchMode, null, true),
   onOpenFaq: () => faqModal?.open?.('list'),
+  onOpenChangelog: () => changelogModal?.open?.(),
+  onOpenBattlePass: () => battlePassModal?.open?.(),
   onStartGame: ({ name, room, skin }) => {
     const cleanRoom = room || 'plateau-u300';
     notifiedNetError = false;
