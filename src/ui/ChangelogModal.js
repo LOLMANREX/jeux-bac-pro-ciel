@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.1 - 6 TPs 3D 100 % Uniques (Oscilloscope, Brassage, VLAN, DMX, Régie, Brasure)';
+    : 'v4.2 - Refonte Complète des 2 TPs Audiovisuel (DMX512 & Régie Broadcast)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,18 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.1 — 6 TPs 3D 100 % Uniques (Oscilloscope, Brassage, VLAN, DMX, Régie, Brasure)',
+    version: 'v4.2 — Refonte Complète des 2 TPs Audiovisuel (DMX512 & Régie Broadcast)',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'TP Audiovisuel A — Éclairage Scénique, Câblage XLR & Pupitre DMX512 3D : câblage série Daisy-Chain XLR souple (Pupitre → 4 projecteurs sur pont Truss), pose du bouchon de terminaison 120 Ω pour supprimer les parasites, adressage sur les écrans digitaux arrière (A001, A009, A017, A025) et réglage des 6 faders physiques DMX512.',
+      'TP Audiovisuel B — Régie Broadcast, Calibration Caméra & Mixage Son 3D : objectif broadcast à 3 bagues mécaniques 3D (Focus, Iris, Balance des Blancs 5600K) avec rendu vidéo live sur le mur Multiview (Cam 1, Cam 2, Aperçu Fond Vert, Sortie Antenne PGM), seuil Chroma Key, console audio à VU-mètres LED et mélangeur vidéo CUT / TAKE.'
+    ]
+  },
+  {
+    version: 'v4.1 — 6 TPs 3D 100 % Uniques (Oscilloscope, Brassage, VLAN, DMX, Régie, Brasure)',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Séparation complète des paires de TPs : chaque station possède désormais sa propre scène 3D, ses objets manipulables dédiés, sa mécanique métier et son barème /20.',
       'Électronique : Brasure PCB 3D enrichie (éponge humide à vapeur & bobine d’étain), Oscilloscope & GBF 3D (sans soudure) et nouvel atelier Électronique Breadboard & Multimètre Fluke 3D (code couleur, Loi d’Ohm LED et pont diviseur 5V → 3,3V).',

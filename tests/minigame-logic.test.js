@@ -235,6 +235,9 @@ test('Scoring /20 des ateliers séparés (Électronique, Brassage, VLAN CLI, DMX
   assert.equal(vlanScore, 20);
 
   const dmxScore = computeDmxScore3D({
+    cablesConnected: 4,
+    terminatorInstalled: true,
+    exactAddressesCount: 4,
     dmxNoOverlap: true,
     overlapCount: 0,
     matchedFixtures: 4,
@@ -246,6 +249,7 @@ test('Scoring /20 des ateliers séparés (Électronique, Brassage, VLAN CLI, DMX
   const regieScore = computeStudioRegieScore3D({
     focusOk: true,
     irisOk: true,
+    wbOk: true,
     chromaOk: true,
     audioLevelOk: true,
     audioClipping: false,
