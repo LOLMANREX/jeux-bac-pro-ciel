@@ -81,10 +81,24 @@ export const MAP_ITEM_CATALOG = [
     type: 'zone_room',
     category: 'arch',
     subGroup: 'Salles & Signalétique',
-    label: 'Zone de Salle / Sol',
-    shortLabel: 'Zone Salle',
-    icon: '📐',
+    label: 'Zone de Salle / Sol (Rectangle)',
+    shortLabel: 'Zone Rect.',
+    icon: '▭',
     isZone: true,
+    defaultW: 6.0,
+    defaultD: 5.0,
+    defaultH: 0.02,
+    defaultColor: '#38bdf8',
+    collides: false
+  },
+  {
+    type: 'zone_polygon',
+    category: 'arch',
+    subGroup: 'Salles & Signalétique',
+    label: 'Zone Polygonale (Forme libre / L)',
+    shortLabel: 'Zone Polygonale (L)',
+    icon: '📐',
+    isZonePolygon: true,
     defaultW: 6.0,
     defaultD: 5.0,
     defaultH: 0.02,
@@ -644,6 +658,82 @@ function cleanColor(c, fallback = '#38bdf8') {
   return /^#[0-9a-fA-F]{6}$/.test(String(c || '').trim()) ? String(c).trim() : fallback;
 }
 
+export function getZonePolygonPoints(zone) {
+  if (Array.isArray(zone?.points) && zone.points.length >= 3) {
+    return zone.points.map((p) => ({
+      x: Number(p.x) || 0,
+      z: Number(p.z) || 0
+    }));
+  }
+  const cx = Number(zone?.x) || 0;
+  const cz = Number(zone?.z) || 0;
+  const hw = Math.max(0.4, (Number(zone?.w ?? zone?.width) || 4) / 2);
+  const hd = Math.max(0.4, (Number(zone?.d ?? zone?.depth) || 4) / 2);
+  return [
+    { x: Number((cx - hw).toFixed(2)), z: Number((cz - hd).toFixed(2)) },
+    { x: Number((cx + hw).toFixed(2)), z: Number((cz - hd).toFixed(2)) },
+    { x: Number((cx + hw).toFixed(2)), z: Number((cz + hd).toFixed(2)) },
+    { x: Number((cx - hw).toFixed(2)), z: Number((cz + hd).toFixed(2)) }
+  ];
+}
+
+export function computePolygonArea(points = []) {
+  if (!Array.isArray(points) || points.length < 3) return 0;
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    sum += a.x * b.z - b.x * a.z;
+  }
+  return Math.abs(sum) * 0.5;
+}
+
+export function computePolygonCentroid(points = []) {
+  if (!Array.isArray(points) || points.length === 0) return { x: 0, z: 0 };
+  if (points.length < 3) {
+    const sx = points.reduce((s, p) => s + p.x, 0) / points.length;
+    const sz = points.reduce((s, p) => s + p.z, 0) / points.length;
+    return { x: Number(sx.toFixed(2)), z: Number(sz.toFixed(2)) };
+  }
+  let signedArea = 0;
+  let cx = 0;
+  let cz = 0;
+  for (let i = 0; i < points.length; i++) {
+    const p0 = points[i];
+    const p1 = points[(i + 1) % points.length];
+    const cross = p0.x * p1.z - p1.x * p0.z;
+    signedArea += cross;
+    cx += (p0.x + p1.x) * cross;
+    cz += (p0.z + p1.z) * cross;
+  }
+  signedArea *= 0.5;
+  if (Math.abs(signedArea) < 1e-5) {
+    const sx = points.reduce((s, p) => s + p.x, 0) / points.length;
+    const sz = points.reduce((s, p) => s + p.z, 0) / points.length;
+    return { x: Number(sx.toFixed(2)), z: Number(sz.toFixed(2)) };
+  }
+  return {
+    x: Number((cx / (6 * signedArea)).toFixed(2)),
+    z: Number((cz / (6 * signedArea)).toFixed(2))
+  };
+}
+
+export function isPointInPolygon(px, pz, points = []) {
+  if (!Array.isArray(points) || points.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const xi = points[i].x;
+    const zi = points[i].z;
+    const xj = points[j].x;
+    const zj = points[j].z;
+    const intersect =
+      (zi > pz) !== (zj > pz) &&
+      px < ((xj - xi) * (pz - zi)) / (zj - zi || 1e-12) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
 function cleanText(raw, maxLen = 80, fallback = '') {
   const txt = String(raw ?? fallback)
     .replace(/[\u0000-\u001F\u007F]/g, ' ')
@@ -1053,20 +1143,54 @@ export function normalizeMapData(raw) {
   for (let i = 0; i < rawZones.length && i < 300; i++) {
     const z = rawZones[i];
     if (!z || typeof z !== 'object') continue;
-    const zw = clampNum(z.w, 0.8, width, 4);
-    const zd = clampNum(z.d, 0.8, depth, 4);
-    const zx = clampNum(z.x, minX, maxX, 0);
-    const zz = clampNum(z.z, minZ, maxZ, 0);
     const code = cleanText(z.code, 16, `Z${i + 1}`);
     const shortName = cleanText(z.shortName, 28, 'Salle CIEL');
     const color = cleanColor(z.color, '#38bdf8');
-    zones.push({
+    const baseZone = {
       id: cleanText(z.id, 24, `zone-${i + 1}`),
       code,
       shortName,
       fullLabel: cleanText(z.fullLabel, 64, `${code} - ${shortName}`),
       badgeText: cleanText(z.badgeText, 44, `📍 ${code} - ${shortName}`),
-      color,
+      color
+    };
+
+    if (Array.isArray(z.points) && z.points.length >= 3) {
+      const pts = [];
+      let bMinX = Infinity;
+      let bMaxX = -Infinity;
+      let bMinZ = Infinity;
+      let bMaxZ = -Infinity;
+      for (const p of z.points) {
+        if (!p || typeof p !== 'object') continue;
+        const px = Number(clampNum(p.x, minX, maxX, 0).toFixed(2));
+        const pz = Number(clampNum(p.z, minZ, maxZ, 0).toFixed(2));
+        pts.push({ x: px, z: pz });
+        if (px < bMinX) bMinX = px;
+        if (px > bMaxX) bMaxX = px;
+        if (pz < bMinZ) bMinZ = pz;
+        if (pz > bMaxZ) bMaxZ = pz;
+      }
+      if (pts.length >= 3) {
+        const centroid = computePolygonCentroid(pts);
+        zones.push({
+          ...baseZone,
+          x: centroid.x,
+          z: centroid.z,
+          w: Number(Math.max(0.8, bMaxX - bMinX).toFixed(2)),
+          d: Number(Math.max(0.8, bMaxZ - bMinZ).toFixed(2)),
+          points: pts
+        });
+        continue;
+      }
+    }
+
+    const zw = clampNum(z.w ?? z.width, 0.8, width, 4);
+    const zd = clampNum(z.d ?? z.depth, 0.8, depth, 4);
+    const zx = clampNum(z.x, minX, maxX, 0);
+    const zz = clampNum(z.z, minZ, maxZ, 0);
+    zones.push({
+      ...baseZone,
       x: Number(zx.toFixed(2)),
       z: Number(zz.toFixed(2)),
       w: Number(zw.toFixed(2)),
@@ -1290,10 +1414,9 @@ export function getZoneAtPositionInMap(mapData, x, z) {
   let bestArea = Infinity;
 
   for (const zone of zones) {
-    const hw = (zone.w || 2) / 2;
-    const hd = (zone.d || 2) / 2;
-    if (px >= zone.x - hw && px <= zone.x + hw && pz >= zone.z - hd && pz <= zone.z + hd) {
-      const area = (zone.w || 2) * (zone.d || 2);
+    const pts = getZonePolygonPoints(zone);
+    if (isPointInPolygon(px, pz, pts)) {
+      const area = computePolygonArea(pts) || (zone.w || 2) * (zone.d || 2);
       if (area < bestArea) {
         bestArea = area;
         best = zone;

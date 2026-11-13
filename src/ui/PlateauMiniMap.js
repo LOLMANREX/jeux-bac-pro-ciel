@@ -2,6 +2,7 @@ import { TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import {
   createDefaultMap,
   getCatalogItem,
+  getZonePolygonPoints,
   normalizeMapData,
   subtractDoorsFromWalls
 } from '../world/mapSchema.js';
@@ -58,11 +59,18 @@ export class PlateauMiniMap {
     octx.strokeRect(bx1, by1, bx2 - bx1, by2 - by1);
 
     for (const z of this.mapData.zones || []) {
-      if (z.code === 'U300') continue;
-      const [x1, y1] = this._toCanvas(z.x - z.w / 2, z.z - z.d / 2);
-      const [x2, y2] = this._toCanvas(z.x + z.w / 2, z.z + z.d / 2);
+      if (z.code === 'U300' && !Array.isArray(z.points)) continue;
+      const pts = getZonePolygonPoints(z);
+      if (pts.length < 3) continue;
+      octx.beginPath();
+      pts.forEach((p, idx) => {
+        const [px, py] = this._toCanvas(p.x, p.z);
+        if (idx === 0) octx.moveTo(px, py);
+        else octx.lineTo(px, py);
+      });
+      octx.closePath();
       octx.fillStyle = z.id === 'ESCALIER' ? 'rgba(100, 116, 139, 0.28)' : `${z.color || '#38bdf8'}18`;
-      octx.fillRect(x1, y1, x2 - x1, y2 - y1);
+      octx.fill();
     }
 
     const wallSegments = subtractDoorsFromWalls(this.mapData.walls || []);
@@ -116,19 +124,21 @@ export class PlateauMiniMap {
     const ctx = this.ctx;
     ctx.drawImage(this.baseCanvas, 0, 0);
 
-    if (currentZone && currentZone.code !== 'U300' && currentZone.id !== 'U300') {
-      const minX = typeof currentZone.x === 'number' ? currentZone.x - (currentZone.w || 2) / 2 : currentZone.bounds?.minX;
-      const maxX = typeof currentZone.x === 'number' ? currentZone.x + (currentZone.w || 2) / 2 : currentZone.bounds?.maxX;
-      const minZ = typeof currentZone.z === 'number' ? currentZone.z - (currentZone.d || 2) / 2 : currentZone.bounds?.minZ;
-      const maxZ = typeof currentZone.z === 'number' ? currentZone.z + (currentZone.d || 2) / 2 : currentZone.bounds?.maxZ;
-      if (typeof minX === 'number' && typeof minZ === 'number') {
-        const [x1, y1] = this._toCanvas(minX, minZ);
-        const [x2, y2] = this._toCanvas(maxX, maxZ);
+    if (currentZone && (currentZone.code !== 'U300' || Array.isArray(currentZone.points))) {
+      const pts = getZonePolygonPoints(currentZone);
+      if (pts.length >= 3) {
+        ctx.beginPath();
+        pts.forEach((p, idx) => {
+          const [px, py] = this._toCanvas(p.x, p.z);
+          if (idx === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.closePath();
         ctx.fillStyle = `${currentZone.color || '#22d3ee'}2a`;
-        ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+        ctx.fill();
         ctx.strokeStyle = currentZone.color || '#22d3ee';
         ctx.lineWidth = 1.6;
-        ctx.strokeRect(x1 + 0.5, y1 + 0.5, x2 - x1 - 1, y2 - y1 - 1);
+        ctx.stroke();
       }
     }
 

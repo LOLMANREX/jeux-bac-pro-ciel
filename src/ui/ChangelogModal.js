@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v3.2 - Éditeur de map grand format (120m x 120m)';
+    : 'v3.3 - Zones de salles polygonales (Formes en L & U)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,19 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v3.2 — Éditeur de map grand format (120m x 120m)',
+    version: 'v3.3 — Zones de salles polygonales (Formes en L & U)',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Extension du schéma de carte (mapSchema.js & server/store.js) pour prendre en charge des zones/salles polygonales arbitraires (points: [{ x, z }, ...] à 3 sommets ou plus), avec rétrocompatibilité totale des anciennes zones rectangulaires.',
+      'Nouvel outil « Zone Polygonale (Forme libre / L) » dans l’éditeur /admin : tracé interactif point par point aimanté sur la grille avec aperçu élastique temps réel, fermeture par clic sur le 1er sommet surligné / double-clic / Entrée, annulation par Échap, édition de chaque sommet par poignées déplaçables et affichage du nom au centroïde.',
+      'Rendu 3D des sols polygonaux via THREE.Shape / ShapeGeometry, tracé polygonal sur la mini-carte 2D en jeu et détection de salle du joueur au centimètre par Ray-Casting Point-in-Polygon (idéal pour les salles en L et couloirs en U).'
+    ]
+  },
+  {
+    version: 'v3.2 — Éditeur de map grand format (120m x 120m)',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Agrandissement majeur des limites de l’éditeur de map (/admin) et du schéma map.json jusqu’à 200 m × 200 m (120 m × 120 m natif de -60 m à +60 m sur X et Z), avec suppression des bridages de longueur de murs, zones de salles et objets en dessous de 100 m.',
       'Grille 2D adaptative dans l’éditeur avec large plage de dézoom/zoom (de 1,5 px/m pour voir tout un étage d’un coup d’œil jusqu’à 140 px/m pour placer les petits meubles au centimètre), calque plan PNG/JPG ajusté sans coupure aux bords et caméra 3D adaptative.',

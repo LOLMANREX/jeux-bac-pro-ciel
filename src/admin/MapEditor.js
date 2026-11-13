@@ -3,9 +3,13 @@ import { buildLabWorld } from '../world/LabBuilder.js';
 import {
   MAP_ITEM_CATEGORIES,
   MAP_ITEM_CATALOG,
+  computePolygonArea,
+  computePolygonCentroid,
   createDefaultMap,
   createEmptyMap,
   getCatalogItem,
+  getZonePolygonPoints,
+  isPointInPolygon,
   normalizeMapData
 } from '../world/mapSchema.js';
 
@@ -65,6 +69,7 @@ export class MapEditor {
 
     this.cam2d = { x: 0, z: 0, zoom: 22 };
     this.dragState = null;
+    this.polyDraft = null;
     this.hoverWorld = null;
     this.underlay = { img: null, opacity: 0.38, scale: 1, name: '' };
 
@@ -451,11 +456,23 @@ export class MapEditor {
       } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY') {
         e.preventDefault();
         this.redo();
+      } else if (e.code === 'Enter' && this.polyDraft) {
+        e.preventDefault();
+        this._finishPolygonDraft();
+      } else if (e.code === 'Backspace' && this.polyDraft) {
+        e.preventDefault();
+        this.polyDraft.points.pop();
+        if (this.polyDraft.points.length === 0) this.polyDraft = null;
+        this.draw2D();
       } else if ((e.code === 'Delete' || e.code === 'Backspace') && this.selected) {
         e.preventDefault();
         this.deleteSelected();
       } else if (e.code === 'Escape') {
-        if (this.toolMode !== 'select') this.setTool('select', null);
+        if (this.polyDraft) {
+          this.polyDraft = null;
+          this.draw2D();
+          this.showToast('Tracé polygonal annulé', 'info');
+        } else if (this.toolMode !== 'select') this.setTool('select', null);
         else {
           this.selected = null;
           this._renderInspector();
@@ -553,6 +570,7 @@ export class MapEditor {
   setTool(mode, catalogType = null) {
     this.toolMode = mode;
     this.activeCatalogType = catalogType;
+    this.polyDraft = null;
     this.els.toolSelect.classList.toggle('active', mode === 'select');
     this.els.toolPan.classList.toggle('active', mode === 'pan');
     for (const card of this.els.catalogList.querySelectorAll('.me-cat-item')) {
@@ -562,9 +580,11 @@ export class MapEditor {
       const cat = getCatalogItem(catalogType);
       const hint = cat?.isWall
         ? 'Glissez sur la carte pour tracer'
-        : cat?.isZone
-          ? 'Glissez un rectangle sur la carte'
-          : 'Cliquez sur la carte pour placer';
+        : cat?.isZonePolygon
+          ? 'Cliquez pour poser les sommets • 1er point / Double-clic / Entrée : Fermer • Échap : Annuler'
+          : cat?.isZone
+            ? 'Glissez un rectangle sur la carte'
+            : 'Cliquez sur la carte pour placer';
       this.els.modePill.textContent = `${cat?.icon || ''} ${cat?.shortLabel || catalogType} • ${hint} (Clic droit : Sélection)`;
     } else if (mode === 'pan') {
       this.els.modePill.textContent = 'Mode : Déplacement vue 2D (Pan)';
@@ -706,9 +726,18 @@ export class MapEditor {
       if (Math.hypot(wx - sel.x2, wz - sel.z2) <= tol) return { kind: 'handle_wall_p2', entity: sel };
     } else if (sel && this.selected.kind === 'zone') {
       const tol = 14 / this.cam2d.zoom;
-      const cx = sel.x + sel.w / 2;
-      const cz = sel.z + sel.d / 2;
-      if (Math.hypot(wx - cx, wz - cz) <= tol) return { kind: 'handle_zone_br', entity: sel };
+      if (Array.isArray(sel.points) && sel.points.length >= 3) {
+        for (let i = 0; i < sel.points.length; i++) {
+          const p = sel.points[i];
+          if (Math.hypot(wx - p.x, wz - p.z) <= tol) {
+            return { kind: 'handle_zone_vertex', entity: sel, index: i };
+          }
+        }
+      } else {
+        const cx = sel.x + sel.w / 2;
+        const cz = sel.z + sel.d / 2;
+        if (Math.hypot(wx - cx, wz - cz) <= tol) return { kind: 'handle_zone_br', entity: sel };
+      }
     }
 
     for (let i = this.mapData.objects.length - 1; i >= 0; i--) {
@@ -728,7 +757,8 @@ export class MapEditor {
 
     for (let i = this.mapData.zones.length - 1; i >= 0; i--) {
       const z = this.mapData.zones[i];
-      if (Math.abs(wx - z.x) <= z.w / 2 && Math.abs(wz - z.z) <= z.d / 2) {
+      const pts = getZonePolygonPoints(z);
+      if (isPointInPolygon(wx, wz, pts)) {
         return { kind: 'zone', id: z.id, entity: z };
       }
     }
@@ -798,6 +828,25 @@ export class MapEditor {
           this.draw2D();
           return;
         }
+        if (cat?.isZonePolygon) {
+          if (!this.polyDraft) {
+            this.polyDraft = { points: [{ x: cx, z: cz }] };
+            this.draw2D();
+            return;
+          }
+          const pts = this.polyDraft.points;
+          const closeTol = Math.max(0.35, 16 / this.cam2d.zoom);
+          if (pts.length >= 3 && Math.hypot(wx - pts[0].x, wz - pts[0].z) <= closeTol) {
+            this._finishPolygonDraft();
+            return;
+          }
+          const last = pts[pts.length - 1];
+          if (!last || Math.hypot(cx - last.x, cz - last.z) >= 0.05) {
+            pts.push({ x: cx, z: cz });
+          }
+          this.draw2D();
+          return;
+        }
         if (cat?.isZone) {
           this.dragState = {
             mode: 'draw_zone',
@@ -838,6 +887,11 @@ export class MapEditor {
         this.dragState = { mode: 'resize_zone', entity: hit.entity };
         return;
       }
+      if (hit.kind === 'handle_zone_vertex') {
+        this._pushUndo();
+        this.dragState = { mode: 'move_zone_vertex', entity: hit.entity, index: hit.index };
+        return;
+      }
 
       this.selected = { kind: hit.kind, id: hit.id };
       this._renderInspector();
@@ -863,6 +917,9 @@ export class MapEditor {
           startWz: wz,
           ox: hit.entity.x,
           oz: hit.entity.z,
+          origPoints: Array.isArray(hit.entity.points)
+            ? hit.entity.points.map((p) => ({ x: p.x, z: p.z }))
+            : null,
           moved: false
         };
       }
@@ -904,10 +961,33 @@ export class MapEditor {
         const dx = wx - d.startWx;
         const dz = wz - d.startWz;
         if (Math.hypot(dx, dz) > 0.05) d.moved = true;
-        const [nx, nz] = this._clampToBounds(this._snapVal(d.ox + dx), this._snapVal(d.oz + dz));
-        d.entity.x = nx;
-        d.entity.z = nz;
-        if (d.kind === 'object') this._syncSpawnFromObject(d.entity);
+        if (d.kind === 'zone' && Array.isArray(d.origPoints) && d.origPoints.length >= 3) {
+          const b = this.mapData.bounds;
+          let minDx = -Infinity;
+          let maxDx = Infinity;
+          let minDz = -Infinity;
+          let maxDz = Infinity;
+          for (const p of d.origPoints) {
+            minDx = Math.max(minDx, b.minX - p.x);
+            maxDx = Math.min(maxDx, b.maxX - p.x);
+            minDz = Math.max(minDz, b.minZ - p.z);
+            maxDz = Math.min(maxDz, b.maxZ - p.z);
+          }
+          const rawSdx = this._snapVal(d.ox + dx) - d.ox;
+          const rawSdz = this._snapVal(d.oz + dz) - d.oz;
+          const sdx = Math.max(minDx, Math.min(maxDx, rawSdx));
+          const sdz = Math.max(minDz, Math.min(maxDz, rawSdz));
+          d.entity.points = d.origPoints.map((p) => ({
+            x: Number((p.x + sdx).toFixed(2)),
+            z: Number((p.z + sdz).toFixed(2))
+          }));
+          this._syncPolygonZoneMetrics(d.entity);
+        } else {
+          const [nx, nz] = this._clampToBounds(this._snapVal(d.ox + dx), this._snapVal(d.oz + dz));
+          d.entity.x = nx;
+          d.entity.z = nz;
+          if (d.kind === 'object') this._syncSpawnFromObject(d.entity);
+        }
         this._markDirty();
         this._renderInspector();
         this.draw2D();
@@ -956,6 +1036,18 @@ export class MapEditor {
         this._markDirty();
         this._renderInspector();
         this.draw2D();
+        return;
+      }
+
+      if (d.mode === 'move_zone_vertex') {
+        const [px, pz] = this._clampToBounds(this._snapVal(wx), this._snapVal(wz));
+        if (Array.isArray(d.entity.points) && d.entity.points[d.index]) {
+          d.entity.points[d.index] = { x: px, z: pz };
+          this._syncPolygonZoneMetrics(d.entity);
+          this._markDirty();
+          this._renderInspector();
+          this.draw2D();
+        }
         return;
       }
 
@@ -1058,6 +1150,69 @@ export class MapEditor {
         this._schedule3DRebuild(true);
       }
     });
+
+    c.addEventListener('dblclick', (e) => {
+      if (e.button !== 0 || !this.polyDraft) return;
+      if (this.polyDraft.points.length >= 3) {
+        this._finishPolygonDraft();
+      }
+    });
+  }
+
+  _syncPolygonZoneMetrics(zone) {
+    if (!Array.isArray(zone?.points) || zone.points.length < 3) return;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const p of zone.points) {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+      minZ = Math.min(minZ, p.z);
+      maxZ = Math.max(maxZ, p.z);
+    }
+    const centroid = computePolygonCentroid(zone.points);
+    zone.x = Number(centroid.x.toFixed(2));
+    zone.z = Number(centroid.z.toFixed(2));
+    zone.w = Number(Math.max(0.8, maxX - minX).toFixed(2));
+    zone.d = Number(Math.max(0.8, maxZ - minZ).toFixed(2));
+  }
+
+  _finishPolygonDraft() {
+    if (!this.polyDraft) return;
+    const pts = this.polyDraft.points.map((p) => ({
+      x: Number(p.x.toFixed(2)),
+      z: Number(p.z.toFixed(2))
+    }));
+    if (pts.length < 3 || computePolygonArea(pts) < 0.25) {
+      this.polyDraft = null;
+      this.draw2D();
+      this.showToast('Placez au moins 3 sommets non alignés pour créer une zone polygonale', 'error');
+      return;
+    }
+    this._pushUndo();
+    const idx = this.mapData.zones.length + 1;
+    const code = `U3${idx < 10 ? '0' : ''}${idx}`;
+    const zone = {
+      id: `Z-${Date.now()}`,
+      code,
+      shortName: 'Zone Polygonale',
+      fullLabel: `Salle ${code} - Atelier CIEL`,
+      badgeText: `📍 ${code} - Zone Polygonale`,
+      color: '#38bdf8',
+      points: pts
+    };
+    this._syncPolygonZoneMetrics(zone);
+    this.mapData.zones.push(zone);
+    this.polyDraft = null;
+    this.selected = { kind: 'zone', id: zone.id };
+    this._markDirty();
+    this._renderInspector();
+    this.draw2D();
+    this._schedule3DRebuild(true);
+    const codeInput = this.els.inspBody.querySelector('#me-z-code');
+    codeInput?.focus();
+    codeInput?.select();
   }
 
   _placeObjectAt(type, x, z) {
@@ -1153,11 +1308,18 @@ export class MapEditor {
       this.mapData.walls.push(copy);
       this.selected = { kind: 'wall', id: copy.id };
     } else if (this.selected.kind === 'zone') {
+      const cloned = cloneMap(ent);
       const copy = {
-        ...cloneMap(ent),
+        ...cloned,
         id: `Z-${Date.now()}`,
         x: Number((ent.x + 1.5).toFixed(2)),
-        z: Number((ent.z + 1.5).toFixed(2))
+        z: Number((ent.z + 1.5).toFixed(2)),
+        points: Array.isArray(cloned.points)
+          ? cloned.points.map((p) => ({
+              x: Number((p.x + 1.5).toFixed(2)),
+              z: Number((p.z + 1.5).toFixed(2))
+            }))
+          : undefined
       };
       this.mapData.zones.push(copy);
       this.selected = { kind: 'zone', id: copy.id };
@@ -1364,19 +1526,46 @@ export class MapEditor {
       }
     } else if (this.selected.kind === 'zone') {
       const b = this.mapData.bounds;
+      const isPoly = Array.isArray(ent.points) && ent.points.length >= 3;
+      const polyArea = isPoly ? computePolygonArea(ent.points) : ent.w * ent.d;
+      const polyVertsHtml = isPoly
+        ? `
+          <div class="me-insp-badge">Polygone • ${ent.points.length} sommets • ${polyArea.toFixed(1)} m²</div>
+          <div style="display:flex;flex-direction:column;gap:4px;max-height:175px;overflow-y:auto;padding-right:2px;">
+            ${ent.points
+              .map(
+                (p, idx) => `
+              <div style="display:flex;gap:4px;align-items:center;">
+                <span style="font-size:11px;color:#94a3b8;width:24px;">S${idx + 1}</span>
+                <input type="number" step="0.25" data-vidx="${idx}" data-axis="x" class="me-input me-z-vinput" value="${p.x}" />
+                <input type="number" step="0.25" data-vidx="${idx}" data-axis="z" class="me-input me-z-vinput" value="${p.z}" />
+                ${
+                  ent.points.length > 3
+                    ? `<button type="button" data-vdel="${idx}" class="me-btn" style="padding:3px 6px;" title="Supprimer sommet">✕</button>`
+                    : ''
+                }
+              </div>`
+              )
+              .join('')}
+          </div>
+          <button type="button" id="me-z-add-vertex" class="me-btn">➕ Ajouter un sommet</button>`
+        : `
+          <div class="me-grid-2">
+            <label class="me-field"><span>Centre X</span><input type="number" step="0.25" id="me-z-x" class="me-input" value="${ent.x}" /></label>
+            <label class="me-field"><span>Centre Z</span><input type="number" step="0.25" id="me-z-z" class="me-input" value="${ent.z}" /></label>
+            <label class="me-field"><span>Largeur (m)</span><input type="number" step="0.25" min="0.8" max="${b.width}" id="me-z-w" class="me-input" value="${ent.w}" /></label>
+            <label class="me-field"><span>Profondeur (m)</span><input type="number" step="0.25" min="0.8" max="${b.depth}" id="me-z-d" class="me-input" value="${ent.d}" /></label>
+          </div>
+          <button type="button" id="me-z-to-poly" class="me-btn">📐 Convertir en polygone libre</button>`;
+
       this.els.inspBody.innerHTML = `
-        <div class="me-insp-badge">📐 Zone / Salle de cours</div>
+        <div class="me-insp-badge">Zone de Salle${isPoly ? ' Polygonale' : ''}</div>
         <div class="me-grid-2">
           <label class="me-field"><span>Code salle</span><input type="text" id="me-z-code" class="me-input" maxlength="16" value="${escapeHtml(ent.code || '')}" /></label>
           <label class="me-field"><span>Couleur</span><input type="color" id="me-z-color" class="me-color" value="${escapeHtml(ent.color || '#38bdf8')}" /></label>
         </div>
         <label class="me-field"><span>Nom court</span><input type="text" id="me-z-short" class="me-input" maxlength="40" value="${escapeHtml(ent.shortName || '')}" /></label>
-        <div class="me-grid-2">
-          <label class="me-field"><span>Centre X</span><input type="number" step="0.25" id="me-z-x" class="me-input" value="${ent.x}" /></label>
-          <label class="me-field"><span>Centre Z</span><input type="number" step="0.25" id="me-z-z" class="me-input" value="${ent.z}" /></label>
-          <label class="me-field"><span>Largeur (m)</span><input type="number" step="0.25" min="0.8" max="${b.width}" id="me-z-w" class="me-input" value="${ent.w}" /></label>
-          <label class="me-field"><span>Profondeur (m)</span><input type="number" step="0.25" min="0.8" max="${b.depth}" id="me-z-d" class="me-input" value="${ent.d}" /></label>
-        </div>
+        ${polyVertsHtml}
         <div class="me-insp-actions">
           <button type="button" id="me-insp-dup" class="me-btn">📋 Dupliquer</button>
           <button type="button" id="me-insp-del" class="me-btn me-btn-danger">🗑️ Supprimer</button>
@@ -1384,6 +1573,7 @@ export class MapEditor {
 
       this.els.inspBody.querySelector('#me-z-code').oninput = (e) => {
         ent.code = e.target.value.slice(0, 16);
+        ent.fullLabel = `${ent.code} - ${ent.shortName}`;
         ent.badgeText = `📍 ${ent.code} - ${ent.shortName}`;
         this._markDirty();
         this.draw2D();
@@ -1401,24 +1591,95 @@ export class MapEditor {
         this.draw2D();
         this._schedule3DRebuild();
       };
-      const zoneLimits = {
-        x: [b.minX, b.maxX],
-        z: [b.minZ, b.maxZ],
-        w: [0.8, b.width],
-        d: [0.8, b.depth]
-      };
-      for (const [id, key] of [
-        ['#me-z-x', 'x'],
-        ['#me-z-z', 'z'],
-        ['#me-z-w', 'w'],
-        ['#me-z-d', 'd']
-      ]) {
-        this.els.inspBody.querySelector(id).onchange = (e) => {
+
+      if (isPoly) {
+        for (const inp of this.els.inspBody.querySelectorAll('.me-z-vinput')) {
+          inp.onchange = (e) => {
+            const idx = Number(e.target.dataset.vidx);
+            const axis = e.target.dataset.axis;
+            if (!ent.points[idx]) return;
+            this._pushUndo();
+            const raw = Number(e.target.value);
+            const clamped =
+              axis === 'x'
+                ? Math.max(b.minX, Math.min(b.maxX, Number.isFinite(raw) ? raw : ent.points[idx].x))
+                : Math.max(b.minZ, Math.min(b.maxZ, Number.isFinite(raw) ? raw : ent.points[idx].z));
+            ent.points[idx][axis] = Number(clamped.toFixed(2));
+            this._syncPolygonZoneMetrics(ent);
+            this._markDirty();
+            this._renderInspector();
+            this.draw2D();
+            this._schedule3DRebuild(true);
+          };
+        }
+        for (const btn of this.els.inspBody.querySelectorAll('[data-vdel]')) {
+          btn.onclick = () => {
+            if (ent.points.length <= 3) return;
+            const idx = Number(btn.dataset.vdel);
+            this._pushUndo();
+            ent.points.splice(idx, 1);
+            this._syncPolygonZoneMetrics(ent);
+            this._markDirty();
+            this._renderInspector();
+            this.draw2D();
+            this._schedule3DRebuild(true);
+          };
+        }
+        this.els.inspBody.querySelector('#me-z-add-vertex').onclick = () => {
           this._pushUndo();
-          const [zMin, zMax] = zoneLimits[key];
-          const val = Number(e.target.value);
-          ent[key] = Math.max(zMin, Math.min(zMax, Number.isFinite(val) ? val : 2));
+          let bestIdx = 0;
+          let bestLen = -1;
+          for (let i = 0; i < ent.points.length; i++) {
+            const p1 = ent.points[i];
+            const p2 = ent.points[(i + 1) % ent.points.length];
+            const len = Math.hypot(p2.x - p1.x, p2.z - p1.z);
+            if (len > bestLen) {
+              bestLen = len;
+              bestIdx = i;
+            }
+          }
+          const a = ent.points[bestIdx];
+          const next = ent.points[(bestIdx + 1) % ent.points.length];
+          const mid = {
+            x: Number(((a.x + next.x) / 2).toFixed(2)),
+            z: Number(((a.z + next.z) / 2).toFixed(2))
+          };
+          ent.points.splice(bestIdx + 1, 0, mid);
+          this._syncPolygonZoneMetrics(ent);
           this._markDirty();
+          this._renderInspector();
+          this.draw2D();
+          this._schedule3DRebuild(true);
+        };
+      } else {
+        const zoneLimits = {
+          x: [b.minX, b.maxX],
+          z: [b.minZ, b.maxZ],
+          w: [0.8, b.width],
+          d: [0.8, b.depth]
+        };
+        for (const [id, key] of [
+          ['#me-z-x', 'x'],
+          ['#me-z-z', 'z'],
+          ['#me-z-w', 'w'],
+          ['#me-z-d', 'd']
+        ]) {
+          this.els.inspBody.querySelector(id).onchange = (e) => {
+            this._pushUndo();
+            const [zMin, zMax] = zoneLimits[key];
+            const val = Number(e.target.value);
+            ent[key] = Math.max(zMin, Math.min(zMax, Number.isFinite(val) ? val : 2));
+            this._markDirty();
+            this.draw2D();
+            this._schedule3DRebuild(true);
+          };
+        }
+        this.els.inspBody.querySelector('#me-z-to-poly').onclick = () => {
+          this._pushUndo();
+          ent.points = getZonePolygonPoints(ent);
+          this._syncPolygonZoneMetrics(ent);
+          this._markDirty();
+          this._renderInspector();
           this.draw2D();
           this._schedule3DRebuild(true);
         };
@@ -1518,30 +1779,55 @@ export class MapEditor {
     ctx.strokeRect(bx1, bz1, bx2 - bx1, bz2 - bz1);
 
     for (const z of this.mapData.zones) {
-      const [zx1, zz1] = this._worldToScreen(z.x - z.w / 2, z.z - z.d / 2);
+      const pts = getZonePolygonPoints(z);
+      if (pts.length < 3) continue;
       const rw = z.w * this.cam2d.zoom;
       const rd = z.d * this.cam2d.zoom;
       const isSel = this.selected?.kind === 'zone' && this.selected.id === z.id;
+      const screenPts = pts.map((p) => this._worldToScreen(p.x, p.z));
+
+      ctx.beginPath();
+      screenPts.forEach(([sx, sy], idx) => {
+        if (idx === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      });
+      ctx.closePath();
       ctx.fillStyle = `${z.color || '#38bdf8'}${isSel ? '34' : '1c'}`;
-      ctx.fillRect(zx1, zz1, rw, rd);
+      ctx.fill();
       ctx.strokeStyle = isSel ? '#facc15' : z.color || '#38bdf8';
       ctx.lineWidth = isSel ? 2.5 : 1.2;
       ctx.setLineDash([5, 4]);
-      ctx.strokeRect(zx1, zz1, rw, rd);
+      ctx.stroke();
       ctx.setLineDash([]);
-      if (rw >= 18 && rd >= 12) {
+
+      if (isSel || (rw >= 18 && rd >= 12)) {
+        const [lx, ly] = this._worldToScreen(z.x, z.z);
         ctx.fillStyle = '#e2e8f0';
         const zFont = Math.max(8, Math.min(14, Math.min(rw, rd) * 0.22, this.cam2d.zoom * 0.5));
         ctx.font = `bold ${zFont.toFixed(1)}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(`${z.code || ''} ${z.shortName || ''}`.trim(), zx1 + rw / 2, zz1 + rd / 2);
+        ctx.fillText(`${z.code || ''} ${z.shortName || ''}`.trim(), lx, ly);
       }
+
       if (isSel) {
-        ctx.fillStyle = '#facc15';
-        ctx.beginPath();
-        ctx.arc(zx1 + rw, zz1 + rd, 6, 0, Math.PI * 2);
-        ctx.fill();
+        if (Array.isArray(z.points) && z.points.length >= 3) {
+          for (const [hx, hz] of screenPts) {
+            ctx.fillStyle = '#facc15';
+            ctx.beginPath();
+            ctx.arc(hx, hz, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#0f172a';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          }
+        } else {
+          const [hx, hz] = this._worldToScreen(z.x + z.w / 2, z.z + z.d / 2);
+          ctx.fillStyle = '#facc15';
+          ctx.beginPath();
+          ctx.arc(hx, hz, 6, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
     }
 
@@ -1683,6 +1969,71 @@ export class MapEditor {
       ctx.strokeStyle = '#38bdf8';
       ctx.lineWidth = 2;
       ctx.strokeRect(rx1, rz1, rx2 - rx1, rz2 - rz1);
+    } else if (this.polyDraft?.points?.length > 0) {
+      const pts = this.polyDraft.points;
+      const screenPts = pts.map((p) => this._worldToScreen(p.x, p.z));
+      const hover = this.hoverWorld
+        ? this._clampToBounds(this.hoverWorld[0], this.hoverWorld[1])
+        : null;
+      const closeTol = Math.max(0.35, 16 / this.cam2d.zoom);
+      const canClose = pts.length >= 3;
+      const snapToFirst =
+        canClose && hover && Math.hypot(hover[0] - pts[0].x, hover[1] - pts[0].z) <= closeTol;
+      const previewWorld = snapToFirst ? [pts[0].x, pts[0].z] : hover;
+
+      if (pts.length >= 2) {
+        ctx.beginPath();
+        screenPts.forEach(([sx, sy], idx) => {
+          if (idx === 0) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
+        });
+        if (previewWorld) {
+          const [hx, hy] = this._worldToScreen(previewWorld[0], previewWorld[1]);
+          ctx.lineTo(hx, hy);
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.16)';
+        ctx.fill();
+      }
+
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2.2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      screenPts.forEach(([sx, sy], idx) => {
+        if (idx === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      });
+      if (previewWorld) {
+        const [hx, hy] = this._worldToScreen(previewWorld[0], previewWorld[1]);
+        ctx.lineTo(hx, hy);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      if (previewWorld && pts.length >= 1) {
+        const last = pts[pts.length - 1];
+        const segDist = Math.hypot(previewWorld[0] - last.x, previewWorld[1] - last.z);
+        if (segDist >= 0.05) {
+          const [lsx, lsy] = screenPts[screenPts.length - 1];
+          const [hsx, hsy] = this._worldToScreen(previewWorld[0], previewWorld[1]);
+          ctx.fillStyle = '#fde047';
+          ctx.font = 'bold 12px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(`${segDist.toFixed(2)} m`, (lsx + hsx) / 2, (lsy + hsy) / 2 - 12);
+        }
+      }
+
+      screenPts.forEach(([sx, sy], idx) => {
+        const isFirst = idx === 0;
+        ctx.fillStyle = isFirst && canClose ? (snapToFirst ? '#22c55e' : '#facc15') : '#38bdf8';
+        ctx.beginPath();
+        ctx.arc(sx, sy, isFirst && canClose ? 8 : 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      });
     } else if (this.toolMode === 'place' && this.activeCatalogType && this.hoverWorld) {
       const cat = getCatalogItem(this.activeCatalogType);
       if (cat && !cat.isWall && !cat.isZone) {

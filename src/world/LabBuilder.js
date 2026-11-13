@@ -5,6 +5,7 @@ import {
   createDefaultMap,
   getCatalogItem,
   getDynamicMapColliders,
+  getZonePolygonPoints,
   normalizeMapData,
   subtractDoorsFromWalls
 } from './mapSchema.js';
@@ -117,24 +118,32 @@ function makeOrientationMapTexture(mapData) {
     ctx.strokeRect(padX, padY, mapW, mapH);
 
     for (const z of mapData.zones || []) {
-      if (z.code === 'U300') continue;
-      const x1 = toPxX(z.x - z.w / 2);
-      const y1 = toPxY(z.z - z.d / 2);
-      const rw = (z.w / Math.max(1, b.width)) * mapW;
-      const rh = (z.d / Math.max(1, b.depth)) * mapH;
+      if (z.code === 'U300' && !Array.isArray(z.points)) continue;
+      const pts = getZonePolygonPoints(z);
+      if (pts.length < 3) continue;
+      ctx.beginPath();
+      pts.forEach((p, idx) => {
+        const px = toPxX(p.x);
+        const py = toPxY(p.z);
+        if (idx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
       ctx.fillStyle = `${z.color || '#38bdf8'}26`;
-      ctx.fillRect(x1 + 2, y1 + 2, Math.max(2, rw - 4), Math.max(2, rh - 4));
+      ctx.fill();
       ctx.strokeStyle = z.color || '#38bdf8';
       ctx.lineWidth = 2;
-      ctx.strokeRect(x1 + 2, y1 + 2, Math.max(2, rw - 4), Math.max(2, rh - 4));
+      ctx.stroke();
 
+      const lx = toPxX(z.x);
+      const ly = toPxY(z.z);
       ctx.fillStyle = '#f8fafc';
       ctx.font = 'bold 19px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(z.code || '', x1 + rw / 2, y1 + rh / 2 - 10);
+      ctx.fillText(z.code || '', lx, ly - 10);
       ctx.fillStyle = '#cbd5e1';
       ctx.font = '13px system-ui, sans-serif';
-      ctx.fillText(z.shortName || '', x1 + rw / 2, y1 + rh / 2 + 12);
+      ctx.fillText(z.shortName || '', lx, ly + 12);
     }
 
     const wallSegments = subtractDoorsFromWalls(mapData.walls || []);
@@ -757,17 +766,26 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     worldGroup.add(floorMesh);
 
     for (const z of mapData.zones || []) {
-      if (z.code === 'U300') continue;
+      if (z.code === 'U300' && !Array.isArray(z.points)) continue;
+      const pts = getZonePolygonPoints(z);
+      if (pts.length < 3) continue;
+      const shape = new THREE.Shape();
+      pts.forEach((p, idx) => {
+        if (idx === 0) shape.moveTo(p.x, -p.z);
+        else shape.lineTo(p.x, -p.z);
+      });
+      shape.closePath();
       const pad = new THREE.Mesh(
-        new THREE.PlaneGeometry(Math.max(0.5, z.w - 0.26), Math.max(0.5, z.d - 0.26)),
+        new THREE.ShapeGeometry(shape),
         new THREE.MeshBasicMaterial({
           color: z.color || '#38bdf8',
           transparent: true,
-          opacity: z.code === 'ESC' || z.id === 'ESCALIER' ? 0.14 : 0.065
+          opacity: z.code === 'ESC' || z.id === 'ESCALIER' ? 0.14 : 0.065,
+          side: THREE.DoubleSide
         })
       );
       pad.rotation.x = -Math.PI / 2;
-      pad.position.set(z.x, 0.008, z.z);
+      pad.position.set(0, 0.008, 0);
       worldGroup.add(pad);
     }
 

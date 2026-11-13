@@ -9,12 +9,16 @@ import { MapStore } from '../server/store.js';
 import {
   MAP_ITEM_CATEGORIES,
   MAP_ITEM_CATALOG,
+  computePolygonArea,
+  computePolygonCentroid,
   createDefaultMap,
   createEmptyMap,
   getCatalogItem,
   getDynamicMapColliders,
   getStationTeleportInMap,
   getZoneAtPositionInMap,
+  getZonePolygonPoints,
+  isPointInPolygon,
   normalizeMapData,
   subtractDoorsFromWalls
 } from '../src/world/mapSchema.js';
@@ -390,6 +394,97 @@ test('normalizeMapData et MapStore supportent les très grandes cartes (120m x 1
     assert.equal(reloaded.bounds.width, 120);
     assert.equal(reloaded.bounds.depth, 120);
     assert.equal(reloaded.walls.length, 452);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Zones polygonales en L et en U, Ray-Casting et rétrocompatibilité rectangulaire', () => {
+  assert.ok(getCatalogItem('zone_polygon')?.isZonePolygon);
+
+  const lPoints = [
+    { x: -10, z: -10 },
+    { x: 0, z: -10 },
+    { x: 0, z: -2 },
+    { x: 8, z: -2 },
+    { x: 8, z: 6 },
+    { x: -10, z: 6 }
+  ];
+
+  const uCorridorPoints = [
+    { x: -15, z: -14 },
+    { x: 15, z: -14 },
+    { x: 15, z: 14 },
+    { x: 11, z: 14 },
+    { x: 11, z: -10 },
+    { x: -11, z: -10 },
+    { x: -11, z: 14 },
+    { x: -15, z: 14 }
+  ];
+
+  const areaL = computePolygonArea(lPoints);
+  assert.equal(areaL, 224);
+  const centroidL = computePolygonCentroid(lPoints);
+  assert.ok(Math.abs(centroidL.x - -2.43) < 0.05);
+  assert.ok(Math.abs(centroidL.z - -0.86) < 0.05);
+
+  assert.equal(isPointInPolygon(-5, -5, lPoints), true);
+  assert.equal(isPointInPolygon(4, 2, lPoints), true);
+  assert.equal(isPointInPolygon(5, -6, lPoints), false);
+
+  const map = normalizeMapData({
+    bounds: { minX: -20, maxX: 20, minZ: -20, maxZ: 20, height: 4.5 },
+    zones: [
+      {
+        id: 'U300',
+        code: 'U300',
+        shortName: 'Couloir en U',
+        color: '#94a3b8',
+        points: uCorridorPoints
+      },
+      {
+        id: 'L-ROOM',
+        code: 'U307',
+        shortName: 'Labo en L',
+        color: '#22d3ee',
+        points: lPoints
+      },
+      {
+        id: 'LEGACY-RECT',
+        code: 'U312',
+        shortName: 'Ancienne Salle',
+        x: 5,
+        z: -6,
+        width: 4,
+        depth: 4,
+        color: '#f59e0b'
+      }
+    ]
+  });
+
+  const legacyZone = map.zones.find((z) => z.id === 'LEGACY-RECT');
+  assert.equal(legacyZone.w, 4);
+  assert.equal(legacyZone.d, 4);
+  assert.equal(getZonePolygonPoints(legacyZone).length, 4);
+
+  assert.equal(getZoneAtPositionInMap(map, 5, -6)?.code, 'U312');
+  assert.equal(getZoneAtPositionInMap(map, -5, -5)?.code, 'U307');
+  assert.equal(getZoneAtPositionInMap(map, 4, 2)?.code, 'U307');
+  assert.equal(getZoneAtPositionInMap(map, -13, 0)?.code, 'U300');
+  assert.equal(getZoneAtPositionInMap(map, 0, -12)?.code, 'U300');
+  assert.equal(getZoneAtPositionInMap(map, 13, 12)?.code, 'U300');
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-poly-'));
+  try {
+    const mapFile = path.join(tmpDir, 'map.json');
+    const store1 = new MapStore(mapFile);
+    store1.saveMap(map);
+    const store2 = new MapStore(mapFile);
+    const reloaded = store2.getMap();
+    const reloadedL = reloaded.zones.find((z) => z.id === 'L-ROOM');
+    assert.equal(reloadedL.points.length, 6);
+    assert.equal(getZoneAtPositionInMap(reloaded, 4, 2)?.code, 'U307');
+    assert.equal(getZoneAtPositionInMap(reloaded, 5, -6)?.code, 'U312');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

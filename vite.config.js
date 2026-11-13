@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v3.2 - Éditeur de map grand format (120m x 120m)'),
+    __APP_VERSION__: JSON.stringify('v3.3 - Zones de salles polygonales (Formes en L & U)'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {
