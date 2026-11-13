@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v3.6 - Modèles 3D exclusifs & Vitrine Passe de Combat';
+    : 'v3.7 - Interface Lobby ultra-épurée & ergonomique';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v3.6 — Modèles 3D exclusifs & Vitrine Passe de Combat',
+    version: 'v3.7 — Interface Lobby ultra-épurée & ergonomique',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Menu Principal repensé sur un seul écran plein cadre (100vh sans défilement vertical sur PC) avec zéro doublon.',
+      'Barre supérieure sur une seule ligne : logo compact ATELIER CIEL 3D, 4 onglets (JOUER, SKINS, PASSE 👑, POSTS) et badge joueur avec boutons Plateforme et Paramètres.',
+      'Panneau de lancement minimaliste à gauche (~360px) avec champ Pseudo, sélecteur de salle compact, bouton dédié 🌐 Salles ouvrant la modale multijoueur, bouton ⚡ JOUER et accès direct 🏆 Classement.',
+      'Mise en valeur maximale de la scène 3D centrale sans cadre superflu, ne laissant flotter que le pseudo au-dessus du personnage.'
+    ]
+  },
+  {
+    version: 'v3.6 — Modèles 3D exclusifs & Vitrine Passe de Combat',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Vitrine 3D interactive en direct intégrée au Passe de Combat Saison 1 : cliquez ou survolez chacun des 10 paliers pour voir le personnage s’équiper en temps réel sur un socle studio rotatif.',
       'Vrais modèles et accessoires 3D exclusifs modélisés dans Three.js : Casque VR Or 24 Carats, Visière Cybernétique avec antennes, Couronne Royale dorée à 6 gemmes, Jetpack RGB animé, ventilateurs dorsaux RTX 5090 Ti, Mini-Drone Switch Cisco orbital et Halo doré 3D.',

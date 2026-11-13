@@ -48,30 +48,30 @@ test('La modale parodique Passe de Combat affiche le message exact du pigeon', (
   assert.equal(PIGEON_TROLL_COPY.closeLabel, 'Rouuu-rouuu, j’ai compris');
 });
 
-test('index.html expose la structure AAA complète du Menu Principal et de la Vitrine 3D', () => {
+test('index.html expose la structure épurée du Menu Principal, la modale Salles et la Vitrine 3D', () => {
   const html = fs.readFileSync(path.resolve('index.html'), 'utf8');
   const requiredIds = [
     'start-screen',
     'nav-btn-play',
-    'nav-btn-battlepass',
     'nav-btn-skin',
+    'nav-btn-battlepass',
     'menu-btn-faq',
-    'menu-btn-changelog',
     'menu-btn-platform',
     'menu-btn-settings',
     'menu-badge-name',
     'menu-badge-level',
-    'menu-badge-xp-bar',
     'menu-badge-avg',
     'player-name-input',
-    'menu-btn-quickplay',
-    'menu-btn-battlepass',
-    'start-server-status',
     'room-select',
+    'menu-btn-rooms',
+    'menu-btn-quickplay',
+    'start-server-status',
+    'menu-btn-leaderboard',
+    'menu-version-badge',
+    'rooms-modal',
     'rooms-list',
     'skin-preview-canvas',
     'preview-player-tag',
-    'preview-player-rank',
     'battlepass-modal',
     'bp-preview-canvas',
     'bp-preview-details',
@@ -83,5 +83,10 @@ test('index.html expose la structure AAA complète du Menu Principal et de la Vi
   for (const id of requiredIds) {
     assert.ok(html.includes(`id="${id}"`), `ID manquant dans index.html: ${id}`);
   }
+  const removedIds = ['menu-btn-changelog', 'menu-btn-battlepass', 'preview-player-rank'];
+  for (const id of removedIds) {
+    assert.ok(!html.includes(`id="${id}"`), `Doublon/ancien ID encore présent dans index.html: ${id}`);
+  }
+  assert.ok(html.includes('PASSE 👑'));
   assert.ok(html.includes("T'est un pigeon"));
 });

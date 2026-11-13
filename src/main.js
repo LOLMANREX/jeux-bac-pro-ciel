@@ -555,12 +555,14 @@ window.addEventListener('keydown', (e) => {
       changelogModal?.close?.() ||
       faqModal?.close?.() ||
       platformModal?.close?.() ||
+      mainMenu?.closeRoomsModal?.() ||
+      hud?.closeLeaderboard?.() ||
       hud?.closeSettings?.()
     ) {
       e.preventDefault();
       return;
     }
-    if (joined && (hud.closeLeaderboard() || hud.closeSkinModal())) {
+    if (joined && hud?.closeSkinModal?.()) {
       e.preventDefault();
       return;
     }
@@ -723,6 +725,7 @@ mainMenu = new MainMenu(gameState, network, {
   onOpenFaq: () => faqModal?.open?.('list'),
   onOpenChangelog: () => changelogModal?.open?.(),
   onOpenBattlePass: () => battlePassModal?.open?.(),
+  onOpenLeaderboard: () => hud?.openLeaderboard?.(),
   onStartGame: ({ name, room, skin }) => {
     const cleanRoom = room || 'plateau-u300';
     notifiedNetError = false;

@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v3.6 - Modèles 3D exclusifs & Vitrine Passe de Combat'),
+    __APP_VERSION__: JSON.stringify('v3.7 - Interface Lobby ultra-épurée & ergonomique'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

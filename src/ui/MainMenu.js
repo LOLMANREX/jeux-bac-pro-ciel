@@ -15,7 +15,15 @@ export class MainMenu {
   constructor(
     gameState,
     network,
-    { onStartGame, onOpenSettings, onOpenPlatform, onOpenFaq, onOpenChangelog, onOpenBattlePass }
+    {
+      onStartGame,
+      onOpenSettings,
+      onOpenPlatform,
+      onOpenFaq,
+      onOpenChangelog,
+      onOpenBattlePass,
+      onOpenLeaderboard
+    }
   ) {
     this.gameState = gameState;
     this.network = network;
@@ -25,6 +33,7 @@ export class MainMenu {
     this.onOpenFaq = onOpenFaq;
     this.onOpenChangelog = onOpenChangelog;
     this.onOpenBattlePass = onOpenBattlePass;
+    this.onOpenLeaderboard = onOpenLeaderboard;
 
     this.root = document.getElementById('start-screen');
     this.views = {
@@ -34,16 +43,13 @@ export class MainMenu {
 
     this.nameInput = document.getElementById('player-name-input');
     this.previewTag = document.getElementById('preview-player-tag');
-    this.previewRankEl = document.getElementById('preview-player-rank');
     this.badgeNameEl = document.getElementById('menu-badge-name');
     this.badgeLevelEl = document.getElementById('menu-badge-level');
-    this.badgeXpBarEl = document.getElementById('menu-badge-xp-bar');
-    this.badgeXpEl = document.getElementById('menu-badge-xp');
     this.badgeAvgEl = document.getElementById('menu-badge-avg');
 
-    this.joinForm = document.getElementById('join-form');
     this.roomSelect = document.getElementById('room-select');
-    this.customRoomWrap = document.getElementById('custom-room-wrap');
+    this.roomsModal = document.getElementById('rooms-modal');
+    this.joinForm = document.getElementById('join-form');
     this.customRoomInput = document.getElementById('custom-room-input');
     this.roomsListEl = document.getElementById('rooms-list');
     this.statusEl = document.getElementById('start-server-status');
@@ -62,8 +68,8 @@ export class MainMenu {
       this.preview = new SkinPreview3D(
         document.getElementById('skin-preview-canvas'),
         () => this.gameState.skin,
-        420,
-        460,
+        520,
+        540,
         { interactivePodium: true }
       );
       this.preview.setActive(true);
@@ -93,7 +99,9 @@ export class MainMenu {
     this.pollTimer = setInterval(() => {
       if (!this.visible) return;
       this.refreshHealth();
-      this.refreshRooms(true);
+      if (this.isRoomsModalOpen()) {
+        this.refreshRooms(true);
+      }
     }, 4000);
   }
 
@@ -122,16 +130,11 @@ export class MainMenu {
 
     const xp = Number.isFinite(stats?.xp) ? stats.xp : 0;
     const level = Math.max(1, Math.floor(xp / 100) + 1);
-    const xpPct = Math.max(0, Math.min(100, xp % 100));
-    const avg = typeof stats?.average === 'number' ? `${stats.average.toFixed(1)} / 20` : '-- / 20';
-    const rankLabel = stats?.rankLabel || 'Apprenti CIEL';
+    const avg = typeof stats?.average === 'number' ? `${stats.average.toFixed(1)}/20` : '--/20';
 
     if (this.previewTag) this.previewTag.textContent = displayName;
-    if (this.previewRankEl) this.previewRankEl.textContent = rankLabel.toUpperCase();
     if (this.badgeNameEl) this.badgeNameEl.textContent = displayName;
     if (this.badgeLevelEl) this.badgeLevelEl.textContent = `Niv. ${level}`;
-    if (this.badgeXpBarEl) this.badgeXpBarEl.style.width = `${xpPct}%`;
-    if (this.badgeXpEl) this.badgeXpEl.textContent = `${xp} XP`;
     if (this.badgeAvgEl) this.badgeAvgEl.textContent = avg;
   }
 
@@ -141,13 +144,41 @@ export class MainMenu {
     });
   }
 
+  selectRoom(roomCode) {
+    const clean = String(roomCode || '').trim() || DEFAULT_ROOM;
+    if (!this.roomSelect) return;
+    const exists = Array.from(this.roomSelect.options).some((opt) => opt.value === clean);
+    if (!exists) {
+      const opt = document.createElement('option');
+      opt.value = clean;
+      opt.textContent = `Salle : ${clean}`;
+      this.roomSelect.appendChild(opt);
+    }
+    this.roomSelect.value = clean;
+  }
+
+  isRoomsModalOpen() {
+    return Boolean(this.roomsModal && !this.roomsModal.classList.contains('hidden'));
+  }
+
+  openRoomsModal() {
+    this.roomsModal?.classList.remove('hidden');
+    this.refreshRooms();
+  }
+
+  closeRoomsModal() {
+    if (!this.roomsModal || this.roomsModal.classList.contains('hidden')) return false;
+    this.roomsModal.classList.add('hidden');
+    return true;
+  }
+
   _bindEvents() {
     this.nameInput?.addEventListener('input', () => {
       this.syncPlayerBadge();
     });
 
     document.getElementById('menu-btn-quickplay')?.addEventListener('click', () => {
-      this._launchWithRoom(DEFAULT_ROOM);
+      this._launchWithRoom(this.roomSelect?.value || DEFAULT_ROOM);
     });
 
     document.querySelectorAll('[data-nav]').forEach((tab) => {
@@ -159,18 +190,7 @@ export class MainMenu {
       });
     });
 
-    document.getElementById('podium-skin-shortcut')?.addEventListener('click', () => {
-      sfx.click();
-      this.renderSkinUi();
-      this.showView('skin');
-    });
-
     document.getElementById('nav-btn-battlepass')?.addEventListener('click', () => {
-      sfx.click();
-      this.onOpenBattlePass?.();
-    });
-
-    document.getElementById('menu-btn-battlepass')?.addEventListener('click', () => {
       sfx.click();
       this.onOpenBattlePass?.();
     });
@@ -190,9 +210,23 @@ export class MainMenu {
       this.onOpenFaq?.();
     });
 
-    document.getElementById('menu-btn-changelog')?.addEventListener('click', () => {
+    document.getElementById('menu-btn-leaderboard')?.addEventListener('click', () => {
       sfx.click();
-      this.onOpenChangelog?.();
+      this.onOpenLeaderboard?.();
+    });
+
+    document.getElementById('menu-btn-rooms')?.addEventListener('click', () => {
+      sfx.click();
+      this.openRoomsModal();
+    });
+
+    document.getElementById('rooms-modal-close')?.addEventListener('click', () => {
+      sfx.click();
+      this.closeRoomsModal();
+    });
+
+    this.roomsModal?.addEventListener('click', (e) => {
+      if (e.target === this.roomsModal) this.closeRoomsModal();
     });
 
     this.updatePlatformButton(this.gameState.touchMode);
@@ -204,16 +238,18 @@ export class MainMenu {
       });
     });
 
-    this.roomSelect?.addEventListener('change', () => {
-      this.customRoomWrap?.classList.toggle('hidden', this.roomSelect.value !== 'custom');
+    document.getElementById('btn-select-custom-room')?.addEventListener('click', () => {
+      const code = this.customRoomInput?.value?.trim() || 'salle-perso';
+      sfx.click();
+      this.selectRoom(code);
+      this.closeRoomsModal();
     });
 
     this.joinForm?.addEventListener('submit', (e) => {
       e.preventDefault();
-      let room = this.roomSelect?.value || DEFAULT_ROOM;
-      if (room === 'custom') {
-        room = this.customRoomInput?.value?.trim() || 'salle-perso';
-      }
+      const room = this.customRoomInput?.value?.trim() || 'salle-perso';
+      this.selectRoom(room);
+      this.closeRoomsModal();
       this._launchWithRoom(room);
     });
 
@@ -232,10 +268,12 @@ export class MainMenu {
 
   _launchWithRoom(room) {
     const name = this.nameInput?.value?.trim() || 'Eleve_CIEL';
+    const targetRoom = String(room || '').trim() || DEFAULT_ROOM;
     localStorage.setItem('ciel_player_name', name);
     sfx.interact();
+    this.closeRoomsModal();
     this.hide();
-    this.onStartGame?.({ name, room, skin: this.gameState.skin });
+    this.onStartGame?.({ name, room: targetRoom, skin: this.gameState.skin });
   }
 
   showView(name) {
@@ -270,10 +308,21 @@ export class MainMenu {
             r.players?.length ? r.players.map((p) => escapeHtml(p)).join(', ') : 'Salle prête'
           }</div>
         </div>
-        <button type="button" class="aaa-join-mini-btn join-room-btn" data-room="${escapeHtml(r.room)}">Rejoindre ▶</button>
+        <div class="aaa-room-actions">
+          <button type="button" class="btn-hud btn-sm select-room-btn" data-room="${escapeHtml(r.room)}">Choisir</button>
+          <button type="button" class="aaa-join-mini-btn join-room-btn" data-room="${escapeHtml(r.room)}">Rejoindre ▶</button>
+        </div>
       </div>`
         )
         .join('');
+
+      this.roomsListEl.querySelectorAll('.select-room-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          sfx.click();
+          this.selectRoom(btn.dataset.room);
+          this.closeRoomsModal();
+        });
+      });
 
       this.roomsListEl.querySelectorAll('.join-room-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -296,17 +345,14 @@ export class MainMenu {
       const health = await this.network.checkHealth(3000);
       if (health?.ok) {
         const count = Number.isFinite(health.playersOnline) ? health.playersOnline : 0;
-        this.statusEl.innerHTML = `<span class="dot online"></span> Serveur CIEL en ligne — <strong>${count}</strong> joueur(s) connecté(s)`;
+        this.statusEl.innerHTML = `<span class="dot online"></span><span>En ligne • <strong>${count}</strong> joueur(s)</span>`;
       } else if (health?.timeout) {
-        this.statusEl.innerHTML =
-          '<span class="dot warn"></span> Serveur lent (timeout 3s) — Mode solo disponible';
+        this.statusEl.innerHTML = '<span class="dot warn"></span><span>Serveur lent • Mode solo</span>';
       } else {
-        const reason = health?.error ? ` (${escapeHtml(health.error)})` : '';
-        this.statusEl.innerHTML = `<span class="dot error"></span> Serveur hors ligne${reason} — Mode solo local`;
+        this.statusEl.innerHTML = '<span class="dot error"></span><span>Hors ligne • Mode solo</span>';
       }
     } catch {
-      this.statusEl.innerHTML =
-        '<span class="dot error"></span> Serveur hors ligne — Mode solo local';
+      this.statusEl.innerHTML = '<span class="dot error"></span><span>Hors ligne • Mode solo</span>';
     } finally {
       this.healthPending = false;
     }
@@ -325,13 +371,17 @@ export class MainMenu {
 
   updatePlatformButton(touchMode) {
     if (!this.platformBtn) return;
-    this.platformBtn.textContent = touchMode ? 'PLATEFORME 📱' : 'PLATEFORME 💻';
+    this.platformBtn.textContent = touchMode ? '📱' : '💻';
+    this.platformBtn.title = touchMode
+      ? 'Plateforme : Mobile / Tablette (cliquer pour changer)'
+      : 'Plateforme : PC (cliquer pour changer)';
   }
 
   hide() {
     this.visible = false;
     this._stopPolling();
     this.preview?.setActive?.(false);
+    this.closeRoomsModal();
     this.root?.classList.add('hidden');
   }
 }

@@ -410,6 +410,10 @@ export class BattlePassModal {
     });
   }
 
+  isOpen() {
+    return Boolean(this.modal && !this.modal.classList.contains('hidden'));
+  }
+
   open() {
     this.modal?.classList.remove('hidden');
     if (this.preview) {
@@ -419,8 +423,10 @@ export class BattlePassModal {
   }
 
   close() {
-    this.modal?.classList.add('hidden');
+    if (!this.modal || this.modal.classList.contains('hidden')) return false;
+    this.modal.classList.add('hidden');
     this.preview?.setActive(false);
+    return true;
   }
 
   openTrollModal() {
@@ -431,6 +437,8 @@ export class BattlePassModal {
   }
 
   closeTrollModal() {
-    this.trollModal?.classList.add('hidden');
+    if (!this.trollModal || this.trollModal.classList.contains('hidden')) return false;
+    this.trollModal.classList.add('hidden');
+    return true;
   }
 }
