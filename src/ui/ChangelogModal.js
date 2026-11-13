@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v3.1 - Éditeur de Map Admin sur-mesure (Sandbox CIEL)';
+    : 'v3.2 - Éditeur de map grand format (120m x 120m)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,19 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
+    version: 'v3.2 — Éditeur de map grand format (120m x 120m)',
+    date: '13/11/2026',
+    tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Agrandissement majeur des limites de l’éditeur de map (/admin) et du schéma map.json jusqu’à 200 m × 200 m (120 m × 120 m natif de -60 m à +60 m sur X et Z), avec suppression des bridages de longueur de murs, zones de salles et objets en dessous de 100 m.',
+      'Grille 2D adaptative dans l’éditeur avec large plage de dézoom/zoom (de 1,5 px/m pour voir tout un étage d’un coup d’œil jusqu’à 140 px/m pour placer les petits meubles au centimètre), calque plan PNG/JPG ajusté sans coupure aux bords et caméra 3D adaptative.',
+      'Adaptation automatique du moteur 3D (sol, plafond LED instancié haute performance, limites de déplacement du joueur, portée far de la caméra, brouillard et ombres directionnelles) ainsi que de la mini-carte 2D aux dimensions exactes de map.json.'
+    ]
+  },
+  {
     version: 'v3.1 — Éditeur de Map Admin sur-mesure (Sandbox CIEL)',
     date: '12/11/2026',
-    tag: 'DERNIÈRE MÀJ',
+    tag: 'HISTORIQUE',
     items: [
       'Nouvel onglet exclusif « 🗺 Éditeur de Map » dans la console /admin avec plan 2D interactif sur grille aimantée (1m, 0.5m, 0.25m ou libre) et aperçu 3D temps réel côte-à-côte (Three.js).',
       'Catalogue complet en 4 catégories : Architecture & Salles (murs pleins, cloisons vitrées, portes simples/doubles avec découpe automatique des passages, zones de salles, spawn, classement 3D, escalier), Bornes TP & PNJ (9 TP CIEL + Professeur à dialogue personnalisable), Mobilier scolaire et Matériel technique CIEL (Studio AV, Baies 19" LED, PC Gamer Cyber, Bancs électroniques, SOC).',

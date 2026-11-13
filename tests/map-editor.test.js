@@ -15,6 +15,7 @@ import {
   getDynamicMapColliders,
   getStationTeleportInMap,
   getZoneAtPositionInMap,
+  normalizeMapData,
   subtractDoorsFromWalls
 } from '../src/world/mapSchema.js';
 
@@ -282,6 +283,114 @@ test('API HTTP GET /api/map, PUT /api/admin/map et diffusion WebSocket map_updat
   } finally {
     wsHub.close();
     await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('normalizeMapData et MapStore supportent les très grandes cartes (120m x 120m et plus) sans bridage < 100m', () => {
+  const bigWalls = [
+    { id: 'w-north', kind: 'solid', x1: -58, z1: -58, x2: 58, z2: -58, thickness: 0.25, height: 4.6 },
+    { id: 'w-south', kind: 'solid', x1: -58, z1: 58, x2: 58, z2: 58, thickness: 0.25, height: 4.6 }
+  ];
+  for (let i = 0; i < 450; i++) {
+    bigWalls.push({
+      id: `w-extra-${i}`,
+      kind: 'solid',
+      x1: -50,
+      z1: -40 + (i % 80),
+      x2: -48,
+      z2: -40 + (i % 80),
+      thickness: 0.18,
+      height: 4.6
+    });
+  }
+
+  const bigMap = normalizeMapData({
+    name: 'Lycée Complet 120x120',
+    bounds: { width: 120, depth: 120, height: 4.6 },
+    zones: [
+      {
+        id: 'z-hall',
+        code: 'LYCEE',
+        shortName: 'Aile Nord 115m',
+        x: 0,
+        z: 0,
+        w: 115,
+        d: 110,
+        color: '#38bdf8'
+      },
+      {
+        id: 'z-far',
+        code: 'U501',
+        shortName: 'Labo Est',
+        x: 52,
+        z: 52,
+        w: 12,
+        d: 10,
+        color: '#10b981'
+      }
+    ],
+    walls: bigWalls,
+    objects: [
+      {
+        id: 'obj-spawn-far',
+        type: 'spawn_point',
+        x: -55,
+        z: -55,
+        rotation: 0,
+        w: 1,
+        d: 1,
+        color: '#10b981',
+        label: 'Entrée Lycée'
+      },
+      {
+        id: 'obj-tp-far',
+        type: 'tp_vmvlan',
+        x: 54,
+        z: 54,
+        rotation: 0,
+        w: 2.4,
+        d: 1.0,
+        color: '#34d399',
+        label: 'Baie Est'
+      }
+    ]
+  });
+
+  assert.equal(bigMap.bounds.width, 120);
+  assert.equal(bigMap.bounds.depth, 120);
+  assert.equal(bigMap.bounds.minX, -60);
+  assert.equal(bigMap.bounds.maxX, 60);
+  assert.equal(bigMap.bounds.minZ, -60);
+  assert.equal(bigMap.bounds.maxZ, 60);
+  assert.equal(bigMap.walls.length, 452);
+  assert.equal(bigMap.walls[0].x2 - bigMap.walls[0].x1, 116);
+  assert.equal(bigMap.zones[0].w, 115);
+  assert.equal(bigMap.zones[0].d, 110);
+  assert.equal(bigMap.spawn.x, -55);
+  assert.equal(bigMap.spawn.z, -55);
+
+  const farZone = getZoneAtPositionInMap(bigMap, 52, 52);
+  assert.equal(farZone.code, 'U501');
+
+  const farTp = getStationTeleportInMap(bigMap, 'vmvlan');
+  assert.equal(farTp.lookAt.x, 54);
+  assert.equal(farTp.lookAt.z, 54);
+
+  const colliders = getDynamicMapColliders(bigMap);
+  assert.ok(colliders.some((c) => c.minX === -58 && c.maxX === 58));
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-bigmap-'));
+  try {
+    const mapFile = path.join(tmpDir, 'map.json');
+    const store1 = new MapStore(mapFile);
+    store1.saveMap(bigMap);
+    const store2 = new MapStore(mapFile);
+    const reloaded = store2.getMap();
+    assert.equal(reloaded.bounds.width, 120);
+    assert.equal(reloaded.bounds.depth, 120);
+    assert.equal(reloaded.walls.length, 452);
+  } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

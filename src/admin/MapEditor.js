@@ -101,9 +101,9 @@ export class MapEditor {
           <div class="me-tb-group">
             <label class="me-tb-label">Dimensions (m)</label>
             <div class="me-dims">
-              <input type="number" id="me-bounds-w" class="me-input me-input-num" min="10" max="60" step="1" value="${this.mapData.bounds.width}" title="Largeur X (m)" />
+              <input type="number" id="me-bounds-w" class="me-input me-input-num" min="10" max="200" step="1" value="${this.mapData.bounds.width}" title="Largeur X (m) — jusqu'à 200 m" />
               <span>×</span>
-              <input type="number" id="me-bounds-d" class="me-input me-input-num" min="10" max="60" step="1" value="${this.mapData.bounds.depth}" title="Profondeur Z (m)" />
+              <input type="number" id="me-bounds-d" class="me-input me-input-num" min="10" max="200" step="1" value="${this.mapData.bounds.depth}" title="Profondeur Z (m) — jusqu'à 200 m" />
             </div>
           </div>
 
@@ -142,7 +142,7 @@ export class MapEditor {
                 <input type="file" id="me-underlay-file" accept="image/png,image/jpeg,image/webp" class="hidden" />
               </label>
               <input type="range" id="me-underlay-opacity" min="0.05" max="0.85" step="0.05" value="0.38" title="Opacité du plan" class="me-slider-mini hidden" />
-              <input type="range" id="me-underlay-scale" min="0.4" max="2.5" step="0.05" value="1" title="Échelle du plan" class="me-slider-mini hidden" />
+              <input type="range" id="me-underlay-scale" min="0.1" max="5" step="0.05" value="1" title="Échelle du plan" class="me-slider-mini hidden" />
               <button type="button" id="me-underlay-clear" class="me-btn me-btn-danger hidden" title="Retirer l'image de fond">✕</button>
             </div>
           </div>
@@ -249,8 +249,8 @@ export class MapEditor {
     });
 
     const onBoundsChange = () => {
-      const w = Math.max(10, Math.min(60, Number(this.els.boundsW.value) || 26));
-      const d = Math.max(10, Math.min(60, Number(this.els.boundsD.value) || 24.4));
+      const w = Math.max(10, Math.min(200, Number(this.els.boundsW.value) || 26));
+      const d = Math.max(10, Math.min(200, Number(this.els.boundsD.value) || 24.4));
       this._pushUndo();
       this.mapData.bounds = {
         minX: Number((-w / 2).toFixed(2)),
@@ -262,6 +262,9 @@ export class MapEditor {
         height: this.mapData.bounds.height || 4.6
       };
       this.mapData = normalizeMapData(this.mapData);
+      this._syncTopInputs();
+      this.fitCamera2D();
+      this._sync3DEnvironment();
       this.draw2D();
       this._schedule3DRebuild();
       this._markDirty();
@@ -329,6 +332,7 @@ export class MapEditor {
         this.selected = null;
         this._syncTopInputs();
         this.fitCamera2D();
+        this._sync3DEnvironment();
         this.draw2D();
         this._renderInspector();
         this._schedule3DRebuild(true);
@@ -350,6 +354,8 @@ export class MapEditor {
         this.mapData = normalizeMapData(this.mapData);
         this.selected = null;
         this._syncTopInputs();
+        this.fitCamera2D();
+        this._sync3DEnvironment();
         this.draw2D();
         this._renderInspector();
         this._schedule3DRebuild(true);
@@ -387,6 +393,7 @@ export class MapEditor {
           this.selected = null;
           this._syncTopInputs();
           this.fitCamera2D();
+          this._sync3DEnvironment();
           this.draw2D();
           this._renderInspector();
           this._schedule3DRebuild(true);
@@ -406,11 +413,11 @@ export class MapEditor {
     this.els.toolPan.addEventListener('click', () => this.setTool('pan', null));
 
     this.container.querySelector('#me-zoom-in').addEventListener('click', () => {
-      this.cam2d.zoom = Math.min(90, this.cam2d.zoom * 1.2);
+      this.cam2d.zoom = Math.min(140, this.cam2d.zoom * 1.2);
       this.draw2D();
     });
     this.container.querySelector('#me-zoom-out').addEventListener('click', () => {
-      this.cam2d.zoom = Math.max(8, this.cam2d.zoom / 1.2);
+      this.cam2d.zoom = Math.max(1.5, this.cam2d.zoom / 1.2);
       this.draw2D();
     });
     this.container.querySelector('#me-zoom-fit').addEventListener('click', () => {
@@ -418,7 +425,15 @@ export class MapEditor {
       this.draw2D();
     });
     this.container.querySelector('#me-3d-reset').addEventListener('click', () => {
-      this.three.orbit = { yaw: 0.72, pitch: 0.78, dist: 24, tx: 0, tz: 0 };
+      const b = this.mapData.bounds;
+      const diag = Math.hypot(b.width, b.depth);
+      this.three.orbit = {
+        yaw: 0.72,
+        pitch: 0.78,
+        dist: Math.max(24, diag * 0.72),
+        tx: (b.minX + b.maxX) / 2,
+        tz: (b.minZ + b.maxZ) / 2
+      };
       this._updateCamera3D();
     });
 
@@ -503,6 +518,7 @@ export class MapEditor {
     this.mapData = normalizeMapData(this.undoStack.pop());
     this.selected = null;
     this._syncTopInputs();
+    this._sync3DEnvironment();
     this.draw2D();
     this._renderInspector();
     this._schedule3DRebuild(true);
@@ -515,6 +531,7 @@ export class MapEditor {
     this.mapData = normalizeMapData(this.redoStack.pop());
     this.selected = null;
     this._syncTopInputs();
+    this._sync3DEnvironment();
     this.draw2D();
     this._renderInspector();
     this._schedule3DRebuild(true);
@@ -644,7 +661,7 @@ export class MapEditor {
     if (rect.width > 40 && rect.height > 40) {
       const zx = (rect.width - 48) / Math.max(4, b.width);
       const zz = (rect.height - 48) / Math.max(4, b.depth);
-      this.cam2d.zoom = Math.max(10, Math.min(48, Math.min(zx, zz)));
+      this.cam2d.zoom = Math.max(1.5, Math.min(48, Math.min(zx, zz)));
     }
   }
 
@@ -732,7 +749,7 @@ export class MapEditor {
         const sy = e.clientY - rect.top;
         const [wx, wz] = this._screenToWorld(sx, sy);
         const factor = e.deltaY < 0 ? 1.12 : 0.89;
-        this.cam2d.zoom = Math.max(8, Math.min(90, this.cam2d.zoom * factor));
+        this.cam2d.zoom = Math.max(1.5, Math.min(140, this.cam2d.zoom * factor));
         const w = c.width / (window.devicePixelRatio || 1);
         const h = c.height / (window.devicePixelRatio || 1);
         this.cam2d.x = wx - (sx - w / 2) / this.cam2d.zoom;
@@ -1194,14 +1211,16 @@ export class MapEditor {
     if (this.selected.kind === 'object') {
       const cat = getCatalogItem(ent.type);
       const isTeacher = ent.type === 'npc_teacher';
+      const b = this.mapData.bounds;
+      const maxDim = Math.max(120, b.width, b.depth);
       this.els.inspBody.innerHTML = `
         <div class="me-insp-badge">${cat?.icon || ''} ${escapeHtml(cat?.label || ent.type)}</div>
         <label class="me-field"><span>Libellé</span><input type="text" id="me-f-label" class="me-input" maxlength="80" value="${escapeHtml(ent.label || '')}" /></label>
         <div class="me-grid-2">
           <label class="me-field"><span>X (m)</span><input type="number" step="0.1" id="me-f-x" class="me-input" value="${ent.x}" /></label>
           <label class="me-field"><span>Z (m)</span><input type="number" step="0.1" id="me-f-z" class="me-input" value="${ent.z}" /></label>
-          <label class="me-field"><span>Largeur (m)</span><input type="number" step="0.1" min="0.2" max="15" id="me-f-w" class="me-input" value="${ent.w}" /></label>
-          <label class="me-field"><span>Profondeur (m)</span><input type="number" step="0.1" min="0.2" max="15" id="me-f-d" class="me-input" value="${ent.d}" /></label>
+          <label class="me-field"><span>Largeur (m)</span><input type="number" step="0.1" min="0.2" max="${maxDim}" id="me-f-w" class="me-input" value="${ent.w}" /></label>
+          <label class="me-field"><span>Profondeur (m)</span><input type="number" step="0.1" min="0.2" max="${maxDim}" id="me-f-d" class="me-input" value="${ent.d}" /></label>
         </div>
         <label class="me-field">
           <span>Orientation : <strong id="me-f-rot-val">${Math.round(ent.rotation || 0)}°</strong></span>
@@ -1230,7 +1249,7 @@ export class MapEditor {
         this.draw2D();
         this._schedule3DRebuild();
       };
-      const bindNum = (selId, key, min = -60, max = 60) => {
+      const bindNum = (selId, key, min = b.minX, max = b.maxX) => {
         this.els.inspBody.querySelector(selId).onchange = (e) => {
           this._pushUndo();
           ent[key] = Math.max(min, Math.min(max, Number(e.target.value) || 0));
@@ -1240,10 +1259,10 @@ export class MapEditor {
           this._schedule3DRebuild(true);
         };
       };
-      bindNum('#me-f-x', 'x');
-      bindNum('#me-f-z', 'z');
-      bindNum('#me-f-w', 'w', 0.2, 15);
-      bindNum('#me-f-d', 'd', 0.2, 15);
+      bindNum('#me-f-x', 'x', b.minX, b.maxX);
+      bindNum('#me-f-z', 'z', b.minZ, b.maxZ);
+      bindNum('#me-f-w', 'w', 0.2, maxDim);
+      bindNum('#me-f-d', 'd', 0.2, maxDim);
 
       const rotRange = this.els.inspBody.querySelector('#me-f-rot');
       const rotLabel = this.els.inspBody.querySelector('#me-f-rot-val');
@@ -1344,6 +1363,7 @@ export class MapEditor {
         };
       }
     } else if (this.selected.kind === 'zone') {
+      const b = this.mapData.bounds;
       this.els.inspBody.innerHTML = `
         <div class="me-insp-badge">📐 Zone / Salle de cours</div>
         <div class="me-grid-2">
@@ -1354,8 +1374,8 @@ export class MapEditor {
         <div class="me-grid-2">
           <label class="me-field"><span>Centre X</span><input type="number" step="0.25" id="me-z-x" class="me-input" value="${ent.x}" /></label>
           <label class="me-field"><span>Centre Z</span><input type="number" step="0.25" id="me-z-z" class="me-input" value="${ent.z}" /></label>
-          <label class="me-field"><span>Largeur (m)</span><input type="number" step="0.25" min="1.5" max="40" id="me-z-w" class="me-input" value="${ent.w}" /></label>
-          <label class="me-field"><span>Profondeur (m)</span><input type="number" step="0.25" min="1.5" max="40" id="me-z-d" class="me-input" value="${ent.d}" /></label>
+          <label class="me-field"><span>Largeur (m)</span><input type="number" step="0.25" min="0.8" max="${b.width}" id="me-z-w" class="me-input" value="${ent.w}" /></label>
+          <label class="me-field"><span>Profondeur (m)</span><input type="number" step="0.25" min="0.8" max="${b.depth}" id="me-z-d" class="me-input" value="${ent.d}" /></label>
         </div>
         <div class="me-insp-actions">
           <button type="button" id="me-insp-dup" class="me-btn">📋 Dupliquer</button>
@@ -1381,6 +1401,12 @@ export class MapEditor {
         this.draw2D();
         this._schedule3DRebuild();
       };
+      const zoneLimits = {
+        x: [b.minX, b.maxX],
+        z: [b.minZ, b.maxZ],
+        w: [0.8, b.width],
+        d: [0.8, b.depth]
+      };
       for (const [id, key] of [
         ['#me-z-x', 'x'],
         ['#me-z-z', 'z'],
@@ -1389,7 +1415,9 @@ export class MapEditor {
       ]) {
         this.els.inspBody.querySelector(id).onchange = (e) => {
           this._pushUndo();
-          ent[key] = Number(e.target.value) || 2;
+          const [zMin, zMax] = zoneLimits[key];
+          const val = Number(e.target.value);
+          ent[key] = Math.max(zMin, Math.min(zMax, Number.isFinite(val) ? val : 2));
           this._markDirty();
           this.draw2D();
           this._schedule3DRebuild(true);
@@ -1426,10 +1454,13 @@ export class MapEditor {
     ctx.fillRect(bx1, bz1, bx2 - bx1, bz2 - bz1);
 
     if (this.underlay.img) {
-      const iw = this.underlay.img.width;
-      const ih = this.underlay.img.height;
-      const targetW = (bx2 - bx1) * this.underlay.scale;
-      const targetH = targetW * (ih / Math.max(1, iw));
+      const iw = Math.max(1, this.underlay.img.width);
+      const ih = Math.max(1, this.underlay.img.height);
+      const mapPxW = bx2 - bx1;
+      const mapPxH = bz2 - bz1;
+      const fitRatio = Math.min(mapPxW / iw, mapPxH / ih) * this.underlay.scale;
+      const targetW = iw * fitRatio;
+      const targetH = ih * fitRatio;
       const cx = (bx1 + bx2) / 2;
       const cz = (bz1 + bz2) / 2;
       ctx.save();
@@ -1438,19 +1469,44 @@ export class MapEditor {
       ctx.restore();
     }
 
-    const step = this.cam2d.zoom >= 30 && this.snap === 0.25 ? 0.5 : 1;
+    let step = 1;
+    if (this.cam2d.zoom < 4) step = 10;
+    else if (this.cam2d.zoom < 8) step = 5;
+    else if (this.cam2d.zoom < 16) step = 2;
+    else if (this.cam2d.zoom >= 36 && this.snap === 0.25) step = 0.25;
+    else if (this.cam2d.zoom >= 24 && (this.snap === 0.5 || this.snap === 0.25)) step = 0.5;
+
+    const [visMinX, visMinZ] = this._screenToWorld(0, 0);
+    const [visMaxX, visMaxZ] = this._screenToWorld(w, h);
+    const startGx = Math.max(Math.ceil(b.minX / step) * step, Math.floor(visMinX / step) * step);
+    const endGx = Math.min(Math.floor(b.maxX / step) * step, Math.ceil(visMaxX / step) * step);
+    const startGz = Math.max(Math.ceil(b.minZ / step) * step, Math.floor(visMinZ / step) * step);
+    const endGz = Math.min(Math.floor(b.maxZ / step) * step, Math.ceil(visMaxZ / step) * step);
+
     ctx.lineWidth = 1;
-    for (let gx = Math.ceil(b.minX); gx <= Math.floor(b.maxX); gx += step) {
-      const [px] = this._worldToScreen(gx, 0);
-      ctx.strokeStyle = gx === 0 ? 'rgba(56, 189, 248, 0.28)' : 'rgba(148, 163, 184, 0.1)';
+    for (let gx = startGx; gx <= endGx + 1e-6; gx += step) {
+      const rx = Math.round(gx * 100) / 100;
+      const [px] = this._worldToScreen(rx, 0);
+      ctx.strokeStyle =
+        rx === 0
+          ? 'rgba(56, 189, 248, 0.35)'
+          : Math.abs(rx % 10) < 1e-4
+            ? 'rgba(148, 163, 184, 0.2)'
+            : 'rgba(148, 163, 184, 0.09)';
       ctx.beginPath();
       ctx.moveTo(px, bz1);
       ctx.lineTo(px, bz2);
       ctx.stroke();
     }
-    for (let gz = Math.ceil(b.minZ); gz <= Math.floor(b.maxZ); gz += step) {
-      const [, py] = this._worldToScreen(0, gz);
-      ctx.strokeStyle = gz === 0 ? 'rgba(56, 189, 248, 0.28)' : 'rgba(148, 163, 184, 0.1)';
+    for (let gz = startGz; gz <= endGz + 1e-6; gz += step) {
+      const rz = Math.round(gz * 100) / 100;
+      const [, py] = this._worldToScreen(0, rz);
+      ctx.strokeStyle =
+        rz === 0
+          ? 'rgba(56, 189, 248, 0.35)'
+          : Math.abs(rz % 10) < 1e-4
+            ? 'rgba(148, 163, 184, 0.2)'
+            : 'rgba(148, 163, 184, 0.09)';
       ctx.beginPath();
       ctx.moveTo(bx1, py);
       ctx.lineTo(bx2, py);
@@ -1473,11 +1529,14 @@ export class MapEditor {
       ctx.setLineDash([5, 4]);
       ctx.strokeRect(zx1, zz1, rw, rd);
       ctx.setLineDash([]);
-      ctx.fillStyle = '#e2e8f0';
-      ctx.font = `bold ${Math.max(10, Math.min(14, this.cam2d.zoom * 0.5))}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(`${z.code || ''} ${z.shortName || ''}`.trim(), zx1 + rw / 2, zz1 + rd / 2);
+      if (rw >= 18 && rd >= 12) {
+        ctx.fillStyle = '#e2e8f0';
+        const zFont = Math.max(8, Math.min(14, Math.min(rw, rd) * 0.22, this.cam2d.zoom * 0.5));
+        ctx.font = `bold ${zFont.toFixed(1)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${z.code || ''} ${z.shortName || ''}`.trim(), zx1 + rw / 2, zz1 + rd / 2);
+      }
       if (isSel) {
         ctx.fillStyle = '#facc15';
         ctx.beginPath();
@@ -1491,23 +1550,25 @@ export class MapEditor {
       const [wx2, wz2] = this._worldToScreen(wall.x2, wall.z2);
       const isSel = this.selected?.kind === 'wall' && this.selected.id === wall.id;
       const isDoor = wall.kind === 'door_single' || wall.kind === 'door_double';
-      const thickPx = Math.max(3, (wall.thickness || 0.18) * this.cam2d.zoom);
+      const thickPx = Math.max(1.5, (wall.thickness || 0.18) * this.cam2d.zoom);
       ctx.lineCap = 'round';
       if (isDoor) {
         ctx.strokeStyle = isSel ? '#facc15' : '#22d3ee';
-        ctx.lineWidth = Math.max(4, thickPx);
+        ctx.lineWidth = Math.max(2.5, thickPx);
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(wx1, wz1);
         ctx.lineTo(wx2, wz2);
         ctx.stroke();
         ctx.setLineDash([]);
-        const mx = (wx1 + wx2) / 2;
-        const mz = (wz1 + wz2) / 2;
-        ctx.fillStyle = '#22d3ee';
-        ctx.font = 'bold 10px system-ui, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(wall.doorLabel || '🚪', mx, mz - 9);
+        if (this.cam2d.zoom >= 8) {
+          const mx = (wx1 + wx2) / 2;
+          const mz = (wz1 + wz2) / 2;
+          ctx.fillStyle = '#22d3ee';
+          ctx.font = 'bold 10px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(wall.doorLabel || '🚪', mx, mz - 9);
+        }
       } else {
         ctx.strokeStyle = isSel ? '#facc15' : wall.kind === 'glazed' ? '#38bdf8' : '#cbd5e1';
         ctx.lineWidth = thickPx;
@@ -1535,8 +1596,8 @@ export class MapEditor {
     for (const obj of this.mapData.objects) {
       const cat = getCatalogItem(obj.type);
       const [px, py] = this._worldToScreen(obj.x, obj.z);
-      const pw = Math.max(10, (obj.w || cat?.defaultW || 1) * this.cam2d.zoom);
-      const pd = Math.max(10, (obj.d || cat?.defaultD || 1) * this.cam2d.zoom);
+      const pw = Math.max(4, (obj.w || cat?.defaultW || 1) * this.cam2d.zoom);
+      const pd = Math.max(4, (obj.d || cat?.defaultD || 1) * this.cam2d.zoom);
       const rad = ((obj.rotation || 0) * Math.PI) / 180;
       const isSel = this.selected?.kind === 'object' && this.selected.id === obj.id;
       const accent = obj.color || cat?.defaultColor || '#38bdf8';
@@ -1545,30 +1606,35 @@ export class MapEditor {
       ctx.translate(px, py);
       ctx.rotate(-rad);
 
-      ctx.fillStyle = isSel ? 'rgba(250, 204, 21, 0.25)' : `${accent}36`;
+      ctx.fillStyle = isSel ? 'rgba(250, 204, 21, 0.25)' : `${accent}44`;
       ctx.strokeStyle = isSel ? '#facc15' : accent;
-      ctx.lineWidth = isSel ? 2.5 : 1.5;
+      ctx.lineWidth = isSel ? 2.5 : Math.min(1.5, Math.max(0.8, this.cam2d.zoom * 0.12));
       ctx.fillRect(-pw / 2, -pd / 2, pw, pd);
       ctx.strokeRect(-pw / 2, -pd / 2, pw, pd);
 
-      ctx.fillStyle = '#f8fafc';
-      ctx.beginPath();
-      ctx.moveTo(0, pd / 2 + 5);
-      ctx.lineTo(-4, pd / 2 - 2);
-      ctx.lineTo(4, pd / 2 - 2);
-      ctx.closePath();
-      ctx.fill();
+      if (Math.min(pw, pd) >= 8) {
+        ctx.fillStyle = '#f8fafc';
+        ctx.beginPath();
+        ctx.moveTo(0, pd / 2 + 4);
+        ctx.lineTo(-3.5, pd / 2 - 2);
+        ctx.lineTo(3.5, pd / 2 - 2);
+        ctx.closePath();
+        ctx.fill();
+      }
 
       ctx.restore();
 
-      ctx.font = `${Math.max(11, Math.min(18, Math.min(pw, pd) * 0.55))}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(cat?.icon || '📦', px, py);
+      if (Math.min(pw, pd) >= 9) {
+        ctx.font = `${Math.max(9, Math.min(18, Math.min(pw, pd) * 0.55))}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(cat?.icon || '📦', px, py);
+      }
 
-      if (this.cam2d.zoom >= 22 && obj.label) {
+      if (this.cam2d.zoom >= 18 && obj.label) {
         ctx.fillStyle = '#e2e8f0';
         ctx.font = 'bold 10px system-ui, sans-serif';
+        ctx.textAlign = 'center';
         ctx.fillText(String(obj.label).slice(0, 18), px, py - pd / 2 - 8);
       }
 
@@ -1654,7 +1720,7 @@ export class MapEditor {
     dir.position.set(12, 20, 14);
     scene.add(dir);
 
-    const camera = new THREE.PerspectiveCamera(56, 1, 0.1, 140);
+    const camera = new THREE.PerspectiveCamera(56, 1, 0.1, 320);
     const lab = buildLabWorld(scene, this.mapData);
 
     this.three.renderer = renderer;
@@ -1662,9 +1728,28 @@ export class MapEditor {
     this.three.camera = camera;
     this.three.lab = lab;
 
+    const b = this.mapData.bounds;
+    const diag = Math.hypot(b.width, b.depth);
+    this.three.orbit.dist = Math.max(24, diag * 0.72);
+    this.three.orbit.tx = (b.minX + b.maxX) / 2;
+    this.three.orbit.tz = (b.minZ + b.maxZ) / 2;
+
+    this._sync3DEnvironment();
     this._resize3D();
     this._updateCamera3D();
     this._start3DLoop();
+  }
+
+  _sync3DEnvironment() {
+    if (!this.three.scene || !this.three.camera) return;
+    const b = this.mapData.bounds;
+    const diag = Math.hypot(b.width, b.depth);
+    this.three.camera.far = Math.max(180, diag * 2.2);
+    this.three.camera.updateProjectionMatrix();
+    if (this.three.scene.fog) {
+      this.three.scene.fog.near = Math.max(26, diag * 0.65);
+      this.three.scene.fog.far = Math.max(68, diag * 1.55);
+    }
   }
 
   _resize3D() {
@@ -1724,7 +1809,9 @@ export class MapEditor {
       (e) => {
         e.preventDefault();
         const factor = e.deltaY < 0 ? 0.9 : 1.11;
-        this.three.orbit.dist = Math.max(3.5, Math.min(52, this.three.orbit.dist * factor));
+        const b = this.mapData.bounds;
+        const maxDist = Math.max(60, Math.hypot(b.width, b.depth) * 1.4);
+        this.three.orbit.dist = Math.max(3.5, Math.min(maxDist, this.three.orbit.dist * factor));
         this._updateCamera3D();
       },
       { passive: false }
@@ -1805,6 +1892,7 @@ export class MapEditor {
       this.selected = null;
       this._syncTopInputs();
       this.fitCamera2D();
+      this._sync3DEnvironment();
       this.draw2D();
       this._renderInspector();
       this._schedule3DRebuild(true);

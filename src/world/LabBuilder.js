@@ -781,16 +781,33 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
     const ledPanelMat = new THREE.MeshBasicMaterial({ color: '#e0f2fe' });
     const ledFrameMat = new THREE.MeshStandardMaterial({ color: '#334155', metalness: 0.5 });
+    const ledPositions = [];
     for (let lx = b.minX + 3.2; lx <= b.maxX - 2.2; lx += 4.75) {
       for (let lz = b.minZ + 3.0; lz <= b.maxZ - 2.0; lz += 6.0) {
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.07, 0.6), ledFrameMat);
-        frame.position.set(lx, H - 0.05, lz);
-        worldGroup.add(frame);
-        const panel = new THREE.Mesh(new THREE.PlaneGeometry(1.45, 0.48), ledPanelMat);
-        panel.rotation.x = Math.PI / 2;
-        panel.position.set(lx, H - 0.09, lz);
-        worldGroup.add(panel);
+        ledPositions.push([lx, lz]);
       }
+    }
+    if (ledPositions.length > 0) {
+      const frameGeo = new THREE.BoxGeometry(1.6, 0.07, 0.6);
+      const panelGeo = new THREE.PlaneGeometry(1.45, 0.48);
+      const framesInst = new THREE.InstancedMesh(frameGeo, ledFrameMat, ledPositions.length);
+      const panelsInst = new THREE.InstancedMesh(panelGeo, ledPanelMat, ledPositions.length);
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < ledPositions.length; i++) {
+        const [lx, lz] = ledPositions[i];
+        dummy.position.set(lx, H - 0.05, lz);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        framesInst.setMatrixAt(i, dummy.matrix);
+        dummy.position.set(lx, H - 0.09, lz);
+        dummy.rotation.set(Math.PI / 2, 0, 0);
+        dummy.updateMatrix();
+        panelsInst.setMatrixAt(i, dummy.matrix);
+      }
+      framesInst.instanceMatrix.needsUpdate = true;
+      panelsInst.instanceMatrix.needsUpdate = true;
+      worldGroup.add(framesInst);
+      worldGroup.add(panelsInst);
     }
 
     const wallSegments = subtractDoorsFromWalls(mapData.walls || []);

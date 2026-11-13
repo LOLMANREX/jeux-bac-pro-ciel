@@ -62,6 +62,7 @@ sceneMgr.setFov(gameState.fov);
 
 let currentMapData = createDefaultMap();
 const lab = buildLabWorld(sceneMgr.scene, currentMapData);
+sceneMgr.updateWorldBounds(currentMapData.bounds);
 
 const player = new PlayerController(sceneMgr.camera, canvas, lab.colliders, {
   onJump: () => sfx.jump()
@@ -155,6 +156,7 @@ function applyMapData(rawMap, liveUpdate = false) {
   currentMapData = normalizeMapData(rawMap);
   lab.rebuildWorld(currentMapData);
   lab.updateStationBadges({ ...gameState.profile.grades, ...extraStationGrades });
+  sceneMgr.updateWorldBounds(currentMapData.bounds);
   player.setColliders(lab.colliders);
   player.setBounds(currentMapData.bounds);
   hud?.miniMap?.setMapData?.(currentMapData);
@@ -620,8 +622,12 @@ sceneMgr.addUpdater((dt, elapsed) => {
 
   if (!joined) {
     const angle = elapsed * 0.14;
-    sceneMgr.camera.position.set(-4.5 + Math.sin(angle) * 6.5, 4.2, Math.cos(angle) * 6.5);
-    sceneMgr.camera.lookAt(-2.0, 1.4, -0.5);
+    const sp = currentMapData?.spawn || { x: -2.0, z: -0.5 };
+    const farSpawn = Math.abs(sp.x) > 15 || Math.abs(sp.z) > 15;
+    const lookX = farSpawn ? sp.x : -2.0;
+    const lookZ = farSpawn ? sp.z : -0.5;
+    sceneMgr.camera.position.set(lookX - 2.5 + Math.sin(angle) * 6.5, 4.2, lookZ + 0.5 + Math.cos(angle) * 6.5);
+    sceneMgr.camera.lookAt(lookX, 1.4, lookZ);
     return;
   }
 

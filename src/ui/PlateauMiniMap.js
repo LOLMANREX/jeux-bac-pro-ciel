@@ -29,8 +29,11 @@ export class PlateauMiniMap {
     const b = this.mapData.bounds;
     const drawW = this.w - this.pad * 2;
     const drawH = this.h - this.pad * 2;
-    const cx = this.pad + ((wx - b.minX) / Math.max(1, b.width)) * drawW;
-    const cy = this.pad + ((wz - b.minZ) / Math.max(1, b.depth)) * drawH;
+    const scale = Math.min(drawW / Math.max(1, b.width), drawH / Math.max(1, b.depth));
+    const offsetX = this.pad + (drawW - b.width * scale) / 2;
+    const offsetY = this.pad + (drawH - b.depth * scale) / 2;
+    const cx = offsetX + (wx - b.minX) * scale;
+    const cy = offsetY + (wz - b.minZ) * scale;
     return [cx, cy];
   }
 
@@ -42,8 +45,17 @@ export class PlateauMiniMap {
     const octx = off.getContext('2d');
     if (!octx) return;
 
+    const b = this.mapData.bounds;
+    const isLargeMap = Math.max(b.width, b.depth) >= 60;
+
     octx.fillStyle = '#070f20';
     octx.fillRect(0, 0, this.w, this.h);
+
+    const [bx1, by1] = this._toCanvas(b.minX, b.minZ);
+    const [bx2, by2] = this._toCanvas(b.maxX, b.maxZ);
+    octx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+    octx.lineWidth = 1;
+    octx.strokeRect(bx1, by1, bx2 - bx1, by2 - by1);
 
     for (const z of this.mapData.zones || []) {
       if (z.code === 'U300') continue;
@@ -61,7 +73,8 @@ export class PlateauMiniMap {
       const [x2, y2] = this._toCanvas(seg.x2, seg.z2);
       const isGlazed = seg.kind === 'glazed';
       octx.strokeStyle = isGlazed ? '#38bdf8' : '#94a3b8';
-      octx.lineWidth = (seg.thickness || 0.18) > 0.22 ? 2.4 : 1.5;
+      const thick = (seg.thickness || 0.18) > 0.22 ? 2.4 : 1.5;
+      octx.lineWidth = isLargeMap ? Math.max(1, thick * 0.65) : thick;
       octx.beginPath();
       octx.moveTo(x1, y1);
       octx.lineTo(x2, y2);
@@ -75,7 +88,7 @@ export class PlateauMiniMap {
       const [sx, sy] = this._toCanvas(obj.x, obj.z);
       octx.fillStyle = obj.color || st?.color || '#38bdf8';
       octx.beginPath();
-      octx.arc(sx, sy, obj.type === 'npc_teacher' ? 3.2 : 2.7, 0, Math.PI * 2);
+      octx.arc(sx, sy, obj.type === 'npc_teacher' ? (isLargeMap ? 2.8 : 3.2) : isLargeMap ? 2.3 : 2.7, 0, Math.PI * 2);
       octx.fill();
     }
 
@@ -83,8 +96,14 @@ export class PlateauMiniMap {
     octx.textBaseline = 'middle';
     for (const z of this.mapData.zones || []) {
       if (z.id === 'U309' || z.id === 'U311' || z.id === 'U308') continue;
+      const [x1, y1] = this._toCanvas(z.x - z.w / 2, z.z - z.d / 2);
+      const [x2, y2] = this._toCanvas(z.x + z.w / 2, z.z + z.d / 2);
+      const rw = x2 - x1;
+      const rh = y2 - y1;
+      if (rw < 10 || rh < 8) continue;
       const [lx, ly] = this._toCanvas(z.x, z.z);
-      octx.font = 'bold 9.5px system-ui, sans-serif';
+      const fontSize = isLargeMap ? Math.max(7.5, Math.min(9.5, rw * 0.26)) : 9.5;
+      octx.font = `bold ${fontSize.toFixed(1)}px system-ui, sans-serif`;
       octx.fillStyle = z.id === 'ESCALIER' ? '#cbd5e1' : '#e2e8f0';
       octx.fillText(z.code || '', lx, ly);
     }

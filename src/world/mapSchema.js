@@ -1014,9 +1014,9 @@ export function createEmptyMap() {
 export function normalizeMapData(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const bSrc = src.bounds && typeof src.bounds === 'object' ? src.bounds : {};
-  const width = clampNum(bSrc.width, 8, 60, 26);
-  const depth = clampNum(bSrc.depth, 8, 60, 24.4);
-  const height = clampNum(bSrc.height, 3, 8, 4.6);
+  const width = clampNum(bSrc.width, 8, 200, 26);
+  const depth = clampNum(bSrc.depth, 8, 200, 24.4);
+  const height = clampNum(bSrc.height, 3, 12, 4.6);
   const minX = -width / 2;
   const maxX = width / 2;
   const minZ = -depth / 2;
@@ -1025,7 +1025,7 @@ export function normalizeMapData(raw) {
   const rawWalls = Array.isArray(src.walls) ? src.walls : [];
   const validKinds = new Set(['solid', 'glazed', 'door_single', 'door_double']);
   const walls = [];
-  for (let i = 0; i < rawWalls.length && i < 400; i++) {
+  for (let i = 0; i < rawWalls.length && i < 2000; i++) {
     const w = rawWalls[i];
     if (!w || typeof w !== 'object') continue;
     const x1 = clampNum(w.x1, minX - 1, maxX + 1, 0);
@@ -1050,7 +1050,7 @@ export function normalizeMapData(raw) {
 
   const rawZones = Array.isArray(src.zones) ? src.zones : [];
   const zones = [];
-  for (let i = 0; i < rawZones.length && i < 80; i++) {
+  for (let i = 0; i < rawZones.length && i < 300; i++) {
     const z = rawZones[i];
     if (!z || typeof z !== 'object') continue;
     const zw = clampNum(z.w, 0.8, width, 4);
@@ -1077,7 +1077,9 @@ export function normalizeMapData(raw) {
   const rawObjects = Array.isArray(src.objects) ? src.objects : [];
   const objects = [];
   let spawnFromObjects = null;
-  for (let i = 0; i < rawObjects.length && i < 500; i++) {
+  const maxObjW = Math.max(120, width);
+  const maxObjD = Math.max(120, depth);
+  for (let i = 0; i < rawObjects.length && i < 2500; i++) {
     const o = rawObjects[i];
     if (!o || typeof o !== 'object') continue;
     const cat = getCatalogItem(o.type);
@@ -1085,8 +1087,8 @@ export function normalizeMapData(raw) {
     const ox = clampNum(o.x, minX, maxX, 0);
     const oz = clampNum(o.z, minZ, maxZ, 0);
     const rotDeg = ((Number(o.rotation) || 0) % 360 + 360) % 360;
-    const ow = clampNum(o.w, 0.2, 20, cat.defaultW);
-    const od = clampNum(o.d, 0.1, 20, cat.defaultD);
+    const ow = clampNum(o.w, 0.2, maxObjW, cat.defaultW);
+    const od = clampNum(o.d, 0.1, maxObjD, cat.defaultD);
     const normObj = {
       id: cleanText(o.id, 32, `obj-${i + 1}`),
       type: cat.type,
