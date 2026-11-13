@@ -129,7 +129,7 @@ function compareProfiles(a, b) {
 export class GameStore {
   constructor(dbFilePath) {
     this.dbFilePath = dbFilePath;
-    this.data = { players: {}, suggestions: [] };
+    this.data = { players: {}, suggestions: [], pigeons: [] };
     if (this.dbFilePath) {
       this._load();
     }
@@ -202,6 +202,16 @@ export class GameStore {
     return { id, author, message, createdAt };
   }
 
+  _normalizePigeon(raw) {
+    const base = raw && typeof raw === 'object' ? raw : {};
+    const playerName = sanitizeSuggestionText(base.playerName, 40) || 'Élève Anonyme';
+    const platformRaw = sanitizeSuggestionText(base.platform, 24);
+    const platform = /mobile|tactile|touch|tablette/i.test(platformRaw) ? 'Mobile' : platformRaw || 'PC';
+    const id = sanitizeSuggestionText(base.id, 24) || crypto.randomUUID().slice(0, 10);
+    const createdAt = base.createdAt || new Date().toISOString();
+    return { id, playerName, platform, createdAt };
+  }
+
   _load() {
     try {
       if (fs.existsSync(this.dbFilePath)) {
@@ -218,11 +228,18 @@ export class GameStore {
           const normalizedSuggestions = Array.isArray(parsed.suggestions)
             ? parsed.suggestions.map((s) => this._normalizeSuggestion(s)).filter(Boolean)
             : [];
-          this.data = { players: normalizedPlayers, suggestions: normalizedSuggestions };
+          const normalizedPigeons = Array.isArray(parsed.pigeons)
+            ? parsed.pigeons.map((p) => this._normalizePigeon(p)).filter(Boolean)
+            : [];
+          this.data = {
+            players: normalizedPlayers,
+            suggestions: normalizedSuggestions,
+            pigeons: normalizedPigeons
+          };
         }
       }
     } catch {
-      this.data = { players: {}, suggestions: [] };
+      this.data = { players: {}, suggestions: [], pigeons: [] };
     }
   }
 
@@ -510,6 +527,45 @@ export class GameStore {
     const before = this.data.suggestions.length;
     this.data.suggestions = this.data.suggestions.filter((s) => s.id !== cleanId);
     if (this.data.suggestions.length === before) return false;
+    this._save();
+    return true;
+  }
+
+  getPigeons() {
+    const list = Array.isArray(this.data.pigeons) ? this.data.pigeons : [];
+    return [...list].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+  }
+
+  addPigeon(rawPlayerName, rawPlatform) {
+    if (!Array.isArray(this.data.pigeons)) {
+      this.data.pigeons = [];
+    }
+    const entry = this._normalizePigeon({
+      id: crypto.randomUUID().slice(0, 10),
+      playerName: rawPlayerName,
+      platform: rawPlatform,
+      createdAt: new Date().toISOString()
+    });
+    this.data.pigeons.unshift(entry);
+    if (this.data.pigeons.length > 500) {
+      this.data.pigeons = this.data.pigeons.slice(0, 500);
+    }
+    this._save();
+    return entry;
+  }
+
+  deletePigeon(id) {
+    if (!Array.isArray(this.data.pigeons)) return false;
+    const cleanId = String(id || '').trim();
+    const before = this.data.pigeons.length;
+    this.data.pigeons = this.data.pigeons.filter((p) => p.id !== cleanId);
+    if (this.data.pigeons.length === before) return false;
+    this._save();
+    return true;
+  }
+
+  clearPigeons() {
+    this.data.pigeons = [];
     this._save();
     return true;
   }

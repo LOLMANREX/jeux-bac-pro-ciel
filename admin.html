@@ -103,6 +103,9 @@
           <button type="button" id="admin-tab-posts" class="admin-tab">
             💬 Gestion des Posts / Rapports <span id="tab-badge-posts" class="tab-badge">0</span>
           </button>
+          <button type="button" id="admin-tab-pigeons" class="admin-tab">
+            🐦 Pigeons (10 €) <span id="tab-badge-pigeons" class="tab-badge pigeon-badge">0</span>
+          </button>
           <button type="button" id="admin-tab-map" class="admin-tab">
             🗺 Éditeur de Map <span class="tab-badge">2D / 3D</span>
           </button>
@@ -161,6 +164,48 @@
             </div>
             <div id="admin-suggestions-list" class="admin-suggestions-list"></div>
             <div id="admin-suggestions-empty" class="empty-state hidden">Aucun post ou rapport pour le moment.</div>
+          </div>
+        </section>
+
+        <section id="admin-panel-pigeons" class="admin-panel hidden">
+          <div class="pigeons-stats-row">
+            <article class="stat-card pigeons-card">
+              <div class="stat-label">🐦 Nombre total de clics (10 €)</div>
+              <div id="pigeons-stat-total" class="stat-value">0</div>
+              <div class="stat-sub">Tentatives d'achat du Passe de Combat</div>
+            </article>
+            <article class="stat-card pigeons-card">
+              <div class="stat-label">🎯 Dernier pigeon attrapé</div>
+              <div id="pigeons-stat-latest" class="stat-value pigeon-latest-val">--</div>
+              <div id="pigeons-stat-latest-time" class="stat-sub">Aucune tentative enregistrée</div>
+            </article>
+          </div>
+
+          <div class="table-card">
+            <div class="pigeons-head-bar">
+              <div>
+                <h2>🐦 Palmarès des Pigeons (Passe de Combat 10 €)</h2>
+                <p class="stat-sub">Télémétrie furtive des clics sur le Passe Premium Saison 1</p>
+              </div>
+              <button type="button" id="btn-clear-pigeons" class="btn-delete">🗑️ Vider l'historique</button>
+            </div>
+            <div class="table-scroll">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Pseudo du joueur</th>
+                    <th>Plateforme utilisée</th>
+                    <th>Date et heure du clic</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="pigeons-tbody"></tbody>
+              </table>
+            </div>
+            <div id="pigeons-empty-state" class="empty-state hidden">
+              Aucun pigeon attrapé pour le moment. Patience... 🐦
+            </div>
           </div>
         </section>
 

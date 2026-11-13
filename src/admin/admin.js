@@ -20,13 +20,23 @@ const lastSyncLabel = document.getElementById('last-sync-label');
 
 const tabUsersBtn = document.getElementById('admin-tab-users');
 const tabPostsBtn = document.getElementById('admin-tab-posts');
+const tabPigeonsBtn = document.getElementById('admin-tab-pigeons');
 const tabMapBtn = document.getElementById('admin-tab-map');
 const panelUsers = document.getElementById('admin-panel-users');
 const panelPosts = document.getElementById('admin-panel-posts');
+const panelPigeons = document.getElementById('admin-panel-pigeons');
 const panelMap = document.getElementById('admin-panel-map');
 const mapEditorRoot = document.getElementById('map-editor-root');
 const tabBadgeUsers = document.getElementById('tab-badge-users');
 const tabBadgePosts = document.getElementById('tab-badge-posts');
+const tabBadgePigeons = document.getElementById('tab-badge-pigeons');
+
+const pigeonsStatTotalEl = document.getElementById('pigeons-stat-total');
+const pigeonsStatLatestEl = document.getElementById('pigeons-stat-latest');
+const pigeonsStatLatestTimeEl = document.getElementById('pigeons-stat-latest-time');
+const pigeonsTbody = document.getElementById('pigeons-tbody');
+const pigeonsEmptyEl = document.getElementById('pigeons-empty-state');
+const clearPigeonsBtn = document.getElementById('btn-clear-pigeons');
 
 const searchInput = document.getElementById('search-player-input');
 const sortSelect = document.getElementById('sort-select');
@@ -51,6 +61,7 @@ const toastContainer = document.getElementById('admin-toast-container');
 let adminToken = sessionStorage.getItem(TOKEN_STORAGE_KEY) || '';
 let allPlayers = [];
 let allSuggestions = [];
+let allPigeons = [];
 let onlineOnly = false;
 let activeSection = 'users';
 let refreshTimer = null;
@@ -65,12 +76,21 @@ function ensureMapEditor() {
 }
 
 function switchAdminSection(section) {
-  activeSection = section === 'posts' ? 'posts' : section === 'map' ? 'map' : 'users';
+  activeSection =
+    section === 'posts'
+      ? 'posts'
+      : section === 'pigeons'
+        ? 'pigeons'
+        : section === 'map'
+          ? 'map'
+          : 'users';
   tabUsersBtn?.classList.toggle('active', activeSection === 'users');
   tabPostsBtn?.classList.toggle('active', activeSection === 'posts');
+  tabPigeonsBtn?.classList.toggle('active', activeSection === 'pigeons');
   tabMapBtn?.classList.toggle('active', activeSection === 'map');
   panelUsers?.classList.toggle('hidden', activeSection !== 'users');
   panelPosts?.classList.toggle('hidden', activeSection !== 'posts');
+  panelPigeons?.classList.toggle('hidden', activeSection !== 'pigeons');
   panelMap?.classList.toggle('hidden', activeSection !== 'map');
   dashboardEl?.classList.toggle('dashboard-wide', activeSection === 'map');
   if (activeSection === 'map') {
@@ -122,6 +142,19 @@ function formatDateTime(iso) {
   });
 }
 
+function formatDateTimeSeconds(iso) {
+  if (!iso) return '--';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '--';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} à ${hh}:${min}:${ss}`;
+}
+
 function setAuthenticated(authenticated) {
   loginScreen.classList.toggle('hidden', authenticated);
   dashboardEl.classList.toggle('hidden', !authenticated);
@@ -166,15 +199,20 @@ async function apiFetch(url, options = {}) {
 async function loadPlayers(silent = false) {
   if (!adminToken) return;
   try {
-    const [data, sugData] = await Promise.all([
+    const [data, sugData, pigeonsData] = await Promise.all([
       apiFetch('/api/admin/players'),
       fetch('/api/suggestions', { cache: 'no-store' })
         .then((r) => r.json())
-        .catch(() => ({ suggestions: [] }))
+        .catch(() => ({ suggestions: [] })),
+      apiFetch('/api/admin/pigeons').catch(() => ({ pigeons: [] }))
     ]);
     allPlayers = Array.isArray(data.players) ? data.players : [];
     const rawSuggestions = Array.isArray(sugData.suggestions) ? sugData.suggestions : [];
     allSuggestions = [...rawSuggestions].sort(
+      (a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)
+    );
+    const rawPigeons = Array.isArray(pigeonsData.pigeons) ? pigeonsData.pigeons : [];
+    allPigeons = [...rawPigeons].sort(
       (a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)
     );
     const summary = data.summary || {};
@@ -190,6 +228,7 @@ async function loadPlayers(silent = false) {
     statTotalPlaytime.textContent = formatPlaytime(totalSec);
     if (statPostsTotal) statPostsTotal.textContent = String(allSuggestions.length);
     if (tabBadgePosts) tabBadgePosts.textContent = String(allSuggestions.length);
+    if (tabBadgePigeons) tabBadgePigeons.textContent = String(allPigeons.length);
     lastSyncLabel.textContent = `Sync : ${new Date().toLocaleTimeString('fr-FR', {
       hour: '2-digit',
       minute: '2-digit',
@@ -197,9 +236,60 @@ async function loadPlayers(silent = false) {
     })}`;
     renderPlayersTable();
     renderSuggestionsList();
+    renderPigeonsTable();
   } catch (err) {
     if (!silent) showToast(err.message || 'Impossible de charger les élèves', 'error');
   }
+}
+
+function renderPigeonsTable() {
+  if (!pigeonsTbody || !pigeonsEmptyEl) return;
+  const total = allPigeons.length;
+  if (pigeonsStatTotalEl) pigeonsStatTotalEl.textContent = String(total);
+  if (tabBadgePigeons) tabBadgePigeons.textContent = String(total);
+  if (clearPigeonsBtn) clearPigeonsBtn.disabled = total === 0;
+
+  if (total === 0) {
+    if (pigeonsStatLatestEl) pigeonsStatLatestEl.textContent = '--';
+    if (pigeonsStatLatestTimeEl) pigeonsStatLatestTimeEl.textContent = 'Aucune tentative enregistrée';
+    pigeonsTbody.innerHTML = '';
+    pigeonsEmptyEl.classList.remove('hidden');
+    return;
+  }
+
+  pigeonsEmptyEl.classList.add('hidden');
+  const latest = allPigeons[0];
+  if (pigeonsStatLatestEl) pigeonsStatLatestEl.textContent = latest.playerName || 'Élève Anonyme';
+  if (pigeonsStatLatestTimeEl) {
+    pigeonsStatLatestTimeEl.textContent = `${latest.platform === 'Mobile' ? '📱 Mobile' : '💻 PC'} • ${formatDateTimeSeconds(latest.createdAt)}`;
+  }
+
+  pigeonsTbody.innerHTML = allPigeons
+    .map((p, idx) => {
+      const isMobile = p.platform === 'Mobile';
+      return `
+        <tr>
+          <td><span class="pigeon-rank-num">${idx === 0 ? '🐦 #1' : `#${idx + 1}`}</span></td>
+          <td><strong class="pigeon-player-name">${escapeHtml(p.playerName)}</strong></td>
+          <td>
+            <span class="platform-chip ${isMobile ? 'mobile' : 'pc'}">
+              ${isMobile ? '📱 Mobile' : '💻 PC'}
+            </span>
+          </td>
+          <td><span class="date-val">${formatDateTimeSeconds(p.createdAt)}</span></td>
+          <td>
+            <button
+              type="button"
+              class="btn-delete"
+              data-delete-pigeon="${escapeHtml(p.id)}"
+              data-name="${escapeHtml(p.playerName)}"
+            >
+              🗑️ Supprimer
+            </button>
+          </td>
+        </tr>`;
+    })
+    .join('');
 }
 
 function renderSuggestionsList() {
@@ -341,28 +431,45 @@ function renderPlayersTable() {
 
 function openConfirmModal(mode, targetValue, extraLabel = '') {
   const isDeleteSuggestion = mode === 'delete_suggestion';
+  const isDeletePigeon = mode === 'delete_pigeon';
+  const isClearPigeons = mode === 'clear_pigeons';
   const isDelete = mode === 'delete';
-  confirmBadge.textContent = isDelete || isDeleteSuggestion ? 'SUPPRESSION DÉFINITIVE' : 'RÉINITIALISATION';
-  confirmBadge.className = `confirm-badge ${isDelete || isDeleteSuggestion ? 'danger' : 'warn'}`;
-  confirmTitle.textContent = isDeleteSuggestion
-    ? `Supprimer le post de "${extraLabel}" ?`
-    : isDelete
-      ? `Supprimer le compte "${targetValue}" ?`
-      : `Réinitialiser "${targetValue}" à 0 ?`;
-  confirmMessage.textContent = isDeleteSuggestion
-    ? `Ce post / rapport sera définitivement supprimé de la base de données.`
-    : isDelete
-      ? `Cette action supprimera définitivement le profil "${targetValue}" de db.json et déconnectera l'élève s'il est en ligne.`
-      : `Toutes les notes de TP, l'XP, les diplômes et le temps de jeu de "${targetValue}" seront remis à zéro. Son compte et son skin seront conservés.`;
+  const dangerMode = isDelete || isDeleteSuggestion || isDeletePigeon || isClearPigeons;
+  confirmBadge.textContent = dangerMode ? 'SUPPRESSION DÉFINITIVE' : 'RÉINITIALISATION';
+  confirmBadge.className = `confirm-badge ${dangerMode ? 'danger' : 'warn'}`;
+  confirmTitle.textContent = isClearPigeons
+    ? 'Vider tout l’historique des Pigeons ?'
+    : isDeletePigeon
+      ? `Supprimer l’entrée de "${extraLabel}" ?`
+      : isDeleteSuggestion
+        ? `Supprimer le post de "${extraLabel}" ?`
+        : isDelete
+          ? `Supprimer le compte "${targetValue}" ?`
+          : `Réinitialiser "${targetValue}" à 0 ?`;
+  confirmMessage.textContent = isClearPigeons
+    ? 'Tous les clics enregistrés sur le Passe de Combat 10 € seront définitivement effacés.'
+    : isDeletePigeon
+      ? `Cette tentative de "${extraLabel}" sera supprimée de l’historique.`
+      : isDeleteSuggestion
+        ? `Ce post / rapport sera définitivement supprimé de la base de données.`
+        : isDelete
+          ? `Cette action supprimera définitivement le profil "${targetValue}" de db.json et déconnectera l'élève s'il est en ligne.`
+          : `Toutes les notes de TP, l'XP, les diplômes et le temps de jeu de "${targetValue}" seront remis à zéro. Son compte et son skin seront conservés.`;
 
-  confirmExecBtn.className = isDelete || isDeleteSuggestion ? 'btn-delete' : 'btn-reset';
-  confirmExecBtn.textContent = isDelete || isDeleteSuggestion ? 'Oui, supprimer définitivement' : 'Oui, réinitialiser à 0';
+  confirmExecBtn.className = dangerMode ? 'btn-delete' : 'btn-reset';
+  confirmExecBtn.textContent = dangerMode ? 'Oui, supprimer définitivement' : 'Oui, réinitialiser à 0';
 
   pendingConfirmAction = async () => {
     confirmExecBtn.disabled = true;
     try {
       const encoded = encodeURIComponent(targetValue);
-      if (isDeleteSuggestion) {
+      if (isClearPigeons) {
+        await apiFetch('/api/admin/pigeons', { method: 'DELETE' });
+        showToast('Historique des pigeons vidé.', 'success');
+      } else if (isDeletePigeon) {
+        await apiFetch(`/api/admin/pigeons/${encoded}`, { method: 'DELETE' });
+        showToast('Entrée supprimée.', 'success');
+      } else if (isDeleteSuggestion) {
         await apiFetch(`/api/admin/suggestions/${encoded}`, { method: 'DELETE' });
         showToast('Post / rapport supprimé.', 'success');
       } else if (isDelete) {
@@ -440,7 +547,22 @@ logoutBtn.addEventListener('click', () => {
 
 tabUsersBtn?.addEventListener('click', () => switchAdminSection('users'));
 tabPostsBtn?.addEventListener('click', () => switchAdminSection('posts'));
+tabPigeonsBtn?.addEventListener('click', () => switchAdminSection('pigeons'));
 tabMapBtn?.addEventListener('click', () => switchAdminSection('map'));
+
+clearPigeonsBtn?.addEventListener('click', () => {
+  if (allPigeons.length === 0) return;
+  openConfirmModal('clear_pigeons', 'all');
+});
+
+pigeonsTbody?.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-delete-pigeon]');
+  if (!btn) return;
+  const id = btn.dataset.deletePigeon;
+  const name = btn.dataset.name || 'Élève Anonyme';
+  if (!id) return;
+  openConfirmModal('delete_pigeon', id, name);
+});
 
 searchInput.addEventListener('input', renderPlayersTable);
 sortSelect.addEventListener('change', renderPlayersTable);

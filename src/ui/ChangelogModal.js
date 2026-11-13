@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v3.4 - Nouveau Menu Principal AAA & Passe de Combat Saison 1';
+    : 'v3.5 - Améliorations Passe de Combat & Stabilité';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,18 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v3.4 — Nouveau Menu Principal AAA & Passe de Combat Saison 1',
+    version: 'v3.5 — Améliorations Passe de Combat & Stabilité',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Fluidité améliorée sur les transitions et les effets visuels du Passe de Combat Saison 1 sur PC et Mobile.',
+      'Optimisations générales de stabilité réseau et de réactivité du Menu Principal.'
+    ]
+  },
+  {
+    version: 'v3.4 — Nouveau Menu Principal AAA & Passe de Combat Saison 1',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Refonte intégrale du Menu Principal façon jeu AAA moderne (Valorant / Fortnite / Cyberpunk), 100 % responsive PC & Mobile : barre de navigation supérieure complète (JOUER, PASSE DE COMBAT 🔥, SKINS & CASIER, POSTS & RAPPORTS, NOTES DE MÀJ, PLATEFORME, PARAMÈTRES) et badge joueur dynamique (Niveau, barre d’XP et Moyenne /20).',
       'Podium 3D cybernétique interactif au centre/droite avec socle hexagonal lumineux, halo néon cyan/magenta animé, rotation fluide à inertie (souris & tactile) et affichage en direct du pseudo et du rang au-dessus du personnage.',

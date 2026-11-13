@@ -489,3 +489,81 @@ test('Suggestions API : validation auteur/message, anti-XSS, tri et suppression 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('Pigeons API : enregistrement XSS-safe, rétrocompatibilité db.json, liste admin et suppression', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-pigeons-'));
+  const dbPath = path.join(tmpDir, 'db.json');
+  fs.writeFileSync(dbPath, JSON.stringify({ players: {}, suggestions: [] }), 'utf8');
+
+  const { server, wsHub } = createGameServer({ dbPath });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const anonRes = await fetch(`${baseUrl}/api/pigeons`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerName: '   ', platform: 'PC' })
+    });
+    assert.equal(anonRes.status, 201);
+    const anonData = await anonRes.json();
+    assert.equal(anonData.pigeon.playerName, 'Élève Anonyme');
+    assert.equal(anonData.pigeon.platform, 'PC');
+
+    const namedRes = await fetch(`${baseUrl}/api/pigeons`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerName: '<Lucas_CIEL>', platform: 'Mobile' })
+    });
+    assert.equal(namedRes.status, 201);
+    const namedData = await namedRes.json();
+    assert.equal(namedData.pigeon.playerName, 'Lucas_CIEL');
+    assert.equal(namedData.pigeon.platform, 'Mobile');
+
+    const unauthList = await fetch(`${baseUrl}/api/admin/pigeons`);
+    assert.equal(unauthList.status, 401);
+
+    const loginRes = await fetch(`${baseUrl}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: process.env.ADMIN_PASSWORD || 'Louisetjade1102' })
+    });
+    const { token } = await loginRes.json();
+
+    const adminList = await fetch(`${baseUrl}/api/admin/pigeons`, {
+      headers: { 'x-admin-token': token }
+    });
+    assert.equal(adminList.status, 200);
+    const listData = await adminList.json();
+    assert.equal(listData.total, 2);
+    assert.equal(listData.pigeons.length, 2);
+
+    const delOne = await fetch(`${baseUrl}/api/admin/pigeons/${namedData.pigeon.id}`, {
+      method: 'DELETE',
+      headers: { 'x-admin-token': token }
+    });
+    assert.equal(delOne.status, 200);
+
+    const afterOne = await (
+      await fetch(`${baseUrl}/api/admin/pigeons`, { headers: { 'x-admin-token': token } })
+    ).json();
+    assert.equal(afterOne.total, 1);
+
+    const clearAll = await fetch(`${baseUrl}/api/admin/pigeons`, {
+      method: 'DELETE',
+      headers: { 'x-admin-token': token }
+    });
+    assert.equal(clearAll.status, 200);
+
+    const afterClear = await (
+      await fetch(`${baseUrl}/api/admin/pigeons`, { headers: { 'x-admin-token': token } })
+    ).json();
+    assert.equal(afterClear.total, 0);
+    assert.deepEqual(afterClear.pigeons, []);
+  } finally {
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

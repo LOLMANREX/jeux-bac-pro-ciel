@@ -122,6 +122,12 @@ export function createGameServer(options = {}) {
     return res.status(201).json({ ok: true, suggestion });
   });
 
+  app.post('/api/pigeons', (req, res) => {
+    const { playerName, platform } = req.body || {};
+    const pigeon = store.addPigeon(playerName, platform);
+    return res.status(201).json({ ok: true, pigeon });
+  });
+
   const requireAdmin = (req, res, next) => {
     const headerToken = req.headers['x-admin-token'];
     const authHeader = req.headers.authorization;
@@ -189,6 +195,24 @@ export function createGameServer(options = {}) {
     const deleted = store.deleteSuggestion(req.params.id);
     if (!deleted) {
       return res.status(404).json({ error: 'Suggestion introuvable' });
+    }
+    return res.json({ ok: true, id: req.params.id });
+  });
+
+  app.get('/api/admin/pigeons', requireAdmin, (_req, res) => {
+    const pigeons = store.getPigeons();
+    return res.json({ pigeons, total: pigeons.length });
+  });
+
+  app.delete('/api/admin/pigeons', requireAdmin, (_req, res) => {
+    store.clearPigeons();
+    return res.json({ ok: true });
+  });
+
+  app.delete('/api/admin/pigeons/:id', requireAdmin, (req, res) => {
+    const deleted = store.deletePigeon(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Entrée introuvable' });
     }
     return res.json({ ok: true, id: req.params.id });
   });

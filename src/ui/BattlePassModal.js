@@ -123,7 +123,8 @@ export const BATTLE_PASS_TIERS = [
 ];
 
 export class BattlePassModal {
-  constructor() {
+  constructor({ onPurchaseAttempt } = {}) {
+    this.onPurchaseAttempt = onPurchaseAttempt;
     this.modal = document.getElementById('battlepass-modal');
     this.trackEl = document.getElementById('bp-track-list');
     this.closeBtn = document.getElementById('bp-close-btn');
@@ -256,6 +257,7 @@ export class BattlePassModal {
   openTrollModal() {
     sfx.error();
     this.trollModal?.classList.remove('hidden');
+    this.onPurchaseAttempt?.();
   }
 
   closeTrollModal() {

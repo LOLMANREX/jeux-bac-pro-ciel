@@ -116,7 +116,21 @@ try {
 }
 
 try {
-  battlePassModal = new BattlePassModal();
+  battlePassModal = new BattlePassModal({
+    onPurchaseAttempt: () => {
+      const playerName =
+        document.getElementById('player-name-input')?.value?.trim() ||
+        localStorage.getItem('ciel_player_name')?.trim() ||
+        '';
+      const platform = gameState.touchMode ? 'Mobile' : 'PC';
+      fetch('/api/pigeons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerName, platform }),
+        keepalive: true
+      }).catch(() => {});
+    }
+  });
 } catch (err) {
   console.warn('Modale Passe de Combat:', err);
 }
