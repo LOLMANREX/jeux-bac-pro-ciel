@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.0 - Refonte Complète des 6 TPs en 3D Interactive';
+    : 'v4.1 - 6 TPs 3D 100 % Uniques (Oscilloscope, Brassage, VLAN, DMX, Régie, Brasure)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.0 — Refonte Complète des 6 TPs en 3D Interactive',
+    version: 'v4.1 — 6 TPs 3D 100 % Uniques (Oscilloscope, Brassage, VLAN, DMX, Régie, Brasure)',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Séparation complète des paires de TPs : chaque station possède désormais sa propre scène 3D, ses objets manipulables dédiés, sa mécanique métier et son barème /20.',
+      'Électronique : Brasure PCB 3D enrichie (éponge humide à vapeur & bobine d’étain), Oscilloscope & GBF 3D (sans soudure) et nouvel atelier Électronique Breadboard & Multimètre Fluke 3D (code couleur, Loi d’Ohm LED et pont diviseur 5V → 3,3V).',
+      'Réseau : TP Brassage Baie 19" 3D (sertissage RJ45 T568B fil à fil + pince animée, cordons par service avec guides-câbles, testeur 1-8+G) totalement séparé du TP Configuration VLAN & Routage CLI 3D (maquette campus 3D dynamique, console SSH L3, résolution boucle STP, Ping & Traceroute animés).',
+      'Audiovisuel : TP Éclairage Scénique DMX512 3D (pont Truss, 4 projecteurs motorisés, décodeur DIP sans collision, pupitre 6 faders) totalement séparé du TP Régie Vidéo & Mixage Son 3D (mur Multiview PGM, caméra Focus/Iris, console audio -14/-10 dBFS, mélangeur ATEM CUT/TAKE).'
+    ]
+  },
+  {
+    version: 'v4.0 — Refonte Complète des 6 TPs en 3D Interactive',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Architecture 3D commune pour tous les TPs (Workbench3DHost) : transition fluide de caméra vers la paillasse 3D éclairée en plein jour, manipulation Souris & Tactile (glisser-déposer, rotation, orbit/zoom), particules, chronomètre et enregistrement /20 + XP via /api/tp.',
       'TP 1 Soudure & Brasure 3D : fer à souder interactif à panne rougeoyante, chauffage des pastilles, dépôt de cônes d’étain métalliques 3D, panaches de fumée blanche/noire et test de mise sous tension 5V en cascade.',

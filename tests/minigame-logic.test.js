@@ -5,13 +5,16 @@ import { evaluateSolderStage, computeSolderingScore3D } from '../src/minigames/S
 import {
   computeResistorOhms,
   simulateDividerCircuit,
-  simulateLedCircuit
+  simulateLedCircuit,
+  computeElectronicsScore3D
 } from '../src/minigames/ElectronicsGame.js';
 import { AV_STAGES, evaluateAntivirusStage, computeSocDefenseScore3D } from '../src/minigames/AntivirusGame.js';
-import { VMVLAN_STAGES, evaluateVmVlanStage } from '../src/minigames/VmVlanGame.js';
+import { VMVLAN_STAGES, evaluateVmVlanStage, computeVlanConfigScore3D } from '../src/minigames/VmVlanGame.js';
 import { computeHardwareScore3D } from '../src/minigames/PcHardwareGame.js';
-import { computeRackVlanScore3D } from '../src/minigames/PatchRackGame.js';
+import { computeRackVlanScore3D, computePatchPanelScore3D } from '../src/minigames/PatchRackGame.js';
 import { computeAvStudioScore3D } from '../src/minigames/AudioVisualGame.js';
+import { computeDmxScore3D } from '../src/minigames/DmxLightingGame.js';
+import { computeStudioRegieScore3D } from '../src/minigames/StudioRegieGame.js';
 
 test('Oscilloscope : valide la calibration et les mesures sinusoïdales et PWM', () => {
   const s1 = evaluateOscilloscopeStage(
@@ -194,4 +197,62 @@ test('Notation /20 & XP des 6 ateliers TPs 3D interactifs', () => {
     elapsedSec: 110
   });
   assert.equal(s6.score, 20);
+});
+
+test('Scoring /20 des ateliers séparés (Électronique, Brassage, VLAN CLI, DMX512, Régie Studio)', () => {
+  const elecScore = computeElectronicsScore3D({
+    multimeterChecked: true,
+    ledStatus: 'ok',
+    dividerOk: true,
+    dividerVout: 3.33,
+    powerTested: true,
+    elapsedSec: 90
+  });
+  assert.equal(elecScore.score, 20);
+
+  const patchScore = computePatchPanelScore3D({
+    t568bMatches: 8,
+    crimped: true,
+    patchCorrect: 6,
+    colorCorrect: 6,
+    totalLinks: 6,
+    guidesUsed: true,
+    testerRun: true,
+    continuityPassed: true,
+    elapsedSec: 60
+  });
+  assert.equal(patchScore, 20);
+
+  const vlanScore = computeVlanConfigScore3D({
+    vlansCreated: 3,
+    trunkConfigured: true,
+    gatewaysOk: 3,
+    stpResolved: true,
+    probeRun: true,
+    pingOk: true,
+    elapsedSec: 70
+  });
+  assert.equal(vlanScore, 20);
+
+  const dmxScore = computeDmxScore3D({
+    dmxNoOverlap: true,
+    overlapCount: 0,
+    matchedFixtures: 4,
+    aimScore: 4,
+    elapsedSec: 65
+  });
+  assert.equal(dmxScore, 20);
+
+  const regieScore = computeStudioRegieScore3D({
+    focusOk: true,
+    irisOk: true,
+    chromaOk: true,
+    audioLevelOk: true,
+    audioClipping: false,
+    phantom48v: true,
+    hpf80: true,
+    cuesCompleted: 3,
+    elapsedSec: 70
+  });
+  assert.equal(regieScore, 20);
 });

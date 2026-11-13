@@ -37,7 +37,8 @@ import { createAntivirusGame } from './minigames/AntivirusGame.js';
 import { createVmVlanGame } from './minigames/VmVlanGame.js';
 import { createPatchRackGame } from './minigames/PatchRackGame.js';
 import { createPcHardwareGame } from './minigames/PcHardwareGame.js';
-import { createAudioVisualGame } from './minigames/AudioVisualGame.js';
+import { createDmxLightingGame } from './minigames/DmxLightingGame.js';
+import { createStudioRegieGame } from './minigames/StudioRegieGame.js';
 
 const MINIGAME_FACTORIES = {
   oscilloscope: createOscilloscopeGame,
@@ -47,8 +48,8 @@ const MINIGAME_FACTORIES = {
   vmvlan: createVmVlanGame,
   patchrack: createPatchRackGame,
   hardware: createPcHardwareGame,
-  audiovisual: (api) => createAudioVisualGame(api, { initialStage: 0 }),
-  studio: (api) => createAudioVisualGame(api, { initialStage: 1 })
+  audiovisual: createDmxLightingGame,
+  studio: createStudioRegieGame
 };
 
 const extraStationGrades = {};

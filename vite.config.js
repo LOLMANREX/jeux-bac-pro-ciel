@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.0 - Refonte Complète des 6 TPs en 3D Interactive'),
+    __APP_VERSION__: JSON.stringify('v4.1 - 6 TPs 3D 100 % Uniques (Oscilloscope, Brassage, VLAN, DMX, Régie, Brasure)'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

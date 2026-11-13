@@ -36,17 +36,17 @@ export const TP_CATALOG = [
   },
   {
     id: 'electronics',
-    title: 'TP Électronique & Diagnostic 3D',
-    shortTitle: 'Électronique',
+    title: 'TP Breadboard, Multimètre & Résistances 3D',
+    shortTitle: 'Électronique 3D',
     icon: '⚡',
     pole: 'Conception & Circuits',
     room: TP_STATION_LAYOUT.electronics.room,
     color: '#fbbf24',
     position: TP_STATION_LAYOUT.electronics.position,
     brief:
-      'Diagnostiquez une carte électronique en panne à l’oscilloscope et au GBF en 3D, relevez les tensions sur TP1/TP2/TP3 et remplacez le composant défectueux.',
+      'Mesurez les résistances au multimètre Fluke 3D, montez la LED 5V (Loi d’Ohm & polarité) et câblez le pont diviseur 5V → 3,3V pour ESP32 sur Breadboard.',
     teacherHint:
-      '« Vérifie la tension de sortie sur chaque point de test avec la sonde 3D et repère le composant qui chauffe ou fume légèrement pour le remplacer ! »'
+      '« Déchiffre le code couleur des résistances 3D au multimètre, respecte l’anode/cathode de la LED et choisis le bon pont diviseur pour protéger l’ESP32 à 3,3V ! »'
   },
   {
     id: 'antivirus',
@@ -64,17 +64,17 @@ export const TP_CATALOG = [
   },
   {
     id: 'vmvlan',
-    title: 'TP Baie 19" & Réseau VLAN 3D',
-    shortTitle: 'Baie & VLAN',
+    title: 'TP Configuration VLAN, STP & Routage CLI 3D',
+    shortTitle: 'VLAN & CLI 3D',
     icon: '🌐',
     pole: 'Réseaux & Virtualisation',
     room: TP_STATION_LAYOUT.vmvlan.room,
     color: '#34d399',
     position: TP_STATION_LAYOUT.vmvlan.position,
     brief:
-      'Branchez les cordons RJ45 3D entre panneau de brassage et switch 24 ports, configurez les VLAN 10/20/30 dans le terminal console du PC portable et vérifiez le ping.',
+      'Supprimez la boucle STP sur la maquette topologique 3D, configurez les VLAN 10/20/30, le Trunk 802.1Q et les passerelles en console CLI puis testez au Ping 3D.',
     teacherHint:
-      '« Relie d’abord chaque port du bandeau au switch 24 ports pour allumer les LEDs vertes, puis ouvre le terminal console pour configurer VLAN 10, 20 et 30 ! »'
+      '« Coupe d’abord la boucle Spanning-Tree rouge sur le switch L3 via la console du Laptop, crée les VLANs et les passerelles /24 puis envoie un Ping 3D entre zones ! »'
   }
 ];
 

@@ -562,6 +562,55 @@ export function createSolderingGame(api) {
     }
   });
 
+  const spongeGroup = new THREE.Group();
+  spongeGroup.position.set(0.92, 0.02, 0.28);
+  wb.scene.add(spongeGroup);
+  const spongeTray = new THREE.Mesh(
+    wb.track(new THREE.BoxGeometry(0.24, 0.03, 0.18)),
+    wb.track(new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.45 }))
+  );
+  spongeTray.position.y = 0.015;
+  const spongePad = new THREE.Mesh(
+    wb.track(new THREE.BoxGeometry(0.19, 0.032, 0.13)),
+    wb.track(new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.92 }))
+  );
+  spongePad.position.y = 0.028;
+  spongeGroup.add(spongeTray, spongePad);
+  wb.addInteractive(spongeGroup, {
+    label: '🧽 Éponge humide (Nettoyer la panne du fer)',
+    onClick: () => {
+      sfx.click();
+      wb.spawnSmoke([0.92, 0.08, 0.28], { color: '#f8fafc', count: 10, scale: 0.02, speed: 0.22 });
+      wb.showToast('Panne du fer nettoyée sur l’éponge humide !', 'success');
+    }
+  });
+
+  const spoolGroup = new THREE.Group();
+  spoolGroup.position.set(-0.92, 0.06, -0.02);
+  wb.scene.add(spoolGroup);
+  const spoolFlangeTop = new THREE.Mesh(
+    wb.track(new THREE.CylinderGeometry(0.085, 0.085, 0.014, 24)),
+    wb.track(new THREE.MeshStandardMaterial({ color: '#0284c7', roughness: 0.4 }))
+  );
+  spoolFlangeTop.position.y = 0.065;
+  const spoolFlangeBot = spoolFlangeTop.clone();
+  spoolFlangeBot.position.y = -0.045;
+  const spoolCore = new THREE.Mesh(
+    wb.track(new THREE.CylinderGeometry(0.064, 0.064, 0.095, 24)),
+    solderPhysMat
+  );
+  spoolCore.position.y = 0.01;
+  spoolGroup.add(spoolFlangeTop, spoolFlangeBot, spoolCore);
+  wb.addInteractive(spoolGroup, {
+    label: '🧵 Bobine d’étain SAC305 (Sélectionner le fil d’étain)',
+    onClick: () => {
+      tool = 'tin';
+      sfx.click();
+      wb.showToast('Fil d’étain SAC305 prêt pour braser !', 'info');
+      refreshHud();
+    }
+  });
+
   const ironGroup = new THREE.Group();
   ironGroup.position.set(-0.2, 0.32, 0.35);
   ironGroup.rotation.set(0.75, 0.2, -0.35);
