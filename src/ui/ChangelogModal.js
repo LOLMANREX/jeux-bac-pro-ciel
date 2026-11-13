@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v3.5 - Améliorations Passe de Combat & Stabilité';
+    : 'v3.6 - Modèles 3D exclusifs & Vitrine Passe de Combat';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v3.5 — Améliorations Passe de Combat & Stabilité',
+    version: 'v3.6 — Modèles 3D exclusifs & Vitrine Passe de Combat',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Vitrine 3D interactive en direct intégrée au Passe de Combat Saison 1 : cliquez ou survolez chacun des 10 paliers pour voir le personnage s’équiper en temps réel sur un socle studio rotatif.',
+      'Vrais modèles et accessoires 3D exclusifs modélisés dans Three.js : Casque VR Or 24 Carats, Visière Cybernétique avec antennes, Couronne Royale dorée à 6 gemmes, Jetpack RGB animé, ventilateurs dorsaux RTX 5090 Ti, Mini-Drone Switch Cisco orbital et Halo doré 3D.',
+      'Matériaux spéciaux et auras de particules 3D : Or massif 24K réfléchissant, Chrome RGB, Armure Carbone néon, Cristal Diamant facetté, cascade Matrix, étincelles dorées et éclairs cyan.',
+      'Refonte visuelle des 10 cartes de paliers avec badges de rareté colorés et brillants (RARE, ÉPIQUE, LÉGENDAIRE, MYTHIQUE et carte ULTIME dorée animée).'
+    ]
+  },
+  {
+    version: 'v3.5 — Améliorations Passe de Combat & Stabilité',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Fluidité améliorée sur les transitions et les effets visuels du Passe de Combat Saison 1 sur PC et Mobile.',
       'Optimisations générales de stabilité réseau et de réactivité du Menu Principal.'

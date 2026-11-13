@@ -55,15 +55,135 @@ export function normalizeSkin(rawSkin = {}) {
   };
 }
 
+function createThemeMaterials(skin, showcase = null) {
+  const theme = showcase?.materialTheme || null;
+  if (theme === 'matrix') {
+    return {
+      torsoMat: new THREE.MeshStandardMaterial({ color: '#08100c', roughness: 0.82, metalness: 0.2 }),
+      pantsMat: new THREE.MeshStandardMaterial({ color: '#050a07', roughness: 0.85, metalness: 0.15 }),
+      shoeMat: new THREE.MeshStandardMaterial({ color: '#022c22', roughness: 0.5, emissive: '#16a34a', emissiveIntensity: 0.45 }),
+      skinMat: new THREE.MeshStandardMaterial({ color: skin.skinTone, roughness: 0.72 }),
+      hairMat: new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.8 }),
+      trimMat: new THREE.MeshStandardMaterial({ color: '#22c55e', emissive: '#22c55e', emissiveIntensity: 1.85, roughness: 0.25 }),
+      trimColor: '#22c55e'
+    };
+  }
+  if (theme === 'gold24k') {
+    return {
+      torsoMat: new THREE.MeshStandardMaterial({ color: '#fbbf24', metalness: 0.9, roughness: 0.15, emissive: '#78350f', emissiveIntensity: 0.2 }),
+      pantsMat: new THREE.MeshStandardMaterial({ color: '#1e1b4b', metalness: 0.45, roughness: 0.45 }),
+      shoeMat: new THREE.MeshStandardMaterial({ color: '#fbbf24', metalness: 0.9, roughness: 0.15 }),
+      skinMat: new THREE.MeshStandardMaterial({ color: skin.skinTone, roughness: 0.68 }),
+      hairMat: new THREE.MeshStandardMaterial({ color: '#292524', roughness: 0.8 }),
+      trimMat: new THREE.MeshStandardMaterial({ color: '#fef08a', metalness: 0.9, roughness: 0.15, emissive: '#f59e0b', emissiveIntensity: 1.2 }),
+      trimColor: '#fde047'
+    };
+  }
+  if (theme === 'chrome_rgb') {
+    return {
+      torsoMat: new THREE.MeshStandardMaterial({ color: '#e2e8f0', metalness: 0.92, roughness: 0.14 }),
+      pantsMat: new THREE.MeshStandardMaterial({ color: '#1e293b', metalness: 0.6, roughness: 0.32 }),
+      shoeMat: new THREE.MeshStandardMaterial({ color: '#0f172a', metalness: 0.8, roughness: 0.22 }),
+      skinMat: new THREE.MeshStandardMaterial({ color: skin.skinTone, roughness: 0.7 }),
+      hairMat: new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.75 }),
+      trimMat: new THREE.MeshStandardMaterial({ color: '#22d3ee', emissive: '#22d3ee', emissiveIntensity: 1.7, roughness: 0.2 }),
+      trimColor: '#22d3ee',
+      rgbCycle: true
+    };
+  }
+  if (theme === 'carbon_neon') {
+    return {
+      torsoMat: new THREE.MeshStandardMaterial({ color: '#111827', metalness: 0.72, roughness: 0.34 }),
+      pantsMat: new THREE.MeshStandardMaterial({ color: '#090d16', metalness: 0.58, roughness: 0.4 }),
+      shoeMat: new THREE.MeshStandardMaterial({ color: '#052e16', metalness: 0.6, roughness: 0.3, emissive: '#10b981', emissiveIntensity: 0.4 }),
+      skinMat: new THREE.MeshStandardMaterial({ color: skin.skinTone, roughness: 0.7 }),
+      hairMat: new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.8 }),
+      trimMat: new THREE.MeshStandardMaterial({ color: '#22c55e', emissive: '#4ade80', emissiveIntensity: 1.85, roughness: 0.2 }),
+      trimColor: '#4ade80'
+    };
+  }
+  if (theme === 'diamond') {
+    return {
+      torsoMat: new THREE.MeshStandardMaterial({
+        color: '#67e8f9',
+        metalness: 0.78,
+        roughness: 0.08,
+        emissive: '#0891b2',
+        emissiveIntensity: 0.65,
+        flatShading: true
+      }),
+      pantsMat: new THREE.MeshStandardMaterial({
+        color: '#22d3ee',
+        metalness: 0.75,
+        roughness: 0.1,
+        emissive: '#0e7490',
+        emissiveIntensity: 0.5,
+        flatShading: true
+      }),
+      shoeMat: new THREE.MeshStandardMaterial({
+        color: '#cffafe',
+        metalness: 0.85,
+        roughness: 0.1,
+        emissive: '#22d3ee',
+        emissiveIntensity: 0.65,
+        flatShading: true
+      }),
+      skinMat: new THREE.MeshStandardMaterial({
+        color: '#a5f3fc',
+        metalness: 0.62,
+        roughness: 0.12,
+        emissive: '#06b6d4',
+        emissiveIntensity: 0.35,
+        flatShading: true
+      }),
+      hairMat: new THREE.MeshStandardMaterial({
+        color: '#ecfeff',
+        metalness: 0.88,
+        roughness: 0.08,
+        emissive: '#38bdf8',
+        emissiveIntensity: 0.75,
+        flatShading: true
+      }),
+      trimMat: new THREE.MeshStandardMaterial({
+        color: '#e0f2fe',
+        emissive: '#22d3ee',
+        emissiveIntensity: 2.0,
+        roughness: 0.1,
+        flatShading: true
+      }),
+      trimColor: '#22d3ee'
+    };
+  }
+  if (theme === 'cyber_gold') {
+    return {
+      torsoMat: new THREE.MeshStandardMaterial({ color: '#17153b', metalness: 0.75, roughness: 0.24, emissive: '#312e81', emissiveIntensity: 0.35 }),
+      pantsMat: new THREE.MeshStandardMaterial({ color: '#0f172a', metalness: 0.55, roughness: 0.35 }),
+      shoeMat: new THREE.MeshStandardMaterial({ color: '#fbbf24', metalness: 0.9, roughness: 0.15 }),
+      skinMat: new THREE.MeshStandardMaterial({ color: skin.skinTone, roughness: 0.68 }),
+      hairMat: new THREE.MeshStandardMaterial({ color: '#1e1b4b', roughness: 0.75 }),
+      trimMat: new THREE.MeshStandardMaterial({ color: '#fbbf24', metalness: 0.9, roughness: 0.15, emissive: '#f59e0b', emissiveIntensity: 1.55 }),
+      trimColor: '#fbbf24'
+    };
+  }
+  return {
+    torsoMat: new THREE.MeshStandardMaterial({ color: skin.outfitColor, roughness: 0.55 }),
+    pantsMat: new THREE.MeshStandardMaterial({ color: skin.pantsColor, roughness: 0.72 }),
+    shoeMat: new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.65 }),
+    skinMat: new THREE.MeshStandardMaterial({ color: skin.skinTone, roughness: 0.72 }),
+    hairMat: new THREE.MeshStandardMaterial({ color: '#292524', roughness: 0.85 }),
+    trimMat: null,
+    trimColor: skin.outfitColor
+  };
+}
+
 export function buildStudentAvatarMesh(rawSkin = {}) {
   const skin = normalizeSkin(rawSkin);
+  const showcase = rawSkin && typeof rawSkin === 'object' ? rawSkin.showcase || null : null;
+  const accessories = new Set(Array.isArray(showcase?.accessories) ? showcase.accessories : []);
+  const mats = createThemeMaterials(skin, showcase);
+  const { torsoMat, pantsMat, shoeMat, skinMat, hairMat, trimMat } = mats;
   const group = new THREE.Group();
-
-  const pantsMat = new THREE.MeshStandardMaterial({ color: skin.pantsColor, roughness: 0.72 });
-  const shoeMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.65 });
-  const torsoMat = new THREE.MeshStandardMaterial({ color: skin.outfitColor, roughness: 0.55 });
-  const skinMat = new THREE.MeshStandardMaterial({ color: skin.skinTone, roughness: 0.72 });
-  const hairMat = new THREE.MeshStandardMaterial({ color: '#292524', roughness: 0.85 });
+  const updaters = [];
 
   const makeLeg = (xOffset) => {
     const pivot = new THREE.Group();
@@ -75,6 +195,11 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.09, 0.25), shoeMat);
     shoe.position.set(0, -0.675, 0.03);
     pivot.add(shoe);
+    if (trimMat) {
+      const bootBand = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.025, 0.26), trimMat);
+      bootBand.position.set(0, -0.625, 0.03);
+      pivot.add(bootBand);
+    }
     group.add(pivot);
     return pivot;
   };
@@ -87,7 +212,31 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
   torso.castShadow = true;
   group.add(torso);
 
-  if (skin.outfitStyle === 'blouse') {
+  if (trimMat) {
+    [-0.19, 0.19].forEach((sx) => {
+      const chestStripe = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.64, 0.305), trimMat);
+      chestStripe.position.set(sx, 1.06, 0);
+      group.add(chestStripe);
+    });
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.055, 0.3), trimMat);
+    belt.position.set(0, 0.75, 0);
+    group.add(belt);
+    const reactor = new THREE.Mesh(new THREE.OctahedronGeometry(0.075, 0), trimMat);
+    reactor.position.set(0, 1.16, 0.155);
+    group.add(reactor);
+
+    if (showcase?.materialTheme === 'diamond' || showcase?.materialTheme === 'cyber_gold') {
+      [-0.31, 0.31].forEach((px) => {
+        const pauldron = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.14, 0),
+          showcase.materialTheme === 'diamond' ? torsoMat : trimMat
+        );
+        pauldron.scale.set(1.15, 0.68, 1.25);
+        pauldron.position.set(px, 1.38, 0);
+        group.add(pauldron);
+      });
+    }
+  } else if (skin.outfitStyle === 'blouse') {
     const lapel = new THREE.Mesh(
       new THREE.BoxGeometry(0.14, 0.62, 0.3),
       new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.6 })
@@ -110,6 +259,14 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     group.add(core);
   }
 
+  if (mats.rgbCycle && trimMat) {
+    updaters.push((t) => {
+      const h = (t * 0.25) % 1;
+      trimMat.color.setHSL(h, 0.95, 0.58);
+      trimMat.emissive.setHSL(h, 0.95, 0.55);
+    });
+  }
+
   const makeArm = (xOffset) => {
     const pivot = new THREE.Group();
     pivot.position.set(xOffset, 1.34, 0);
@@ -117,6 +274,11 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     armMesh.position.set(0, -0.26, 0);
     armMesh.castShadow = true;
     pivot.add(armMesh);
+    if (trimMat) {
+      const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.155, 0.04, 0.175), trimMat);
+      cuff.position.set(0, -0.49, 0);
+      pivot.add(cuff);
+    }
     const hand = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.12, 0.14), skinMat);
     hand.position.set(0, -0.58, 0);
     pivot.add(hand);
@@ -143,7 +305,60 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     group.add(eye);
   });
 
-  if (skin.hat === 'glasses') {
+  if (accessories.has('vr_gold')) {
+    const goldMat = new THREE.MeshStandardMaterial({
+      color: '#fbbf24',
+      metalness: 0.9,
+      roughness: 0.15,
+      emissive: '#78350f',
+      emissiveIntensity: 0.2
+    });
+    const vrScreenMat = new THREE.MeshStandardMaterial({
+      color: '#67e8f9',
+      emissive: '#22d3ee',
+      emissiveIntensity: 1.9,
+      roughness: 0.12
+    });
+    const vrBody = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.15, 0.16), goldMat);
+    vrBody.position.set(0, 1.62, 0.18);
+    group.add(vrBody);
+    const vrScreen = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.085, 0.02), vrScreenMat);
+    vrScreen.position.set(0, 1.62, 0.258);
+    group.add(vrScreen);
+    const sideBand = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.055, 0.38), goldMat);
+    sideBand.position.set(0, 1.63, -0.01);
+    group.add(sideBand);
+    const topStrap = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, 0.36), goldMat);
+    topStrap.position.set(0, 1.72, -0.01);
+    group.add(topStrap);
+  } else if (accessories.has('cyber_visor')) {
+    const visorColor = showcase?.visorColor || mats.trimColor || '#22d3ee';
+    const frameMat = new THREE.MeshStandardMaterial({ color: '#0f172a', metalness: 0.85, roughness: 0.22 });
+    const glowMat = new THREE.MeshStandardMaterial({
+      color: visorColor,
+      emissive: visorColor,
+      emissiveIntensity: 2.1,
+      roughness: 0.12
+    });
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.095, 0.12), glowMat);
+    visor.position.set(0, 1.615, 0.165);
+    group.add(visor);
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.032, 0.28), frameMat);
+    bridge.position.set(0, 1.665, 0.07);
+    group.add(bridge);
+    [-0.195, 0.195].forEach((ax) => {
+      const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.11, 10), frameMat);
+      pod.rotation.z = Math.PI / 2;
+      pod.position.set(ax, 1.63, 0);
+      group.add(pod);
+      const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.014, 0.24, 8), frameMat);
+      ant.position.set(ax * 1.06, 1.77, -0.02);
+      group.add(ant);
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 8), glowMat);
+      tip.position.set(ax * 1.06, 1.89, -0.02);
+      group.add(tip);
+    });
+  } else if (skin.hat === 'glasses') {
     const gMat = new THREE.MeshStandardMaterial({ color: '#0284c7', metalness: 0.4 });
     [-0.075, 0.075].forEach((gx) => {
       const lens = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.06, 0.03), gMat);
@@ -171,7 +386,278 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     });
   }
 
-  return { group, leftLeg, rightLeg, leftArm, rightArm };
+  if (accessories.has('royal_crown')) {
+    const crownGroup = new THREE.Group();
+    crownGroup.position.set(0, 1.97, 0);
+    const crownGold = new THREE.MeshStandardMaterial({
+      color: '#fbbf24',
+      metalness: 0.9,
+      roughness: 0.15,
+      emissive: '#b45309',
+      emissiveIntensity: 0.35
+    });
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.19, 0.09, 8, 1, true), crownGold);
+    band.material.side = THREE.DoubleSide;
+    crownGroup.add(band);
+    const gemColors = ['#f43f5e', '#22d3ee', '#10b981', '#a855f7', '#fb7185', '#38bdf8'];
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const rx = Math.cos(a) * 0.2;
+      const rz = Math.sin(a) * 0.2;
+      const spire = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.13, 4), crownGold);
+      spire.position.set(rx, 0.1, rz);
+      crownGroup.add(spire);
+      const gem = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.032, 0),
+        new THREE.MeshStandardMaterial({
+          color: gemColors[i],
+          emissive: gemColors[i],
+          emissiveIntensity: 1.9,
+          roughness: 0.1
+        })
+      );
+      gem.position.set(rx * 1.04, 0.17, rz * 1.04);
+      crownGroup.add(gem);
+    }
+    group.add(crownGroup);
+    updaters.push((t) => {
+      crownGroup.position.y = 1.98 + Math.sin(t * 2.8) * 0.035;
+      crownGroup.rotation.y = t * 1.1;
+    });
+  }
+
+  if (accessories.has('gold_halo')) {
+    const haloMat = new THREE.MeshStandardMaterial({
+      color: '#fef08a',
+      metalness: 0.9,
+      roughness: 0.15,
+      emissive: '#fbbf24',
+      emissiveIntensity: 1.85
+    });
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.028, 10, 32), haloMat);
+    halo.rotation.x = Math.PI / 2;
+    halo.position.set(0, 1.98, 0);
+    group.add(halo);
+    updaters.push((t) => {
+      halo.position.y = 1.98 + Math.sin(t * 2.5) * 0.03;
+      halo.rotation.y = t * 0.8;
+    });
+  }
+
+  if (accessories.has('jetpack_rgb')) {
+    const packGroup = new THREE.Group();
+    packGroup.position.set(0, 1.12, -0.21);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: '#1e293b', metalness: 0.85, roughness: 0.22 });
+    const rgbMat = new THREE.MeshStandardMaterial({
+      color: '#22d3ee',
+      emissive: '#22d3ee',
+      emissiveIntensity: 2.0,
+      roughness: 0.15
+    });
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.44, 0.14), bodyMat);
+    packGroup.add(chassis);
+    const flames = [];
+    [-0.12, 0.12].forEach((tx) => {
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 0.42, 12), bodyMat);
+      tank.position.set(tx, -0.02, -0.03);
+      packGroup.add(tank);
+      const ledBar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.34, 0.025), rgbMat);
+      ledBar.position.set(tx, 0.02, -0.102);
+      packGroup.add(ledBar);
+      const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.08, 10), bodyMat);
+      nozzle.position.set(tx, -0.26, -0.03);
+      packGroup.add(nozzle);
+      const flame = new THREE.Mesh(
+        new THREE.ConeGeometry(0.055, 0.24, 10),
+        new THREE.MeshBasicMaterial({ color: '#38bdf8', transparent: true, opacity: 0.85 })
+      );
+      flame.rotation.x = Math.PI;
+      flame.position.set(tx, -0.4, -0.03);
+      packGroup.add(flame);
+      flames.push(flame);
+    });
+    group.add(packGroup);
+    updaters.push((t) => {
+      const h = (t * 0.35) % 1;
+      rgbMat.color.setHSL(h, 0.95, 0.6);
+      rgbMat.emissive.setHSL(h, 0.95, 0.55);
+      flames.forEach((f, idx) => {
+        const s = 0.85 + Math.sin(t * 24 + idx * 2) * 0.22;
+        f.scale.set(1, s, 1);
+        f.material.color.setHSL((h + 0.12) % 1, 0.95, 0.65);
+      });
+    });
+  }
+
+  if (accessories.has('rtx_fans')) {
+    const rtxGroup = new THREE.Group();
+    rtxGroup.position.set(0, 1.12, -0.21);
+    const shroudMat = new THREE.MeshStandardMaterial({ color: '#090d16', metalness: 0.85, roughness: 0.2 });
+    const greenMat = new THREE.MeshStandardMaterial({
+      color: '#4ade80',
+      emissive: '#22c55e',
+      emissiveIntensity: 2.0,
+      roughness: 0.15
+    });
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.46, 0.12), shroudMat);
+    rtxGroup.add(slab);
+    const topStrip = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.13), greenMat);
+    topStrip.position.set(0, 0.2, 0);
+    rtxGroup.add(topStrip);
+    const rotors = [];
+    [0.1, -0.1].forEach((fy) => {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.015, 8, 20), greenMat);
+      ring.position.set(0, fy, -0.068);
+      rtxGroup.add(ring);
+      const rotor = new THREE.Group();
+      rotor.position.set(0, fy, -0.065);
+      for (let b = 0; b < 3; b++) {
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.025, 0.012), greenMat);
+        blade.rotation.z = (b / 3) * Math.PI;
+        rotor.add(blade);
+      }
+      rtxGroup.add(rotor);
+      rotors.push(rotor);
+    });
+    group.add(rtxGroup);
+    updaters.push((t) => {
+      rotors.forEach((r, idx) => {
+        r.rotation.z = t * (idx === 0 ? 11 : -11);
+      });
+    });
+  }
+
+  if (accessories.has('vip_badge')) {
+    const goldMat = new THREE.MeshStandardMaterial({
+      color: '#fbbf24',
+      metalness: 0.9,
+      roughness: 0.15,
+      emissive: '#b45309',
+      emissiveIntensity: 0.3
+    });
+    const ledMat = new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 2.0 });
+    const badge = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.03), goldMat);
+    badge.position.set(-0.14, 1.22, 0.155);
+    group.add(badge);
+    const chip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.036), ledMat);
+    chip.position.set(-0.14, 1.24, 0.157);
+    group.add(chip);
+    const keyGroup = new THREE.Group();
+    keyGroup.position.set(-0.56, 1.42, 0.12);
+    const bow = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.022, 8, 18), goldMat);
+    keyGroup.add(bow);
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.22, 0.025), goldMat);
+    shaft.position.set(0, -0.17, 0);
+    keyGroup.add(shaft);
+    const tooth1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.025, 0.025), goldMat);
+    tooth1.position.set(0.04, -0.22, 0);
+    keyGroup.add(tooth1);
+    const tooth2 = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.025, 0.025), goldMat);
+    tooth2.position.set(0.045, -0.265, 0);
+    keyGroup.add(tooth2);
+    group.add(keyGroup);
+    updaters.push((t) => {
+      keyGroup.position.y = 1.42 + Math.sin(t * 2.4) * 0.06;
+      keyGroup.rotation.y = t * 1.4;
+    });
+  }
+
+  if (accessories.has('cisco_drone')) {
+    const drone = new THREE.Group();
+    drone.position.set(0.58, 1.68, 0.08);
+    const ciscoBody = new THREE.Mesh(
+      new THREE.BoxGeometry(0.28, 0.11, 0.2),
+      new THREE.MeshStandardMaterial({ color: '#0c4a6e', metalness: 0.72, roughness: 0.25 })
+    );
+    drone.add(ciscoBody);
+    const leds = [];
+    const ledColors = ['#22c55e', '#22d3ee', '#fbbf24', '#22c55e'];
+    for (let i = 0; i < 4; i++) {
+      const lMat = new THREE.MeshBasicMaterial({ color: ledColors[i] });
+      const led = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.026, 0.02), lMat);
+      led.position.set(-0.08 + i * 0.052, 0.015, 0.105);
+      drone.add(led);
+      leds.push(led);
+    }
+    const ant = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.008, 0.01, 0.14, 6),
+      new THREE.MeshStandardMaterial({ color: '#94a3b8', metalness: 0.8 })
+    );
+    ant.position.set(0.09, 0.12, -0.05);
+    drone.add(ant);
+    const hoverGlow = new THREE.Mesh(
+      new THREE.RingGeometry(0.06, 0.11, 16),
+      new THREE.MeshBasicMaterial({ color: '#38bdf8', side: THREE.DoubleSide })
+    );
+    hoverGlow.rotation.x = Math.PI / 2;
+    hoverGlow.position.set(0, -0.065, 0);
+    drone.add(hoverGlow);
+    group.add(drone);
+    updaters.push((t) => {
+      drone.position.x = 0.54 + Math.cos(t * 1.3) * 0.1;
+      drone.position.y = 1.66 + Math.sin(t * 3.0) * 0.07;
+      drone.position.z = 0.06 + Math.sin(t * 1.3) * 0.12;
+      drone.rotation.y = Math.sin(t * 0.9) * 0.35;
+      leds.forEach((led, idx) => {
+        led.visible = Math.sin(t * 8 + idx * 1.7) > -0.25;
+      });
+    });
+  }
+
+  const particleKind = showcase?.particles || null;
+  if (particleKind) {
+    const pGroup = new THREE.Group();
+    const specs = [];
+    const count = 20;
+    for (let i = 0; i < count; i++) {
+      let geom;
+      let color;
+      if (particleKind === 'matrix') {
+        geom = new THREE.BoxGeometry(0.042, 0.075, 0.042);
+        color = i % 3 === 0 ? '#86efac' : '#22c55e';
+      } else if (particleKind === 'lightning_cyan') {
+        geom = new THREE.BoxGeometry(0.024, 0.15, 0.024);
+        color = i % 2 === 0 ? '#67e8f9' : '#22d3ee';
+      } else {
+        geom = new THREE.OctahedronGeometry(0.036, 0);
+        color = i % 2 === 0 ? '#fde047' : '#f59e0b';
+      }
+      const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color }));
+      pGroup.add(mesh);
+      specs.push({
+        mesh,
+        angle: (i / count) * Math.PI * 2,
+        radius: 0.48 + (i % 4) * 0.1,
+        speed: 0.9 + (i % 5) * 0.25,
+        yBase: 0.25 + ((i * 0.37) % 1.65),
+        tilt: (i % 2 === 0 ? 1 : -1) * 0.45
+      });
+    }
+    group.add(pGroup);
+    updaters.push((t) => {
+      for (const s of specs) {
+        const a = s.angle + t * s.speed;
+        const y =
+          particleKind === 'matrix'
+            ? 2.05 - ((s.yBase + t * 0.55) % 1.95)
+            : 0.2 + ((s.yBase + t * 0.4) % 1.85);
+        s.mesh.position.set(Math.cos(a) * s.radius, y, Math.sin(a) * s.radius);
+        if (particleKind === 'lightning_cyan') {
+          s.mesh.rotation.set(s.tilt, a, s.tilt);
+        } else {
+          s.mesh.rotation.y = t * 2.2;
+          s.mesh.rotation.x = t * 1.4;
+        }
+      }
+    });
+  }
+
+  const updateEffects = (elapsed = 0) => {
+    for (const fn of updaters) fn(elapsed);
+  };
+  updateEffects(0);
+
+  return { group, leftLeg, rightLeg, leftArm, rightArm, updateEffects };
 }
 
 export function animateAvatarLimbs(avatar, dt, { isMoving, isGrounded = true, speedRatio = 1 }) {

@@ -83,12 +83,14 @@ export class SkinPreview3D {
     this.width = width;
     this.height = height;
     this.interactivePodium = Boolean(options.interactivePodium);
+    this.showcaseGold = Boolean(options.showcaseGold);
     this.active = false;
     this.yaw = 0.35;
     this.yawVelocity = 0;
     this.dragging = false;
     this.lastMouseX = 0;
     this.avatarGroup = null;
+    this.avatarData = null;
     this.podiumRings = [];
     this.neonLights = [];
     this.initialized = false;
@@ -105,44 +107,62 @@ export class SkinPreview3D {
       this.renderer.setSize(this.width, this.height, false);
 
       this.scene = new THREE.Scene();
+      const isStudio = this.interactivePodium || this.showcaseGold;
       this.camera = new THREE.PerspectiveCamera(
-        this.interactivePodium ? 36 : 40,
+        this.showcaseGold ? 38 : (isStudio ? 36 : 40),
         this.width / this.height,
         0.1,
         24
       );
-      this.camera.position.set(0, this.interactivePodium ? 1.18 : 1.15, this.interactivePodium ? 3.55 : 3.2);
-      this.camera.lookAt(0, this.interactivePodium ? 0.92 : 0.95, 0);
+      this.camera.position.set(
+        0,
+        this.showcaseGold ? 1.24 : (isStudio ? 1.18 : 1.15),
+        this.showcaseGold ? 3.85 : (isStudio ? 3.55 : 3.2)
+      );
+      this.camera.lookAt(0, this.showcaseGold ? 0.98 : (isStudio ? 0.92 : 0.95), 0);
 
-      const hemi = new THREE.HemisphereLight('#f8fafc', '#0f172a', this.interactivePodium ? 1.25 : 1.1);
+      const hemi = new THREE.HemisphereLight('#f8fafc', '#0f172a', isStudio ? 1.3 : 1.1);
       this.scene.add(hemi);
-      const dir = new THREE.DirectionalLight('#ffffff', this.interactivePodium ? 1.45 : 1.3);
-      dir.position.set(2.2, 4.2, 3.2);
+      const dir = new THREE.DirectionalLight('#ffffff', this.showcaseGold ? 1.7 : (isStudio ? 1.45 : 1.3));
+      dir.position.set(2.2, 4.4, 3.2);
       this.scene.add(dir);
 
-      if (this.interactivePodium) {
-        const cyanRim = new THREE.PointLight('#22d3ee', 2.8, 7);
-        cyanRim.position.set(-2.1, 1.5, -1.2);
-        this.scene.add(cyanRim);
+      if (isStudio) {
+        const leftColor = this.showcaseGold ? '#fbbf24' : '#22d3ee';
+        const rightColor = this.showcaseGold ? '#38bdf8' : '#a855f7';
+        const baseGlowColor = this.showcaseGold ? '#f59e0b' : '#06b6d4';
 
-        const magentaRim = new THREE.PointLight('#a855f7', 2.6, 7);
-        magentaRim.position.set(2.1, 1.35, -1.0);
-        this.scene.add(magentaRim);
+        const leftRim = new THREE.PointLight(leftColor, this.showcaseGold ? 3.2 : 2.8, 8);
+        leftRim.position.set(-2.1, 1.65, -1.1);
+        this.scene.add(leftRim);
 
-        const underGlow = new THREE.PointLight('#06b6d4', 2.2, 4.2);
+        const rightRim = new THREE.PointLight(rightColor, this.showcaseGold ? 2.8 : 2.6, 8);
+        rightRim.position.set(2.1, 1.45, -1.0);
+        this.scene.add(rightRim);
+
+        const underGlow = new THREE.PointLight(baseGlowColor, 2.3, 4.4);
         underGlow.position.set(0, 0.2, 0.2);
         this.scene.add(underGlow);
 
-        this.neonLights = [cyanRim, magentaRim, underGlow];
+        if (this.showcaseGold) {
+          const studioTop = new THREE.SpotLight('#fef08a', 2.4, 10, Math.PI / 4, 0.55);
+          studioTop.position.set(0, 3.8, 1.4);
+          this.scene.add(studioTop);
+          const frontFill = new THREE.PointLight('#fde68a', 1.3, 6);
+          frontFill.position.set(0, 1.4, 2.5);
+          this.scene.add(frontFill);
+        }
+
+        this.neonLights = [leftRim, rightRim, underGlow];
 
         const base = new THREE.Mesh(
           new THREE.CylinderGeometry(0.92, 1.08, 0.14, 6),
           new THREE.MeshStandardMaterial({
-            color: '#091124',
-            roughness: 0.32,
-            metalness: 0.85,
-            emissive: '#082f49',
-            emissiveIntensity: 0.45
+            color: this.showcaseGold ? '#1c1204' : '#091124',
+            roughness: 0.26,
+            metalness: 0.88,
+            emissive: this.showcaseGold ? '#451a03' : '#082f49',
+            emissiveIntensity: 0.5
           })
         );
         base.position.y = -0.07;
@@ -151,16 +171,16 @@ export class SkinPreview3D {
         const topCap = new THREE.Mesh(
           new THREE.CylinderGeometry(0.84, 0.86, 0.03, 32),
           new THREE.MeshStandardMaterial({
-            color: '#0f172a',
-            roughness: 0.2,
-            metalness: 0.9
+            color: this.showcaseGold ? '#111827' : '#0f172a',
+            roughness: 0.18,
+            metalness: 0.92
           })
         );
         topCap.position.y = 0.005;
         this.scene.add(topCap);
 
         const outerRingMat = new THREE.MeshBasicMaterial({
-          color: '#22d3ee',
+          color: leftColor,
           side: THREE.DoubleSide,
           transparent: true,
           opacity: 0.95
@@ -171,7 +191,7 @@ export class SkinPreview3D {
         this.scene.add(outerRing);
 
         const innerRingMat = new THREE.MeshBasicMaterial({
-          color: '#a855f7',
+          color: rightColor,
           side: THREE.DoubleSide,
           transparent: true,
           opacity: 0.85
@@ -182,14 +202,14 @@ export class SkinPreview3D {
         this.scene.add(innerRing);
 
         const beamMat = new THREE.MeshBasicMaterial({
-          color: '#22d3ee',
+          color: leftColor,
           transparent: true,
-          opacity: 0.11,
+          opacity: this.showcaseGold ? 0.13 : 0.11,
           side: THREE.DoubleSide,
           depthWrite: false
         });
-        const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.84, 1.75, 32, 1, true), beamMat);
-        beam.position.y = 0.88;
+        const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.84, 1.85, 32, 1, true), beamMat);
+        beam.position.y = 0.92;
         this.scene.add(beam);
 
         this.podiumRings = [outerRing, innerRing, beam];
@@ -267,11 +287,12 @@ export class SkinPreview3D {
             this.yaw += this.yawVelocity;
             this.yawVelocity *= 0.92;
           } else {
-            this.yaw += this.interactivePodium ? 0.006 : 0.008;
+            this.yaw += this.interactivePodium || this.showcaseGold ? 0.007 : 0.008;
           }
         }
         if (this.avatarGroup) this.avatarGroup.rotation.y = this.yaw;
-        if (this.interactivePodium && this.podiumRings.length >= 3) {
+        this.avatarData?.updateEffects?.(t);
+        if ((this.interactivePodium || this.showcaseGold) && this.podiumRings.length >= 3) {
           this.podiumRings[1].rotation.z = t * 0.55;
           this.podiumRings[2].material.opacity = 0.08 + Math.sin(t * 2.4) * 0.04;
           if (this.neonLights[2]) {
@@ -290,6 +311,20 @@ export class SkinPreview3D {
     }
   }
 
+  setShowcaseAccent(primaryHex, secondaryHex) {
+    if (!this.initialized) return;
+    if (this.podiumRings.length >= 3) {
+      this.podiumRings[0].material.color.set(primaryHex);
+      this.podiumRings[1].material.color.set(secondaryHex);
+      this.podiumRings[2].material.color.set(primaryHex);
+    }
+    if (this.neonLights.length >= 3) {
+      this.neonLights[0].color.set(primaryHex);
+      this.neonLights[1].color.set(secondaryHex);
+      this.neonLights[2].color.set(primaryHex);
+    }
+  }
+
   setActive(active) {
     this.active = Boolean(active);
     if (this.active) {
@@ -304,10 +339,11 @@ export class SkinPreview3D {
       this.scene.remove(this.avatarGroup);
       disposeObject3D(this.avatarGroup);
     }
-    const { group } = buildStudentAvatarMesh(this.getSkinFn());
-    this.avatarGroup = group;
+    this.avatarData = buildStudentAvatarMesh(this.getSkinFn());
+    this.avatarGroup = this.avatarData.group;
     this.avatarGroup.rotation.y = this.yaw;
     this.scene.add(this.avatarGroup);
+    this.avatarData.updateEffects?.(performance.now() * 0.001);
     if (this.renderer && this.camera) {
       this.renderer.render(this.scene, this.camera);
     }

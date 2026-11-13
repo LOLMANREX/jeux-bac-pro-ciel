@@ -117,6 +117,7 @@ try {
 
 try {
   battlePassModal = new BattlePassModal({
+    getBaseSkin: () => gameState.skin,
     onPurchaseAttempt: () => {
       const playerName =
         document.getElementById('player-name-input')?.value?.trim() ||

@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v3.5 - Améliorations Passe de Combat & Stabilité'),
+    __APP_VERSION__: JSON.stringify('v3.6 - Modèles 3D exclusifs & Vitrine Passe de Combat'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {
