@@ -3,8 +3,10 @@ import { buildLabWorld } from '../world/LabBuilder.js';
 import {
   MAP_ITEM_CATEGORIES,
   MAP_ITEM_CATALOG,
+  WALL_MOUNT_SNAP_RADIUS,
   computePolygonArea,
   computePolygonCentroid,
+  computeWallSnap,
   createDefaultMap,
   createEmptyMap,
   getCatalogItem,
@@ -36,8 +38,10 @@ function pointToSegDist(px, pz, x1, z1, x2, z2) {
 
 function hitTestRotatedBox(px, pz, obj) {
   const cat = getCatalogItem(obj.type);
-  const hw = Math.max(0.32, (obj.w || cat?.defaultW || 1) / 2);
-  const hd = Math.max(0.32, (obj.d || cat?.defaultD || 1) / 2);
+  const w = obj.w || cat?.defaultW || 1;
+  const d = obj.d || cat?.defaultD || 1;
+  const hw = Math.max(0.32, w / 2);
+  const hd = Math.max(0.32, d / 2);
   const rad = ((obj.rotation || 0) * Math.PI) / 180;
   const dx = px - obj.x;
   const dz = pz - obj.z;
@@ -45,6 +49,9 @@ function hitTestRotatedBox(px, pz, obj) {
   const sin = Math.sin(rad);
   const lx = dx * cos - dz * sin;
   const lz = dx * sin + dz * cos;
+  if (cat?.wallMount) {
+    return Math.abs(lx) <= hw && lz >= -0.18 && lz <= Math.max(0.45, d + 0.16);
+  }
   return Math.abs(lx) <= hw && Math.abs(lz) <= hd;
 }
 
@@ -71,6 +78,9 @@ export class MapEditor {
     this.dragState = null;
     this.polyDraft = null;
     this.hoverWorld = null;
+    this.rawHoverWorld = null;
+    this.activeWallSnap = null;
+    this.altPressed = false;
     this.underlay = { img: null, opacity: 0.38, scale: 1, name: '' };
 
     this.three = {
@@ -447,6 +457,10 @@ export class MapEditor {
 
     this._keyHandler = (e) => {
       if (!this.isActive) return;
+      if (e.key === 'Alt' || e.altKey !== this.altPressed) {
+        this.altPressed = Boolean(e.altKey);
+        this._refreshAltSnapPreview();
+      }
       const typing = e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
       if (typing) return;
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
@@ -486,7 +500,22 @@ export class MapEditor {
         this.duplicateSelected();
       }
     };
+    this._keyUpHandler = (e) => {
+      if (!this.isActive) return;
+      if (e.key === 'Alt' || e.altKey !== this.altPressed) {
+        this.altPressed = Boolean(e.altKey);
+        this._refreshAltSnapPreview();
+      }
+    };
+    this._blurHandler = () => {
+      if (this.altPressed) {
+        this.altPressed = false;
+        this._refreshAltSnapPreview();
+      }
+    };
     window.addEventListener('keydown', this._keyHandler);
+    window.addEventListener('keyup', this._keyUpHandler);
+    window.addEventListener('blur', this._blurHandler);
 
     this._resizeObserver = new ResizeObserver(() => {
       if (this.isActive) this.handleResize();
@@ -571,6 +600,7 @@ export class MapEditor {
     this.toolMode = mode;
     this.activeCatalogType = catalogType;
     this.polyDraft = null;
+    this.activeWallSnap = null;
     this.els.toolSelect.classList.toggle('active', mode === 'select');
     this.els.toolPan.classList.toggle('active', mode === 'pan');
     for (const card of this.els.catalogList.querySelectorAll('.me-cat-item')) {
@@ -584,7 +614,9 @@ export class MapEditor {
           ? 'Cliquez pour poser les sommets • 1er point / Double-clic / Entrée : Fermer • Échap : Annuler'
           : cat?.isZone
             ? 'Glissez un rectangle sur la carte'
-            : 'Cliquez sur la carte pour placer';
+            : cat?.wallMount
+              ? 'Approchez d’un mur pour aimanter (Alt : libre)'
+              : 'Cliquez sur la carte pour placer';
       this.els.modePill.textContent = `${cat?.icon || ''} ${cat?.shortLabel || catalogType} • ${hint} (Clic droit : Sélection)`;
     } else if (mode === 'pan') {
       this.els.modePill.textContent = 'Mode : Déplacement vue 2D (Pan)';
@@ -640,6 +672,61 @@ export class MapEditor {
         this.setTool('place', type);
       }
     };
+  }
+
+  _resolveWallSnap(wx, wz, cat, altDown = false, fallbackRotation = null) {
+    if (!cat?.wallMount || altDown) return null;
+    const snap = computeWallSnap({
+      px: wx,
+      pz: wz,
+      walls: this.mapData.walls,
+      maxRadius: WALL_MOUNT_SNAP_RADIUS,
+      fallbackRotation
+    });
+    if (!snap) return null;
+    const [cx, cz] = this._clampToBounds(snap.x, snap.z);
+    return { ...snap, x: cx, z: cz };
+  }
+
+  _refreshAltSnapPreview() {
+    if (this.toolMode === 'place' && this.activeCatalogType && this.rawHoverWorld) {
+      const cat = getCatalogItem(this.activeCatalogType);
+      const [wx, wz] = this.rawHoverWorld;
+      const snap = this._resolveWallSnap(wx, wz, cat, this.altPressed);
+      this.activeWallSnap = snap;
+      this.hoverWorld = snap ? [snap.x, snap.z] : [this._snapVal(wx), this._snapVal(wz)];
+      this.draw2D();
+      return;
+    }
+    if (this.dragState?.mode === 'move_entity' && this.dragState.kind === 'object' && this.rawHoverWorld) {
+      const d = this.dragState;
+      const cat = getCatalogItem(d.entity.type);
+      if (cat?.wallMount) {
+        const [wx, wz] = this.rawHoverWorld;
+        const dx = wx - d.startWx;
+        const dz = wz - d.startWz;
+        const snap = this._resolveWallSnap(wx, wz, cat, this.altPressed, d.origRot);
+        if (snap) {
+          d.entity.x = snap.x;
+          d.entity.z = snap.z;
+          d.entity.rotation = snap.rotation;
+          this.activeWallSnap = snap;
+        } else {
+          const [nx, nz] = this._clampToBounds(this._snapVal(d.ox + dx), this._snapVal(d.oz + dz));
+          d.entity.x = nx;
+          d.entity.z = nz;
+          this.activeWallSnap = null;
+        }
+        d.moved = true;
+        this._markDirty();
+        this._renderInspector();
+        this.draw2D();
+        return;
+      }
+    }
+    if (this.selected?.kind === 'object') {
+      this.draw2D();
+    }
   }
 
   _snapVal(v) {
@@ -713,8 +800,10 @@ export class MapEditor {
   _hitTest2D(wx, wz) {
     const sel = this._getSelectedEntity();
     if (sel && this.selected.kind === 'object') {
+      const cat = getCatalogItem(sel.type);
       const rad = ((sel.rotation || 0) * Math.PI) / 180;
-      const distFront = Math.max(sel.d / 2, 0.5) + 18 / this.cam2d.zoom;
+      const baseDepth = cat?.wallMount ? Math.max(sel.d, 0.4) : Math.max(sel.d / 2, 0.5);
+      const distFront = baseDepth + 18 / this.cam2d.zoom;
       const hx = sel.x + Math.sin(rad) * distFront;
       const hz = sel.z + Math.cos(rad) * distFront;
       if (Math.hypot(wx - hx, wz - hz) <= 14 / this.cam2d.zoom) {
@@ -813,7 +902,12 @@ export class MapEditor {
 
       if (this.toolMode === 'place' && this.activeCatalogType) {
         const cat = getCatalogItem(this.activeCatalogType);
-        const [cx, cz] = this._clampToBounds(this._snapVal(wx), this._snapVal(wz));
+        const altDown = Boolean(e.altKey || this.altPressed);
+        const snap = this._resolveWallSnap(wx, wz, cat, altDown);
+        const [cx, cz] = snap
+          ? [snap.x, snap.z]
+          : this._clampToBounds(this._snapVal(wx), this._snapVal(wz));
+        const initRotation = snap ? snap.rotation : 0;
         if (cat?.isWall) {
           this.dragState = {
             mode: 'draw_wall',
@@ -860,7 +954,7 @@ export class MapEditor {
           this.draw2D();
           return;
         }
-        this._placeObjectAt(this.activeCatalogType, cx, cz);
+        this._placeObjectAt(this.activeCatalogType, cx, cz, initRotation);
         return;
       }
 
@@ -917,6 +1011,7 @@ export class MapEditor {
           startWz: wz,
           ox: hit.entity.x,
           oz: hit.entity.z,
+          origRot: hit.entity.rotation || 0,
           origPoints: Array.isArray(hit.entity.points)
             ? hit.entity.points.map((p) => ({ x: p.x, z: p.z }))
             : null,
@@ -931,8 +1026,27 @@ export class MapEditor {
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
       const [wx, wz] = this._screenToWorld(sx, sy);
-      this.hoverWorld = [this._snapVal(wx), this._snapVal(wz)];
-      this.els.coordsReadout.textContent = `X: ${this.hoverWorld[0].toFixed(2)}m • Z: ${this.hoverWorld[1].toFixed(2)}m`;
+      const altDown = Boolean(e.altKey || this.altPressed);
+      this.altPressed = altDown;
+      this.rawHoverWorld = [wx, wz];
+
+      const activePlaceCat =
+        this.toolMode === 'place' && this.activeCatalogType
+          ? getCatalogItem(this.activeCatalogType)
+          : null;
+      const hoverSnap =
+        !this.dragState && activePlaceCat?.wallMount
+          ? this._resolveWallSnap(wx, wz, activePlaceCat, altDown)
+          : null;
+      if (!this.dragState) {
+        this.activeWallSnap = hoverSnap;
+      }
+      this.hoverWorld = hoverSnap
+        ? [hoverSnap.x, hoverSnap.z]
+        : [this._snapVal(wx), this._snapVal(wz)];
+      this.els.coordsReadout.textContent = hoverSnap
+        ? `X: ${hoverSnap.x.toFixed(2)}m • Z: ${hoverSnap.z.toFixed(2)}m • 🧲 Mur (${Math.round(hoverSnap.rotation)}°)`
+        : `X: ${this.hoverWorld[0].toFixed(2)}m • Z: ${this.hoverWorld[1].toFixed(2)}m`;
 
       if (!this.dragState) {
         if (this.toolMode === 'place') this.draw2D();
@@ -982,11 +1096,33 @@ export class MapEditor {
             z: Number((p.z + sdz).toFixed(2))
           }));
           this._syncPolygonZoneMetrics(d.entity);
+        } else if (d.kind === 'object') {
+          const objCat = getCatalogItem(d.entity.type);
+          if (objCat?.wallMount) {
+            if (!d.moved) return;
+            const snap = this._resolveWallSnap(wx, wz, objCat, altDown, d.origRot);
+            if (snap) {
+              d.entity.x = snap.x;
+              d.entity.z = snap.z;
+              d.entity.rotation = snap.rotation;
+              this.activeWallSnap = snap;
+              this.els.coordsReadout.textContent = `X: ${snap.x.toFixed(2)}m • Z: ${snap.z.toFixed(2)}m • 🧲 Mur (${Math.round(snap.rotation)}°)`;
+            } else {
+              const [nx, nz] = this._clampToBounds(this._snapVal(d.ox + dx), this._snapVal(d.oz + dz));
+              d.entity.x = nx;
+              d.entity.z = nz;
+              this.activeWallSnap = null;
+            }
+          } else {
+            const [nx, nz] = this._clampToBounds(this._snapVal(d.ox + dx), this._snapVal(d.oz + dz));
+            d.entity.x = nx;
+            d.entity.z = nz;
+            this._syncSpawnFromObject(d.entity);
+          }
         } else {
           const [nx, nz] = this._clampToBounds(this._snapVal(d.ox + dx), this._snapVal(d.oz + dz));
           d.entity.x = nx;
           d.entity.z = nz;
-          if (d.kind === 'object') this._syncSpawnFromObject(d.entity);
         }
         this._markDirty();
         this._renderInspector();
@@ -1066,6 +1202,7 @@ export class MapEditor {
       c.releasePointerCapture?.(e.pointerId);
       const d = this.dragState;
       this.dragState = null;
+      this.activeWallSnap = null;
       if (!d) return;
 
       if (d.mode === 'pan') {
@@ -1149,6 +1286,7 @@ export class MapEditor {
       } else {
         this._schedule3DRebuild(true);
       }
+      this.draw2D();
     });
 
     c.addEventListener('dblclick', (e) => {
@@ -1215,7 +1353,7 @@ export class MapEditor {
     codeInput?.select();
   }
 
-  _placeObjectAt(type, x, z) {
+  _placeObjectAt(type, x, z, rotation = 0) {
     const cat = getCatalogItem(type);
     if (!cat) return;
     this._pushUndo();
@@ -1248,7 +1386,7 @@ export class MapEditor {
         type,
         x,
         z,
-        rotation: 0,
+        rotation,
         w: cat.defaultW,
         d: cat.defaultD,
         color: cat.defaultColor,
@@ -1363,6 +1501,7 @@ export class MapEditor {
             <div><strong>Molette</strong> : Zoomer</div>
             <div><strong>Clic droit / Molette</strong> : Déplacer vue</div>
             <div><strong>R</strong> : Tourner (+15°)</div>
+            <div><strong>Alt (maintenu)</strong> : Placer librement sans aimantation murale</div>
             <div><strong>Ctrl+Z / Ctrl+Y</strong> : Annuler / Rétablir</div>
             <div><strong>Suppr</strong> : Supprimer la sélection</div>
           </div>
@@ -1394,6 +1533,11 @@ export class MapEditor {
           <button type="button" class="me-btn" data-rot="15">+15°</button>
           <button type="button" class="me-btn" data-rot="90">+90°</button>
         </div>
+        ${
+          cat?.wallMount
+            ? `<button type="button" id="me-snap-wall" class="me-btn">🧲 Plaquer sur le mur le plus proche</button>`
+            : ''
+        }
         <label class="me-field"><span>Couleur d’accent</span><input type="color" id="me-f-color" class="me-color" value="${escapeHtml(ent.color || '#38bdf8')}" /></label>
         ${
           isTeacher
@@ -1438,6 +1582,24 @@ export class MapEditor {
       };
       for (const b of this.els.inspBody.querySelectorAll('button[data-rot]')) {
         b.onclick = () => this._rotateSelected(Number(b.dataset.rot));
+      }
+      const snapWallBtn = this.els.inspBody.querySelector('#me-snap-wall');
+      if (snapWallBtn) {
+        snapWallBtn.onclick = () => {
+          const snap = this._resolveWallSnap(ent.x, ent.z, cat, false, ent.rotation);
+          if (!snap) {
+            this.showToast(`Aucun mur détecté dans un rayon de ${WALL_MOUNT_SNAP_RADIUS} m`, 'info');
+            return;
+          }
+          this._pushUndo();
+          ent.x = snap.x;
+          ent.z = snap.z;
+          ent.rotation = snap.rotation;
+          this._markDirty();
+          this._renderInspector();
+          this.draw2D();
+          this._schedule3DRebuild(true);
+        };
       }
       this.els.inspBody.querySelector('#me-f-color').oninput = (e) => {
         ent.color = e.target.value;
@@ -1881,6 +2043,7 @@ export class MapEditor {
 
     for (const obj of this.mapData.objects) {
       const cat = getCatalogItem(obj.type);
+      const isWallMount = Boolean(cat?.wallMount);
       const [px, py] = this._worldToScreen(obj.x, obj.z);
       const pw = Math.max(4, (obj.w || cat?.defaultW || 1) * this.cam2d.zoom);
       const pd = Math.max(4, (obj.d || cat?.defaultD || 1) * this.cam2d.zoom);
@@ -1895,37 +2058,42 @@ export class MapEditor {
       ctx.fillStyle = isSel ? 'rgba(250, 204, 21, 0.25)' : `${accent}44`;
       ctx.strokeStyle = isSel ? '#facc15' : accent;
       ctx.lineWidth = isSel ? 2.5 : Math.min(1.5, Math.max(0.8, this.cam2d.zoom * 0.12));
-      ctx.fillRect(-pw / 2, -pd / 2, pw, pd);
-      ctx.strokeRect(-pw / 2, -pd / 2, pw, pd);
+      const boxY = isWallMount ? 0 : -pd / 2;
+      ctx.fillRect(-pw / 2, boxY, pw, pd);
+      ctx.strokeRect(-pw / 2, boxY, pw, pd);
 
       if (Math.min(pw, pd) >= 8) {
+        const triBaseY = isWallMount ? pd : pd / 2;
         ctx.fillStyle = '#f8fafc';
         ctx.beginPath();
-        ctx.moveTo(0, pd / 2 + 4);
-        ctx.lineTo(-3.5, pd / 2 - 2);
-        ctx.lineTo(3.5, pd / 2 - 2);
+        ctx.moveTo(0, triBaseY + 4);
+        ctx.lineTo(-3.5, triBaseY - 2);
+        ctx.lineTo(3.5, triBaseY - 2);
         ctx.closePath();
         ctx.fill();
       }
 
       ctx.restore();
 
+      const iconX = isWallMount ? px + Math.sin(rad) * (pd / 2) : px;
+      const iconY = isWallMount ? py + Math.cos(rad) * (pd / 2) : py;
+
       if (Math.min(pw, pd) >= 9) {
         ctx.font = `${Math.max(9, Math.min(18, Math.min(pw, pd) * 0.55))}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(cat?.icon || '📦', px, py);
+        ctx.fillText(cat?.icon || '📦', iconX, iconY);
       }
 
       if (this.cam2d.zoom >= 18 && obj.label) {
         ctx.fillStyle = '#e2e8f0';
         ctx.font = 'bold 10px system-ui, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(String(obj.label).slice(0, 18), px, py - pd / 2 - 8);
+        ctx.fillText(String(obj.label).slice(0, 18), iconX, iconY - pd / 2 - 8);
       }
 
       if (isSel) {
-        const distFront = Math.max(obj.d / 2, 0.5) * this.cam2d.zoom + 18;
+        const distFront = (isWallMount ? Math.max(obj.d, 0.4) : Math.max(obj.d / 2, 0.5)) * this.cam2d.zoom + 18;
         const rx = px + Math.sin(rad) * distFront;
         const ry = py + Math.cos(rad) * distFront;
         ctx.strokeStyle = '#facc15';
@@ -2037,18 +2205,123 @@ export class MapEditor {
     } else if (this.toolMode === 'place' && this.activeCatalogType && this.hoverWorld) {
       const cat = getCatalogItem(this.activeCatalogType);
       if (cat && !cat.isWall && !cat.isZone) {
+        const snap = cat.wallMount ? this.activeWallSnap : null;
+        if (snap) {
+          this._drawWallSnapGuide(ctx, snap, cat.defaultW || 1.6);
+        }
         const [gx, gy] = this._worldToScreen(this.hoverWorld[0], this.hoverWorld[1]);
         const gw = cat.defaultW * this.cam2d.zoom;
         const gd = cat.defaultD * this.cam2d.zoom;
-        ctx.strokeStyle = '#22d3ee';
-        ctx.lineWidth = 1.5;
+        const rad = snap ? (snap.rotation * Math.PI) / 180 : 0;
+        ctx.save();
+        ctx.translate(gx, gy);
+        ctx.rotate(-rad);
+        ctx.strokeStyle = snap ? '#10b981' : '#22d3ee';
+        ctx.fillStyle = snap ? 'rgba(16, 185, 129, 0.22)' : 'transparent';
+        ctx.lineWidth = snap ? 2 : 1.5;
         ctx.setLineDash([4, 3]);
-        ctx.strokeRect(gx - gw / 2, gy - gd / 2, gw, gd);
+        const boxY = cat.wallMount ? 0 : -gd / 2;
+        if (snap) {
+          ctx.fillRect(-gw / 2, boxY, gw, gd);
+        }
+        ctx.strokeRect(-gw / 2, boxY, gw, gd);
         ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
+
+    if (this.dragState?.mode === 'move_entity' && this.activeWallSnap) {
+      this._drawWallSnapGuide(ctx, this.activeWallSnap, this.dragState.entity?.w || 1.6, this.dragState.entity);
+    } else if (!this.dragState && this.selected?.kind === 'object' && !this.altPressed) {
+      const selObj = this.mapData.objects.find((o) => o.id === this.selected.id);
+      const selCat = selObj ? getCatalogItem(selObj.type) : null;
+      if (selObj && selCat?.wallMount) {
+        const selSnap = this._resolveWallSnap(selObj.x, selObj.z, selCat, false, selObj.rotation);
+        if (selSnap) {
+          this._drawWallSnapGuide(ctx, selSnap, selObj.w || selCat.defaultW || 1.6, selObj);
+        }
       }
     }
 
     this.els.countsReadout.textContent = `${this.mapData.walls.length} murs • ${this.mapData.zones.length} zones • ${this.mapData.objects.length} objets`;
+  }
+
+  _drawWallSnapGuide(ctx, snap, width = 1.6, attachedEntity = null) {
+    if (!snap || !snap.wall) return;
+    const { wall, x, z, nx, nz, rotation, wallThickness } = snap;
+    const [wx1, wy1] = this._worldToScreen(wall.x1, wall.z1);
+    const [wx2, wy2] = this._worldToScreen(wall.x2, wall.z2);
+    const dx = wall.x2 - wall.x1;
+    const dz = wall.z2 - wall.z1;
+    const len = Math.hypot(dx, dz) || 1;
+    const tx = dx / len;
+    const tz = dz / len;
+    const halfSpan = Math.min(len * 0.5, Math.max(0.45, width * 0.5 + 0.15));
+    const faceOffset = (wallThickness || 0.18) / 2;
+    const cx = x;
+    const cz = z;
+    const [fx1, fy1] = this._worldToScreen(cx - tx * halfSpan, cz - tz * halfSpan);
+    const [fx2, fy2] = this._worldToScreen(cx + tx * halfSpan, cz + tz * halfSpan);
+    const [ax, ay] = this._worldToScreen(x, z);
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.45)';
+    ctx.lineWidth = Math.max(4, (wallThickness || 0.18) * this.cam2d.zoom + 4);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(wx1, wy1);
+    ctx.lineTo(wx2, wy2);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(fx1, fy1);
+    ctx.lineTo(fx2, fy2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#10b981';
+    ctx.strokeStyle = '#ecfeff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(ax, ay, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    const arrowOriginX = attachedEntity ? attachedEntity.x : x;
+    const arrowOriginZ = attachedEntity ? attachedEntity.z : z;
+    const arrowRad = ((attachedEntity?.rotation ?? rotation) * Math.PI) / 180;
+    const dirX = Math.sin(arrowRad);
+    const dirZ = Math.cos(arrowRad);
+    const arrowLen = Math.max(0.55, faceOffset + 0.45);
+    const [ox, oy] = this._worldToScreen(arrowOriginX, arrowOriginZ);
+    const [txEnd, tyEnd] = this._worldToScreen(arrowOriginX + dirX * arrowLen, arrowOriginZ + dirZ * arrowLen);
+    const angle = Math.atan2(tyEnd - oy, txEnd - ox);
+
+    ctx.strokeStyle = '#34d399';
+    ctx.fillStyle = '#34d399';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(txEnd, tyEnd);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(txEnd, tyEnd);
+    ctx.lineTo(txEnd - Math.cos(angle - Math.PI / 6) * 10, tyEnd - Math.sin(angle - Math.PI / 6) * 10);
+    ctx.lineTo(txEnd - Math.cos(angle + Math.PI / 6) * 10, tyEnd - Math.sin(angle + Math.PI / 6) * 10);
+    ctx.closePath();
+    ctx.fill();
+
+    if (this.cam2d.zoom >= 14) {
+      const [lx, ly] = this._worldToScreen(arrowOriginX + dirX * (arrowLen + 0.25), arrowOriginZ + dirZ * (arrowLen + 0.25));
+      ctx.font = 'bold 10px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#6ee7b7';
+      ctx.fillText(`🧲 ${Math.round(rotation)}°`, lx, ly);
+    }
+    ctx.restore();
   }
 
   _ensure3D() {

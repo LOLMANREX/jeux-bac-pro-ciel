@@ -292,6 +292,8 @@ function truncateBoardText(ctx, text, maxWidth) {
   return `${cut}…`;
 }
 
+const WALL_MOUNT_CLEARANCE = 0.015;
+
 function createWallLeaderboardBoard(parent, obj, mats) {
   const W = 1280;
   const H = 744;
@@ -308,7 +310,7 @@ function createWallLeaderboardBoard(parent, obj, mats) {
   const boardW = Math.max(1.8, Math.min(5.2, Number(obj.w) || 3.45));
   const scaleFactor = boardW / 3.48;
   const boardGroup = new THREE.Group();
-  boardGroup.position.set(0, 2.28, 0);
+  boardGroup.position.set(0, 2.28, 0.05 + WALL_MOUNT_CLEARANCE);
   boardGroup.scale.set(scaleFactor, scaleFactor, 1);
 
   const glowFrame = new THREE.Mesh(
@@ -1006,17 +1008,18 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       if (obj.type === 'wall_map_board') {
         const frameW = Math.max(1.4, w);
         const frameH = frameW * 0.65;
+        const frameD = 0.07;
         const frame = new THREE.Mesh(
-          new THREE.BoxGeometry(frameW, frameH, 0.07),
+          new THREE.BoxGeometry(frameW, frameH, frameD),
           mats.brushedMetalMat
         );
-        frame.position.y = 2.25;
+        frame.position.set(0, 2.25, WALL_MOUNT_CLEARANCE + frameD / 2);
         grp.add(frame);
         const face = new THREE.Mesh(
           new THREE.PlaneGeometry(frameW - 0.12, frameH - 0.12),
           new THREE.MeshBasicMaterial({ map: orientTex })
         );
-        face.position.set(0, 2.25, 0.04);
+        face.position.set(0, 2.25, WALL_MOUNT_CLEARANCE + frameD + 0.005);
         grp.add(face);
         continue;
       }
@@ -1256,17 +1259,18 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       if (obj.type === 'whiteboard') {
         const boardW = Math.max(1.2, w);
         const boardH = Math.min(1.6, Math.max(1.1, cat.defaultH || 1.5));
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(boardW, boardH, 0.08), mats.brushedMetalMat);
-        frame.position.y = 1.65;
+        const frameD = 0.08;
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(boardW, boardH, frameD), mats.brushedMetalMat);
+        frame.position.set(0, 1.65, WALL_MOUNT_CLEARANCE + frameD / 2);
         grp.add(frame);
         const face = new THREE.Mesh(
           new THREE.PlaneGeometry(boardW - 0.1, boardH - 0.1),
           new THREE.MeshBasicMaterial({ map: makeWhiteboardTexture() })
         );
-        face.position.set(0, 1.65, 0.045);
+        face.position.set(0, 1.65, WALL_MOUNT_CLEARANCE + frameD + 0.005);
         grp.add(face);
         const tray = new THREE.Mesh(new THREE.BoxGeometry(boardW * 0.7, 0.05, 0.12), mats.brushedMetalMat);
-        tray.position.set(0, 1.65 - boardH / 2, 0.07);
+        tray.position.set(0, 1.65 - boardH / 2, WALL_MOUNT_CLEARANCE + frameD + 0.03);
         grp.add(tray);
         continue;
       }
@@ -1361,15 +1365,16 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'net_patch_wall') {
-        const chassis = new THREE.Mesh(new THREE.BoxGeometry(w, 0.85, Math.min(0.42, d)), mats.darkMetalMat);
-        chassis.position.y = 1.55;
+        const chassisD = Math.min(0.42, d);
+        const chassis = new THREE.Mesh(new THREE.BoxGeometry(w, 0.85, chassisD), mats.darkMetalMat);
+        chassis.position.set(0, 1.55, WALL_MOUNT_CLEARANCE + chassisD / 2);
         grp.add(chassis);
         for (let r = 0; r < 3; r++) {
           const strip = new THREE.Mesh(new THREE.BoxGeometry(w * 0.88, 0.09, 0.04), mats.brushedMetalMat);
-          strip.position.set(0, 1.32 + r * 0.22, Math.min(0.42, d) / 2 + 0.01);
+          strip.position.set(0, 1.32 + r * 0.22, WALL_MOUNT_CLEARANCE + chassisD + 0.01);
           grp.add(strip);
           const led = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.035, 0.03), new THREE.MeshBasicMaterial({ color: '#10b981' }));
-          led.position.set(-w * 0.28, 1.32 + r * 0.22, Math.min(0.42, d) / 2 + 0.028);
+          led.position.set(-w * 0.28, 1.32 + r * 0.22, WALL_MOUNT_CLEARANCE + chassisD + 0.028);
           grp.add(led);
           animatedRefs.leds.push({ mesh: led, phase: r * 0.9, alert: false });
         }
@@ -1438,14 +1443,15 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       if (obj.type === 'soc_wall_screen') {
         const sw = Math.max(1.8, w);
         const sh = Math.max(1.2, Math.min(2.1, sw * 0.45));
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(sw + 0.12, sh + 0.12, 0.08), mats.darkMetalMat);
-        frame.position.y = 2.35;
+        const frameD = 0.08;
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(sw + 0.12, sh + 0.12, frameD), mats.darkMetalMat);
+        frame.position.set(0, 2.35, WALL_MOUNT_CLEARANCE + frameD / 2);
         grp.add(frame);
         const screen = new THREE.Mesh(
           new THREE.PlaneGeometry(sw, sh),
           new THREE.MeshBasicMaterial({ map: makeSocScreenTexture(obj.label || 'SOC MONITORING') })
         );
-        screen.position.set(0, 2.35, 0.045);
+        screen.position.set(0, 2.35, WALL_MOUNT_CLEARANCE + frameD + 0.005);
         grp.add(screen);
         continue;
       }

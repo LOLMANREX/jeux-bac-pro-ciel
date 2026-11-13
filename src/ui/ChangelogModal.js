@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v3.8 - Textures Réalistes PBR & Éclairage Plein Jour';
+    : "v3.9 - Aimantation murale précise des tableaux dans l'éditeur";
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v3.8 — Textures Réalistes PBR & Éclairage Plein Jour',
+    version: "v3.9 — Aimantation murale précise des tableaux dans l'éditeur",
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Alignement 3D corrigé pour tous les éléments muraux (tableau blanc, carte murale du laboratoire, classement 3D en direct, écran de monitoring SOC et baie réseau) : face arrière ancrée au point local + 0,015 m de décalage anti-scintillement.',
+      'Aimantation murale intelligente dans l’éditeur 2D (/admin) : détection automatique du mur le plus proche dans un rayon de 0,8 m (hors portes) prioritaire sur la grille, avec maintien de Alt pour désactiver temporairement.',
+      'Calcul automatique de la face du mur côté curseur (demi-épaisseur du mur) et de l’angle exact pour orienter le tableau vers l’intérieur de la pièce.',
+      'Repère visuel en direct sur le canevas 2D (ligne d’accroche vert/cyan le long du mur, point d’ancrage et flèche de direction de lecture) et bouton rapide d’aimantation dans l’inspecteur.'
+    ]
+  },
+  {
+    version: 'v3.8 — Textures Réalistes PBR & Éclairage Plein Jour',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Génération procédurale haute résolution de textures PBR (cartes couleur, rugosité et relief) pour les sols PVC satinés, murs enduits blanc cassé avec plinthes, bureaux en chêne clair, établis gris technique, portes, équipements et dalles acoustiques de plafond avec éclairage LED 4000K.',
       'Matériau vitré transparent réaliste (MeshPhysicalMaterial) appliqué sur l’ensemble des parois vitrées et baies des salles sans modifier aucune dimension ni collision.',

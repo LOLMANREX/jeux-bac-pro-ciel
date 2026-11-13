@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v3.8 - Textures Réalistes PBR & Éclairage Plein Jour'),
+    __APP_VERSION__: JSON.stringify("v3.9 - Aimantation murale précise des tableaux dans l'éditeur"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

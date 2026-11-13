@@ -9,8 +9,10 @@ import { MapStore } from '../server/store.js';
 import {
   MAP_ITEM_CATEGORIES,
   MAP_ITEM_CATALOG,
+  WALL_MOUNT_SNAP_RADIUS,
   computePolygonArea,
   computePolygonCentroid,
+  computeWallSnap,
   createDefaultMap,
   createEmptyMap,
   getCatalogItem,
@@ -488,4 +490,56 @@ test('Zones polygonales en L et en U, Ray-Casting et rétrocompatibilité rectan
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+test('Aimantation murale des tableaux : détection 0.8m, face, rotation et exclusion des portes', () => {
+  for (const wallType of ['whiteboard', 'wall_map_board', 'leaderboard', 'soc_wall_screen', 'net_patch_wall']) {
+    assert.equal(getCatalogItem(wallType)?.wallMount, true);
+  }
+  assert.equal(WALL_MOUNT_SNAP_RADIUS, 0.8);
+
+  const walls = [
+    { id: 'w-north', kind: 'solid', x1: -5, z1: 0, x2: 5, z2: 0, thickness: 0.2 },
+    { id: 'w-door', kind: 'door_single', x1: -1, z1: 0, x2: 1, z2: 0, thickness: 0.2 },
+    { id: 'w-east', kind: 'solid', x1: 5, z1: -5, x2: 5, z2: 5, thickness: 0.24 },
+    { id: 'w-diag', kind: 'solid', x1: -6, z1: 6, x2: -2, z2: 10, thickness: 0.2 }
+  ];
+
+  const southSide = computeWallSnap({ px: -3.2, pz: 0.45, walls });
+  assert.ok(southSide);
+  assert.equal(southSide.x, -3.2);
+  assert.equal(southSide.z, 0.1);
+  assert.equal(southSide.rotation, 0);
+
+  const northSide = computeWallSnap({ px: -3.2, pz: -0.45, walls });
+  assert.ok(northSide);
+  assert.equal(northSide.x, -3.2);
+  assert.equal(northSide.z, -0.1);
+  assert.equal(northSide.rotation, 180);
+
+  const insideDoor = computeWallSnap({ px: 0, pz: 0.4, walls });
+  assert.equal(insideDoor, null);
+
+  const eastWestFace = computeWallSnap({ px: 4.5, pz: 1.5, walls });
+  assert.ok(eastWestFace);
+  assert.equal(eastWestFace.x, 4.88);
+  assert.equal(eastWestFace.z, 1.5);
+  assert.equal(eastWestFace.rotation, 270);
+
+  const eastEastFace = computeWallSnap({ px: 5.5, pz: 1.5, walls });
+  assert.ok(eastEastFace);
+  assert.equal(eastEastFace.x, 5.12);
+  assert.equal(eastEastFace.z, 1.5);
+  assert.equal(eastEastFace.rotation, 90);
+
+  const diagSnap = computeWallSnap({ px: -3.6, pz: 7.7, walls });
+  assert.ok(diagSnap);
+  assert.equal(diagSnap.rotation, 135);
+
+  const diagSnapOpposite = computeWallSnap({ px: -4.4, pz: 8.7, walls });
+  assert.ok(diagSnapOpposite);
+  assert.equal(diagSnapOpposite.rotation, 315);
+
+  const tooFar = computeWallSnap({ px: -3.2, pz: 0.95, walls });
+  assert.equal(tooFar, null);
 });

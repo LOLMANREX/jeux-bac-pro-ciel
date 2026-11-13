@@ -130,7 +130,8 @@ export const MAP_ITEM_CATALOG = [
     defaultD: 0.24,
     defaultH: 2.1,
     defaultColor: '#06b6d4',
-    collides: false
+    collides: false,
+    wallMount: true
   },
   {
     type: 'wall_map_board',
@@ -143,7 +144,8 @@ export const MAP_ITEM_CATALOG = [
     defaultD: 0.14,
     defaultH: 1.9,
     defaultColor: '#38bdf8',
-    collides: false
+    collides: false,
+    wallMount: true
   },
   {
     type: 'stair_block',
@@ -409,7 +411,8 @@ export const MAP_ITEM_CATALOG = [
     defaultD: 0.16,
     defaultH: 1.5,
     defaultColor: '#f8fafc',
-    collides: false
+    collides: false,
+    wallMount: true
   },
   {
     type: 'metal_cabinet',
@@ -514,7 +517,8 @@ export const MAP_ITEM_CATALOG = [
     defaultD: 0.35,
     defaultH: 0.9,
     defaultColor: '#38bdf8',
-    collides: false
+    collides: false,
+    wallMount: true
   },
   {
     type: 'net_switch_stack',
@@ -582,7 +586,8 @@ export const MAP_ITEM_CATALOG = [
     defaultD: 0.16,
     defaultH: 1.65,
     defaultColor: '#f43f5e',
-    collides: false
+    collides: false,
+    wallMount: true
   },
   {
     type: 'elec_solder_unit',
@@ -1338,6 +1343,78 @@ export function subtractDoorsFromWalls(walls = []) {
   }
 
   return resolved;
+}
+
+export const WALL_MOUNT_SNAP_RADIUS = 0.8;
+
+export function computeWallSnap({
+  px,
+  pz,
+  walls = [],
+  maxRadius = WALL_MOUNT_SNAP_RADIUS,
+  fallbackRotation = null
+}) {
+  const candidates = subtractDoorsFromWalls(walls).filter(
+    (w) => w.kind !== 'door_single' && w.kind !== 'door_double'
+  );
+  let best = null;
+  let bestDist = maxRadius;
+
+  for (const w of candidates) {
+    const dx = w.x2 - w.x1;
+    const dz = w.z2 - w.z1;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.15) continue;
+
+    const ux = dx / len;
+    const uz = dz / len;
+    const nx0 = -uz;
+    const nz0 = ux;
+
+    const t = Math.max(0, Math.min(len, (px - w.x1) * ux + (pz - w.z1) * uz));
+    const projX = w.x1 + ux * t;
+    const projZ = w.z1 + uz * t;
+    const dist = Math.hypot(px - projX, pz - projZ);
+    if (dist > bestDist) continue;
+
+    const signedPerp = (px - w.x1) * nx0 + (pz - w.z1) * nz0;
+    let sideSign;
+    if (Math.abs(signedPerp) >= 1e-4) {
+      sideSign = signedPerp >= 0 ? 1 : -1;
+    } else if (Number.isFinite(fallbackRotation)) {
+      const fbRad = (fallbackRotation * Math.PI) / 180;
+      const dot = Math.sin(fbRad) * nx0 + Math.cos(fbRad) * nz0;
+      sideSign = dot >= 0 ? 1 : -1;
+    } else {
+      const toCenterDot = -projX * nx0 + -projZ * nz0;
+      sideSign = toCenterDot >= 0 ? 1 : -1;
+    }
+
+    const nx = nx0 * sideSign;
+    const nz = nz0 * sideSign;
+    const wallThickness = Math.max(0.08, Number(w.thickness) || 0.18);
+    const snapX = Number((projX + nx * (wallThickness / 2)).toFixed(2));
+    const snapZ = Number((projZ + nz * (wallThickness / 2)).toFixed(2));
+    const rawDeg = ((Math.atan2(nx, nz) * 180) / Math.PI % 360 + 360) % 360;
+    const rotRounded = Number(rawDeg.toFixed(1));
+    const rotation = rotRounded >= 360 ? 0 : rotRounded;
+
+    bestDist = dist;
+    best = {
+      wall: w,
+      x: snapX,
+      z: snapZ,
+      projX: Number(projX.toFixed(2)),
+      projZ: Number(projZ.toFixed(2)),
+      nx,
+      nz,
+      rotation,
+      wallThickness,
+      dist
+    };
+  }
+
+  return best;
 }
 
 export function getDynamicMapColliders(mapData) {
