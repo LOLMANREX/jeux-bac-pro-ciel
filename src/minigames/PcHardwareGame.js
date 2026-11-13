@@ -858,6 +858,19 @@ export function createPcHardwareGame(api) {
     ].filter(Boolean).length;
 
     bench.setAccuracy(`${progress}/9 étapes · ESD ${state.esdWorn ? 'OK' : 'NON'}`);
+    const stageIdx = !state.esdWorn || !state.coolerInstalled ? 0 : !state.gpuInstalled ? 1 : 2;
+    api.setStages(
+      [
+        { name: '1. ESD, CPU & Ventirad' },
+        { name: '2. DDR5, NVMe & GPU' },
+        { name: '3. Câbles ATX & POST' }
+      ],
+      stageIdx,
+      (idx) => {
+        if (idx === 0 || idx === 1) selectCamera('socket');
+        else selectCamera('bios');
+      }
+    );
 
     bench.setTools(
       [

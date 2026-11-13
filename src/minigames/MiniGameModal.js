@@ -28,6 +28,9 @@ export class MiniGameModal {
   open(tpId, createGameFn, { onComplete, onClose }) {
     const tp = getStationById(tpId);
     if (!tp) return;
+    if (document.pointerLockElement) {
+      document.exitPointerLock?.();
+    }
     this.cleanupActive();
 
     this.activeTpId = tpId;
@@ -37,10 +40,12 @@ export class MiniGameModal {
     this.iconEl.textContent = tp.icon;
     this.subtitleEl.textContent = `BAC PRO CIEL • ATELIER 3D • ${tp.pole.toUpperCase()}`;
     this.titleEl.textContent = tp.title;
+    this.stagePillsEl.innerHTML = '';
     this.backdrop.classList.add('tp3d-mode');
     this.backdrop.classList.remove('hidden');
     requestAnimationFrame(() => {
       this.backdrop.classList.add('tp3d-visible');
+      window.dispatchEvent(new Event('resize'));
     });
 
     this.startTimeMs = Date.now();

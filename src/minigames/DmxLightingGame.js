@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { buildStudentAvatarMesh } from '../world/AvatarBuilder.js';
 import {
   createWorkbench3D,
   makeCanvasScreen,
-  buildFlexibleCable,
-  createEsdMatTexture
+  buildFlexibleCable
 } from './Workbench3DHost.js';
 
 export function computeDmxScore3D(metrics = {}) {
@@ -102,43 +102,59 @@ export function createDmxLightingGame(api) {
     cameraPos: CAM_VIEWS[0].pos,
     lookAt: CAM_VIEWS[0].lookAt,
     fov: CAM_VIEWS[0].fov,
-    hasEsdMat: false
+    hasEsdMat: false,
+    benchColor: '#1e293b',
+    wallColor: '#0f172a',
+    background: '#162032',
+    envIntensity: 0.48
   });
 
-  const esdTex = createEsdMatTexture();
-  const stageDeck = new THREE.Mesh(
-    new THREE.BoxGeometry(1.96, 0.014, 1.06),
-    new THREE.MeshStandardMaterial({ map: esdTex, roughness: 0.68, metalness: 0.08 })
+  const regieCarpet = new THREE.Mesh(
+    new THREE.BoxGeometry(2.04, 0.012, 1.12),
+    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.85, metalness: 0.08 })
   );
-  stageDeck.position.set(0, 0.007, 0.04);
-  stageDeck.receiveShadow = true;
-  bench.scene.add(stageDeck);
+  regieCarpet.position.set(0, 0.006, 0.04);
+  regieCarpet.receiveShadow = true;
+  bench.scene.add(regieCarpet);
 
   const stageFloor = new THREE.Mesh(
-    new THREE.BoxGeometry(1.52, 0.04, 0.58),
-    new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.62, metalness: 0.2 })
+    new THREE.BoxGeometry(1.58, 0.05, 0.62),
+    new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.36, metalness: 0.32 })
   );
   stageFloor.position.set(0, 0.032, -0.22);
   stageFloor.receiveShadow = true;
+  stageFloor.castShadow = true;
   bench.scene.add(stageFloor);
 
-  const dancer = new THREE.Group();
-  dancer.position.set(0, 0.052, -0.22);
-  bench.scene.add(dancer);
-  const torso = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.068, 0.084, 0.25, 16),
-    new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.6 })
+  const stageRim = new THREE.Mesh(
+    new THREE.BoxGeometry(1.61, 0.016, 0.64),
+    new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, emissiveIntensity: 0.45, roughness: 0.3 })
   );
-  torso.position.y = 0.125;
-  torso.castShadow = true;
-  dancer.add(torso);
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.056, 16, 16),
-    new THREE.MeshStandardMaterial({ color: 0xf1c27d, roughness: 0.55 })
+  stageRim.position.set(0, 0.016, -0.22);
+  bench.scene.add(stageRim);
+
+  const artistAvatar = buildStudentAvatarMesh({
+    outfitColor: '#f8fafc',
+    outfitStyle: 'cyber',
+    hat: 'headset',
+    skinTone: '#f1c29b',
+    pantsColor: '#1e293b'
+  });
+  artistAvatar.group.scale.setScalar(0.24);
+  artistAvatar.group.position.set(0, 0.058, -0.22);
+  bench.scene.add(artistAvatar.group);
+
+  const micStandPole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.004, 0.005, 0.32, 10),
+    new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.25 })
   );
-  head.position.y = 0.305;
-  head.castShadow = true;
-  dancer.add(head);
+  micStandPole.position.set(0.07, 0.22, -0.15);
+  const micHead = new THREE.Mesh(
+    new THREE.SphereGeometry(0.013, 12, 12),
+    new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.85, roughness: 0.22 })
+  );
+  micHead.position.set(0.055, 0.38, -0.16);
+  bench.scene.add(micStandPole, micHead);
 
   const state = {
     camId: 'overview',
@@ -220,17 +236,33 @@ export function createDmxLightingGame(api) {
   trussGroup.position.set(0, 0.014, -0.38);
   bench.scene.add(trussGroup);
 
-  const metalMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.26, metalness: 0.86 });
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0xdbe3ed, roughness: 0.24, metalness: 0.88 });
   for (const tx of [-0.82, 0.82]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.88, 0.055), metalMat);
-    leg.position.set(tx, 0.44, 0);
-    leg.castShadow = true;
-    trussGroup.add(leg);
+    for (const tz of [-0.025, 0.025]) {
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.88, 10), metalMat);
+      tube.position.set(tx, 0.44, tz);
+      tube.castShadow = true;
+      trussGroup.add(tube);
+    }
+    const basePlate = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.02, 0.14), metalMat);
+    basePlate.position.set(tx, 0.01, 0);
+    trussGroup.add(basePlate);
   }
-  const topBeam = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.06, 0.06), metalMat);
-  topBeam.position.set(0, 0.86, 0);
-  topBeam.castShadow = true;
-  trussGroup.add(topBeam);
+  for (const oy of [-0.024, 0.024]) {
+    for (const oz of [-0.024, 0.024]) {
+      const chord = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 1.72, 10), metalMat);
+      chord.rotation.z = Math.PI / 2;
+      chord.position.set(0, 0.86 + oy, oz);
+      chord.castShadow = true;
+      trussGroup.add(chord);
+    }
+  }
+  for (let i = -7; i <= 7; i++) {
+    const brace = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.072, 6), metalMat);
+    brace.position.set(i * 0.105, 0.86, 0.024);
+    brace.rotation.z = i % 2 === 0 ? 0.65 : -0.65;
+    trussGroup.add(brace);
+  }
 
   const xlrPorts = {};
   const fixtureObjects = [];
@@ -274,7 +306,10 @@ export function createDmxLightingGame(api) {
     createXlrSocket(podBox, new THREE.Vector3(-0.055, -0.02, -0.055), `P${i}_IN`, `${sp.code} DMX IN`);
     createXlrSocket(podBox, new THREE.Vector3(0.055, -0.02, -0.055), `P${i}_OUT`, `${sp.code} DMX OUT`);
 
-    const rearScreen = makeCanvasScreen(192, 96);
+    const rearScreen = makeCanvasScreen(192, 96, (ctx, w, h) => {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, w, h);
+    });
     const rearScrMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(0.11, 0.052),
       new THREE.MeshBasicMaterial({ map: rearScreen.texture })
@@ -453,7 +488,10 @@ export function createDmxLightingGame(api) {
 
   createXlrSocket(consoleGroup, new THREE.Vector3(-0.38, 0.052, -0.155), 'CONSOLE_OUT', 'Pupitre DMX OUT');
 
-  const lcdScreen = makeCanvasScreen(420, 140);
+  const lcdScreen = makeCanvasScreen(420, 140, (ctx, w, h) => {
+    ctx.fillStyle = '#061524';
+    ctx.fillRect(0, 0, w, h);
+  });
   const lcdMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(0.32, 0.092),
     new THREE.MeshBasicMaterial({ map: lcdScreen.texture })
@@ -497,7 +535,7 @@ export function createDmxLightingGame(api) {
       dragPlane: faderPlane,
       onDragMove: (_pt, _dx, dy) => {
         const fx = state.fixtures[state.selectedFixture];
-        const step = (dy / 140) * fd.max;
+        const step = (-dy / 120) * fd.max;
         fx[fd.key] = Math.max(0, Math.min(fd.max, Math.round(fx[fd.key] + step)));
         syncDmx3D();
         refreshUi();
@@ -537,12 +575,15 @@ export function createDmxLightingGame(api) {
     if (!state.selectedPort) {
       state.selectedPort = portId;
       sfx.click();
+      bench.showToast(`Port ${xlrPorts[portId]?.label} sélectionné — cliquez la prise suivante`, 'info');
+      syncDmx3D();
       refreshUi();
       return;
     }
 
     if (state.selectedPort === portId) {
       state.selectedPort = null;
+      syncDmx3D();
       refreshUi();
       return;
     }
@@ -556,10 +597,13 @@ export function createDmxLightingGame(api) {
     if (matched && !state.cablesDone.has(matched.id)) {
       state.cablesDone.add(matched.id);
       sfx.snap();
+      bench.showToast(`Câble XLR relié : ${matched.label}`, 'success');
       rebuildXlrCables();
       syncDmx3D();
     } else {
       sfx.error();
+      bench.showToast('Ordre Daisy-Chain incorrect : reliez OUT → IN en série', 'error');
+      syncDmx3D();
     }
     refreshUi();
   }
@@ -569,6 +613,7 @@ export function createDmxLightingGame(api) {
     if (nextLink) {
       state.cablesDone.add(nextLink.id);
       sfx.snap();
+      bench.showToast(`Câble XLR relié : ${nextLink.label}`, 'success');
       rebuildXlrCables();
       syncDmx3D();
       refreshUi();
@@ -589,8 +634,11 @@ export function createDmxLightingGame(api) {
       const pB = new THREE.Vector3();
       xlrPorts[lk.fromId].anchor.getWorldPosition(pA);
       xlrPorts[lk.toId].anchor.getWorldPosition(pB);
-      const cable = buildFlexibleCable(pA, pB, 0x0ea5e9, 0.008, 0.12);
-      cableGroup.add(cable);
+      const mid = pA.clone().lerp(pB, 0.5);
+      mid.y -= lk.id === 0 ? 0.12 : 0.08;
+      mid.z -= 0.05;
+      const cableObj = buildFlexibleCable([pA, mid, pB], '#0ea5e9', 0.0085, '#0284c7');
+      cableGroup.add(cableObj.mesh);
     }
   }
 
@@ -692,6 +740,13 @@ export function createDmxLightingGame(api) {
       drawRearFixtureScreen(i, ev);
     }
 
+    for (const [pid, port] of Object.entries(xlrPorts)) {
+      const isSel = state.selectedPort === pid;
+      port.mesh.material.color.setHex(isSel ? 0xfbbf24 : 0x38bdf8);
+      port.mesh.material.emissive.setHex(isSel ? 0xf59e0b : 0x000000);
+      port.mesh.material.emissiveIntensity = isSel ? 0.7 : 0;
+    }
+
     drawLcdScreen(ev);
   }
 
@@ -742,7 +797,7 @@ export function createDmxLightingGame(api) {
         <div style="font-weight:800;color:#a855f7;font-size:12px;margin-top:2px;">2. ADRESSAGE & 3. SCÈNE DMX512</div>
         <div style="display:flex;flex-direction:column;gap:4px;">${fixCards}</div>
 
-        <div style="padding:6px;border-radius:6px;background:rgba(15,23,42,0.72);border:1px solid #334155;">
+        <div style="padding:6px;border-radius:6px;background:rgba(15,23,42,0.86);color:#f8fafc;border:1px solid #334155;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
             <strong>${selSpec.code} Adresse :</strong>
             <div style="display:flex;gap:4px;align-items:center;">
@@ -800,6 +855,27 @@ export function createDmxLightingGame(api) {
     });
   }
 
+  function syncStagesBar(ev) {
+    const stepIdx = !ev.daisyOk
+      ? 0
+      : ev.exactAddressesCount < 4 || !ev.dmxNoOverlap
+      ? 1
+      : 2;
+    api.setStages(
+      [
+        { name: `1. XLR & 120 Ω (${ev.cablesConnected}/4)` },
+        { name: `2. Adressage (${ev.exactAddressesCount}/4)` },
+        { name: `3. Faders & Scène (${ev.matchedFixtures}/4)` }
+      ],
+      stepIdx,
+      (idx) => {
+        if (idx === 0) setCameraById('cabling');
+        else if (idx === 1) setCameraById('address');
+        else setCameraById('console');
+      }
+    );
+  }
+
   function refreshUi() {
     const ev = evaluateDmx();
     const estScore = computeDmxScore3D({
@@ -823,6 +899,7 @@ export function createDmxLightingGame(api) {
       stepSub
     );
     bench.setAccuracy(`Note est. ${estScore.toFixed(1)}/20`);
+    syncStagesBar(ev);
 
     bench.setTools(
       FIXTURE_SPECS.map((sp, i) => ({
@@ -871,14 +948,19 @@ export function createDmxLightingGame(api) {
             aimScore: finalEv.aimScore,
             elapsedSec: (performance.now() - state.startMs) / 1000
           });
-          const xp = Math.round(65 + finalScore * 6.5);
           if (finalScore >= 12) sfx.success();
           else sfx.error();
-          api.onComplete?.({
-            score: finalScore,
-            xp,
-            summary: `XLR ${finalEv.cablesConnected}/4 • 120Ω ${state.terminatorInstalled ? 'OK' : 'Non'} • Adresses ${finalEv.exactAddressesCount}/4 • Scène ${finalEv.matchedFixtures}/4`
-          });
+          api.finishTp(
+            finalScore,
+            `
+              <p>Plateforme Éclairage DMX512 évaluée :</p>
+              <ul>
+                <li>Liaison série XLR-5 : <strong>${finalEv.cablesConnected}/4 câbles</strong> • Bouchon 120 Ω : <strong>${state.terminatorInstalled ? 'Installé' : 'Absent'}</strong></li>
+                <li>Adressage DMX sans conflit : <strong>${finalEv.exactAddressesCount}/4 adresses exactes</strong> (Conflits : ${finalEv.overlaps})</li>
+                <li>Restitution chromatique & orientation : <strong>${finalEv.matchedFixtures}/4 projecteurs conformes</strong></li>
+              </ul>
+            `
+          );
         }
       }
     ]);
@@ -890,11 +972,26 @@ export function createDmxLightingGame(api) {
   bench.addFloatingTag([0.74, 0.16, -0.05], 'Bouchon DMX 120 Ω', 'info');
   bench.addFloatingTag([0, 0.17, 0.26], 'Pupitre Faders DMX512', 'info');
 
-  const unsubTick = bench.onTick((dt) => {
+  let artistPhase = 0;
+  const unsubTick = bench.addUpdate((dt) => {
     state.glitchPhase += dt;
+    artistPhase += dt;
+    artistAvatar.group.rotation.y = Math.sin(artistPhase * 1.1) * 0.22;
+    if (artistAvatar.leftArm) artistAvatar.leftArm.rotation.x = -0.35 + Math.sin(artistPhase * 2.4) * 0.25;
+    if (artistAvatar.rightArm) artistAvatar.rightArm.rotation.x = -0.55 + Math.cos(artistPhase * 2.0) * 0.2;
     const ev = evaluateDmx();
     if (!ev.daisyOk || !ev.dmxNoOverlap) {
-      syncDmx3D();
+      for (let i = 0; i < 4; i++) {
+        const obj = fixtureObjects[i];
+        const fx = state.fixtures[i];
+        const cableActive = state.cablesDone.has(i);
+        const signalClean = ev.daisyOk && !ev.conflictingIds.has(i);
+        const jitter = cableActive && !signalClean ? (Math.sin(state.glitchPhase * 18 + i) > 0 ? 0.35 : 0.9) : 1.0;
+        const intensity = cableActive ? (fx.master / 100) * jitter : 0.05;
+        obj.lensMat.emissiveIntensity = cableActive ? 0.25 + intensity * 1.4 : 0.05;
+        obj.coneMat.opacity = cableActive ? intensity * 0.28 : 0;
+        obj.spot.intensity = cableActive ? intensity * 3.8 : 0;
+      }
     }
   });
 

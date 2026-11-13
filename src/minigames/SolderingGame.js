@@ -802,16 +802,13 @@ export function createSolderingGame(api) {
     { id: 'pcb', label: '🔬 Zoom PCB', pos: [0.05, 0.76, 0.62], look: [0.05, 0.14, 0.0] },
     { id: 'station', label: '🌡️ Station / Extracteur', pos: [0, 0.85, 0.98], look: [-0.25, 0.18, -0.35] }
   ];
-  wb.setCameras(cams, activeCam, (id) => {
+  function selectCameraView(id) {
     activeCam = id;
     const c = cams.find((x) => x.id === id);
     if (c) wb.setCameraView(c.pos, c.look, id === 'pcb' ? 36 : 40);
-    wb.setCameras(cams, activeCam, (nid) => {
-      activeCam = nid;
-      const nc = cams.find((x) => x.id === nid);
-      if (nc) wb.setCameraView(nc.pos, nc.look, nid === 'pcb' ? 36 : 40);
-    });
-  });
+    wb.setCameras(cams, activeCam, selectCameraView);
+  }
+  wb.setCameras(cams, activeCam, selectCameraView);
 
   wb.addUpdate((dt) => {
     if (fumeExtractorOn) {

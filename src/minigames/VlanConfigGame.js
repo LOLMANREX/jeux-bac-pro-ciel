@@ -3,8 +3,7 @@ import { sfx } from '../core/audio.js';
 import {
   createWorkbench3D,
   makeCanvasScreen,
-  buildFlexibleCable,
-  createEsdMatTexture
+  buildFlexibleCable
 } from './Workbench3DHost.js';
 
 export const VMVLAN_STAGES = [
@@ -278,17 +277,18 @@ export function createVlanConfigGame(api) {
     cameraPos: CAM_VIEWS[0].pos,
     lookAt: CAM_VIEWS[0].lookAt,
     fov: CAM_VIEWS[0].fov,
-    hasEsdMat: false
+    hasEsdMat: false,
+    wallColor: '#dbe7f3',
+    background: '#d4e2f0'
   });
 
-  const esdTex = createEsdMatTexture();
-  const deskMat = new THREE.Mesh(
-    new THREE.BoxGeometry(1.94, 0.01, 1.02),
-    new THREE.MeshStandardMaterial({ map: esdTex, roughness: 0.7, metalness: 0.08 })
+  const deskPad = new THREE.Mesh(
+    new THREE.BoxGeometry(1.94, 0.008, 1.02),
+    new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.78, metalness: 0.08 })
   );
-  deskMat.position.set(0, 0.006, 0.06);
-  deskMat.receiveShadow = true;
-  bench.scene.add(deskMat);
+  deskPad.position.set(0, 0.004, 0.06);
+  deskPad.receiveShadow = true;
+  bench.scene.add(deskPad);
 
   const state = {
     camId: 'overview',
@@ -393,7 +393,10 @@ export function createVlanConfigGame(api) {
   lidShell.castShadow = true;
   lidGroup.add(lidShell);
 
-  const laptopScreen = makeCanvasScreen(540, 336);
+  const laptopScreen = makeCanvasScreen(540, 336, (ctx, w, h) => {
+    ctx.fillStyle = '#050b14';
+    ctx.fillRect(0, 0, w, h);
+  });
   const screenMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(0.42, 0.26),
     new THREE.MeshBasicMaterial({ map: laptopScreen.texture })
@@ -429,6 +432,15 @@ export function createVlanConfigGame(api) {
   consolePortRing.position.set(0.14, 0.04, 0.122);
   stackGroup.add(consolePortRing);
 
+  for (let p = 0; p < 12; p++) {
+    const portLed = new THREE.Mesh(
+      new THREE.BoxGeometry(0.014, 0.01, 0.006),
+      new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x16a34a, emissiveIntensity: 0.65 })
+    );
+    portLed.position.set(-0.16 + p * 0.025, 0.036, 0.123);
+    stackGroup.add(portLed);
+  }
+
   const routerBox = new THREE.Mesh(
     new THREE.BoxGeometry(0.42, 0.068, 0.24),
     new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.35, metalness: 0.7 })
@@ -438,13 +450,16 @@ export function createVlanConfigGame(api) {
   stackGroup.add(routerBox);
 
   const consoleCable = buildFlexibleCable(
-    new THREE.Vector3(-0.34, 0.03, 0.14),
-    new THREE.Vector3(-0.16, 0.05, -0.14),
-    0x38bdf8,
+    [
+      [-0.34, 0.03, 0.14],
+      [-0.26, 0.035, 0.01],
+      [-0.16, 0.05, -0.14]
+    ],
+    '#38bdf8',
     0.0075,
-    0.045
+    '#0284c7'
   );
-  bench.scene.add(consoleCable);
+  bench.scene.add(consoleCable.mesh);
 
   const campusGroup = new THREE.Group();
   campusGroup.position.set(0.36, 0.012, 0.04);
@@ -489,6 +504,17 @@ export function createVlanConfigGame(api) {
     );
     roof.position.y = n.size[1] + 0.008;
     group.add(roof);
+
+    if (n.id === 'wifi') {
+      for (const ax of [-0.05, 0.05]) {
+        const ant = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.005, 0.007, 0.07, 8),
+          new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.6 })
+        );
+        ant.position.set(ax, n.size[1] + 0.045, -0.04);
+        group.add(ant);
+      }
+    }
 
     campusGroup.add(group);
     nodeMeshes[n.id] = { group, roofMat, def: n };
@@ -716,7 +742,7 @@ export function createVlanConfigGame(api) {
   function updateSidebar() {
     const ev = evaluateTopology();
     const drawer = bench.setSideDrawer(`
-      <div style="display:flex;flex-direction:column;gap:7px;font-size:11px;">
+      <div style="display:flex;flex-direction:column;gap:7px;font-size:11px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;">
         <div style="font-weight:800;color:#38bdf8;font-size:12px;">1. SEGMENTATION VLAN (${ev.vlansCreated}/3)</div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;">
           <button data-cmd="vlan 10" style="padding:5px 3px;border-radius:5px;border:1px solid #334155;background:${state.vlans[10].active ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">VLAN 10 ADMIN</button>
@@ -774,6 +800,25 @@ export function createVlanConfigGame(api) {
       elapsedSec: (performance.now() - state.startMs) / 1000
     });
 
+    const stageIdx = ev.vlansCreated < 3
+      ? 0
+      : ev.accessPortsOk < 3 || !ev.trunkConfigured
+      ? 1
+      : 2;
+    api.setStages(
+      [
+        { name: `1. VLANs (${ev.vlansCreated}/3)` },
+        { name: `2. Ports & Trunk 802.1Q` },
+        { name: `3. Passerelles & Ping` }
+      ],
+      stageIdx,
+      (idx) => {
+        if (idx === 0) setCameraById('console');
+        else if (idx === 1) setCameraById('stack');
+        else setCameraById('topology');
+      }
+    );
+
     bench.setInstruction(
       'ATELIER CONFIGURATION VLAN 802.1Q, TRUNK & ROUTAGE 3D',
       `VLANs ${ev.vlansCreated}/3 • Access ${ev.accessPortsOk}/3 • Trunk ${ev.trunkConfigured ? '802.1Q OK' : 'NON'} • GW ${ev.gatewaysOk}/3`,
@@ -824,14 +869,19 @@ export function createVlanConfigGame(api) {
             tracerouteOk: state.lastTraceOk,
             elapsedSec: (performance.now() - state.startMs) / 1000
           });
-          const xp = Math.round(65 + finalScore * 6.5);
           if (finalScore >= 12) sfx.success();
           else sfx.error();
-          api.onComplete?.({
-            score: finalScore,
-            xp,
-            summary: `VLANs ${finalEv.vlansCreated}/3 • Access ${finalEv.accessPortsOk}/3 • Trunk ${finalEv.trunkConfigured ? 'OK' : 'KO'} • Ping/Trace ${state.lastPingOk && state.lastTraceOk ? 'OK' : 'Partiel'}`
-          });
+          api.finishTp(
+            finalScore,
+            `
+              <p>Atelier Configuration VLAN 802.1Q & Routage évalué :</p>
+              <ul>
+                <li>Création VLAN 10 / 20 / 30 : <strong>${finalEv.vlansCreated}/3 actifs</strong></li>
+                <li>Ports Access & Trunk 802.1Q : <strong>${finalEv.accessPortsOk}/3 ports Access • Trunk Gi0/24 ${finalEv.trunkConfigured ? 'OK ✔' : 'Incomplet'}</strong></li>
+                <li>Routage Inter-VLAN & Diagnostic : <strong>${finalEv.gatewaysOk}/3 passerelles /24 • Ping ${state.lastPingOk ? 'OK ✔' : 'KO'} • Traceroute ${state.lastTraceOk ? 'OK ✔' : 'KO'}</strong></li>
+              </ul>
+            `
+          );
         }
       }
     ]);
@@ -844,7 +894,7 @@ export function createVlanConfigGame(api) {
   bench.addFloatingTag([-0.3, 0.22, -0.26], 'Switch L3 / Port Console', 'info');
   bench.addFloatingTag([0.36, 0.25, 0.0], 'Maquette Infra 3D', 'info');
 
-  const unsubTick = bench.onTick((dt) => {
+  const unsubTick = bench.addUpdate((dt) => {
     for (let i = state.packets.length - 1; i >= 0; i--) {
       const pkt = state.packets[i];
       if (!pkt.segments.length) {

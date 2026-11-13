@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { buildStudentAvatarMesh } from '../world/AvatarBuilder.js';
 import {
   createWorkbench3D,
-  makeCanvasScreen,
-  createEsdMatTexture
+  makeCanvasScreen
 } from './Workbench3DHost.js';
 
 export function computeStudioRegieScore3D(metrics = {}) {
@@ -49,17 +49,27 @@ export function createStudioRegieGame(api) {
     cameraPos: CAM_VIEWS[0].pos,
     lookAt: CAM_VIEWS[0].lookAt,
     fov: CAM_VIEWS[0].fov,
-    hasEsdMat: false
+    hasEsdMat: false,
+    benchColor: '#1e293b',
+    wallColor: '#0f172a',
+    background: '#162032',
+    envIntensity: 0.58
   });
 
-  const esdTex = createEsdMatTexture();
-  const deskMesh = new THREE.Mesh(
-    new THREE.BoxGeometry(1.94, 0.014, 1.04),
-    new THREE.MeshStandardMaterial({ map: esdTex, roughness: 0.7, metalness: 0.08 })
+  const studioDeskTop = new THREE.Mesh(
+    new THREE.BoxGeometry(2.02, 0.014, 1.08),
+    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.42, metalness: 0.25 })
   );
-  deskMesh.position.set(0, 0.007, 0.05);
-  deskMesh.receiveShadow = true;
-  bench.scene.add(deskMesh);
+  studioDeskTop.position.set(0, 0.007, 0.05);
+  studioDeskTop.receiveShadow = true;
+  bench.scene.add(studioDeskTop);
+
+  const oakConsoleTrim = new THREE.Mesh(
+    new THREE.BoxGeometry(2.04, 0.022, 0.045),
+    new THREE.MeshStandardMaterial({ color: 0x854d0e, roughness: 0.52, metalness: 0.08 })
+  );
+  oakConsoleTrim.position.set(0, 0.011, 0.59);
+  bench.scene.add(oakConsoleTrim);
 
   const state = {
     camId: 'overview',
@@ -113,28 +123,52 @@ export function createStudioRegieGame(api) {
     };
   }
 
-  const greenBackdrop = new THREE.Mesh(
-    new THREE.BoxGeometry(0.46, 0.36, 0.02),
+  const cycloFloor = new THREE.Mesh(
+    new THREE.BoxGeometry(0.54, 0.012, 0.34),
     new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.85 })
   );
-  greenBackdrop.position.set(-0.56, 0.2, -0.44);
+  cycloFloor.position.set(-0.56, 0.018, -0.29);
+  cycloFloor.receiveShadow = true;
+  bench.scene.add(cycloFloor);
+
+  const greenBackdrop = new THREE.Mesh(
+    new THREE.BoxGeometry(0.54, 0.38, 0.022),
+    new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.85 })
+  );
+  greenBackdrop.position.set(-0.56, 0.21, -0.45);
   bench.scene.add(greenBackdrop);
 
-  const miniPresenter = new THREE.Group();
-  miniPresenter.position.set(-0.56, 0.014, -0.34);
-  bench.scene.add(miniPresenter);
-  const pBody = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.036, 0.044, 0.14, 12),
-    new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 })
-  );
-  pBody.position.y = 0.08;
-  miniPresenter.add(pBody);
-  const pHead = new THREE.Mesh(
-    new THREE.SphereGeometry(0.032, 12, 12),
-    new THREE.MeshStandardMaterial({ color: 0xf1c27d, roughness: 0.55 })
-  );
-  pHead.position.y = 0.18;
-  miniPresenter.add(pHead);
+  for (const sx of [-0.84, -0.28]) {
+    const standPole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.006, 0.008, 0.42, 8),
+      new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.8 })
+    );
+    standPole.position.set(sx, 0.22, -0.24);
+    const softbox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.11, 0.08, 0.03),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 })
+    );
+    softbox.position.set(sx, 0.43, -0.24);
+    softbox.lookAt(-0.56, 0.22, -0.34);
+    const diffuser = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.095, 0.065),
+      new THREE.MeshBasicMaterial({ color: 0xfef9c3 })
+    );
+    diffuser.position.z = 0.017;
+    softbox.add(diffuser);
+    bench.scene.add(standPole, softbox);
+  }
+
+  const studioPresenter = buildStudentAvatarMesh({
+    outfitColor: '#0284c7',
+    outfitStyle: 'blouse',
+    hat: 'none',
+    skinTone: '#f1c29b',
+    pantsColor: '#1e293b'
+  });
+  studioPresenter.group.scale.setScalar(0.155);
+  studioPresenter.group.position.set(-0.56, 0.024, -0.34);
+  bench.scene.add(studioPresenter.group);
 
   const wallGroup = new THREE.Group();
   wallGroup.position.set(0.14, 0.014, -0.35);
@@ -157,7 +191,14 @@ export function createStudioRegieGame(api) {
 
   const monitors = {};
   for (const m of monitorDefs) {
-    const scr = makeCanvasScreen(m.id === 'PGM' ? 420 : 280, m.id === 'PGM' ? 256 : 168);
+    const scr = makeCanvasScreen(
+      m.id === 'PGM' ? 420 : 280,
+      m.id === 'PGM' ? 256 : 168,
+      (ctx, w, h) => {
+        ctx.fillStyle = '#090d16';
+        ctx.fillRect(0, 0, w, h);
+      }
+    );
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(m.w, m.h),
       new THREE.MeshBasicMaterial({ map: scr.texture })
@@ -200,6 +241,20 @@ export function createStudioRegieGame(api) {
   lensBarrel.rotation.x = Math.PI / 2;
   lensBarrel.position.set(0, 0.3, -0.14);
   camRig.add(lensBarrel);
+
+  const matteBox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.13, 0.1, 0.045),
+    new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.55, metalness: 0.35 })
+  );
+  matteBox.position.set(0, 0.3, -0.225);
+  camRig.add(matteBox);
+
+  const camHandle = new THREE.Mesh(
+    new THREE.BoxGeometry(0.03, 0.025, 0.16),
+    new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.7 })
+  );
+  camHandle.position.set(0, 0.39, 0.02);
+  camRig.add(camHandle);
 
   const focusRing = new THREE.Mesh(
     new THREE.CylinderGeometry(0.055, 0.055, 0.028, 20),
@@ -270,7 +325,10 @@ export function createStudioRegieGame(api) {
   mixerBody.castShadow = true;
   audioGroup.add(mixerBody);
 
-  const vuScreen = makeCanvasScreen(256, 128);
+  const vuScreen = makeCanvasScreen(256, 128, (ctx, w, h) => {
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(0, 0, w, h);
+  });
   const vuMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(0.24, 0.09),
     new THREE.MeshBasicMaterial({ map: vuScreen.texture })
@@ -311,7 +369,7 @@ export function createStudioRegieGame(api) {
       cursor: 'ns-resize',
       dragPlane: audioFaderPlane,
       onDragMove: (_pt, _dx, dy) => {
-        state[af.key] = Math.max(0, Math.min(100, Math.round(state[af.key] + dy * 0.65)));
+        state[af.key] = Math.max(0, Math.min(100, Math.round(state[af.key] - dy * 0.65)));
         syncStudio3D();
         refreshUi();
       }
@@ -399,9 +457,11 @@ export function createStudioRegieGame(api) {
     const curCue = CUE_LIST[state.cueIdx];
     if (curCue && state.pgmSrc === curCue.target) {
       state.cuesDone.add(curCue.id);
+      bench.showToast(`Top validé : ${curCue.label}`, 'success');
       if (state.cueIdx < CUE_LIST.length - 1) state.cueIdx += 1;
       sfx.success();
     } else {
+      bench.showToast(`Direct basculé sur ${state.pgmSrc}`, 'info');
       sfx.snap();
     }
     syncStudio3D();
@@ -587,63 +647,63 @@ export function createStudioRegieGame(api) {
     const curCue = CUE_LIST[state.cueIdx];
 
     const drawer = bench.setSideDrawer(`
-      <div style="display:flex;flex-direction:column;gap:6px;font-size:11px;">
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:11px;background:rgba(15,23,42,0.9);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;">
         <div style="font-weight:800;color:#38bdf8;font-size:12px;">1. OPTIQUE CAMÉRA BROADCAST</div>
-        <label style="display:flex;align-items:center;gap:6px;">
+        <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;">
           <span style="width:74px;">Focus (72%)</span>
           <input type="range" min="0" max="100" value="${state.focus}" data-cam="focus" style="flex:1;" />
-          <span style="width:36px;color:${ev.focusOk ? '#4ade80' : '#fbbf24'};">${state.focus}%</span>
+          <span style="width:36px;color:${ev.focusOk ? '#4ade80' : '#fbbf24'};font-weight:700;">${state.focus}%</span>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;">
+        <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;">
           <span style="width:74px;">Iris (56%)</span>
           <input type="range" min="0" max="100" value="${state.iris}" data-cam="iris" style="flex:1;" />
-          <span style="width:36px;color:${ev.irisOk ? '#4ade80' : '#fbbf24'};">${state.iris}%</span>
+          <span style="width:36px;color:${ev.irisOk ? '#4ade80' : '#fbbf24'};font-weight:700;">${state.iris}%</span>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;">
+        <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;">
           <span style="width:74px;">WB (5600K)</span>
           <input type="range" min="2800" max="7200" step="50" value="${state.kelvin}" data-cam="kelvin" style="flex:1;" />
-          <span style="width:42px;color:${ev.wbOk ? '#4ade80' : '#fbbf24'};">${state.kelvin}K</span>
+          <span style="width:42px;color:${ev.wbOk ? '#4ade80' : '#fbbf24'};font-weight:700;">${state.kelvin}K</span>
         </label>
 
-        <div style="font-weight:800;color:#22c55e;font-size:12px;margin-top:2px;">2. INCRUSTATION CHROMA KEY</div>
-        <label style="display:flex;align-items:center;gap:6px;">
+        <div style="font-weight:800;color:#4ade80;font-size:12px;margin-top:2px;">2. INCRUSTATION CHROMA KEY</div>
+        <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;">
           <span style="width:74px;">Seuil (74-94)</span>
           <input type="range" min="0" max="100" value="${state.chromaKey}" data-cam="chromaKey" style="flex:1;" />
-          <span style="width:36px;color:${ev.chromaOk ? '#4ade80' : '#fbbf24'};">${state.chromaKey}%</span>
+          <span style="width:36px;color:${ev.chromaOk ? '#4ade80' : '#fbbf24'};font-weight:700;">${state.chromaKey}%</span>
         </label>
 
-        <div style="font-weight:800;color:#a855f7;font-size:12px;margin-top:2px;">3. MIXAGE AUDIO (${ev.peakDb.toFixed(1)} dBFS)</div>
+        <div style="font-weight:800;color:#c084fc;font-size:12px;margin-top:2px;">3. MIXAGE AUDIO (${ev.peakDb.toFixed(1)} dBFS)</div>
         <div style="display:flex;gap:4px;">
-          <button data-btn="48v" style="flex:1;padding:4px;border-radius:4px;border:1px solid #334155;background:${state.phantom48v ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">+48V (${state.phantom48v ? 'ON' : 'OFF'})</button>
-          <button data-btn="hpf" style="flex:1;padding:4px;border-radius:4px;border:1px solid #334155;background:${state.hpf80 ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">HPF 80Hz (${state.hpf80 ? 'ON' : 'OFF'})</button>
+          <button data-btn="48v" style="flex:1;padding:5px;border-radius:5px;border:1px solid #475569;background:${state.phantom48v ? '#15803d' : '#1e293b'};color:#fff;font-weight:700;cursor:pointer;">+48V (${state.phantom48v ? 'ON' : 'OFF'})</button>
+          <button data-btn="hpf" style="flex:1;padding:5px;border-radius:5px;border:1px solid #475569;background:${state.hpf80 ? '#0369a1' : '#1e293b'};color:#fff;font-weight:700;cursor:pointer;">HPF 80Hz (${state.hpf80 ? 'ON' : 'OFF'})</button>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;">
+        <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;">
           <span style="width:74px;">Cravate</span>
           <input type="range" min="0" max="100" value="${state.micCravate}" data-cam="micCravate" style="flex:1;" />
-          <span style="width:36px;">${state.micCravate}%</span>
+          <span style="width:36px;color:#f8fafc;">${state.micCravate}%</span>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;">
+        <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;">
           <span style="width:74px;">Ambiance</span>
           <input type="range" min="0" max="100" value="${state.micAmbiance}" data-cam="micAmbiance" style="flex:1;" />
-          <span style="width:36px;">${state.micAmbiance}%</span>
+          <span style="width:36px;color:#f8fafc;">${state.micAmbiance}%</span>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;">
+        <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;">
           <span style="width:74px;">Musique</span>
           <input type="range" min="0" max="100" value="${state.music}" data-cam="music" style="flex:1;" />
-          <span style="width:36px;">${state.music}%</span>
+          <span style="width:36px;color:#f8fafc;">${state.music}%</span>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;">
+        <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;">
           <span style="width:74px;">Master Mix</span>
           <input type="range" min="0" max="100" value="${state.masterAudio}" data-cam="masterAudio" style="flex:1;" />
-          <span style="width:36px;">${state.masterAudio}%</span>
+          <span style="width:36px;color:#f8fafc;">${state.masterAudio}%</span>
         </label>
 
-        <div style="font-weight:800;color:#ef4444;font-size:12px;margin-top:2px;">RÉALISATION ATEM (${ev.cuesCompleted}/3)</div>
-        <div style="padding:5px 7px;border-radius:5px;background:rgba(15,23,42,0.65);border:1px solid #334155;">
+        <div style="font-weight:800;color:#fb7185;font-size:12px;margin-top:2px;">4. RÉALISATION ATEM (${ev.cuesCompleted}/3)</div>
+        <div style="padding:5px 7px;border-radius:5px;background:#020617;border:1px solid #334155;">
           ${CUE_LIST.map((c) => {
             const done = state.cuesDone.has(c.id);
             const active = c.id === curCue?.id && !done;
-            return `<div style="color:${done ? '#4ade80' : active ? '#38bdf8' : '#94a3b8'};">${done ? '[OK] ' : active ? '► ' : ''}${c.label}</div>`;
+            return `<div style="color:${done ? '#4ade80' : active ? '#38bdf8' : '#94a3b8'};font-weight:${active ? '700' : '500'};">${done ? '✔ ' : active ? '► ' : ''}${c.label}</div>`;
           }).join('')}
         </div>
       </div>
@@ -695,6 +755,22 @@ export function createStudioRegieGame(api) {
       cuesCompleted: ev.cuesCompleted,
       elapsedSec: (performance.now() - state.startMs) / 1000
     });
+
+    const camReady = ev.focusOk && ev.irisOk && ev.chromaOk;
+    const stageIdx = !camReady ? 0 : !ev.audioLevelOk || !state.phantom48v ? 1 : 2;
+    api.setStages(
+      [
+        { name: `1. Caméra & Chroma` },
+        { name: `2. Audio (${ev.peakDb.toFixed(0)} dBFS)` },
+        { name: `3. Réalisation ATEM (${ev.cuesCompleted}/3)` }
+      ],
+      stageIdx,
+      (idx) => {
+        if (idx === 0) setCameraById('camera');
+        else if (idx === 1) setCameraById('audio');
+        else setCameraById('atem');
+      }
+    );
 
     bench.setInstruction(
       'ATELIER RÉGIE BROADCAST, CAMÉRA & MIXAGE SON 3D',
@@ -748,14 +824,19 @@ export function createStudioRegieGame(api) {
             cuesCompleted: finalEv.cuesCompleted,
             elapsedSec: (performance.now() - state.startMs) / 1000
           });
-          const xp = Math.round(65 + finalScore * 6.5);
           if (finalScore >= 12) sfx.success();
           else sfx.error();
-          api.onComplete?.({
-            score: finalScore,
-            xp,
-            summary: `Optique ${finalEv.focusOk && finalEv.irisOk && finalEv.wbOk ? 'OK' : 'À revoir'} • Chroma ${finalEv.chromaOk ? 'OK' : 'KO'} • Son ${finalEv.peakDb.toFixed(1)} dBFS • Tops ${finalEv.cuesCompleted}/3`
-          });
+          api.finishTp(
+            finalScore,
+            `
+              <p>Atelier Régie TV & Fond Vert évalué :</p>
+              <ul>
+                <li>Caméra & Fond Vert : <strong>${finalEv.focusOk && finalEv.irisOk && finalEv.wbOk ? 'Optique OK' : 'Optique à affiner'} • Chroma ${finalEv.chromaOk ? 'Propre ✔' : 'Incomplet'}</strong></li>
+                <li>Console Audio : <strong>${finalEv.peakDb.toFixed(1)} dBFS (${finalEv.audioLevelOk ? 'Dans la zone -14 à -6 dBFS' : 'Hors plage'})</strong></li>
+                <li>Conduite ATEM : <strong>${finalEv.cuesCompleted}/3 tops direct exécutés</strong></li>
+              </ul>
+            `
+          );
         }
       }
     ]);
@@ -768,8 +849,12 @@ export function createStudioRegieGame(api) {
   bench.addFloatingTag([0.04, 0.16, 0.22], 'Console Audio & VU-Mètres', 'info');
   bench.addFloatingTag([0.62, 0.15, 0.22], 'Mélangeur ATEM', 'info');
 
-  const unsubTick = bench.onTick((dt) => {
+  let talkPhase = 0;
+  const unsubTick = bench.addUpdate((dt) => {
     state.vuPhase += dt * 3;
+    talkPhase += dt;
+    studioPresenter.group.rotation.y = Math.sin(talkPhase * 0.9) * 0.16;
+    if (studioPresenter.rightArm) studioPresenter.rightArm.rotation.x = -0.3 + Math.sin(talkPhase * 2.2) * 0.18;
     drawMultiviewAndVu();
   });
 

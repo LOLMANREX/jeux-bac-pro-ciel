@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.3 - Refonte Complète des 2 TPs Réseaux (Brassage RJ45 & VLAN 802.1Q)';
+    : 'v4.4 - Déblocage complet & Refonte interactive des TPs 3D';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,19 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.3 — Refonte Complète des 2 TPs Réseaux (Brassage RJ45 & VLAN 802.1Q)',
+    version: 'v4.4 — Déblocage complet & Refonte interactive des TPs 3D',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Correction critique du moteur 3D des TPs (Workbench3DHost & MiniGameModal) : résolution des crashs bloquants au chargement (makeCanvasScreen, buildFlexibleCable, addUpdate/onTick, finishTp, redimensionnement ResizeObserver et couche CSS z-index) permettant à 100 % des TPs de s’initialiser et de répondre immédiatement à la souris comme au tactile.',
+      'Suppression du tapis ESD bleu dans les TPs Audiovisuel & Réseau VLAN : plateau scénique sombre + présentateur articulé issu d’AvatarBuilder + pont Truss à croisillons pour DMX512 ; cyclorama fond vert éclairé par softboxes + caméra broadcast avec pare-soleil + présentateur articulé pour Régie Studio ; bureau admin chêne/ardoise + baies et nœuds 3D enrichis pour VLAN 802.1Q.',
+      'Interface interactive complète dans chaque TP : barre d’étapes synchronisée (setStages), panneaux latéraux contrastés avec commandes synchronisées aux objets 3D, surbrillance de survol préservant l’état des LEDs/boutons et validation complète sur /20 + XP.'
+    ]
+  },
+  {
+    version: 'v4.3 — Refonte Complète des 2 TPs Réseaux (Brassage RJ45 & VLAN 802.1Q)',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'TP Réseau A — Sertissage RJ45 & Brassage Baie Serveur 19" 3D (PatchPanelGame) : établi de sertissage transparent avec 8 brins cuivre à ordonner selon T568B + pince à sertir animée, baie 19" ouverte 24 ports (panneau numéroté + switch PoE + goulottes passe-câbles) avec cordons souples colorés par service (Bleu Élèves, Jaune Wi-Fi PoE, Rouge Serveurs) et testeur RJ45 séquentiel 1-8.',
       'TP Réseau B — Configuration VLAN 802.1Q, Trunk & Routage 3D (VlanConfigGame) : PC portable relié par câble console bleu ciel au Switch L3 / Routeur à côté d’une maquette 3D dynamique (Admin, Atelier, Wi-Fi, Switch Cœur, Pare-feu) avec création des VLAN 10/20/30, ports Access & Trunk 802.1Q, correction des passerelles Inter-VLAN et paquets Ping/Traceroute animés.'

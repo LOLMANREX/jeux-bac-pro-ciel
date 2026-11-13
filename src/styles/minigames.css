@@ -958,6 +958,7 @@
   padding: 0;
   background: rgba(214, 228, 242, 0.25);
   opacity: 0;
+  z-index: 80;
   transition: opacity 0.26s ease;
 }
 #minigame-modal.tp3d-mode.tp3d-visible {

@@ -519,6 +519,20 @@ export function createElectronicsGame(api) {
   function refreshHud() {
     const { ledSim, divSim } = updateVisuals();
     const ready = ledSim.status === 'ok' && divSim.ok && state.powerOn;
+    const stepIdx = ledSim.status !== 'ok' ? 0 : !divSim.ok ? 1 : 2;
+    api.setStages(
+      [
+        { name: '1. Circuit LED 5V' },
+        { name: '2. Pont Diviseur 3.3V' },
+        { name: '3. Multimètre & +5V' }
+      ],
+      stepIdx,
+      (idx) => {
+        if (idx === 0 || idx === 1) selectCamera('breadboard');
+        else selectCamera('overview');
+      }
+    );
+
     bench.setInstruction(
       ready ? 'CIRCUITS VALIDÉS' : 'ÉLECTRONIQUE & MULTIMÈTRE 3D',
       ready
@@ -527,6 +541,44 @@ export function createElectronicsGame(api) {
       'Sélectionnez une résistance sur le plateau pour la mesurer au Multimètre 3D puis cliquez sur un slot de la Breadboard.'
     );
     bench.setAccuracy(`LED: ${ledSim.currentMa} mA · Vout: ${divSim.vout.toFixed(2)}V`);
+
+    const drawer = bench.setSideDrawer(`
+      <div style="display:flex;flex-direction:column;gap:6px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;font-size:11px;">
+        <div style="font-weight:800;color:#38bdf8;font-size:12px;">BANC ÉLECTRONIQUE & MULTIMÈTRE</div>
+        <div style="display:flex;justify-content:space-between;background:#020617;padding:5px 7px;border-radius:6px;">
+          <span>Circuit LED 5V :</span>
+          <strong style="color:${ledSim.status === 'ok' ? '#4ade80' : '#fbbf24'};">${ledSim.message}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;background:#020617;padding:5px 7px;border-radius:6px;">
+          <span>GPIO ESP32 Vout :</span>
+          <strong style="color:${divSim.ok ? '#4ade80' : '#fbbf24'};">${divSim.vout.toFixed(2)} V (cible 3.3V)</strong>
+        </div>
+        <div style="font-weight:700;color:#94a3b8;margin-top:2px;">Insérer la résistance active (${formatOhms(RESISTOR_STOCK.find((r) => r.id === state.selectedResistorId)?.ohms || 0)}) :</div>
+        <div style="display:grid;grid-template-columns:1fr;gap:4px;">
+          ${slotDefs
+            .map((sd) => {
+              const curId = state.slots[sd.id];
+              const curRes = RESISTOR_STOCK.find((r) => r.id === curId);
+              return `<button data-slot-id="${sd.id}" style="padding:5px 7px;border-radius:5px;border:1px solid #475569;background:${curRes ? '#1e3a5f' : '#1e293b'};color:#fff;cursor:pointer;text-align:left;">
+                ${sd.label} : <strong style="color:#38bdf8;">${curRes ? formatOhms(curRes.ohms) : 'Vide'}</strong>
+              </button>`;
+            })
+            .join('')}
+        </div>
+        <button id="elec-pol-btn" style="padding:5px 7px;border-radius:5px;border:1px solid #475569;background:#1e293b;color:#fff;cursor:pointer;">
+          Polarité LED : <strong>${state.ledForwardPolarity ? 'Directe (+ → -)' : 'Inversée'}</strong>
+        </button>
+      </div>
+    `);
+    drawer?.querySelectorAll('[data-slot-id]').forEach((btn) => {
+      btn.addEventListener('click', () => placeResistorInSlot(btn.dataset.slotId));
+    });
+    drawer?.querySelector('#elec-pol-btn')?.addEventListener('click', () => {
+      state.ledForwardPolarity = !state.ledForwardPolarity;
+      sfx.click();
+      updateVisuals();
+      refreshHud();
+    });
 
     bench.setTools(
       RESISTOR_STOCK.map((r) => ({ id: r.id, icon: '⚡', label: formatOhms(r.ohms) })),

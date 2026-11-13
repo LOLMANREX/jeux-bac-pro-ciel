@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.3 - Refonte Complète des 2 TPs Réseaux (Brassage RJ45 & VLAN 802.1Q)'),
+    __APP_VERSION__: JSON.stringify('v4.4 - Déblocage complet & Refonte interactive des TPs 3D'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

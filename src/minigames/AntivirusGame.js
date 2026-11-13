@@ -625,6 +625,15 @@ export function createAntivirusGame(api) {
       'Cliquez sur les interrupteurs 3D / nœuds holographiques ou utilisez la console SOC pour isoler PC-WORK, bloquer le pare-feu, patcher les CVE et scanner à l’EDR.'
     );
     bench.setAccuracy(`Intégrité ${Math.round(state.integrity)}% · FW ${st.fwCount}/3 · CVE ${st.cveCount}/3`);
+    const stageIdx = !state.isolated ? 0 : st.fwCount < 3 ? 1 : 2;
+    api.setStages(
+      [
+        { name: '1. Isolation Réseau' },
+        { name: `2. Pare-feu (${st.fwCount}/3)` },
+        { name: `3. Patchs & EDR (${st.cveCount}/3)` }
+      ],
+      stageIdx
+    );
 
     const actions = [
       { id: 'reset', label: 'Réinitialiser', onClick: resetSoc },

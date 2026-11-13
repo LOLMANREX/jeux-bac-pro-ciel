@@ -172,15 +172,17 @@ export function createPatchPanelGame(api) {
     cameraPos: CAM_VIEWS[0].pos,
     lookAt: CAM_VIEWS[0].lookAt,
     fov: CAM_VIEWS[0].fov,
-    hasEsdMat: false
+    hasEsdMat: false,
+    wallColor: '#dbe6f2',
+    background: '#d6e4f2'
   });
 
-  const esdTex = createEsdMatTexture();
+  const esdTex = createEsdMatTexture('#1e3a5f', '#38bdf8');
   const matMesh = new THREE.Mesh(
-    new THREE.BoxGeometry(1.94, 0.01, 1.02),
-    new THREE.MeshStandardMaterial({ map: esdTex, roughness: 0.7, metalness: 0.06 })
+    new THREE.BoxGeometry(0.62, 0.01, 0.48),
+    new THREE.MeshStandardMaterial({ map: esdTex, roughness: 0.72, metalness: 0.05 })
   );
-  matMesh.position.set(0, 0.006, 0.06);
+  matMesh.position.set(-0.58, 0.006, 0.14);
   matMesh.receiveShadow = true;
   bench.scene.add(matMesh);
 
@@ -403,20 +405,19 @@ export function createPatchPanelGame(api) {
   rackGroup.add(rackBack);
 
   function makePortLabelStrip(prefix) {
-    const scr = makeCanvasScreen(512, 48);
-    const { ctx, canvas, texture } = scr;
-    ctx.fillStyle = '#0b1220';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = 'bold 14px monospace';
-    for (let i = 0; i < 24; i++) {
-      const col = i % 12;
-      const row = Math.floor(i / 12);
-      const x = 14 + col * 41;
-      const y = row === 0 ? 18 : 40;
-      ctx.fillText(`${prefix}${String(i + 1).padStart(2, '0')}`, x, y);
-    }
-    texture.needsUpdate = true;
+    const scr = makeCanvasScreen(512, 48, (ctx, w, h) => {
+      ctx.fillStyle = '#0b1220';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = 'bold 14px monospace';
+      for (let i = 0; i < 24; i++) {
+        const col = i % 12;
+        const row = Math.floor(i / 12);
+        const x = 14 + col * 41;
+        const y = row === 0 ? 18 : 40;
+        ctx.fillText(`${prefix}${String(i + 1).padStart(2, '0')}`, x, y);
+      }
+    });
     return scr;
   }
 
@@ -522,12 +523,17 @@ export function createPatchPanelGame(api) {
         if (state.links[i]) {
           delete state.links[i];
           sfx.click();
+          bench.showToast(`Cordon débranché de P${String(i + 1).padStart(2, '0')}`, 'info');
           rebuildCables();
           refreshUi();
           return;
         }
         state.selectedPanelIdx = state.selectedPanelIdx === i ? null : i;
         sfx.click();
+        if (state.selectedPanelIdx !== null) {
+          bench.showToast(`Prise P${String(i + 1).padStart(2, '0')} prête — cliquez le port Switch cible`, 'info');
+        }
+        updateRackLinkLeds();
         refreshUi();
       }
     });
@@ -546,6 +552,7 @@ export function createPatchPanelGame(api) {
               return;
             }
           }
+          bench.showToast('Cliquez d’abord une prise du panneau supérieur (P01..P24)', 'info');
           return;
         }
         const pIdx = state.selectedPanelIdx;
@@ -555,6 +562,7 @@ export function createPatchPanelGame(api) {
         state.links[pIdx] = { switchIdx: i, color: state.activeCordColor };
         state.selectedPanelIdx = null;
         sfx.snap();
+        bench.showToast(`Brassage P${String(pIdx + 1).padStart(2, '0')} → S${String(i + 1).padStart(2, '0')} effectué`, 'success');
         rebuildCables();
         refreshUi();
       }
@@ -599,7 +607,11 @@ export function createPatchPanelGame(api) {
           new THREE.MeshStandardMaterial({ color: pal.hex, roughness: 0.42, metalness: 0.08 })
         );
       } else {
-        cableMesh = buildFlexibleCable(start, end, pal.hex, 0.0075, 0.12);
+        const mid = start.clone().lerp(end, 0.5);
+        mid.z += 0.11;
+        mid.y -= 0.05;
+        const cableObj = buildFlexibleCable([start, mid, end], pal.hex, 0.0075);
+        cableMesh = cableObj.mesh;
       }
       cableGroup.add(cableMesh);
     }
@@ -609,8 +621,8 @@ export function createPatchPanelGame(api) {
   function updateRackLinkLeds() {
     const blinkOn = Math.sin(state.blinkPhase * 6) > -0.35;
     for (let i = 0; i < 24; i++) {
-      panelLeds[i].color.setHex(0x334155);
-      panelLeds[i].emissive.setHex(0x000000);
+      panelLeds[i].color.setHex(state.selectedPanelIdx === i ? 0x38bdf8 : 0x334155);
+      panelLeds[i].emissive.setHex(state.selectedPanelIdx === i ? 0x0284c7 : 0x000000);
       switchLeds[i].color.setHex(0x334155);
       switchLeds[i].emissive.setHex(0x000000);
     }
@@ -639,7 +651,10 @@ export function createPatchPanelGame(api) {
   testerBox.castShadow = true;
   testerGroup.add(testerBox);
 
-  const testerScreen = makeCanvasScreen(320, 180);
+  const testerScreen = makeCanvasScreen(320, 180, (ctx, w, h) => {
+    ctx.fillStyle = '#071a12';
+    ctx.fillRect(0, 0, w, h);
+  });
   const testerScreenMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(0.2, 0.11),
     new THREE.MeshBasicMaterial({ map: testerScreen.texture })
@@ -792,12 +807,12 @@ export function createPatchPanelGame(api) {
     }).join('');
 
     const drawer = bench.setSideDrawer(`
-      <div style="display:flex;flex-direction:column;gap:7px;">
+      <div style="display:flex;flex-direction:column;gap:7px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;">
         <div style="font-weight:800;color:#38bdf8;font-size:12px;">1. SERTISSAGE T568B (${matches}/8) — ${state.crimped ? 'SERTI' : 'OUVERT'}</div>
         <div style="display:flex;flex-direction:column;gap:3px;">${pinRows}</div>
         <div style="font-weight:800;color:#facc15;font-size:12px;margin-top:3px;">2. CAHIER DE BRASSAGE (${patchCorrect}/${PATCH_SPECS.length})</div>
         <div style="display:flex;flex-direction:column;gap:3px;">${patchRows}</div>
-        <div style="font-size:11px;color:${state.guidesUsed ? '#4ade80' : '#94a3b8'};">Goulottes passe-câbles : ${state.guidesUsed ? 'Actives (peignage OK)' : 'Cliquer sur les goulottes 3D'}</div>
+        <div style="font-size:11px;color:${state.guidesUsed ? '#4ade80' : '#cbd5e1'};">Goulottes passe-câbles : ${state.guidesUsed ? 'Actives (peignage OK)' : 'Cliquer sur les goulottes 3D'}</div>
       </div>
     `);
     if (drawer) {
@@ -837,6 +852,25 @@ export function createPatchPanelGame(api) {
       continuityPassed: state.testerPassed,
       elapsedSec: (performance.now() - state.startMs) / 1000
     });
+
+    const stepIdx = !state.crimped || matches < 8
+      ? 0
+      : patchCorrect < PATCH_SPECS.length
+      ? 1
+      : 2;
+    api.setStages(
+      [
+        { name: `1. Sertissage (${matches}/8)` },
+        { name: `2. Brassage (${patchCorrect}/${PATCH_SPECS.length})` },
+        { name: `3. Testeur RJ45 (${state.testerPassed ? 'OK' : '1-8'})` }
+      ],
+      stepIdx,
+      (idx) => {
+        if (idx === 0) setCameraById('crimp');
+        else if (idx === 1) setCameraById('rack');
+        else setCameraById('tester');
+      }
+    );
 
     bench.setInstruction(
       'ATELIER SERTISSAGE RJ45 & BRASSAGE BAIE 19" 3D',
@@ -906,14 +940,19 @@ export function createPatchPanelGame(api) {
             continuityPassed: state.testerPassed,
             elapsedSec: (performance.now() - state.startMs) / 1000
           });
-          const xp = Math.round(65 + finalScore * 6.5);
           if (finalScore >= 12) sfx.success();
           else sfx.error();
-          api.onComplete?.({
-            score: finalScore,
-            xp,
-            summary: `T568B ${countT568bMatches()}/8 • Brassage ${finalEval.patchCorrect}/${PATCH_SPECS.length} • Testeur 1-8 ${state.testerPassed ? 'OK' : 'KO'}`
-          });
+          api.finishTp(
+            finalScore,
+            `
+              <p>Atelier Sertissage RJ45 & Brassage Baie 19" évalué :</p>
+              <ul>
+                <li>Câblage T568B & Pince : <strong>${countT568bMatches()}/8 paires conformes • ${state.crimped ? 'Fiche sertie ✔' : 'Non sertie'}</strong></li>
+                <li>Brassage Switch PoE : <strong>${finalEval.patchCorrect}/${PATCH_SPECS.length} liaisons • ${finalEval.colorCorrect}/${PATCH_SPECS.length} couleurs exactes</strong> (${state.guidesUsed ? 'Goulottes OK' : 'Sans peignage'})</li>
+                <li>Testeur de continuité 1-8 : <strong>${state.testerPassed ? 'Continuité certifiée ✔' : 'Test incomplet'}</strong></li>
+              </ul>
+            `
+          );
         }
       }
     ]);
@@ -925,7 +964,7 @@ export function createPatchPanelGame(api) {
   bench.addFloatingTag([0.18, 0.86, -0.22], 'Baie 19" (24 Ports + PoE)', 'info');
   bench.addFloatingTag([0.66, 0.15, 0.2], 'Testeur RJ45 (1 à 8)', 'info');
 
-  const unsubTick = bench.onTick((dt) => {
+  const unsubTick = bench.addUpdate((dt) => {
     state.blinkPhase += dt;
     if (state.crimpAnim > 0) {
       state.crimpAnim = Math.max(0, state.crimpAnim - dt * 2.4);

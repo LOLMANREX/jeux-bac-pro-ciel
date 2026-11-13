@@ -71,8 +71,9 @@ export function makeCanvasScreen(width, height, drawFn) {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
+  const safeDraw = typeof drawFn === 'function' ? drawFn : () => {};
   const update = (...args) => {
-    drawFn(ctx, width, height, ...args);
+    safeDraw(ctx, width, height, ...args);
     texture.needsUpdate = true;
   };
   update();
@@ -105,6 +106,9 @@ export function buildFlexibleCable(points, colorHex = '#0284c7', radius = 0.012,
 }
 
 export function createWorkbench3D(container, options = {}) {
+  if (document.pointerLockElement) {
+    document.exitPointerLock?.();
+  }
   const disposables = [];
   const track = (obj) => {
     disposables.push(obj);
@@ -376,22 +380,31 @@ export function createWorkbench3D(container, options = {}) {
       onDragStart: handlers.onDragStart || null,
       onDragMove: handlers.onDragMove || null,
       onDragEnd: handlers.onDragEnd || null,
-      onHoldTick: handlers.onHoldTick || null
+      onHoldTick: handlers.onHoldTick || null,
+      hoverSnapshot: null
     };
-    const origEmissive = new Map();
-    object3d.traverse((ch) => {
-      if (ch.isMesh) {
-        ch.userData.__tpInteract = entry;
-        interactiveMeshes.push(ch);
-        if (ch.material && !Array.isArray(ch.material) && ch.material.emissive) {
-          origEmissive.set(ch, {
-            color: ch.material.emissive.getHex(),
-            intensity: ch.material.emissiveIntensity || 0
+    const trackedMeshes = new Set();
+    const bindTarget = (targetObj) => {
+      if (!targetObj) return;
+      targetObj.traverse((ch) => {
+        if (ch.isMesh) {
+          ch.userData.__tpInteract = entry;
+          if (!interactiveMeshes.includes(ch)) interactiveMeshes.push(ch);
+          trackedMeshes.add(ch);
+        }
+      });
+    };
+    bindTarget(object3d);
+    if (Array.isArray(handlers.highlightTargets)) {
+      handlers.highlightTargets.forEach((ht) => {
+        if (ht?.traverse) {
+          ht.traverse((ch) => {
+            if (ch.isMesh) trackedMeshes.add(ch);
           });
         }
-      }
-    });
-    entry.origEmissive = origEmissive;
+      });
+    }
+    entry.trackedMeshes = trackedMeshes;
     interactives.push(entry);
     return entry;
   };
@@ -405,7 +418,10 @@ export function createWorkbench3D(container, options = {}) {
       }
     });
     for (let i = interactives.length - 1; i >= 0; i--) {
-      if (interactives[i].object3d === object3d) interactives.splice(i, 1);
+      if (interactives[i].object3d === object3d) {
+        if (hoveredEntry === interactives[i]) hoveredEntry = null;
+        interactives.splice(i, 1);
+      }
     }
   };
 
@@ -473,16 +489,32 @@ export function createWorkbench3D(container, options = {}) {
   };
 
   const setEntryHighlight = (entry, active) => {
-    if (!entry || !entry.origEmissive) return;
-    for (const [mesh, orig] of entry.origEmissive.entries()) {
-      if (!mesh.material || !mesh.material.emissive) continue;
-      if (active) {
-        if (orig.intensity < 0.1) mesh.material.emissive.setHex(0x38bdf8);
-        mesh.material.emissiveIntensity = Math.max(orig.intensity + 0.25, 0.35);
-      } else {
+    if (!entry || !entry.trackedMeshes) return;
+    if (active) {
+      if (!entry.hoverSnapshot) {
+        const snap = new Map();
+        for (const mesh of entry.trackedMeshes) {
+          if (mesh.material && !Array.isArray(mesh.material) && mesh.material.emissive) {
+            snap.set(mesh, {
+              color: mesh.material.emissive.getHex(),
+              intensity: mesh.material.emissiveIntensity || 0
+            });
+          }
+        }
+        entry.hoverSnapshot = snap;
+      }
+      for (const [mesh, orig] of entry.hoverSnapshot.entries()) {
+        if (!mesh.material || !mesh.material.emissive) continue;
+        if (orig.intensity < 0.35) mesh.material.emissive.setHex(0x38bdf8);
+        mesh.material.emissiveIntensity = Math.max(orig.intensity + 0.38, 0.48);
+      }
+    } else if (entry.hoverSnapshot) {
+      for (const [mesh, orig] of entry.hoverSnapshot.entries()) {
+        if (!mesh.material || !mesh.material.emissive) continue;
         mesh.material.emissive.setHex(orig.color);
         mesh.material.emissiveIntensity = orig.intensity;
       }
+      entry.hoverSnapshot = null;
     }
   };
 
@@ -593,6 +625,10 @@ export function createWorkbench3D(container, options = {}) {
     renderer.setSize(w, h, false);
   };
   window.addEventListener('resize', handleResize);
+  const resizeObserver =
+    typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => handleResize()) : null;
+  resizeObserver?.observe(container);
+  requestAnimationFrame(() => handleResize());
 
   let rafId = null;
   const mountTime = performance.now();
@@ -686,6 +722,14 @@ export function createWorkbench3D(container, options = {}) {
   };
   rafId = requestAnimationFrame(tick);
 
+  const addUpdateFn = (fn) => {
+    updaters.push(fn);
+    return () => {
+      const idx = updaters.indexOf(fn);
+      if (idx >= 0) updaters.splice(idx, 1);
+    };
+  };
+
   return {
     scene,
     camera,
@@ -693,7 +737,9 @@ export function createWorkbench3D(container, options = {}) {
     root,
     canvas,
     track,
-    addUpdate: (fn) => updaters.push(fn),
+    addUpdate: addUpdateFn,
+    onTick: addUpdateFn,
+    handleResize,
     onPointerMove: (fn) => onPointerMoveCallbackFns.push(fn),
     pickAt: pickInteractive,
     getElapsedSec: () => Math.max(0.1, (performance.now() - mountTime) / 1000),
@@ -805,6 +851,7 @@ export function createWorkbench3D(container, options = {}) {
       window.removeEventListener('pointercancel', handlePointerUp);
       canvas.removeEventListener('wheel', handleWheel);
       window.removeEventListener('resize', handleResize);
+      resizeObserver?.disconnect();
       for (const pt of particles) pt.mat.dispose();
       for (const pr of pulseRings) pr.mat.dispose();
       envTarget.dispose();
