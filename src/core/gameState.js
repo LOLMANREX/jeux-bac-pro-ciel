@@ -64,17 +64,17 @@ export const TP_CATALOG = [
   },
   {
     id: 'vmvlan',
-    title: 'TP Configuration VLAN, STP & Routage CLI 3D',
-    shortTitle: 'VLAN & CLI 3D',
+    title: 'TP Configuration VLAN 802.1Q, Trunk & Routage 3D',
+    shortTitle: 'VLAN 802.1Q 3D',
     icon: '🌐',
     pole: 'Réseaux & Virtualisation',
     room: TP_STATION_LAYOUT.vmvlan.room,
     color: '#34d399',
     position: TP_STATION_LAYOUT.vmvlan.position,
     brief:
-      'Supprimez la boucle STP sur la maquette topologique 3D, configurez les VLAN 10/20/30, le Trunk 802.1Q et les passerelles en console CLI puis testez au Ping 3D.',
+      'Créez VLAN 10 ADMIN / 20 ATELIER / 30 INVITES dans la console du PC portable, configurez les ports Access & le Trunk 802.1Q, corrigez les passerelles et testez au Ping/Traceroute 3D.',
     teacherHint:
-      '« Coupe d’abord la boucle Spanning-Tree rouge sur le switch L3 via la console du Laptop, crée les VLANs et les passerelles /24 puis envoie un Ping 3D entre zones ! »'
+      '« Sur ton terminal console, crée d’abord les VLANs 10, 20 et 30, passe Gi0/24 en Trunk 802.1Q, corrige les passerelles .20.254 et .30.254 puis lance Ping et Traceroute sur la maquette 3D ! »'
   }
 ];
 

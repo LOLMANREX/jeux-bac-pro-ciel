@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.2 - Refonte Complète des 2 TPs Audiovisuel (DMX512 & Régie Broadcast)';
+    : 'v4.3 - Refonte Complète des 2 TPs Réseaux (Brassage RJ45 & VLAN 802.1Q)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,18 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.2 — Refonte Complète des 2 TPs Audiovisuel (DMX512 & Régie Broadcast)',
+    version: 'v4.3 — Refonte Complète des 2 TPs Réseaux (Brassage RJ45 & VLAN 802.1Q)',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'TP Réseau A — Sertissage RJ45 & Brassage Baie Serveur 19" 3D (PatchPanelGame) : établi de sertissage transparent avec 8 brins cuivre à ordonner selon T568B + pince à sertir animée, baie 19" ouverte 24 ports (panneau numéroté + switch PoE + goulottes passe-câbles) avec cordons souples colorés par service (Bleu Élèves, Jaune Wi-Fi PoE, Rouge Serveurs) et testeur RJ45 séquentiel 1-8.',
+      'TP Réseau B — Configuration VLAN 802.1Q, Trunk & Routage 3D (VlanConfigGame) : PC portable relié par câble console bleu ciel au Switch L3 / Routeur à côté d’une maquette 3D dynamique (Admin, Atelier, Wi-Fi, Switch Cœur, Pare-feu) avec création des VLAN 10/20/30, ports Access & Trunk 802.1Q, correction des passerelles Inter-VLAN et paquets Ping/Traceroute animés.'
+    ]
+  },
+  {
+    version: 'v4.2 — Refonte Complète des 2 TPs Audiovisuel (DMX512 & Régie Broadcast)',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'TP Audiovisuel A — Éclairage Scénique, Câblage XLR & Pupitre DMX512 3D : câblage série Daisy-Chain XLR souple (Pupitre → 4 projecteurs sur pont Truss), pose du bouchon de terminaison 120 Ω pour supprimer les parasites, adressage sur les écrans digitaux arrière (A001, A009, A017, A025) et réglage des 6 faders physiques DMX512.',
       'TP Audiovisuel B — Régie Broadcast, Calibration Caméra & Mixage Son 3D : objectif broadcast à 3 bagues mécaniques 3D (Focus, Iris, Balance des Blancs 5600K) avec rendu vidéo live sur le mur Multiview (Cam 1, Cam 2, Aperçu Fond Vert, Sortie Antenne PGM), seuil Chroma Key, console audio à VU-mètres LED et mélangeur vidéo CUT / TAKE.'

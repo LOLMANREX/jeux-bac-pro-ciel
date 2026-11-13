@@ -225,11 +225,12 @@ test('Scoring /20 des ateliers séparés (Électronique, Brassage, VLAN CLI, DMX
 
   const vlanScore = computeVlanConfigScore3D({
     vlansCreated: 3,
+    accessPortsOk: 3,
     trunkConfigured: true,
     gatewaysOk: 3,
-    stpResolved: true,
     probeRun: true,
     pingOk: true,
+    tracerouteOk: true,
     elapsedSec: 70
   });
   assert.equal(vlanScore, 20);

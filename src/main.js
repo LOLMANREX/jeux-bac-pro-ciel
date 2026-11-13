@@ -34,8 +34,8 @@ import { createOscilloscopeGame } from './minigames/OscilloscopeGame.js';
 import { createSolderingGame } from './minigames/SolderingGame.js';
 import { createElectronicsGame } from './minigames/ElectronicsGame.js';
 import { createAntivirusGame } from './minigames/AntivirusGame.js';
-import { createVmVlanGame } from './minigames/VmVlanGame.js';
-import { createPatchRackGame } from './minigames/PatchRackGame.js';
+import { createVlanConfigGame } from './minigames/VlanConfigGame.js';
+import { createPatchPanelGame } from './minigames/PatchPanelGame.js';
 import { createPcHardwareGame } from './minigames/PcHardwareGame.js';
 import { createDmxLightingGame } from './minigames/DmxLightingGame.js';
 import { createStudioRegieGame } from './minigames/StudioRegieGame.js';
@@ -45,8 +45,8 @@ const MINIGAME_FACTORIES = {
   soldering: createSolderingGame,
   electronics: createElectronicsGame,
   antivirus: createAntivirusGame,
-  vmvlan: createVmVlanGame,
-  patchrack: createPatchRackGame,
+  vmvlan: createVlanConfigGame,
+  patchrack: createPatchPanelGame,
   hardware: createPcHardwareGame,
   audiovisual: createDmxLightingGame,
   studio: createStudioRegieGame
