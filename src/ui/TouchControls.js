@@ -15,6 +15,7 @@ export class TouchControls {
     this.btnJump = document.getElementById('touch-btn-jump');
     this.btnSprint = document.getElementById('touch-btn-sprint');
     this.btnCamera = document.getElementById('touch-btn-camera');
+    this.btnMic = document.getElementById('touch-btn-mic');
 
     this.visible = false;
     this.joyTouchId = null;
@@ -65,6 +66,41 @@ export class TouchControls {
 
   syncSprintUi() {
     this.btnSprint?.classList.toggle('active', this.sprintActive);
+  }
+
+  syncVoiceUi(voiceState = {}) {
+    if (!this.btnMic) return;
+    const ico = this.btnMic.querySelector('.tb-ico');
+    const lbl = this.btnMic.querySelector('.tb-lbl');
+    const micOn = Boolean(voiceState.micEnabled);
+    const transmitting = Boolean(voiceState.transmitting);
+    const speaking = Boolean(voiceState.isSpeaking);
+    const inTpMuted = Boolean(voiceState.inTp && voiceState.tpBehavior === 'mute');
+    const err = Boolean(voiceState.errorMessage && !voiceState.micEnabled);
+
+    this.btnMic.classList.toggle('active', micOn && !inTpMuted);
+    this.btnMic.classList.toggle('speaking', speaking);
+    this.btnMic.classList.toggle('mic-error', err);
+
+    if (err) {
+      if (ico) ico.textContent = '⚠️';
+      if (lbl) lbl.textContent = 'Micro bloqué';
+    } else if (inTpMuted) {
+      if (ico) ico.textContent = '🔇';
+      if (lbl) lbl.textContent = 'Micro TP';
+    } else if (speaking) {
+      if (ico) ico.textContent = '🔴';
+      if (lbl) lbl.textContent = 'En direct';
+    } else if (voiceState.mode === 'ptt' && micOn) {
+      if (ico) ico.textContent = transmitting ? '🎙️' : '🎤';
+      if (lbl) lbl.textContent = transmitting ? 'PTT ON' : 'Maintenir';
+    } else if (micOn) {
+      if (ico) ico.textContent = '🎙️';
+      if (lbl) lbl.textContent = 'Micro ON';
+    } else {
+      if (ico) ico.textContent = '🔇';
+      if (lbl) lbl.textContent = voiceState.mode === 'ptt' ? 'Parler (PTT)' : 'Micro OFF';
+    }
   }
 
   setInteractTarget(target) {
@@ -314,5 +350,43 @@ export class TouchControls {
     this._bindPressAction(this.btnCamera, () => {
       this.handlers.onToggleCamera?.();
     });
+
+    if (this.btnMic) {
+      let handledTouch = false;
+      this.btnMic.addEventListener(
+        'touchstart',
+        (e) => {
+          if (!this.visible) return;
+          e.preventDefault();
+          e.stopPropagation();
+          handledTouch = true;
+          this.btnMic.classList.add('pressed');
+          if (this.handlers.getVoiceMode?.() === 'ptt') {
+            this.handlers.onVoicePttStart?.();
+          } else {
+            this.handlers.onVoiceToggle?.();
+          }
+        },
+        { passive: false }
+      );
+
+      const endMicTouch = () => {
+        this.btnMic.classList.remove('pressed');
+        if (this.handlers.getVoiceMode?.() === 'ptt') {
+          this.handlers.onVoicePttEnd?.();
+        }
+      };
+      this.btnMic.addEventListener('touchend', endMicTouch);
+      this.btnMic.addEventListener('touchcancel', endMicTouch);
+
+      this.btnMic.addEventListener('click', (e) => {
+        if (handledTouch) {
+          handledTouch = false;
+          return;
+        }
+        e.stopPropagation();
+        this.handlers.onVoiceToggle?.();
+      });
+    }
   }
 }

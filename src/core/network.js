@@ -360,6 +360,29 @@ export class NetworkClient {
     return this.send({ type: 'chat', text });
   }
 
+  sendVoiceState(micEnabled, isSpeaking = false) {
+    return this.send({
+      type: 'voice_state',
+      micEnabled: Boolean(micEnabled),
+      isSpeaking: Boolean(micEnabled && isSpeaking)
+    });
+  }
+
+  sendRtcOffer(targetId, sdp) {
+    if (!targetId || !sdp) return false;
+    return this.send({ type: 'rtc_offer', targetId, sdp });
+  }
+
+  sendRtcAnswer(targetId, sdp) {
+    if (!targetId || !sdp) return false;
+    return this.send({ type: 'rtc_answer', targetId, sdp });
+  }
+
+  sendRtcIceCandidate(targetId, candidate) {
+    if (!targetId || !candidate) return false;
+    return this.send({ type: 'rtc_ice_candidate', targetId, candidate });
+  }
+
   async acceptQuest(name) {
     const sent = this.send({ type: 'accept_quest' });
     if (!sent) {

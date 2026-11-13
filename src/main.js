@@ -20,7 +20,13 @@ import {
   showSpeechBubble,
   updateSpeechBubble
 } from './world/RemotePlayers.js';
-import { buildStudentAvatarMesh, disposeObject3D } from './world/AvatarBuilder.js';
+import {
+  buildStudentAvatarMesh,
+  createVoiceIndicatorSprite,
+  disposeObject3D,
+  updateVoiceIndicatorSprite
+} from './world/AvatarBuilder.js';
+import { ProximityVoiceChat } from './network/ProximityVoiceChat.js';
 import { HudManager } from './ui/HudManager.js';
 import { MainMenu } from './ui/MainMenu.js';
 import { DialogueModal } from './ui/DialogueModal.js';
@@ -76,15 +82,18 @@ player.setTouchMode(gameState.touchMode);
 
 let localAvatar = null;
 const localBubble = createSpeechBubble(2.94);
+const localVoiceIndicator = createVoiceIndicatorSprite(2.78);
 
 function rebuildLocalAvatar(skin) {
   if (localAvatar?.group) {
     localAvatar.group.remove(localBubble);
+    localAvatar.group.remove(localVoiceIndicator);
     sceneMgr.scene.remove(localAvatar.group);
-    disposeObject3D(localAvatar.group, new Set([localBubble]));
+    disposeObject3D(localAvatar.group, new Set([localBubble, localVoiceIndicator]));
   }
   localAvatar = buildStudentAvatarMesh(skin);
   localAvatar.group.add(localBubble);
+  localAvatar.group.add(localVoiceIndicator);
   sceneMgr.scene.add(localAvatar.group);
   player.setAvatar(localAvatar);
 }
@@ -102,6 +111,17 @@ let miniGameModal = null;
 let changelogModal = null;
 let faqModal = null;
 let battlePassModal = null;
+
+const voiceChat = new ProximityVoiceChat(network, {
+  mode: gameState.voiceMode,
+  tpBehavior: gameState.voiceTpMode,
+  volume: gameState.voiceVolume,
+  onToast: (msg, type) => hud?.toast?.(msg, type),
+  onStateChange: (state) => {
+    hud?.syncVoiceUi?.(state);
+    touchControls?.syncVoiceUi?.(state);
+  }
+});
 
 try {
   dialogueModal = new DialogueModal();
@@ -276,6 +296,7 @@ async function openTp(tpId, stationItem = null) {
 
   sfx.interact();
   network.sendActivity(`En ${tp.shortTitle}`);
+  voiceChat.setInTp(true);
   setModalActive(true, true, true);
 
   if (stationItem?.position) {
@@ -318,6 +339,7 @@ async function openTp(tpId, stationItem = null) {
         return;
       }
       network.sendActivity('Dans l’atelier');
+      voiceChat.setInTp(false);
       setModalActive(false, false, false);
       player._applyCamera?.();
     }
@@ -399,6 +421,18 @@ hud = new HudManager(gameState, network, {
   onLocalEmote: (emote) => {
     showSpeechBubble(localBubble, emote.label, { isEmote: true, color: gameState.skin.outfitColor });
   },
+  onVoiceToggle: () => {
+    voiceChat.toggleMicrophone();
+  },
+  onVoiceModeChange: (mode) => {
+    voiceChat.setMode(mode);
+  },
+  onVoiceTpModeChange: (behavior) => {
+    voiceChat.setTpBehavior(behavior);
+  },
+  onVoiceVolumeChange: (vol) => {
+    voiceChat.setVolume(vol);
+  },
   onReturnToMenu: () => returnToMainMenu()
 });
 
@@ -422,9 +456,20 @@ try {
     },
     onTapLookZone: (x, y) => {
       if (joined && !modalOpen) tryRaycastInteract(x, y);
+    },
+    getVoiceMode: () => gameState.voiceMode,
+    onVoiceToggle: () => {
+      if (joined) voiceChat.toggleMicrophone();
+    },
+    onVoicePttStart: () => {
+      if (joined) voiceChat.startPushToTalk();
+    },
+    onVoicePttEnd: () => {
+      voiceChat.stopPushToTalk();
     }
   });
   touchControls.syncCameraMode(gameState.cameraMode);
+  voiceChat._emitState();
 } catch (err) {
   console.warn('Contrôles tactiles indisponibles:', err);
 }
@@ -433,6 +478,8 @@ function returnToMainMenu() {
   joined = false;
   modalOpen = false;
   subModalActive = false;
+  voiceChat.setInTp(false);
+  voiceChat.disconnect();
   player.setEnabled(false);
   player.setAvatarVisible(false);
   touchControls?.setVisible(false);
@@ -474,6 +521,7 @@ network.on('welcome', (msg) => {
   hud.setNetworkStatus({ state: 'connected', connected: true }, msg.onlineCount);
   hud.clearChat();
   (msg.chatHistory || []).forEach((m) => hud.appendChatMessage(m, false));
+  voiceChat.onRoomJoined(msg.peers || []);
   if (requestedName && msg.profile?.name && requestedName !== msg.profile.name) {
     hud.toast(`Multi-onglet détecté : connecté sous "${msg.profile.name}"`, 'info');
   }
@@ -513,6 +561,7 @@ network.on('score_recorded', (res) => {
 
 network.on('player_joined', ({ player: p, onlineCount, roomRoster }) => {
   remotePlayers.upsertPeer(p);
+  voiceChat.onPeerJoined(p);
   if (roomRoster) gameState.setRoomRoster(roomRoster);
   hud.setNetworkStatus(true, onlineCount);
   refreshWallLeaderboard();
@@ -570,10 +619,28 @@ network.on('leaderboard_updated', ({ leaderboard }) => {
 
 network.on('player_left', ({ id, name, onlineCount, roomRoster }) => {
   remotePlayers.removePeer(id);
+  voiceChat.removePeer(id);
   if (roomRoster) gameState.setRoomRoster(roomRoster);
   hud.setNetworkStatus(true, onlineCount);
   refreshWallLeaderboard();
   if (name) hud.toast(`${name} a quitté la salle.`);
+});
+
+network.on('voice_state', (msg) => {
+  remotePlayers.setVoiceState(msg.id, msg);
+  voiceChat.onPeerVoiceState(msg);
+});
+
+network.on('rtc_offer', (msg) => {
+  voiceChat.handleOffer(msg);
+});
+
+network.on('rtc_answer', (msg) => {
+  voiceChat.handleAnswer(msg);
+});
+
+network.on('rtc_ice_candidate', (msg) => {
+  voiceChat.handleIceCandidate(msg);
 });
 
 network.on('chat_message', ({ message }) => {
@@ -632,12 +699,22 @@ window.addEventListener('keydown', (e) => {
     }
   }
 
+  if (joined && !isTyping && e.code === 'KeyV' && !e.repeat && !hud.isSettingsOpen() && !hud.isSkinOpen()) {
+    e.preventDefault();
+    if (gameState.voiceMode === 'ptt') {
+      voiceChat.startPushToTalk();
+    } else {
+      voiceChat.toggleMicrophone();
+    }
+    return;
+  }
+
   if (!joined || modalOpen || isTyping) return;
 
   if (e.code === 'KeyE' && nearestTarget) {
     e.preventDefault();
     interactWith(nearestTarget);
-  } else if (e.code === 'KeyV') {
+  } else if (e.code === 'KeyC') {
     e.preventDefault();
     toggleCameraMode();
   } else if (e.code === 'KeyT') {
@@ -655,6 +732,16 @@ window.addEventListener('keydown', (e) => {
       hud.triggerEmote(num - 1);
     }
   }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'KeyV' && gameState.voiceMode === 'ptt') {
+    voiceChat.stopPushToTalk();
+  }
+});
+
+window.addEventListener('blur', () => {
+  voiceChat.stopPushToTalk();
 });
 
 document.getElementById('interact-prompt')?.addEventListener('click', () => {
@@ -713,6 +800,8 @@ sceneMgr.addUpdater((dt, elapsed) => {
   }
 
   const step = player.update(dt);
+  updateVoiceIndicatorSprite(localVoiceIndicator, dt, voiceChat.isSpeaking);
+  voiceChat.update(player.position, player.yaw, remotePlayers.peers);
   const currentZone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z);
   if (currentZone.id !== lastZoneId) {
     lastZoneId = currentZone.id;
@@ -766,6 +855,12 @@ setInterval(() => {
     refreshWallLeaderboard();
   }
 }, 12000);
+
+setInterval(() => {
+  if (joined && subModalActive) {
+    voiceChat.update(player.position, player.yaw, remotePlayers.peers);
+  }
+}, 180);
 
 mainMenu = new MainMenu(gameState, network, {
   onOpenSettings: () => hud?.openSettingsModal?.(),

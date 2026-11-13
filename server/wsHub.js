@@ -73,6 +73,22 @@ export function attachWsHub(httpServer, store) {
     }
   }
 
+  function findRoomPeerById(roomId, targetId, excludeWs = null) {
+    if (!targetId) return null;
+    for (const [sock, s] of clients.entries()) {
+      if (
+        sock !== excludeWs &&
+        s.name &&
+        s.room === roomId &&
+        s.id === targetId &&
+        sock.readyState === 1
+      ) {
+        return { sock, state: s };
+      }
+    }
+    return null;
+  }
+
   function broadcastToAll(payload, excludeWs = null) {
     const raw = JSON.stringify(payload);
     for (const [sock, state] of clients.entries()) {
@@ -180,7 +196,9 @@ export function attachWsHub(httpServer, store) {
       completedCount: profile?.completedCount ?? 0,
       diplomaEarned: Boolean(profile?.diplomaEarned),
       rank: profile?.rank ?? null,
-      rankLabel: profile?.rankLabel ?? 'Apprenti CIEL'
+      rankLabel: profile?.rankLabel ?? 'Apprenti CIEL',
+      micEnabled: Boolean(state.micEnabled),
+      isSpeaking: Boolean(state.isSpeaking)
     };
   }
 
@@ -301,7 +319,9 @@ export function attachWsHub(httpServer, store) {
       zoneLabel: 'U300 - Couloir Central',
       color: '#22d3ee',
       skin: sanitizeSkin(null),
-      lastPlaytimeFlushMs: 0
+      lastPlaytimeFlushMs: 0,
+      micEnabled: false,
+      isSpeaking: false
     };
     clients.set(ws, state);
 
@@ -336,6 +356,8 @@ export function attachWsHub(httpServer, store) {
           state.y = clamp(msg.y ?? 0, 0, 3);
           state.z = clamp(msg.z ?? 0.65, -35, 35);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : -1.35;
+          state.micEnabled = false;
+          state.isSpeaking = false;
 
           const peers = getRoomPeers(room, ws).map(({ state: p }) => {
             const pProfile = store.getPublicProfile(p.name.toLowerCase());
@@ -519,6 +541,49 @@ export function attachWsHub(httpServer, store) {
           break;
         }
 
+        case 'voice_state': {
+          if (!state.name || !state.room) break;
+          const micEnabled = Boolean(msg.micEnabled);
+          const isSpeaking = micEnabled ? Boolean(msg.isSpeaking) : false;
+          if (state.micEnabled === micEnabled && state.isSpeaking === isSpeaking) break;
+          state.micEnabled = micEnabled;
+          state.isSpeaking = isSpeaking;
+          broadcastToRoom(
+            state.room,
+            {
+              type: 'voice_state',
+              id: state.id,
+              micEnabled,
+              isSpeaking
+            },
+            ws
+          );
+          break;
+        }
+
+        case 'rtc_offer':
+        case 'rtc_answer':
+        case 'rtc_ice_candidate': {
+          if (!state.name || !state.room) break;
+          const targetId = typeof msg.targetId === 'string' ? msg.targetId.slice(0, 32) : '';
+          const target = findRoomPeerById(state.room, targetId, ws);
+          if (!target) break;
+          const relayed = {
+            type: msg.type,
+            fromId: state.id,
+            targetId
+          };
+          if (msg.type === 'rtc_ice_candidate') {
+            if (!msg.candidate) break;
+            relayed.candidate = msg.candidate;
+          } else {
+            if (!msg.sdp) break;
+            relayed.sdp = msg.sdp;
+          }
+          target.sock.send(JSON.stringify(relayed));
+          break;
+        }
+
         case 'ping': {
           const roomCount = state.name ? getRoomPeers(state.room, ws).length + 1 : 0;
           ws.send(
@@ -539,6 +604,14 @@ export function attachWsHub(httpServer, store) {
       clients.delete(ws);
       if (leaving && leaving.name) {
         flushClientPlaytime(leaving);
+        if (leaving.micEnabled || leaving.isSpeaking) {
+          broadcastToRoom(leaving.room, {
+            type: 'voice_state',
+            id: leaving.id,
+            micEnabled: false,
+            isSpeaking: false
+          });
+        }
         const roomRoster = getRoomRoster(leaving.room);
         broadcastToRoom(leaving.room, {
           type: 'player_left',

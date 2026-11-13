@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.4 - Déblocage complet & Refonte interactive des TPs 3D';
+    : 'v4.5 - Voice Chat de Proximité Spatialisé 3D';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,19 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.4 — Déblocage complet & Refonte interactive des TPs 3D',
+    version: 'v4.5 — Voice Chat de Proximité Spatialisé 3D',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Ajout du Voice Chat de proximité Peer-to-Peer (WebRTC) : signalisation par salle (voice_state, rtc_offer, rtc_answer, rtc_ice_candidate) sur le serveur WebSocket avec nettoyage automatique des déconnexions.',
+      'Audio spatialisé en temps réel via Web Audio API : volume à 100 % jusqu’à 3 m, atténuation naturelle entre 3 m et 18 m, inaudible au-delà de 18 m et balance stéréo Gauche / Droite selon l’orientation de la caméra.',
+      'Interface PC et Mobile : bouton micro interactif dans le HUD et sur le pavé tactile, raccourci clavier V (caméra déplacée sur C), choix Micro Ouvert ou Push-to-Talk, volume vocal et comportement pendant les TPs dans les Paramètres, barre compacte des camarades qui parlent à proximité et icône animée à ondes vertes au-dessus des avatars 3D.'
+    ]
+  },
+  {
+    version: 'v4.4 — Déblocage complet & Refonte interactive des TPs 3D',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Correction critique du moteur 3D des TPs (Workbench3DHost & MiniGameModal) : résolution des crashs bloquants au chargement (makeCanvasScreen, buildFlexibleCable, addUpdate/onTick, finishTp, redimensionnement ResizeObserver et couche CSS z-index) permettant à 100 % des TPs de s’initialiser et de répondre immédiatement à la souris comme au tactile.',
       'Suppression du tapis ESD bleu dans les TPs Audiovisuel & Réseau VLAN : plateau scénique sombre + présentateur articulé issu d’AvatarBuilder + pont Truss à croisillons pour DMX512 ; cyclorama fond vert éclairé par softboxes + caméra broadcast avec pare-soleil + présentateur articulé pour Régie Studio ; bureau admin chêne/ardoise + baies et nœuds 3D enrichis pour VLAN 802.1Q.',

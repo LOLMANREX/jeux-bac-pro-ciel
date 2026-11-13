@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import {
   animateAvatarLimbs,
   buildStudentAvatarMesh,
+  createVoiceIndicatorSprite,
   disposeObject3D,
-  normalizeSkin
+  normalizeSkin,
+  updateVoiceIndicatorSprite
 } from './AvatarBuilder.js';
 
 function makeStudentBadge(peer) {
@@ -225,6 +227,9 @@ export class RemotePlayersManager {
       _walkPhase: 0,
       badge: null,
       bubble: null,
+      voiceIndicator: null,
+      micEnabled: Boolean(p.micEnabled),
+      isSpeaking: Boolean(p.isSpeaking),
       targetPos: new THREE.Vector3(p.x ?? -3.95, Math.max(0, p.y || 0), p.z ?? 0.65),
       targetYaw: p.yaw || 0,
       horizSpeed: 0
@@ -244,7 +249,11 @@ export class RemotePlayersManager {
     peerData.badge = badge;
     peerData.group.add(badge);
 
-    const bubble = createSpeechBubble(2.94);
+    const voiceIndicator = createVoiceIndicatorSprite(2.78);
+    peerData.voiceIndicator = voiceIndicator;
+    peerData.group.add(voiceIndicator);
+
+    const bubble = createSpeechBubble(3.08);
     peerData.bubble = bubble;
     peerData.group.add(bubble);
 
@@ -270,14 +279,16 @@ export class RemotePlayersManager {
 
     oldGroup.remove(peer.badge);
     oldGroup.remove(peer.bubble);
+    if (peer.voiceIndicator) oldGroup.remove(peer.voiceIndicator);
     this.scene.remove(oldGroup);
-    disposeObject3D(oldGroup, new Set([peer.badge, peer.bubble]));
+    disposeObject3D(oldGroup, new Set([peer.badge, peer.bubble, peer.voiceIndicator].filter(Boolean)));
 
     const meshData = buildStudentAvatarMesh(nextSkin);
     meshData.group.position.copy(pos);
     meshData.group.rotation.y = rotY;
     meshData.group.add(peer.badge);
     meshData.group.add(peer.bubble);
+    if (peer.voiceIndicator) meshData.group.add(peer.voiceIndicator);
 
     peer.skin = nextSkin;
     peer.color = nextSkin.outfitColor;
@@ -386,6 +397,16 @@ export class RemotePlayersManager {
     });
   }
 
+  setVoiceState(id, { micEnabled = false, isSpeaking = false } = {}) {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    peer.micEnabled = Boolean(micEnabled);
+    peer.isSpeaking = Boolean(micEnabled && isSpeaking);
+    if (!peer.isSpeaking && peer.voiceIndicator) {
+      updateVoiceIndicatorSprite(peer.voiceIndicator, 0, false);
+    }
+  }
+
   removePeer(id) {
     const peer = this.peers.get(id);
     if (!peer) return;
@@ -393,6 +414,10 @@ export class RemotePlayersManager {
     peer.badge.material.dispose();
     peer.bubble.material.map?.dispose();
     peer.bubble.material.dispose();
+    if (peer.voiceIndicator) {
+      peer.voiceIndicator.material.map?.dispose();
+      peer.voiceIndicator.material.dispose();
+    }
     this.scene.remove(peer.group);
     disposeObject3D(peer.group);
     this.peers.delete(id);
@@ -435,6 +460,7 @@ export class RemotePlayersManager {
       });
 
       updateSpeechBubble(peer.bubble, dt);
+      updateVoiceIndicatorSprite(peer.voiceIndicator, dt, peer.isSpeaking);
     }
   }
 }

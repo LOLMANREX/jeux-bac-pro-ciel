@@ -49,6 +49,10 @@ export class HudManager {
     this.chatUnreadEl = document.getElementById('chat-unread-badge');
     this.chatForm = document.getElementById('chat-form');
     this.chatInput = document.getElementById('chat-input');
+    this.voiceToggleBtn = document.getElementById('btn-voice-toggle');
+    this.voiceBtnIco = document.getElementById('voice-btn-ico');
+    this.voiceBtnLabel = document.getElementById('voice-btn-label');
+    this.voiceNearbyBar = document.getElementById('voice-nearby-bar');
     this.unreadChat = 0;
     this.lastEmoteAt = 0;
 
@@ -116,6 +120,10 @@ export class HudManager {
     const qualitySelect = document.getElementById('set-quality');
     const sensSlider = document.getElementById('set-sens');
     const sensVal = document.getElementById('set-sens-val');
+    const voiceModeSelect = document.getElementById('set-voice-mode');
+    const voiceTpSelect = document.getElementById('set-voice-tp');
+    const voiceVolSlider = document.getElementById('set-voice-vol');
+    const voiceVolVal = document.getElementById('set-voice-vol-val');
 
     const syncSettingsUi = () => {
       if (fovSlider) fovSlider.value = String(this.gameState.fov);
@@ -128,6 +136,10 @@ export class HudManager {
       if (qualitySelect) qualitySelect.value = this.gameState.quality;
       if (sensSlider) sensSlider.value = String(this.gameState.mouseSens);
       if (sensVal) sensVal.textContent = `${this.gameState.mouseSens.toFixed(1)}×`;
+      if (voiceModeSelect) voiceModeSelect.value = this.gameState.voiceMode;
+      if (voiceTpSelect) voiceTpSelect.value = this.gameState.voiceTpMode;
+      if (voiceVolSlider) voiceVolSlider.value = String(this.gameState.voiceVolume);
+      if (voiceVolVal) voiceVolVal.textContent = `${Math.round(this.gameState.voiceVolume * 100)}%`;
       document.querySelectorAll('.fov-preset').forEach((b) => {
         b.classList.toggle('active', Number(b.dataset.fov) === this.gameState.fov);
       });
@@ -292,17 +304,51 @@ export class HudManager {
       syncMuteUi();
     });
 
+    voiceModeSelect?.addEventListener('change', () => {
+      sfx.click();
+      const mode = voiceModeSelect.value === 'ptt' ? 'ptt' : 'open';
+      this.gameState.setVoiceMode(mode);
+      this.handlers.onVoiceModeChange?.(mode);
+      syncSettingsUi();
+    });
+
+    voiceTpSelect?.addEventListener('change', () => {
+      sfx.click();
+      const behavior = voiceTpSelect.value;
+      this.gameState.setVoiceTpMode(behavior);
+      this.handlers.onVoiceTpModeChange?.(behavior);
+      syncSettingsUi();
+    });
+
+    voiceVolSlider?.addEventListener('input', () => {
+      const vol = Number(voiceVolSlider.value);
+      this.gameState.setVoiceVolume(vol);
+      this.handlers.onVoiceVolumeChange?.(vol);
+      syncSettingsUi();
+    });
+
+    this.voiceToggleBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onVoiceToggle?.();
+    });
+
     document.getElementById('set-reset-btn')?.addEventListener('click', () => {
       sfx.click();
       this.gameState.setFov(70);
       this.gameState.setCameraMode('first');
       this.gameState.setQuality('high');
       this.gameState.setMouseSens(1.0);
+      this.gameState.setVoiceMode('open');
+      this.gameState.setVoiceTpMode('duck');
+      this.gameState.setVoiceVolume(1.0);
       sfx.setMuted(false);
       this.handlers.onFovChange?.(70);
       this.handlers.onCameraModeChange?.('first');
       this.handlers.onQualityChange?.('high');
       this.handlers.onSensitivityChange?.(1.0);
+      this.handlers.onVoiceModeChange?.('open');
+      this.handlers.onVoiceTpModeChange?.('duck');
+      this.handlers.onVoiceVolumeChange?.(1.0);
       syncSettingsUi();
       this.toast('Paramètres réinitialisés (FOV 70°)');
     });
@@ -886,5 +932,68 @@ export class HudManager {
     const d = document.createElement('div');
     d.textContent = String(str || '');
     return d.innerHTML;
+  }
+
+  syncVoiceUi(voiceState = {}) {
+    if (this.voiceToggleBtn) {
+      const micOn = Boolean(voiceState.micEnabled);
+      const transmitting = Boolean(voiceState.transmitting);
+      const speaking = Boolean(voiceState.isSpeaking);
+      const inTpMuted = Boolean(voiceState.inTp && voiceState.tpBehavior === 'mute');
+      const hasErr = Boolean(voiceState.errorMessage && !micOn);
+
+      this.voiceToggleBtn.classList.toggle('mic-on', micOn && !inTpMuted && !hasErr);
+      this.voiceToggleBtn.classList.toggle('mic-ready', micOn && voiceState.mode === 'ptt' && !transmitting && !inTpMuted);
+      this.voiceToggleBtn.classList.toggle('mic-speaking', speaking);
+      this.voiceToggleBtn.classList.toggle('mic-error', hasErr);
+
+      if (hasErr) {
+        if (this.voiceBtnIco) this.voiceBtnIco.textContent = '⚠️';
+        if (this.voiceBtnLabel) this.voiceBtnLabel.textContent = 'Micro bloqué';
+        this.voiceToggleBtn.title = voiceState.errorMessage;
+      } else if (inTpMuted) {
+        if (this.voiceBtnIco) this.voiceBtnIco.textContent = '🔇';
+        if (this.voiceBtnLabel) this.voiceBtnLabel.textContent = 'Coupé (TP)';
+        this.voiceToggleBtn.title = 'Micro mis en pause automatiquement pendant le TP';
+      } else if (speaking) {
+        if (this.voiceBtnIco) this.voiceBtnIco.textContent = '🔴';
+        if (this.voiceBtnLabel) this.voiceBtnLabel.textContent = 'En direct';
+        this.voiceToggleBtn.title = 'Vous parlez en Voice Chat de proximité (V)';
+      } else if (voiceState.mode === 'ptt' && micOn) {
+        if (this.voiceBtnIco) this.voiceBtnIco.textContent = transmitting ? '🎙️' : '🎤';
+        if (this.voiceBtnLabel) this.voiceBtnLabel.textContent = transmitting ? 'PTT actif' : 'Prêt (V)';
+        this.voiceToggleBtn.title = 'Push-to-Talk : maintenez V pour parler, cliquez pour couper le micro';
+      } else if (micOn) {
+        if (this.voiceBtnIco) this.voiceBtnIco.textContent = '🎙️';
+        if (this.voiceBtnLabel) this.voiceBtnLabel.textContent = 'Micro actif';
+        this.voiceToggleBtn.title = 'Micro ouvert : appuyez sur V ou cliquez pour couper';
+      } else {
+        if (this.voiceBtnIco) this.voiceBtnIco.textContent = '🔇';
+        if (this.voiceBtnLabel) {
+          this.voiceBtnLabel.textContent = voiceState.mode === 'ptt' ? 'Activer PTT' : 'Micro coupé';
+        }
+        this.voiceToggleBtn.title =
+          voiceState.mode === 'ptt'
+            ? 'Push-to-Talk : maintenez V ou cliquez pour activer le micro'
+            : 'Activer le micro (Touche V)';
+      }
+    }
+
+    if (this.voiceNearbyBar) {
+      const speakers = Array.isArray(voiceState.nearbySpeakers) ? voiceState.nearbySpeakers : [];
+      if (speakers.length === 0) {
+        this.voiceNearbyBar.classList.add('hidden');
+        this.voiceNearbyBar.innerHTML = '';
+      } else {
+        this.voiceNearbyBar.classList.remove('hidden');
+        this.voiceNearbyBar.innerHTML = speakers
+          .slice(0, 4)
+          .map(
+            (sp) =>
+              `<span class="voice-speaker-pill"><span class="voice-wave-dot" style="background:${this._escape(sp.color || '#34d399')}"></span>🔊 ${this._escape(sp.name)} <small>${sp.distance.toFixed(0)}m</small></span>`
+          )
+          .join('');
+      }
+    }
   }
 }

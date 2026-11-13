@@ -194,13 +194,24 @@
           </div>
 
           <div class="hud-actions">
+            <button
+              type="button"
+              id="btn-voice-toggle"
+              class="btn-hud btn-voice"
+              title="Voice Chat de proximité (Touche V)"
+            >
+              <span id="voice-btn-ico">🔇</span>
+              <span id="voice-btn-label">Micro coupé</span>
+            </button>
             <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur (Touche T)">
               💬 Chat <span id="chat-unread-badge" class="unread-badge hidden">0</span>
             </button>
-            <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris)">⚙️ Paramètres</button>
+            <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris, Audio)">⚙️ Paramètres</button>
             <button id="btn-main-menu" class="btn-hud" title="Retour au menu principal">🏠 Menu principal</button>
           </div>
         </header>
+
+        <div id="voice-nearby-bar" class="voice-nearby-bar hidden" aria-live="polite"></div>
 
         <div id="net-error-banner" class="net-error-banner hidden">
           <span id="net-error-text"></span>
@@ -282,6 +293,10 @@
               <span class="tb-ico">🎥</span>
               <span class="tb-lbl">1ère</span>
             </button>
+            <button type="button" id="touch-btn-mic" class="touch-btn touch-btn-mic">
+              <span class="tb-ico">🔇</span>
+              <span class="tb-lbl">Micro</span>
+            </button>
           </div>
         </div>
 
@@ -306,7 +321,8 @@
         <div class="hud-bottom-hint">
           <span>ZQSD : Bouger</span> •
           <span>Espace : Sauter</span> •
-          <span>V : Caméra</span> •
+          <span>C : Caméra</span> •
+          <span>V : Micro</span> •
           <span>Tab : Classement</span> •
           <span>M : Mini-carte</span> •
           <span>T : Chat</span> •
@@ -370,7 +386,7 @@
 
             <div class="setting-item">
               <div class="setting-head">
-                <label for="set-camera-mode">Mode Caméra (Touche V)</label>
+                <label for="set-camera-mode">Mode Caméra (Touche C)</label>
               </div>
               <select id="set-camera-mode">
                 <option value="first">1ère personne (Immersion FPS)</option>
@@ -395,6 +411,35 @@
                 <strong id="set-sens-val" class="setting-badge">1.0×</strong>
               </div>
               <input id="set-sens" type="range" min="0.4" max="2.2" step="0.1" value="1.0" />
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-head">
+                <label for="set-voice-mode">Voice Chat de proximité (Touche V)</label>
+              </div>
+              <select id="set-voice-mode">
+                <option value="open">Micro ouvert (Touche V active / coupe)</option>
+                <option value="ptt">Push-to-Talk (Maintenir V pour parler)</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-head">
+                <label for="set-voice-tp">Comportement vocal pendant un TP</label>
+              </div>
+              <select id="set-voice-tp">
+                <option value="duck">Baisser le volume des autres à 35 % (recommandé)</option>
+                <option value="active">Laisser actif à 100 % (parler avec ses voisins)</option>
+                <option value="mute">Couper automatiquement mon micro en TP</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-head">
+                <label for="set-voice-vol">Volume réception Voice Chat</label>
+                <strong id="set-voice-vol-val" class="setting-badge">100%</strong>
+              </div>
+              <input id="set-voice-vol" type="range" min="0" max="1.5" step="0.05" value="1.0" />
             </div>
 
             <div class="setting-item inline">

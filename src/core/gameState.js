@@ -141,6 +141,12 @@ export class GameState {
     this.fov = Number.isFinite(savedFov) && savedFov >= 50 && savedFov <= 110 ? savedFov : 70;
     const savedSens = Number(localStorage.getItem('ciel_sens'));
     this.mouseSens = Number.isFinite(savedSens) && savedSens >= 0.4 && savedSens <= 2.2 ? savedSens : 1.0;
+    this.voiceMode = localStorage.getItem('ciel_voice_mode') === 'ptt' ? 'ptt' : 'open';
+    const savedTpVoice = localStorage.getItem('ciel_voice_tp_mode');
+    this.voiceTpMode = ['active', 'duck', 'mute'].includes(savedTpVoice) ? savedTpVoice : 'duck';
+    const savedVoiceVol = Number(localStorage.getItem('ciel_voice_volume'));
+    this.voiceVolume =
+      Number.isFinite(savedVoiceVol) && savedVoiceVol >= 0 && savedVoiceVol <= 1.5 ? savedVoiceVol : 1.0;
     try {
       const rawSkin = JSON.parse(localStorage.getItem('ciel_skin') || 'null');
       this.skin = rawSkin ? { ...DEFAULT_SKIN, ...rawSkin } : { ...DEFAULT_SKIN };
@@ -212,6 +218,26 @@ export class GameState {
   setTouchMode(enabled) {
     this.touchMode = Boolean(enabled);
     localStorage.setItem('ciel_touch_mode', this.touchMode ? '1' : '0');
+    this.emit();
+  }
+
+  setVoiceMode(mode) {
+    this.voiceMode = mode === 'ptt' ? 'ptt' : 'open';
+    localStorage.setItem('ciel_voice_mode', this.voiceMode);
+    this.emit();
+  }
+
+  setVoiceTpMode(mode) {
+    this.voiceTpMode = ['active', 'duck', 'mute'].includes(mode) ? mode : 'duck';
+    localStorage.setItem('ciel_voice_tp_mode', this.voiceTpMode);
+    this.emit();
+  }
+
+  setVoiceVolume(vol) {
+    const raw = Number(vol);
+    const clamped = Math.max(0, Math.min(1.5, Number.isFinite(raw) ? Math.round(raw * 20) / 20 : 1.0));
+    this.voiceVolume = clamped;
+    localStorage.setItem('ciel_voice_volume', String(clamped));
     this.emit();
   }
 

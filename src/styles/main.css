@@ -3345,3 +3345,108 @@ body.touch-active .chat-drawer {
     flex: 0 0 238px;
   }
 }
+
+.btn-voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.btn-voice.mic-ready {
+  border-color: rgba(56, 189, 248, 0.72);
+  background: rgba(14, 116, 144, 0.45);
+  color: #e0f2fe;
+}
+.btn-voice.mic-on {
+  border-color: rgba(16, 185, 129, 0.78);
+  background: rgba(6, 95, 70, 0.58);
+  color: #d1fae5;
+}
+.btn-voice.mic-speaking {
+  border-color: #34d399;
+  background: rgba(5, 150, 105, 0.78);
+  color: #ecfdf5;
+  box-shadow: 0 0 14px rgba(52, 211, 153, 0.52);
+}
+.btn-voice.mic-error {
+  border-color: rgba(248, 113, 113, 0.72);
+  background: rgba(127, 29, 29, 0.52);
+  color: #fee2e2;
+}
+
+.voice-nearby-bar {
+  position: fixed;
+  top: 66px;
+  right: 16px;
+  z-index: 28;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.voice-speaker-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(6, 78, 59, 0.86);
+  border: 1px solid rgba(52, 211, 153, 0.68);
+  color: #ecfdf5;
+  font-size: 0.76rem;
+  font-weight: 600;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.voice-speaker-pill small {
+  opacity: 0.82;
+  font-weight: 500;
+}
+.voice-wave-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+  animation: voice-dot-pulse 1s ease-in-out infinite alternate;
+}
+
+.touch-btn-mic {
+  grid-column: span 2;
+  min-height: 46px;
+  flex-direction: row;
+  gap: 8px;
+}
+.touch-btn-mic.speaking {
+  background: rgba(5, 150, 105, 0.72);
+  border-color: #6ee7b7;
+  color: #ecfdf5;
+  box-shadow: 0 0 22px rgba(52, 211, 153, 0.6);
+}
+.touch-btn-mic.mic-error {
+  border-color: rgba(248, 113, 113, 0.75);
+  background: rgba(127, 29, 29, 0.55);
+  color: #fecaca;
+}
+
+@keyframes voice-dot-pulse {
+  from {
+    transform: scale(0.85);
+    opacity: 0.75;
+  }
+  to {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .voice-nearby-bar {
+    top: 108px;
+    right: 10px;
+  }
+  .touch-btn-mic {
+    min-height: 42px;
+  }
+}

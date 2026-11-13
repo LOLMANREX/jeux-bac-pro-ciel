@@ -741,3 +741,113 @@ export function renderSkinPreviewSvg(rawSkin = {}, size = 44) {
     ${hatSvg}
   </svg>`;
 }
+
+function drawVoiceWaveBadge(ctx, size, phase) {
+  const cx = size / 2;
+  const cy = size / 2;
+  ctx.clearRect(0, 0, size, size);
+
+  const pulse = 0.5 + 0.5 * Math.sin(phase * 2.2);
+  const bgGrad = ctx.createRadialGradient(cx, cy, 8, cx, cy, 52);
+  bgGrad.addColorStop(0, `rgba(16, 185, 129, ${0.42 + pulse * 0.25})`);
+  bgGrad.addColorStop(0.65, 'rgba(6, 95, 70, 0.22)');
+  bgGrad.addColorStop(1, 'rgba(16, 185, 129, 0)');
+  ctx.fillStyle = bgGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 56, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(6, 78, 59, 0.92)';
+  ctx.beginPath();
+  ctx.arc(cx - 4, cy, 24, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#34d399';
+  ctx.stroke();
+
+  ctx.fillStyle = '#ecfdf5';
+  ctx.beginPath();
+  ctx.moveTo(cx - 15, cy - 6);
+  ctx.lineTo(cx - 8, cy - 6);
+  ctx.lineTo(cx + 1, cy - 13);
+  ctx.lineTo(cx + 1, cy + 13);
+  ctx.lineTo(cx - 8, cy + 6);
+  ctx.lineTo(cx - 15, cy + 6);
+  ctx.closePath();
+  ctx.fill();
+
+  for (let i = 0; i < 3; i++) {
+    const waveAlpha = Math.max(0.18, Math.min(1, 0.35 + 0.65 * Math.sin(phase * 3.1 - i * 0.95)));
+    ctx.strokeStyle = `rgba(52, 211, 153, ${waveAlpha.toFixed(2)})`;
+    ctx.lineWidth = 4 - i * 0.4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx + 3, cy, 12 + i * 10, -0.58, 0.58);
+    ctx.stroke();
+  }
+}
+
+export function createVoiceIndicatorSprite(yOffset = 2.78) {
+  let tex = null;
+  let canvas = null;
+  let ctx = null;
+  if (typeof document !== 'undefined') {
+    canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    ctx = canvas.getContext('2d');
+    if (ctx) {
+      drawVoiceWaveBadge(ctx, 128, 0);
+      tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+    }
+  }
+  const mat = new THREE.SpriteMaterial({
+    map: tex,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.position.set(0, yOffset, 0);
+  sprite.scale.set(0.46, 0.46, 1);
+  sprite.renderOrder = 8;
+  sprite.visible = false;
+  sprite.userData = {
+    baseY: yOffset,
+    phase: 0,
+    redrawAccum: 0,
+    canvas,
+    ctx,
+    tex
+  };
+  return sprite;
+}
+
+export function updateVoiceIndicatorSprite(sprite, dt, isSpeaking = false) {
+  if (!sprite) return;
+  const ud = sprite.userData;
+  if (!ud) return;
+
+  if (!isSpeaking) {
+    if (sprite.visible) {
+      sprite.visible = false;
+      sprite.position.y = ud.baseY;
+      sprite.scale.set(0.46, 0.46, 1);
+    }
+    return;
+  }
+
+  sprite.visible = true;
+  ud.phase += dt * 4.2;
+  ud.redrawAccum += dt;
+  const s = 0.45 + 0.055 * Math.sin(ud.phase * 2.2);
+  sprite.scale.set(s, s, 1);
+  sprite.position.y = ud.baseY + Math.sin(ud.phase * 1.8) * 0.035;
+
+  if (ud.ctx && ud.tex && ud.redrawAccum >= 0.09) {
+    ud.redrawAccum = 0;
+    drawVoiceWaveBadge(ud.ctx, ud.canvas.width, ud.phase);
+    ud.tex.needsUpdate = true;
+  }
+}
