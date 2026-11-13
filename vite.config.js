@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.5 - Voice Chat de Proximité Spatialisé 3D'),
+    __APP_VERSION__: JSON.stringify('v4.6 - Mode VR WebXR, Mains 3D Articulées & Sync Multijoueur'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

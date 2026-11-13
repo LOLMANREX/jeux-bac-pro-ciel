@@ -53,6 +53,8 @@ export class HudManager {
     this.voiceBtnIco = document.getElementById('voice-btn-ico');
     this.voiceBtnLabel = document.getElementById('voice-btn-label');
     this.voiceNearbyBar = document.getElementById('voice-nearby-bar');
+    this.vrToggleBtn = document.getElementById('btn-vr-toggle');
+    this.vrBtnLabel = document.getElementById('vr-btn-label');
     this.unreadChat = 0;
     this.lastEmoteAt = 0;
 
@@ -260,6 +262,11 @@ export class HudManager {
       sfx.click();
       this.closeAllModals();
       this.handlers.onReturnToMenu?.();
+    });
+
+    this.vrToggleBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onToggleVr?.();
     });
 
     document.getElementById('settings-close')?.addEventListener('click', () => {
@@ -995,5 +1002,29 @@ export class HudManager {
           .join('');
       }
     }
+  }
+
+  syncVrUi(vrState = {}) {
+    if (!this.vrToggleBtn) return;
+    const active = Boolean(vrState.active);
+    const simMode = Boolean(vrState.simMode);
+    const supported = Boolean(vrState.supported);
+    this.vrToggleBtn.classList.toggle('vr-active', active);
+    this.vrToggleBtn.classList.toggle('vr-sim', simMode);
+    document.body.classList.toggle('vr-sim-active', active && simMode);
+    if (this.vrBtnLabel) {
+      if (active) {
+        this.vrBtnLabel.textContent = simMode ? 'Quitter VR Sim' : 'Quitter VR';
+      } else if (supported) {
+        this.vrBtnLabel.textContent = 'MODE VR (Quest)';
+      } else {
+        this.vrBtnLabel.textContent = 'Mode VR (F9)';
+      }
+    }
+    this.vrToggleBtn.title = active
+      ? 'Quitter le Mode Réalité Virtuelle (F9)'
+      : supported
+        ? 'Entrer en Réalité Virtuelle WebXR (Meta Quest)'
+        : 'Activer la simulation VR PC (F9) : H Montre • F Poing • Clic Laser';
   }
 }

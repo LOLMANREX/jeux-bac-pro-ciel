@@ -97,6 +97,10 @@
                   <span class="aaa-cta-main">⚡ JOUER</span>
                 </button>
 
+                <button type="button" id="menu-btn-vr" class="btn-vr-launch">
+                  <span>🥽 MODE VR (QUEST / WEBXR)</span>
+                </button>
+
                 <div class="aaa-lobby-status-row">
                   <div class="aaa-online-line" id="start-server-status">
                     <span class="dot dot-pulse"></span>
@@ -194,6 +198,15 @@
           </div>
 
           <div class="hud-actions">
+            <button
+              type="button"
+              id="btn-vr-toggle"
+              class="btn-hud btn-vr-hud"
+              title="Mode Réalité Virtuelle Quest / WebXR (Touche F9 Simulation PC)"
+            >
+              <span>🥽</span>
+              <span id="vr-btn-label">Mode VR</span>
+            </button>
             <button
               type="button"
               id="btn-voice-toggle"
@@ -326,6 +339,7 @@
           <span>Tab : Classement</span> •
           <span>M : Mini-carte</span> •
           <span>T : Chat</span> •
+          <span>F9 : Mode VR</span> •
           <span>1–6 : Émotes</span>
         </div>
       </div>
@@ -559,6 +573,13 @@
               <strong class="platform-title">Mode Mobile / Tablette</strong>
               <span class="platform-sub">Joystick virtuel + Contrôles tactiles</span>
               <span class="platform-desc">Joystick gauche analogique, caméra au doigt à droite et boutons tactiles.</span>
+            </button>
+            <button type="button" id="platform-card-vr" class="platform-choice-card platform-choice-vr">
+              <span id="platform-rec-vr" class="platform-rec-pill hidden">WEBXR PRÊT</span>
+              <span class="platform-ico">🥽</span>
+              <strong class="platform-title">Mode VR (Quest / WebXR)</strong>
+              <span class="platform-sub">Meta Quest 3S • Contrôleurs 6DoF</span>
+              <span class="platform-desc">Mains 3D articulées, rayons laser, montre HUD et TPs immersifs (F9 pour tester sur PC).</span>
             </button>
           </div>
         </div>

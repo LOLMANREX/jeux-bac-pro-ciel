@@ -17,6 +17,7 @@ export class MainMenu {
     network,
     {
       onStartGame,
+      onStartVr,
       onOpenSettings,
       onOpenPlatform,
       onOpenFaq,
@@ -28,6 +29,7 @@ export class MainMenu {
     this.gameState = gameState;
     this.network = network;
     this.onStartGame = onStartGame;
+    this.onStartVr = onStartVr;
     this.onOpenSettings = onOpenSettings;
     this.onOpenPlatform = onOpenPlatform;
     this.onOpenFaq = onOpenFaq;
@@ -178,7 +180,11 @@ export class MainMenu {
     });
 
     document.getElementById('menu-btn-quickplay')?.addEventListener('click', () => {
-      this._launchWithRoom(this.roomSelect?.value || DEFAULT_ROOM);
+      this._launchWithRoom(this.roomSelect?.value || DEFAULT_ROOM, false);
+    });
+
+    document.getElementById('menu-btn-vr')?.addEventListener('click', () => {
+      this._launchWithRoom(this.roomSelect?.value || DEFAULT_ROOM, true);
     });
 
     document.querySelectorAll('[data-nav]').forEach((tab) => {
@@ -266,14 +272,18 @@ export class MainMenu {
     });
   }
 
-  _launchWithRoom(room) {
+  _launchWithRoom(room, startVr = false) {
     const name = this.nameInput?.value?.trim() || 'Eleve_CIEL';
     const targetRoom = String(room || '').trim() || DEFAULT_ROOM;
     localStorage.setItem('ciel_player_name', name);
     sfx.interact();
     this.closeRoomsModal();
     this.hide();
-    this.onStartGame?.({ name, room: targetRoom, skin: this.gameState.skin });
+    if (startVr && this.onStartVr) {
+      this.onStartVr({ name, room: targetRoom, skin: this.gameState.skin });
+    } else {
+      this.onStartGame?.({ name, room: targetRoom, skin: this.gameState.skin });
+    }
   }
 
   showView(name) {

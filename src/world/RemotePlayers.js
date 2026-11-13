@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   animateAvatarLimbs,
+  attachRemoteVrVisuals,
   buildStudentAvatarMesh,
   createVoiceIndicatorSprite,
   disposeObject3D,
@@ -230,10 +231,14 @@ export class RemotePlayersManager {
       voiceIndicator: null,
       micEnabled: Boolean(p.micEnabled),
       isSpeaking: Boolean(p.isSpeaking),
+      vrTracker: null,
+      vrData: p.vrData || null,
       targetPos: new THREE.Vector3(p.x ?? -3.95, Math.max(0, p.y || 0), p.z ?? 0.65),
       targetYaw: p.yaw || 0,
       horizSpeed: 0
     };
+
+    peerData.vrTracker = attachRemoteVrVisuals(peerData, peerData.skin);
 
     const badgeTex = makeStudentBadge(peerData);
     const badgeMat = new THREE.SpriteMaterial({
@@ -277,6 +282,7 @@ export class RemotePlayersManager {
     const pos = oldGroup.position.clone();
     const rotY = oldGroup.rotation.y;
 
+    peer.vrTracker?.dispose?.();
     oldGroup.remove(peer.badge);
     oldGroup.remove(peer.bubble);
     if (peer.voiceIndicator) oldGroup.remove(peer.voiceIndicator);
@@ -297,17 +303,23 @@ export class RemotePlayersManager {
     peer.rightLeg = meshData.rightLeg;
     peer.leftArm = meshData.leftArm;
     peer.rightArm = meshData.rightArm;
+    peer.headGroup = meshData.headGroup;
+    peer.torsoMat = meshData.torsoMat;
+    peer.vrTracker = attachRemoteVrVisuals(peer, nextSkin);
     peer._walkPhase = 0;
 
     this.scene.add(peer.group);
     this._refreshBadge(peer);
   }
 
-  movePeer(id, x, y, z, yaw) {
+  movePeer(id, x, y, z, yaw, vrData = undefined) {
     const peer = this.peers.get(id);
     if (!peer) return;
     peer.targetPos.set(x, Math.max(0, Number(y) || 0), z);
     peer.targetYaw = yaw || 0;
+    if (vrData !== undefined) {
+      peer.vrData = vrData;
+    }
   }
 
   setActivity(id, activity) {
@@ -410,6 +422,7 @@ export class RemotePlayersManager {
   removePeer(id) {
     const peer = this.peers.get(id);
     if (!peer) return;
+    peer.vrTracker?.dispose?.();
     peer.badge.material.map?.dispose();
     peer.badge.material.dispose();
     peer.bubble.material.map?.dispose();
@@ -429,7 +442,7 @@ export class RemotePlayersManager {
     }
   }
 
-  update(dt) {
+  update(dt, elapsed = 0) {
     const smoothXZ = 1 - Math.exp(-15 * dt);
     const smoothY = 1 - Math.exp(-18 * dt);
     const smoothYaw = 1 - Math.exp(-13 * dt);
@@ -459,6 +472,7 @@ export class RemotePlayersManager {
         speedRatio: Math.max(0.8, Math.min(1.5, peer.horizSpeed / 5.2))
       });
 
+      peer.vrTracker?.update?.(peer.vrData, dt, elapsed);
       updateSpeechBubble(peer.bubble, dt);
       updateVoiceIndicatorSprite(peer.voiceIndicator, dt, peer.isSpeaking);
     }

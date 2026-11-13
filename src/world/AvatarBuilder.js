@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildArticulatedVRHand } from '../vr/VRHandBuilder.js';
 
 export const SKIN_OPTIONS = {
   outfitColors: [
@@ -289,20 +290,24 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
   const leftArm = makeArm(-0.32);
   const rightArm = makeArm(0.32);
 
+  const headGroup = new THREE.Group();
+  headGroup.position.set(0, 1.58, 0);
+  group.add(headGroup);
+
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.36, 0.34), skinMat);
-  head.position.y = 1.59;
+  head.position.y = 0.01;
   head.castShadow = true;
-  group.add(head);
+  headGroup.add(head);
 
   const hair = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.11, 0.36), hairMat);
-  hair.position.set(0, 1.75, -0.01);
-  group.add(hair);
+  hair.position.set(0, 0.17, -0.01);
+  headGroup.add(hair);
 
   const eyeMat = new THREE.MeshBasicMaterial({ color: '#0f172a' });
   [-0.07, 0.07].forEach((ex) => {
     const eye = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.02), eyeMat);
-    eye.position.set(ex, 1.61, 0.175);
-    group.add(eye);
+    eye.position.set(ex, 0.03, 0.175);
+    headGroup.add(eye);
   });
 
   if (accessories.has('vr_gold')) {
@@ -320,17 +325,17 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
       roughness: 0.12
     });
     const vrBody = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.15, 0.16), goldMat);
-    vrBody.position.set(0, 1.62, 0.18);
-    group.add(vrBody);
+    vrBody.position.set(0, 0.04, 0.18);
+    headGroup.add(vrBody);
     const vrScreen = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.085, 0.02), vrScreenMat);
-    vrScreen.position.set(0, 1.62, 0.258);
-    group.add(vrScreen);
+    vrScreen.position.set(0, 0.04, 0.258);
+    headGroup.add(vrScreen);
     const sideBand = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.055, 0.38), goldMat);
-    sideBand.position.set(0, 1.63, -0.01);
-    group.add(sideBand);
+    sideBand.position.set(0, 0.05, -0.01);
+    headGroup.add(sideBand);
     const topStrap = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, 0.36), goldMat);
-    topStrap.position.set(0, 1.72, -0.01);
-    group.add(topStrap);
+    topStrap.position.set(0, 0.14, -0.01);
+    headGroup.add(topStrap);
   } else if (accessories.has('cyber_visor')) {
     const visorColor = showcase?.visorColor || mats.trimColor || '#22d3ee';
     const frameMat = new THREE.MeshStandardMaterial({ color: '#0f172a', metalness: 0.85, roughness: 0.22 });
@@ -341,54 +346,54 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
       roughness: 0.12
     });
     const visor = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.095, 0.12), glowMat);
-    visor.position.set(0, 1.615, 0.165);
-    group.add(visor);
+    visor.position.set(0, 0.035, 0.165);
+    headGroup.add(visor);
     const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.032, 0.28), frameMat);
-    bridge.position.set(0, 1.665, 0.07);
-    group.add(bridge);
+    bridge.position.set(0, 0.085, 0.07);
+    headGroup.add(bridge);
     [-0.195, 0.195].forEach((ax) => {
       const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.11, 10), frameMat);
       pod.rotation.z = Math.PI / 2;
-      pod.position.set(ax, 1.63, 0);
-      group.add(pod);
+      pod.position.set(ax, 0.05, 0);
+      headGroup.add(pod);
       const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.014, 0.24, 8), frameMat);
-      ant.position.set(ax * 1.06, 1.77, -0.02);
-      group.add(ant);
+      ant.position.set(ax * 1.06, 0.19, -0.02);
+      headGroup.add(ant);
       const tip = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 8), glowMat);
-      tip.position.set(ax * 1.06, 1.89, -0.02);
-      group.add(tip);
+      tip.position.set(ax * 1.06, 0.31, -0.02);
+      headGroup.add(tip);
     });
   } else if (skin.hat === 'glasses') {
     const gMat = new THREE.MeshStandardMaterial({ color: '#0284c7', metalness: 0.4 });
     [-0.075, 0.075].forEach((gx) => {
       const lens = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.06, 0.03), gMat);
-      lens.position.set(gx, 1.61, 0.18);
-      group.add(lens);
+      lens.position.set(gx, 0.03, 0.18);
+      headGroup.add(lens);
     });
   } else if (skin.hat === 'cap') {
     const capMat = new THREE.MeshStandardMaterial({ color: skin.outfitColor, roughness: 0.5 });
     const crown = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.14, 0.37), capMat);
-    crown.position.set(0, 1.77, 0);
-    group.add(crown);
+    crown.position.set(0, 0.19, 0);
+    headGroup.add(crown);
     const visor = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.04, 0.2), capMat);
-    visor.position.set(0, 1.72, 0.22);
-    group.add(visor);
+    visor.position.set(0, 0.14, 0.22);
+    headGroup.add(visor);
   } else if (skin.hat === 'headset') {
     const bandMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4 });
     const earMat = new THREE.MeshStandardMaterial({ color: skin.outfitColor, roughness: 0.4 });
     const band = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.06, 0.08), bandMat);
-    band.position.set(0, 1.81, 0);
-    group.add(band);
+    band.position.set(0, 0.23, 0);
+    headGroup.add(band);
     [-0.2, 0.2].forEach((hx) => {
       const cup = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.16), earMat);
-      cup.position.set(hx, 1.61, 0);
-      group.add(cup);
+      cup.position.set(hx, 0.03, 0);
+      headGroup.add(cup);
     });
   }
 
   if (accessories.has('royal_crown')) {
     const crownGroup = new THREE.Group();
-    crownGroup.position.set(0, 1.97, 0);
+    crownGroup.position.set(0, 0.39, 0);
     const crownGold = new THREE.MeshStandardMaterial({
       color: '#fbbf24',
       metalness: 0.9,
@@ -419,9 +424,9 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
       gem.position.set(rx * 1.04, 0.17, rz * 1.04);
       crownGroup.add(gem);
     }
-    group.add(crownGroup);
+    headGroup.add(crownGroup);
     updaters.push((t) => {
-      crownGroup.position.y = 1.98 + Math.sin(t * 2.8) * 0.035;
+      crownGroup.position.y = 0.4 + Math.sin(t * 2.8) * 0.035;
       crownGroup.rotation.y = t * 1.1;
     });
   }
@@ -436,10 +441,10 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     });
     const halo = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.028, 10, 32), haloMat);
     halo.rotation.x = Math.PI / 2;
-    halo.position.set(0, 1.98, 0);
-    group.add(halo);
+    halo.position.set(0, 0.4, 0);
+    headGroup.add(halo);
     updaters.push((t) => {
-      halo.position.y = 1.98 + Math.sin(t * 2.5) * 0.03;
+      halo.position.y = 0.4 + Math.sin(t * 2.5) * 0.03;
       halo.rotation.y = t * 0.8;
     });
   }
@@ -657,7 +662,170 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
   };
   updateEffects(0);
 
-  return { group, leftLeg, rightLeg, leftArm, rightArm, updateEffects };
+  const setFirstPersonVrHidden = (hidden) => {
+    const vis = !hidden;
+    headGroup.visible = vis;
+    leftArm.visible = vis;
+    rightArm.visible = vis;
+  };
+
+  return {
+    group,
+    leftLeg,
+    rightLeg,
+    leftArm,
+    rightArm,
+    headGroup,
+    torsoMat,
+    setFirstPersonVrHidden,
+    updateEffects
+  };
+}
+
+export function attachRemoteVrVisuals(avatar, rawSkin = {}) {
+  if (!avatar?.group) return null;
+  const vrRoot = new THREE.Group();
+  vrRoot.visible = false;
+  avatar.group.add(vrRoot);
+
+  const leftHand = buildArticulatedVRHand({ handedness: 'left', skin: rawSkin });
+  const rightHand = buildArticulatedVRHand({ handedness: 'right', skin: rawSkin });
+  vrRoot.add(leftHand.root);
+  vrRoot.add(rightHand.root);
+
+  const armMat = avatar.torsoMat || new THREE.MeshStandardMaterial({ color: '#22d3ee', roughness: 0.55 });
+  const makeDynamicArm = () => {
+    const armMesh = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.115, 1), armMat);
+    armMesh.castShadow = true;
+    vrRoot.add(armMesh);
+    return armMesh;
+  };
+  const leftForearm = makeDynamicArm();
+  const rightForearm = makeDynamicArm();
+
+  const targetHeadQuat = new THREE.Quaternion();
+  const targetLeftPos = new THREE.Vector3(-0.26, 1.18, -0.25);
+  const targetRightPos = new THREE.Vector3(0.26, 1.18, -0.25);
+  const targetLeftQuat = new THREE.Quaternion();
+  const targetRightQuat = new THREE.Quaternion();
+
+  const invGroupQuat = new THREE.Quaternion();
+  const flipYQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+  const tempDesiredHead = new THREE.Quaternion();
+  const shoulderLocal = new THREE.Vector3();
+  const wristLocal = new THREE.Vector3();
+  const cuffOffset = new THREE.Vector3();
+  const midPt = new THREE.Vector3();
+
+  let active = false;
+  let lastPose = {
+    left: { grip: 0, trigger: 0, thumb: 0 },
+    right: { grip: 0, trigger: 0, thumb: 0 }
+  };
+
+  const placeArmSpan = (armMesh, shoulderX, handRoot) => {
+    shoulderLocal.set(shoulderX, 1.34, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), avatar.group.rotation.y);
+    cuffOffset.set(0, 0, 0.065).applyQuaternion(handRoot.quaternion);
+    wristLocal.copy(handRoot.position).add(cuffOffset);
+    const len = shoulderLocal.distanceTo(wristLocal);
+    armMesh.visible = len > 0.04;
+    if (!armMesh.visible) return;
+    midPt.copy(shoulderLocal).addScaledVector(wristLocal, 1).multiplyScalar(0.5);
+    armMesh.position.copy(midPt);
+    armMesh.scale.set(1, 1, Math.min(0.82, Math.max(0.08, len)));
+    armMesh.lookAt(
+      wristLocal.x + avatar.group.position.x,
+      wristLocal.y + avatar.group.position.y,
+      wristLocal.z + avatar.group.position.z
+    );
+  };
+
+  const update = (vrData, _dt = 0.016, elapsed = 0) => {
+    const isActive = Boolean(vrData && vrData.active);
+    if (!isActive) {
+      if (active) {
+        active = false;
+        vrRoot.visible = false;
+        if (avatar.leftArm) avatar.leftArm.visible = true;
+        if (avatar.rightArm) avatar.rightArm.visible = true;
+        if (avatar.headGroup) {
+          avatar.headGroup.quaternion.identity();
+          avatar.headGroup.position.set(0, 1.58, 0);
+        }
+      }
+      return;
+    }
+
+    if (!active) {
+      active = true;
+      vrRoot.visible = true;
+      if (avatar.leftArm) avatar.leftArm.visible = false;
+      if (avatar.rightArm) avatar.rightArm.visible = false;
+      if (vrData.leftHand) {
+        leftHand.root.position.set(vrData.leftHand.px, vrData.leftHand.py, vrData.leftHand.pz);
+        leftHand.root.quaternion.set(vrData.leftHand.qx, vrData.leftHand.qy, vrData.leftHand.qz, vrData.leftHand.qw);
+      }
+      if (vrData.rightHand) {
+        rightHand.root.position.set(vrData.rightHand.px, vrData.rightHand.py, vrData.rightHand.pz);
+        rightHand.root.quaternion.set(vrData.rightHand.qx, vrData.rightHand.qy, vrData.rightHand.qz, vrData.rightHand.qw);
+      }
+    }
+
+    vrRoot.rotation.y = -avatar.group.rotation.y;
+
+    if (vrData.head && avatar.headGroup) {
+      targetHeadQuat.set(vrData.head.qx, vrData.head.qy, vrData.head.qz, vrData.head.qw).normalize();
+      invGroupQuat.copy(avatar.group.quaternion).invert();
+      tempDesiredHead.copy(invGroupQuat).multiply(targetHeadQuat).multiply(flipYQuat);
+      avatar.headGroup.quaternion.slerp(tempDesiredHead, 0.25);
+      const hy = Math.max(1.05, Math.min(2.1, Number(vrData.head.py) || 1.58));
+      avatar.headGroup.position.y += (hy - avatar.headGroup.position.y) * 0.25;
+    }
+
+    if (vrData.leftHand) {
+      targetLeftPos.set(vrData.leftHand.px, vrData.leftHand.py, vrData.leftHand.pz);
+      targetLeftQuat.set(vrData.leftHand.qx, vrData.leftHand.qy, vrData.leftHand.qz, vrData.leftHand.qw).normalize();
+      leftHand.root.position.lerp(targetLeftPos, 0.25);
+      leftHand.root.quaternion.slerp(targetLeftQuat, 0.25);
+      lastPose.left.trigger = vrData.leftHand.trigger || 0;
+      lastPose.left.grip = vrData.leftHand.grip || 0;
+      lastPose.left.thumb = vrData.leftHand.thumb || 0;
+    }
+
+    if (vrData.rightHand) {
+      targetRightPos.set(vrData.rightHand.px, vrData.rightHand.py, vrData.rightHand.pz);
+      targetRightQuat.set(vrData.rightHand.qx, vrData.rightHand.qy, vrData.rightHand.qz, vrData.rightHand.qw).normalize();
+      rightHand.root.position.lerp(targetRightPos, 0.25);
+      rightHand.root.quaternion.slerp(targetRightQuat, 0.25);
+      lastPose.right.trigger = vrData.rightHand.trigger || 0;
+      lastPose.right.grip = vrData.rightHand.grip || 0;
+      lastPose.right.thumb = vrData.rightHand.thumb || 0;
+    }
+
+    leftHand.setPose({ ...lastPose.left, elapsed });
+    rightHand.setPose({ ...lastPose.right, elapsed });
+
+    placeArmSpan(leftForearm, -0.29, leftHand.root);
+    placeArmSpan(rightForearm, 0.29, rightHand.root);
+  };
+
+  const applySkin = (nextSkin) => {
+    leftHand.applySkin(nextSkin);
+    rightHand.applySkin(nextSkin);
+    if (avatar.torsoMat) {
+      leftForearm.material = avatar.torsoMat;
+      rightForearm.material = avatar.torsoMat;
+    }
+  };
+
+  const dispose = () => {
+    leftHand.dispose();
+    rightHand.dispose();
+    leftForearm.geometry.dispose();
+    rightForearm.geometry.dispose();
+  };
+
+  return { vrRoot, leftHand, rightHand, update, applySkin, dispose };
 }
 
 export function animateAvatarLimbs(avatar, dt, { isMoving, isGrounded = true, speedRatio = 1 }) {

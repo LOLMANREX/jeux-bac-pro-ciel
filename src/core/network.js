@@ -276,20 +276,24 @@ export class NetworkClient {
     return false;
   }
 
-  sendMove(x, y, z, yaw, force = false) {
+  sendMove(x, y, z, yaw, force = false, vrData = undefined) {
     const next = { x: qNum(x), y: qNum(y), z: qNum(z), yaw: qNum(yaw) };
+    const hasVrPayload = vrData !== undefined;
+    const isVrActive = Boolean(vrData?.active);
     if (this.pendingJoin) {
       this.pendingJoin.spawn = next;
     }
-    if (!force && this.lastSentMove) {
+    if (!force && !isVrActive && this.lastSentMove) {
       const samePos =
         Math.abs(next.x - this.lastSentMove.x) < 0.002 &&
         Math.abs(next.y - this.lastSentMove.y) < 0.002 &&
         Math.abs(next.z - this.lastSentMove.z) < 0.002 &&
         Math.abs(next.yaw - this.lastSentMove.yaw) < 0.004;
-      if (samePos) return;
+      const sameVr = !hasVrPayload && !this.lastVrActive;
+      if (samePos && sameVr) return;
     }
 
+    const packetNext = hasVrPayload ? { ...next, vrData } : next;
     const now = performance.now();
     const elapsed = now - this.lastMoveSent;
     if (force || elapsed >= 45) {
@@ -300,11 +304,12 @@ export class NetworkClient {
       this.pendingMove = null;
       this.lastMoveSent = now;
       this.lastSentMove = next;
-      this.send({ type: 'move', ...next });
+      this.lastVrActive = isVrActive;
+      this.send({ type: 'move', ...packetNext });
       return;
     }
 
-    this.pendingMove = next;
+    this.pendingMove = packetNext;
     if (!this.moveFlushTimer) {
       this.moveFlushTimer = setTimeout(() => {
         this.moveFlushTimer = null;
@@ -312,7 +317,8 @@ export class NetworkClient {
         const flush = this.pendingMove;
         this.pendingMove = null;
         this.lastMoveSent = performance.now();
-        this.lastSentMove = flush;
+        this.lastSentMove = { x: flush.x, y: flush.y, z: flush.z, yaw: flush.yaw };
+        this.lastVrActive = Boolean(flush.vrData?.active);
         this.send({ type: 'move', ...flush });
       }, Math.max(10, 48 - elapsed));
     }

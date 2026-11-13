@@ -6,9 +6,11 @@ export class PlatformModal {
     this.modal = document.getElementById('platform-modal');
     this.cardPc = document.getElementById('platform-card-pc');
     this.cardMobile = document.getElementById('platform-card-mobile');
+    this.cardVr = document.getElementById('platform-card-vr');
     this.closeBtn = document.getElementById('platform-close');
     this.badgePc = document.getElementById('platform-rec-pc');
     this.badgeMobile = document.getElementById('platform-rec-mobile');
+    this.badgeVr = document.getElementById('platform-rec-vr');
     this.onCloseCallback = null;
 
     this._syncRecommendedBadge();
@@ -16,14 +18,19 @@ export class PlatformModal {
   }
 
   _syncRecommendedBadge() {
-    const isTouch = detectTouchDevice();
-    this.badgePc?.classList.toggle('hidden', isTouch);
-    this.badgeMobile?.classList.toggle('hidden', !isTouch);
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+    const isVrDevice = /OculusBrowser|Quest|Meta Quest/i.test(ua);
+    const hasXr = typeof navigator !== 'undefined' && Boolean(navigator.xr);
+    const isTouch = !isVrDevice && detectTouchDevice();
+    this.badgePc?.classList.toggle('hidden', isTouch || isVrDevice);
+    this.badgeMobile?.classList.toggle('hidden', !isTouch || isVrDevice);
+    this.badgeVr?.classList.toggle('hidden', !isVrDevice && !hasXr);
   }
 
-  syncActiveChoice(touchMode) {
-    this.cardPc?.classList.toggle('selected', !touchMode);
-    this.cardMobile?.classList.toggle('selected', Boolean(touchMode));
+  syncActiveChoice(touchMode, vrMode = false) {
+    this.cardPc?.classList.toggle('selected', !touchMode && !vrMode);
+    this.cardMobile?.classList.toggle('selected', Boolean(touchMode) && !vrMode);
+    this.cardVr?.classList.toggle('selected', Boolean(vrMode));
   }
 
   _bindEvents() {
@@ -33,12 +40,16 @@ export class PlatformModal {
     this.cardMobile?.addEventListener('click', () => {
       this._choose('mobile');
     });
+    this.cardVr?.addEventListener('click', () => {
+      this._choose('vr');
+    });
     this.closeBtn?.addEventListener('click', () => this.close());
   }
 
   _choose(mode) {
     const isMobile = mode === 'mobile';
-    this.syncActiveChoice(isMobile);
+    const isVr = mode === 'vr';
+    this.syncActiveChoice(isMobile, isVr);
     this.close();
     this.onSelect?.(mode);
   }
@@ -47,9 +58,9 @@ export class PlatformModal {
     return Boolean(this.modal && !this.modal.classList.contains('hidden'));
   }
 
-  open(touchMode = false, onClose = null, allowCloseBtn = true) {
+  open(touchMode = false, onClose = null, allowCloseBtn = true, vrMode = false) {
     this.onCloseCallback = onClose;
-    this.syncActiveChoice(touchMode);
+    this.syncActiveChoice(touchMode, vrMode);
     if (this.closeBtn) {
       this.closeBtn.classList.toggle('hidden', !allowCloseBtn);
     }

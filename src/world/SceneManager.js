@@ -21,6 +21,8 @@ export class SceneManager {
       antialias: true,
       powerPreference: 'high-performance'
     });
+    this.renderer.xr.enabled = true;
+    this.renderer.xr.setReferenceSpaceType('local-floor');
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.96;
     this.renderer.shadowMap.enabled = true;
@@ -37,6 +39,9 @@ export class SceneManager {
     this.paused = false;
     this.quality = 'high';
     this.updaters = [];
+    this.alwaysUpdaters = [];
+    this.customRenderScene = null;
+    this.customStepFn = null;
     this.clock = new THREE.Clock();
 
     this._setupLights();
@@ -128,16 +133,17 @@ export class SceneManager {
 
   setQuality(quality) {
     this.quality = quality;
+    const xrPresenting = Boolean(this.renderer.xr?.isPresenting);
     if (quality === 'eco') {
-      this.renderer.setPixelRatio(1);
+      if (!xrPresenting) this.renderer.setPixelRatio(1);
       this.renderer.shadowMap.enabled = false;
       this.sun.castShadow = false;
     } else if (quality === 'balanced') {
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
+      if (!xrPresenting) this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
       this.renderer.shadowMap.enabled = true;
       this.sun.castShadow = true;
     } else {
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      if (!xrPresenting) this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       this.renderer.shadowMap.enabled = true;
       this.sun.castShadow = true;
     }
@@ -151,11 +157,22 @@ export class SceneManager {
     }
   }
 
+  setCustomRenderTarget(scene = null, stepFn = null) {
+    this.customRenderScene = scene;
+    this.customStepFn = stepFn;
+    this.clock.getDelta();
+  }
+
   addUpdater(fn) {
     this.updaters.push(fn);
   }
 
+  addAlwaysUpdater(fn) {
+    this.alwaysUpdaters.push(fn);
+  }
+
   _handleResize() {
+    if (this.renderer.xr?.isPresenting) return;
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.camera.aspect = w / h;
@@ -164,16 +181,27 @@ export class SceneManager {
   }
 
   start() {
-    const tick = () => {
-      requestAnimationFrame(tick);
-      if (this.paused) return;
+    this.renderer.setAnimationLoop(() => {
       const dt = Math.min(this.clock.getDelta(), 0.1);
       const elapsed = this.clock.elapsedTime;
+      if (this.customRenderScene) {
+        if (this.customStepFn) {
+          this.customStepFn(dt, elapsed);
+        }
+        for (const fn of this.alwaysUpdaters) {
+          fn(dt, elapsed);
+        }
+        this.renderer.render(this.customRenderScene, this.camera);
+        return;
+      }
+      if (this.paused) return;
       for (const fn of this.updaters) {
         fn(dt, elapsed);
       }
+      for (const fn of this.alwaysUpdaters) {
+        fn(dt, elapsed);
+      }
       this.renderer.render(this.scene, this.camera);
-    };
-    requestAnimationFrame(tick);
+    });
   }
 }

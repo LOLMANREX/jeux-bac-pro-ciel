@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
 import { getStationById } from '../core/gameState.js';
 
@@ -14,10 +15,15 @@ export class MiniGameModal {
 
     this.activeGame = null;
     this.activeTpId = null;
+    this.currentTp = null;
     this.timerInterval = null;
     this.startTimeMs = 0;
     this.onCloseCallback = null;
     this.onFinishCallback = null;
+    this.vrManager = null;
+    this.vrResultScene = null;
+    this.vrResultActive = false;
+    this.stageSnapshot = { stages: [], activeStageIdx: 0, onSelectStage: null };
 
     this.exitBtn.addEventListener('click', () => {
       sfx.click();
@@ -25,17 +31,54 @@ export class MiniGameModal {
     });
   }
 
-  open(tpId, createGameFn, { onComplete, onClose }) {
+  open(tpId, createGameFn, { vrManager = null, onComplete, onClose }) {
     const tp = getStationById(tpId);
     if (!tp) return;
     if (document.pointerLockElement) {
       document.exitPointerLock?.();
     }
+    this.vrResultActive = false;
+    this._cleanupVrResultScene();
+    this.vrManager = vrManager || this.vrManager || null;
+    if (this.vrManager?.isVrActive()) {
+      this.vrManager.detachTpContext();
+      this.vrManager.sceneMgr?.setCustomRenderTarget?.(null, null);
+    }
     this.cleanupActive();
 
     this.activeTpId = tpId;
+    this.currentTp = tp;
     this.onFinishCallback = onComplete;
     this.onCloseCallback = onClose;
+    this.stageSnapshot = { stages: [], activeStageIdx: 0, onSelectStage: null };
+
+    const vrActive = Boolean(this.vrManager?.isVrActive());
+    this.backdrop.classList.toggle('vr-passthrough', vrActive);
+
+    this.contentEl.__vrBridge = {
+      isActive: () => Boolean(this.vrManager?.isVrActive()),
+      renderer: this.vrManager?.sceneMgr?.renderer || null,
+      envTexture: this.vrManager?.sceneMgr?.envRenderTarget?.texture || null,
+      attachWorkbench: (ctx) => {
+        this.vrManager?.attachTpContext?.(ctx);
+        this.vrManager?.sceneMgr?.setCustomRenderTarget?.(ctx.scene, ctx.vrStep);
+      },
+      detachWorkbench: () => {
+        if (this.vrResultActive) return;
+        this.vrManager?.detachTpContext?.();
+        this.vrManager?.sceneMgr?.setCustomRenderTarget?.(null, null);
+      },
+      syncPanel: () => this.vrManager?.syncTpPanelFromContext?.(),
+      getModalSnapshot: () => ({
+        tpTitle: this.currentTp ? `${this.currentTp.icon} ${this.currentTp.title}` : 'TP Atelier 3D',
+        timer: this.timerEl?.textContent || '00:00',
+        stages: this.stageSnapshot.stages,
+        activeStageIdx: this.stageSnapshot.activeStageIdx,
+        onSelectStage: (idx) => this.stageSnapshot.onSelectStage?.(idx),
+        result: null
+      }),
+      requestExit: () => this.close()
+    };
 
     this.iconEl.textContent = tp.icon;
     this.subtitleEl.textContent = `BAC PRO CIEL • ATELIER 3D • ${tp.pole.toUpperCase()}`;
@@ -55,6 +98,11 @@ export class MiniGameModal {
     const api = {
       container: this.contentEl,
       setStages: (stages, activeIdx, onSelect) => {
+        this.stageSnapshot = {
+          stages: stages || [],
+          activeStageIdx: activeIdx || 0,
+          onSelectStage: (idx) => onSelect?.(idx)
+        };
         this.stagePillsEl.innerHTML = '';
         stages.forEach((item, idx) => {
           const btn = document.createElement('button');
@@ -73,6 +121,7 @@ export class MiniGameModal {
           });
           this.stagePillsEl.appendChild(btn);
         });
+        this.vrManager?.syncTpPanelFromContext?.();
       },
       finishTp: (scoreOutOf20, summaryHtml) => {
         const durationSec = Math.max(1, Math.round((Date.now() - this.startTimeMs) / 1000));
@@ -93,8 +142,42 @@ export class MiniGameModal {
     this.activeGame = createGameFn(api);
   }
 
+  _createVrResultScene() {
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#d6e4f2');
+    scene.fog = new THREE.Fog('#d6e4f2', 8, 22);
+    if (this.vrManager?.sceneMgr?.envRenderTarget?.texture) {
+      scene.environment = this.vrManager.sceneMgr.envRenderTarget.texture;
+      scene.environmentIntensity = 0.65;
+    }
+    const hemi = new THREE.HemisphereLight('#f0f7ff', '#cbd5e1', 0.95);
+    scene.add(hemi);
+    const dir = new THREE.DirectionalLight('#fff6e8', 1.25);
+    dir.position.set(2.5, 4.2, 2.8);
+    scene.add(dir);
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(16, 16),
+      new THREE.MeshStandardMaterial({ color: '#c4d0dd', roughness: 0.65 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -0.82;
+    scene.add(floor);
+    return scene;
+  }
+
+  _cleanupVrResultScene() {
+    if (!this.vrResultScene) return;
+    this.vrResultScene.traverse((obj) => {
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (const m of mats) m.dispose?.();
+      }
+    });
+    this.vrResultScene = null;
+  }
+
   _showResultScreen(tp, score, durationSec, summaryHtml) {
-    this.cleanupActive();
     const passed = score >= 10;
     const estXp = Math.round(score * 15) + 30;
     const mention =
@@ -105,6 +188,42 @@ export class MiniGameModal {
           : score >= 10
             ? 'TP Validé — Continuez ainsi !'
             : 'TP non validé (< 10/20) — Recommencez pour améliorer votre note.';
+
+    if (this.vrManager?.isVrActive()) {
+      const resultScene = this._createVrResultScene();
+      this.vrResultActive = true;
+      this.vrResultScene = resultScene;
+      this.vrManager.attachTpContext({
+        scene: resultScene,
+        interactiveMeshes: [],
+        requestExit: () => this.close(),
+        getSnapshot: () => ({
+          tpTitle: `${tp.icon} ${tp.title}`,
+          timer: this._formatSec(durationSec),
+          accuracy: `${score.toFixed(1)} / 20`,
+          badge: 'TERMINÉ',
+          briefTitle: tp.title,
+          briefSub: mention,
+          result: {
+            score,
+            xp: estXp,
+            duration: this._formatSec(durationSec),
+            mention,
+            onReplay: () => {
+              sfx.click();
+              this.close({ replayTpId: tp.id });
+            },
+            onExit: () => {
+              sfx.click();
+              this.close();
+            }
+          }
+        })
+      });
+      this.vrManager.sceneMgr?.setCustomRenderTarget?.(resultScene, null);
+    }
+
+    this.cleanupActive();
 
     this.contentEl.innerHTML = `
       <div class="mg-result-backdrop">
@@ -132,13 +251,16 @@ export class MiniGameModal {
     });
     document.getElementById('mg-replay-btn')?.addEventListener('click', () => {
       sfx.click();
-      this.onCloseCallback?.({ replayTpId: tp.id });
+      this.close({ replayTpId: tp.id });
     });
   }
 
   _updateTimer() {
     const sec = Math.floor((Date.now() - this.startTimeMs) / 1000);
     this.timerEl.textContent = this._formatSec(sec);
+    if (this.vrManager?.isVrActive() && !this.vrResultActive) {
+      this.vrManager.syncTpPanelFromContext();
+    }
   }
 
   _formatSec(sec) {
@@ -158,12 +280,19 @@ export class MiniGameModal {
     }
   }
 
-  close() {
+  close(payload = {}) {
+    this.vrResultActive = false;
+    this.vrManager?.detachTpContext?.();
+    this.vrManager?.sceneMgr?.setCustomRenderTarget?.(null, null);
     this.cleanupActive();
-    this.backdrop.classList.remove('tp3d-visible', 'tp3d-mode');
+    this._cleanupVrResultScene();
+    this.contentEl.__vrBridge = null;
+    this.backdrop.classList.remove('tp3d-visible', 'tp3d-mode', 'vr-passthrough');
     this.backdrop.classList.add('hidden');
     this.contentEl.innerHTML = '';
     this.stagePillsEl.innerHTML = '';
-    this.onCloseCallback?.({});
+    const cb = this.onCloseCallback;
+    this.onCloseCallback = null;
+    cb?.(payload);
   }
 }

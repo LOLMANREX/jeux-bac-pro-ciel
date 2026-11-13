@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.5 - Voice Chat de Proximité Spatialisé 3D';
+    : 'v4.6 - Mode VR WebXR, Mains 3D Articulées & Sync Multijoueur';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.5 — Voice Chat de Proximité Spatialisé 3D',
+    version: 'v4.6 — Mode VR WebXR, Mains 3D Articulées & Sync Multijoueur',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Intégration complète WebXR (optimisée Meta Quest 3S, local-floor, 72–90 Hz) + Mode Simulation VR sur PC via la touche F9 et boutons « MODE VR (QUEST / WEBXR) » dans le Menu Principal, le sélecteur de plateforme et le HUD.',
+      'Mains 3D articulées gauche/droite adaptées aux skins du casier (Or 24K, Diamant, Matrix, Carbone Néon, Chrome RGB, Cyber Or, tenue standard) avec pliage temps réel des 5 doigts sur 2 phalanges depuis les boutons gâchette, grip et repose-pouce.',
+      'Synchronisation multijoueur Cross-Play 3-Point Tracking à 20 Hz (Tête + Mains + Avant-bras dynamiques visibles par tous les joueurs PC, Mobile et VR sans aucune modification de la carte du lycée).',
+      'Montre HUD 3D cliquable au poignet gauche, rayons laser cyan/vert avec réticule et retour haptique, locomotion fluide au stick gauche, rotation Snap Turn 35° au stick droit et compatibilité intégrale des 6+ Travaux Pratiques en réalité virtuelle.'
+    ]
+  },
+  {
+    version: 'v4.5 — Voice Chat de Proximité Spatialisé 3D',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Ajout du Voice Chat de proximité Peer-to-Peer (WebRTC) : signalisation par salle (voice_state, rtc_offer, rtc_answer, rtc_ice_candidate) sur le serveur WebSocket avec nettoyage automatique des déconnexions.',
       'Audio spatialisé en temps réel via Web Audio API : volume à 100 % jusqu’à 3 m, atténuation naturelle entre 3 m et 18 m, inaudible au-delà de 18 m et balance stéréo Gauche / Droite selon l’orientation de la caméra.',

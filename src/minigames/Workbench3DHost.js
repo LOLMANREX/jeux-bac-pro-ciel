@@ -156,6 +156,12 @@ export function createWorkbench3D(container, options = {}) {
   const toolsEl = root.querySelector('#tp3d-tools');
   const actionsEl = root.querySelector('#tp3d-actions');
 
+  const vrBridge = container.__vrBridge || null;
+  const vrActive = Boolean(vrBridge?.isActive?.());
+  if (vrActive) {
+    root.style.pointerEvents = 'none';
+  }
+
   const scene = new THREE.Scene();
   const bgColor = options.background || '#d6e4f2';
   scene.background = new THREE.Color(bgColor);
@@ -179,25 +185,33 @@ export function createWorkbench3D(container, options = {}) {
   camera.position.copy(baseCamPos);
   camera.lookAt(curLookAt);
 
-  const renderer = new THREE.WebGLRenderer({
-    canvas,
-    antialias: true,
-    powerPreference: 'high-performance'
-  });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setSize(initW, initH, false);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.02;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  let renderer = null;
+  let envTarget = null;
+  if (vrActive) {
+    renderer = vrBridge.renderer || null;
+    scene.environment = vrBridge.envTexture || null;
+    scene.environmentIntensity = options.envIntensity ?? 0.72;
+  } else {
+    renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(initW, initH, false);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.02;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const roomEnv = new RoomEnvironment();
-  const envTarget = pmrem.fromScene(roomEnv, 0.04);
-  scene.environment = envTarget.texture;
-  scene.environmentIntensity = options.envIntensity ?? 0.72;
-  roomEnv.dispose();
-  pmrem.dispose();
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const roomEnv = new RoomEnvironment();
+    envTarget = pmrem.fromScene(roomEnv, 0.04);
+    scene.environment = envTarget.texture;
+    scene.environmentIntensity = options.envIntensity ?? 0.72;
+    roomEnv.dispose();
+    pmrem.dispose();
+  }
 
   const hemiLight = new THREE.HemisphereLight('#f0f7ff', '#cbd5e1', 0.92);
   scene.add(hemiLight);
@@ -610,13 +624,8 @@ export function createWorkbench3D(container, options = {}) {
     zoomFactor = Math.max(0.68, Math.min(1.42, zoomFactor + e.deltaY * 0.0008));
   };
 
-  canvas.addEventListener('pointerdown', handlePointerDown);
-  window.addEventListener('pointermove', handlePointerMove);
-  window.addEventListener('pointerup', handlePointerUp);
-  window.addEventListener('pointercancel', handlePointerUp);
-  canvas.addEventListener('wheel', handleWheel, { passive: false });
-
   const handleResize = () => {
+    if (vrActive || !renderer) return;
     const r = container.getBoundingClientRect();
     const w = Math.max(320, r.width || window.innerWidth);
     const h = Math.max(240, r.height || window.innerHeight);
@@ -624,11 +633,20 @@ export function createWorkbench3D(container, options = {}) {
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
   };
-  window.addEventListener('resize', handleResize);
-  const resizeObserver =
-    typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => handleResize()) : null;
-  resizeObserver?.observe(container);
-  requestAnimationFrame(() => handleResize());
+
+  let resizeObserver = null;
+  if (!vrActive) {
+    canvas.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('resize', handleResize);
+    resizeObserver =
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => handleResize()) : null;
+    resizeObserver?.observe(container);
+    requestAnimationFrame(() => handleResize());
+  }
 
   let rafId = null;
   const mountTime = performance.now();
@@ -637,6 +655,118 @@ export function createWorkbench3D(container, options = {}) {
   const tempVec = new THREE.Vector3();
   const offsetVec = new THREE.Vector3();
   let toastTimer = null;
+  let activeVrRay = null;
+
+  const vrState = {
+    badge: 'ÉTABLI 3D',
+    briefTitle: 'Atelier interactif',
+    briefSub: '',
+    accuracy: '-- / 20',
+    toastText: '',
+    tools: [],
+    activeToolId: null,
+    onSelectTool: null,
+    actions: [],
+    drawerControls: []
+  };
+
+  const syncVrPanel = () => {
+    if (vrActive) vrBridge?.syncPanel?.();
+  };
+
+  const extractDrawerControls = () => {
+    const list = [];
+    let idx = 0;
+    const elements = sideDrawerEl.querySelectorAll('button, input[type="range"]');
+    elements.forEach((el) => {
+      if (el.hidden || el.style.display === 'none') return;
+      if (el.tagName === 'BUTTON') {
+        const lbl = (el.textContent || 'Action').replace(/\s+/g, ' ').trim().slice(0, 26);
+        list.push({
+          id: `btn_${idx++}`,
+          label: lbl,
+          active: el.classList.contains('active') || el.getAttribute('aria-pressed') === 'true',
+          disabled: Boolean(el.disabled),
+          onClick: () => {
+            el.click();
+            extractDrawerControls();
+            syncVrPanel();
+          }
+        });
+      } else if (el.tagName === 'INPUT' && el.type === 'range') {
+        const row = el.closest('div, label');
+        const rawLbl =
+          row?.querySelector('label, span, strong')?.textContent ||
+          el.title ||
+          el.id ||
+          'Réglage';
+        const shortLbl = rawLbl.replace(/\s+/g, ' ').trim().slice(0, 12);
+        const step = parseFloat(el.step || '1') || 1;
+        const min = el.min !== '' ? parseFloat(el.min) : 0;
+        const max = el.max !== '' ? parseFloat(el.max) : 100;
+        const span = max - min;
+        const delta = span > 30 && step === 1 ? Math.round(span / 10) : step;
+        const curVal = parseFloat(el.value || '0') || 0;
+        const nudge = (dir) => {
+          const cur = parseFloat(el.value || '0') || 0;
+          const next = Math.max(min, Math.min(max, cur + dir * delta));
+          el.value = String(next);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          extractDrawerControls();
+          syncVrPanel();
+        };
+        list.push({
+          id: `rng_m_${idx}`,
+          label: `➖ ${shortLbl}`,
+          active: false,
+          onClick: () => nudge(-1)
+        });
+        list.push({
+          id: `rng_p_${idx}`,
+          label: `➕ ${shortLbl}:${Math.round(curVal * 10) / 10}`,
+          active: false,
+          onClick: () => nudge(1)
+        });
+        idx++;
+      }
+    });
+    vrState.drawerControls = list;
+  };
+
+  const stepEffects = (dt) => {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const pt = particles[i];
+      pt.age += dt;
+      if (pt.age >= pt.life) {
+        scene.remove(pt.mesh);
+        pt.mat.dispose();
+        particles.splice(i, 1);
+        continue;
+      }
+      pt.vy -= pt.gravity * dt;
+      pt.mesh.position.x += pt.vx * dt;
+      pt.mesh.position.y += pt.vy * dt;
+      pt.mesh.position.z += pt.vz * dt;
+      const ratio = pt.age / pt.life;
+      pt.mesh.scale.setScalar(Math.max(0.002, pt.initScale + pt.grow * pt.age));
+      pt.mat.opacity = pt.initOpacity * (1 - ratio);
+    }
+
+    for (let i = pulseRings.length - 1; i >= 0; i--) {
+      const pr = pulseRings[i];
+      pr.age += dt;
+      if (pr.age >= pr.life) {
+        scene.remove(pr.mesh);
+        pr.mat.dispose();
+        pulseRings.splice(i, 1);
+        continue;
+      }
+      const t = pr.age / pr.life;
+      pr.mesh.scale.setScalar(pr.maxScale * (0.35 + t * 0.9));
+      pr.mat.opacity = 0.9 * (1 - t);
+    }
+  };
 
   const tick = (now) => {
     rafId = requestAnimationFrame(tick);
@@ -670,37 +800,7 @@ export function createWorkbench3D(container, options = {}) {
       camera.updateProjectionMatrix();
     }
 
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const pt = particles[i];
-      pt.age += dt;
-      if (pt.age >= pt.life) {
-        scene.remove(pt.mesh);
-        pt.mat.dispose();
-        particles.splice(i, 1);
-        continue;
-      }
-      pt.vy -= pt.gravity * dt;
-      pt.mesh.position.x += pt.vx * dt;
-      pt.mesh.position.y += pt.vy * dt;
-      pt.mesh.position.z += pt.vz * dt;
-      const ratio = pt.age / pt.life;
-      pt.mesh.scale.setScalar(Math.max(0.002, pt.initScale + pt.grow * pt.age));
-      pt.mat.opacity = pt.initOpacity * (1 - ratio);
-    }
-
-    for (let i = pulseRings.length - 1; i >= 0; i--) {
-      const pr = pulseRings[i];
-      pr.age += dt;
-      if (pr.age >= pr.life) {
-        scene.remove(pr.mesh);
-        pr.mat.dispose();
-        pulseRings.splice(i, 1);
-        continue;
-      }
-      const t = pr.age / pr.life;
-      pr.mesh.scale.setScalar(pr.maxScale * (0.35 + t * 0.9));
-      pr.mat.opacity = 0.9 * (1 - t);
-    }
+    stepEffects(dt);
 
     const cw = canvas.clientWidth || initW;
     const ch = canvas.clientHeight || initH;
@@ -720,7 +820,14 @@ export function createWorkbench3D(container, options = {}) {
 
     renderer.render(scene, camera);
   };
-  rafId = requestAnimationFrame(tick);
+  if (!vrActive) {
+    rafId = requestAnimationFrame(tick);
+  }
+
+  const vrStep = (dt, elapsed) => {
+    for (const fn of updaters) fn(dt, elapsed);
+    stepEffects(dt);
+  };
 
   const addUpdateFn = (fn) => {
     updaters.push(fn);
@@ -730,7 +837,7 @@ export function createWorkbench3D(container, options = {}) {
     };
   };
 
-  return {
+  const apiObj = {
     scene,
     camera,
     renderer,
@@ -771,9 +878,15 @@ export function createWorkbench3D(container, options = {}) {
       briefBadgeEl.textContent = badge;
       briefTitleEl.textContent = title;
       briefSubEl.textContent = subtext;
+      vrState.badge = badge;
+      vrState.briefTitle = title;
+      vrState.briefSub = subtext;
+      syncVrPanel();
     },
     setAccuracy: (text) => {
       accValEl.textContent = text;
+      vrState.accuracy = text;
+      syncVrPanel();
     },
     setCameras: (views, activeId, onSelect) => {
       camerasEl.innerHTML = '';
@@ -803,6 +916,13 @@ export function createWorkbench3D(container, options = {}) {
         });
         toolsEl.appendChild(b);
       });
+      vrState.tools = tools;
+      vrState.activeToolId = activeId;
+      vrState.onSelectTool = (id) => {
+        sfx.click();
+        onSelect?.(id);
+      };
+      syncVrPanel();
     },
     setActions: (actions) => {
       actionsEl.innerHTML = '';
@@ -818,43 +938,68 @@ export function createWorkbench3D(container, options = {}) {
         });
         actionsEl.appendChild(b);
       });
+      vrState.actions = actions.map((a) => ({
+        ...a,
+        onClick: () => {
+          sfx.click();
+          a.onClick?.();
+          syncVrPanel();
+        }
+      }));
+      syncVrPanel();
     },
     setSideDrawer: (html) => {
       if (!html) {
         sideDrawerEl.classList.add('hidden');
         sideDrawerEl.innerHTML = '';
+        vrState.drawerControls = [];
+        syncVrPanel();
         return null;
       }
       sideDrawerEl.innerHTML = html;
       sideDrawerEl.classList.remove('hidden');
+      extractDrawerControls();
+      syncVrPanel();
       return sideDrawerEl;
     },
     showToast: (msg, kind = 'info') => {
       if (toastTimer) clearTimeout(toastTimer);
       toastEl.textContent = msg;
       toastEl.className = `tp3d-toast ${kind}`;
+      vrState.toastText = msg;
+      syncVrPanel();
       toastTimer = setTimeout(() => {
         toastEl.classList.add('hidden');
+        vrState.toastText = '';
+        syncVrPanel();
       }, 2600);
     },
     projectOntoPlane,
     getWorkPlanePoint: (clientX, clientY, yLevel = 0.02) => {
       const pl = new THREE.Plane(new THREE.Vector3(0, 1, 0), -yLevel);
+      if (activeVrRay) {
+        const out = new THREE.Vector3();
+        return activeVrRay.ray.intersectPlane(pl, out);
+      }
       return projectOntoPlane(clientX, clientY, pl);
     },
     destroy: () => {
       if (rafId) cancelAnimationFrame(rafId);
       if (toastTimer) clearTimeout(toastTimer);
-      canvas.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
-      canvas.removeEventListener('wheel', handleWheel);
-      window.removeEventListener('resize', handleResize);
-      resizeObserver?.disconnect();
+      if (vrActive) {
+        vrBridge?.detachWorkbench?.();
+      } else {
+        canvas.removeEventListener('pointerdown', handlePointerDown);
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerUp);
+        window.removeEventListener('pointercancel', handlePointerUp);
+        canvas.removeEventListener('wheel', handleWheel);
+        window.removeEventListener('resize', handleResize);
+        resizeObserver?.disconnect();
+      }
       for (const pt of particles) pt.mat.dispose();
       for (const pr of pulseRings) pr.mat.dispose();
-      envTarget.dispose();
+      envTarget?.dispose?.();
       scene.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
         if (obj.material) {
@@ -868,8 +1013,31 @@ export function createWorkbench3D(container, options = {}) {
       for (const d of disposables) {
         d?.dispose?.();
       }
-      renderer.dispose();
+      if (!vrActive) {
+        renderer?.dispose?.();
+      }
       root.remove();
     }
   };
+
+  if (vrActive && vrBridge?.attachWorkbench) {
+    vrBridge.attachWorkbench({
+      scene,
+      interactiveMeshes,
+      vrStep,
+      emitPointerRay: (vrRaycaster, workPt) => {
+        activeVrRay = vrRaycaster;
+        for (const fn of onPointerMoveCallbackFns) {
+          fn({ clientX: 0, clientY: 0 }, workPt, vrRaycaster, { x: 0, y: 0 });
+        }
+      },
+      getSnapshot: () => ({
+        ...(vrBridge.getModalSnapshot?.() || {}),
+        ...vrState
+      }),
+      requestExit: () => vrBridge.requestExit?.()
+    });
+  }
+
+  return apiObj;
 }

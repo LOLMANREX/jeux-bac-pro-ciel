@@ -198,7 +198,42 @@ export function attachWsHub(httpServer, store) {
       rank: profile?.rank ?? null,
       rankLabel: profile?.rankLabel ?? 'Apprenti CIEL',
       micEnabled: Boolean(state.micEnabled),
-      isSpeaking: Boolean(state.isSpeaking)
+      isSpeaking: Boolean(state.isSpeaking),
+      vrData: state.vrData || null
+    };
+  }
+
+  function sanitizeVrPoint(raw, includeFingers = false) {
+    if (!raw || typeof raw !== 'object') return null;
+    const n = (v, fb = 0) => (Number.isFinite(Number(v)) ? Math.round(Number(v) * 1000) / 1000 : fb);
+    const out = {
+      px: clamp(n(raw.px, 0), -3, 3),
+      py: clamp(n(raw.py, includeFingers ? 1.1 : 1.6), -0.5, 3),
+      pz: clamp(n(raw.pz, 0), -3, 3),
+      qx: clamp(n(raw.qx, 0), -1, 1),
+      qy: clamp(n(raw.qy, 0), -1, 1),
+      qz: clamp(n(raw.qz, 0), -1, 1),
+      qw: clamp(n(raw.qw, 1), -1, 1)
+    };
+    if (includeFingers) {
+      out.grip = clamp(n(raw.grip, 0), 0, 1);
+      out.trigger = clamp(n(raw.trigger, 0), 0, 1);
+      out.thumb = clamp(n(raw.thumb, 0), 0, 1);
+    }
+    return out;
+  }
+
+  function sanitizeVrData(raw) {
+    if (!raw || typeof raw !== 'object' || !raw.active) return null;
+    const head = sanitizeVrPoint(raw.head, false);
+    const leftHand = sanitizeVrPoint(raw.leftHand, true);
+    const rightHand = sanitizeVrPoint(raw.rightHand, true);
+    if (!head && !leftHand && !rightHand) return null;
+    return {
+      active: true,
+      head: head || { px: 0, py: 1.62, pz: 0, qx: 0, qy: 0, qz: 0, qw: 1 },
+      leftHand: leftHand || { px: -0.25, py: 1.15, pz: -0.3, qx: 0, qy: 0, qz: 0, qw: 1, grip: 0, trigger: 0, thumb: 0 },
+      rightHand: rightHand || { px: 0.25, py: 1.15, pz: -0.3, qx: 0, qy: 0, qz: 0, qw: 1, grip: 0, trigger: 0, thumb: 0 }
     };
   }
 
@@ -321,7 +356,8 @@ export function attachWsHub(httpServer, store) {
       skin: sanitizeSkin(null),
       lastPlaytimeFlushMs: 0,
       micEnabled: false,
-      isSpeaking: false
+      isSpeaking: false,
+      vrData: null
     };
     clients.set(ws, state);
 
@@ -358,6 +394,7 @@ export function attachWsHub(httpServer, store) {
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : -1.35;
           state.micEnabled = false;
           state.isSpeaking = false;
+          state.vrData = null;
 
           const peers = getRoomPeers(room, ws).map(({ state: p }) => {
             const pProfile = store.getPublicProfile(p.name.toLowerCase());
@@ -400,6 +437,9 @@ export function attachWsHub(httpServer, store) {
           state.y = clamp(msg.y ?? 0, 0, 3);
           state.z = clamp(msg.z, -35, 35);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : state.yaw;
+          if ('vrData' in msg) {
+            state.vrData = sanitizeVrData(msg.vrData);
+          }
 
           broadcastToRoom(
             state.room,
@@ -409,7 +449,8 @@ export function attachWsHub(httpServer, store) {
               x: state.x,
               y: state.y,
               z: state.z,
-              yaw: state.yaw
+              yaw: state.yaw,
+              vrData: state.vrData
             },
             ws
           );
