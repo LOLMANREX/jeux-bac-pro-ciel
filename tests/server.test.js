@@ -567,3 +567,57 @@ test('Pigeons API : enregistrement XSS-safe, rétrocompatibilité db.json, liste
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('POST /api/tp enregistre toutes les bornes 3D avec XP et meilleure note', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-tp-api-'));
+  const dbPath = path.join(tmpDir, 'db.json');
+  const { server, store, wsHub } = createGameServer({ dbPath });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const resHw = await fetch(`${baseUrl}/api/tp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Camille',
+        tpId: 'hardware',
+        score: 18.5,
+        durationSec: 94
+      })
+    });
+    assert.equal(resHw.status, 200);
+    const hwJson = await resHw.json();
+    assert.equal(hwJson.isNewBest, true);
+    assert.equal(hwJson.profile.grades.hardware, 18.5);
+    assert.equal(hwJson.profile.bestTimes.hardware, 94);
+    assert.ok(hwJson.profile.xp > 0);
+    assert.ok(hwJson.xpGain > 0);
+
+    const resAv = await fetch(`${baseUrl}/api/tp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Camille',
+        tpId: 'audiovisual',
+        score: 16,
+        durationSec: 112
+      })
+    });
+    assert.equal(resAv.status, 200);
+    const avJson = await resAv.json();
+    assert.equal(avJson.profile.grades.audiovisual, 16);
+    assert.ok(avJson.profile.xp > hwJson.profile.xp);
+
+    const lb = store.getLeaderboard(10);
+    const entry = lb.find((p) => p.name === 'Camille');
+    assert.ok(entry);
+    assert.equal(entry.grades.hardware, 18.5);
+    assert.equal(entry.grades.audiovisual, 16);
+  } finally {
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

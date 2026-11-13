@@ -5,12 +5,20 @@ import { createDefaultMap, normalizeMapData } from '../src/world/mapSchema.js';
 
 export const TP_IDS = ['oscilloscope', 'soldering', 'electronics', 'antivirus', 'vmvlan'];
 
+export const EXTRA_TP_IDS = ['patchrack', 'hardware', 'audiovisual', 'studio'];
+
+export const ALL_TP_IDS = [...TP_IDS, ...EXTRA_TP_IDS];
+
 export const TP_LABELS = {
-  oscilloscope: 'TP Oscilloscope',
-  soldering: 'TP Brasure',
-  electronics: 'TP Électronique',
-  antivirus: 'TP Antivirus',
-  vmvlan: 'TP Réseau VM & VLAN'
+  oscilloscope: 'TP Oscilloscope & Diagnostic 3D',
+  soldering: 'TP Brasure PCB 3D',
+  electronics: 'TP Électronique & Mesures 3D',
+  antivirus: 'TP Cybersécurité SOC 3D',
+  vmvlan: 'TP Réseau Baie & VLAN 3D',
+  patchrack: 'TP Brassage Baie 19" & VLAN 3D',
+  hardware: 'TP Assemblage Hardware PC 3D',
+  audiovisual: 'TP Régie Audiovisuelle & DMX 3D',
+  studio: 'TP Studio Audio & DMX 3D'
 };
 
 const AVATAR_COLORS = [
@@ -143,7 +151,7 @@ export class GameStore {
     const color = skin.outfitColor || fallbackColor;
     const grades = {};
     if (base.grades && typeof base.grades === 'object') {
-      for (const id of TP_IDS) {
+      for (const id of ALL_TP_IDS) {
         if (typeof base.grades[id] === 'number' && Number.isFinite(base.grades[id])) {
           grades[id] = Math.max(0, Math.min(20, Math.round(base.grades[id] * 10) / 10));
         }
@@ -151,7 +159,7 @@ export class GameStore {
     }
     const bestTimes = {};
     if (base.bestTimes && typeof base.bestTimes === 'object') {
-      for (const id of TP_IDS) {
+      for (const id of ALL_TP_IDS) {
         if (typeof base.bestTimes[id] === 'number' && base.bestTimes[id] > 0) {
           bestTimes[id] = Math.round(base.bestTimes[id]);
         }
@@ -321,7 +329,7 @@ export class GameStore {
   }
 
   recordTpScore(rawName, tpId, rawScore, durationSec = 0, rawSkin = null) {
-    if (!TP_IDS.includes(tpId)) {
+    if (!ALL_TP_IDS.includes(tpId)) {
       throw new Error(`TP inconnu: ${tpId}`);
     }
     const name = sanitizeName(rawName);

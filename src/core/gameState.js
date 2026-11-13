@@ -8,7 +8,7 @@ import {
 export const TP_CATALOG = [
   {
     id: 'oscilloscope',
-    title: 'TP Oscilloscope',
+    title: 'TP Oscilloscope & Mesures 3D',
     shortTitle: 'Oscilloscope',
     icon: '〰️',
     pole: 'Métrologie & Signaux',
@@ -16,27 +16,27 @@ export const TP_CATALOG = [
     color: '#22d3ee',
     position: TP_STATION_LAYOUT.oscilloscope.position,
     brief:
-      'Calibrez la base de temps, le gain vertical et le déclenchement (Trigger) pour mesurer fréquence, amplitude et PWM.',
+      'Placez la sonde rouge et la pince de masse sur les points de test 3D, réglez Trigger/V/div/ms/div sur l’oscilloscope et remplacez le composant en panne.',
     teacherHint:
-      '« Rendez-vous en salle U302 ! Pensez à placer le Trigger dans l’amplitude du signal puis ajustez V/div et ms/div pour lire 2 à 4 périodes propres. »'
+      '« Sur ton poste Oscilloscope 3D, commence par accrocher la pince noire sur GND, puis ajuste Trigger, V/div et Base de temps pour inspecter TP1, TP2 et TP3 ! »'
   },
   {
     id: 'soldering',
-    title: 'TP Brasure PCB',
-    shortTitle: 'Brasure',
+    title: 'TP Brasure & Soudure PCB 3D',
+    shortTitle: 'Brasure PCB',
     icon: '🔥',
     pole: 'Assemblage Électronique',
     room: TP_STATION_LAYOUT.soldering.room,
     color: '#fb923c',
     position: TP_STATION_LAYOUT.soldering.position,
     brief:
-      'Réglez votre station à ~350°C sans plomb, activez l’extracteur de fumées, chauffez pastille + patte et formez une brasure brillante.',
+      'Allumez l’extracteur de fumées, chauffez chaque pastille au fer 3D (340–365°C), apportez le fil d’étain sans brûler le PCB et mettez la carte sous tension.',
     teacherHint:
-      '« Direction la salle U301 ! Entre 340°C et 365°C, activez l’extracteur de fumées, chauffez pastille + patte et utilisez la tresse si deux broches font un pont. »'
+      '« Entre 340°C et 365°C, active l’extracteur, chauffe pastille + patte 2 à 3 secondes, dépose l’étain et retire le fer avant la zone rouge ! »'
   },
   {
     id: 'electronics',
-    title: 'TP Électronique',
+    title: 'TP Électronique & Diagnostic 3D',
     shortTitle: 'Électronique',
     icon: '⚡',
     pole: 'Conception & Circuits',
@@ -44,37 +44,37 @@ export const TP_CATALOG = [
     color: '#fbbf24',
     position: TP_STATION_LAYOUT.electronics.position,
     brief:
-      'Décodez les résistances, appliquez la loi d’Ohm, montez vos composants dans le bon sens et validez au multimètre.',
+      'Diagnostiquez une carte électronique en panne à l’oscilloscope et au GBF en 3D, relevez les tensions sur TP1/TP2/TP3 et remplacez le composant défectueux.',
     teacherHint:
-      '« En salle U302, vérifiez la polarité de la LED (Anode au +) et calculez R = (U_alim - U_LED) / I avant de mettre sous tension ! »'
+      '« Vérifie la tension de sortie sur chaque point de test avec la sonde 3D et repère le composant qui chauffe ou fume légèrement pour le remplacer ! »'
   },
   {
     id: 'antivirus',
-    title: 'TP PC Infecté & Antivirus',
-    shortTitle: 'Antivirus',
+    title: 'TP Cybersécurité & Défense SOC 3D',
+    shortTitle: 'Cyber SOC',
     icon: '🛡️',
     pole: 'Cybersécurité Poste',
     room: TP_STATION_LAYOUT.antivirus.room,
     color: '#f43f5e',
     position: TP_STATION_LAYOUT.antivirus.position,
     brief:
-      'Un poste de la salle SOC U305 est envahi de malwares ! Isolez le réseau, tuez les processus suspects, installez et mettez à jour l’antivirus.',
+      'Inspectez les trames d’attaque sur la carte réseau 3D en temps réel, basculez l’isolateur physique, bloquez les IP suspectes au pare-feu et patchez les serveurs.',
     teacherHint:
-      '« En salle Cyber U305, premier réflexe : isolez le réseau pour stopper l’exfiltration, tuez les processus malveillants puis lancez un scan CielGuard complet ! »'
+      '« Dès qu’un flux rouge apparaît sur la topologie 3D, isole d’abord le poste infecté avec son interrupteur matériel, bloque l’IP C2 puis déploie le correctif CVE ! »'
   },
   {
     id: 'vmvlan',
-    title: 'TP VM & VLAN Complet',
-    shortTitle: 'VM & VLAN',
+    title: 'TP Baie 19" & Réseau VLAN 3D',
+    shortTitle: 'Baie & VLAN',
     icon: '🌐',
     pole: 'Réseaux & Virtualisation',
     room: TP_STATION_LAYOUT.vmvlan.room,
     color: '#34d399',
     position: TP_STATION_LAYOUT.vmvlan.position,
     brief:
-      'Allouez les VMs sur l’hyperviseur en U307, configurez les ports Access/Trunk 802.1Q, le routage inter-VLAN et les règles pare-feu puis testez le ping !',
+      'Branchez les cordons RJ45 3D entre panneau de brassage et switch 24 ports, configurez les VLAN 10/20/30 dans le terminal console du PC portable et vérifiez le ping.',
     teacherHint:
-      '« En salle Réseau U307, un port vers un PC = ACCESS sur son VLAN, et un lien switch-hyperviseur ou switch-routeur = TRUNK 802.1Q ! »'
+      '« Relie d’abord chaque port du bandeau au switch 24 ports pour allumer les LEDs vertes, puis ouvre le terminal console pour configurer VLAN 10, 20 et 30 ! »'
   }
 ];
 

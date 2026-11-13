@@ -178,11 +178,12 @@ function applyMapData(rawMap, liveUpdate = false) {
   if (!rawMap) return;
   currentMapData = normalizeMapData(rawMap);
   lab.rebuildWorld(currentMapData);
-  lab.updateStationBadges({ ...gameState.profile.grades, ...extraStationGrades });
+  lab.updateStationBadges(gameState.profile.grades);
   sceneMgr.updateWorldBounds(currentMapData.bounds);
   player.setColliders(lab.colliders);
   player.setBounds(currentMapData.bounds);
   hud?.miniMap?.setMapData?.(currentMapData);
+  hud?.setMapData?.(currentMapData);
   syncWallLeaderboard();
 
   if (liveUpdate && joined) {
@@ -229,7 +230,40 @@ function setModalActive(active, pauseScene = false, lockActivity = false) {
   sceneMgr.setPaused(pauseScene);
 }
 
-function openTp(tpId) {
+let activeCameraTweenId = 0;
+
+function animateCameraPose(targetPos, lookAtPos, durationMs = 420) {
+  const tweenId = ++activeCameraTweenId;
+  const startPos = sceneMgr.camera.position.clone();
+  const startQuat = sceneMgr.camera.quaternion.clone();
+  const dummyCam = sceneMgr.camera.clone();
+  dummyCam.position.copy(targetPos);
+  dummyCam.lookAt(lookAtPos);
+  const endQuat = dummyCam.quaternion.clone();
+  const t0 = performance.now();
+
+  return new Promise((resolve) => {
+    const step = (now) => {
+      if (tweenId !== activeCameraTweenId) {
+        resolve(false);
+        return;
+      }
+      const p = Math.min(1, (now - t0) / Math.max(1, durationMs));
+      const ease = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+      sceneMgr.camera.position.lerpVectors(startPos, targetPos, ease);
+      sceneMgr.camera.quaternion.slerpQuaternions(startQuat, endQuat, ease);
+      sceneMgr.renderer.render(sceneMgr.scene, sceneMgr.camera);
+      if (p < 1) {
+        requestAnimationFrame(step);
+      } else {
+        resolve(true);
+      }
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+async function openTp(tpId, stationItem = null) {
   const tp = getStationById(tpId);
   const factory = MINIGAME_FACTORIES[tpId];
   if (!tp || !factory) return;
@@ -243,35 +277,48 @@ function openTp(tpId) {
   network.sendActivity(`En ${tp.shortTitle}`);
   setModalActive(true, true, true);
 
+  if (stationItem?.position) {
+    const stPos = stationItem.position;
+    const dx = player.position.x - stPos.x;
+    const dz = player.position.z - stPos.z;
+    const len = Math.max(0.4, Math.hypot(dx, dz));
+    const camPos = new THREE.Vector3(
+      stPos.x + (dx / len) * 1.35,
+      1.68,
+      stPos.z + (dz / len) * 1.35
+    );
+    const lookTarget = new THREE.Vector3(stPos.x, 1.02, stPos.z);
+    await animateCameraPose(camPos, lookTarget, 380);
+  }
+
   miniGameModal.open(tpId, factory, {
     onComplete: ({ tpId: doneId, score, durationSec }) => {
-      if (getTpById(doneId)) {
-        const p = { ...gameState.profile, grades: { ...gameState.profile.grades } };
-        const prev = typeof p.grades[doneId] === 'number' ? p.grades[doneId] : -1;
-        if (score > prev) p.grades[doneId] = score;
-        const vals = Object.values(p.grades);
-        p.average = vals.length
-          ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10
-          : null;
-        p.completedCount = vals.filter((v) => v >= 10).length;
-        p.diplomaEarned = p.completedCount === TP_CATALOG.length;
-        gameState.setProfile(p);
-        lab.updateStationBadges({ ...p.grades, ...extraStationGrades });
+      const p = { ...gameState.profile, grades: { ...gameState.profile.grades } };
+      const prev = typeof p.grades[doneId] === 'number' ? p.grades[doneId] : -1;
+      if (score > prev) p.grades[doneId] = score;
+      const coreVals = TP_CATALOG.map((item) => p.grades[item.id]).filter((v) => typeof v === 'number');
+      p.average = coreVals.length
+        ? Math.round((coreVals.reduce((a, b) => a + b, 0) / coreVals.length) * 10) / 10
+        : null;
+      p.completedCount = coreVals.filter((v) => v >= 10).length;
+      p.diplomaEarned = p.completedCount === TP_CATALOG.length;
+      gameState.setProfile(p);
+      lab.updateStationBadges(p.grades);
 
-        network.submitScore(gameState.profile.name, doneId, score, durationSec, gameState.skin);
-        setTimeout(() => refreshWallLeaderboard(), 450);
-      } else {
-        extraStationGrades[doneId] = Math.max(extraStationGrades[doneId] ?? 0, score);
-        lab.updateStationBadges({ ...gameState.profile.grades, ...extraStationGrades });
-        hud.toast(`${tp.icon} Atelier ${tp.shortTitle} terminé (${score.toFixed(1)}/20) !`, score >= 10 ? 'success' : 'info');
+      network.submitScore(gameState.profile.name, doneId, score, durationSec, gameState.skin);
+      setTimeout(() => refreshWallLeaderboard(), 420);
+      if (!getTpById(doneId)) {
+        hud.toast(`${tp.icon} Atelier ${tp.shortTitle} validé (${score.toFixed(1)}/20) !`, score >= 10 ? 'success' : 'info');
       }
     },
     onClose: ({ replayTpId } = {}) => {
-      network.sendActivity('Sur le Plateau U300');
-      setModalActive(false, false, false);
       if (replayTpId) {
-        openTp(replayTpId);
+        openTp(replayTpId, null);
+        return;
       }
+      network.sendActivity('Dans l’atelier');
+      setModalActive(false, false, false);
+      player._applyCamera?.();
     }
   });
 }
@@ -541,7 +588,7 @@ network.on('chat_message', ({ message }) => {
 function interactWith(target) {
   if (!target) return;
   if (target.id === 'teacher') openTeacherDialogue(target.dialogue || '');
-  else openTp(target.id);
+  else openTp(target.id, target);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -742,6 +789,7 @@ mainMenu = new MainMenu(gameState, network, {
     touchControls?.syncCameraMode?.(gameState.cameraMode);
     touchControls?.setVisible?.(gameState.touchMode);
     hud?.miniMap?.setMapData?.(currentMapData);
+    hud?.setMapData?.(currentMapData);
     const pose = getSpawnPose(currentMapData);
     player.teleportTo(pose.pos, pose.lookAt);
     const startZone = getZoneAtPositionInMap(currentMapData, pose.pos.x, pose.pos.z);

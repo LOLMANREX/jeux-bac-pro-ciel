@@ -140,10 +140,10 @@ export class DialogueModal {
     if (!p.questAccepted) {
       this._playNode({
         lines: [
-          `« Ah, bonjour ${p.name} ! Bienvenue sur le Plateau U300 de la filière CIEL, on a une vraie journée de technicien devant nous. »`,
-          '« Entre les salles Brasure/Élec (U301-U302), la Baie Serveur, l’Audiovisuel (U303-U304), l’atelier PC (U306), la Salle Réseau (U307) et le SOC Cyber (U305), tout l’étage est opérationnel ! »',
-          '« Pour décrocher ton diplôme BAC PRO CIEL, tu vas devoir valider mes 5 Travaux Pratiques avec au moins 10/20 chacun : Oscilloscope, Brasure, Électronique, Antivirus et VM/VLAN — et tu peux aussi t’entraîner dans les autres ateliers ! »',
-          '« Alors, tu te sens prêt à relever le défi ? »'
+          `« Ah, bonjour ${p.name} ! Bienvenue dans les ateliers de la filière CIEL, tu as de vrais bancs techniques 3D devant toi. »`,
+          '« Chaque borne de l’atelier — Brasure PCB, Oscilloscope & Élec, Assemblage PC, Baie 19" VLAN, Défense SOC Cyber et Régie Audiovisuelle — te plonge directement face au matériel réel en 3D ! »',
+          '« Pour décrocher ton diplôme BAC PRO CIEL, valide mes 5 Travaux Pratiques principaux avec au moins 10/20 chacun — et entraîne-toi sur tous les ateliers du plateau pour grimper au classement ! »',
+          '« Alors, prêt à prendre les outils en main ? »'
         ],
         choices: [
           {

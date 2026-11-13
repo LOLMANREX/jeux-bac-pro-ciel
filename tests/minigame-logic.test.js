@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { OSCILLO_STAGES, evaluateOscilloscopeStage } from '../src/minigames/OscilloscopeGame.js';
-import { evaluateSolderStage } from '../src/minigames/SolderingGame.js';
+import { OSCILLO_STAGES, evaluateOscilloscopeStage, computeOscilloBenchScore } from '../src/minigames/OscilloscopeGame.js';
+import { evaluateSolderStage, computeSolderingScore3D } from '../src/minigames/SolderingGame.js';
 import {
   computeResistorOhms,
   simulateDividerCircuit,
   simulateLedCircuit
 } from '../src/minigames/ElectronicsGame.js';
-import { AV_STAGES, evaluateAntivirusStage } from '../src/minigames/AntivirusGame.js';
+import { AV_STAGES, evaluateAntivirusStage, computeSocDefenseScore3D } from '../src/minigames/AntivirusGame.js';
 import { VMVLAN_STAGES, evaluateVmVlanStage } from '../src/minigames/VmVlanGame.js';
+import { computeHardwareScore3D } from '../src/minigames/PcHardwareGame.js';
+import { computeRackVlanScore3D } from '../src/minigames/PatchRackGame.js';
+import { computeAvStudioScore3D } from '../src/minigames/AudioVisualGame.js';
 
 test('Oscilloscope : valide la calibration et les mesures sinusoïdales et PWM', () => {
   const s1 = evaluateOscilloscopeStage(
@@ -107,4 +110,88 @@ test('VM & VLAN : valide une architecture complète 3 VLANs + Trunk 802.1Q + ACL
   validCfg.acls[0].action = 'ALLOW';
   const badAclRes = evaluateVmVlanStage(st, validCfg);
   assert.equal(badAclRes.passed, false);
+});
+
+test('Notation /20 & XP des 6 ateliers TPs 3D interactifs', () => {
+  const s1 = computeSolderingScore3D({
+    pads: Array.from({ length: 8 }, () => ({ state: 'good' })),
+    tempC: 350,
+    fumeExtractorOn: true,
+    burnCount: 0,
+    reworkCount: 0,
+    powerTestedOk: true,
+    durationSec: 85
+  });
+  assert.equal(s1, 20);
+
+  const s2 = computeOscilloBenchScore({
+    gndAttached: true,
+    tp1Stabilized: true,
+    tp2Probed: true,
+    tp3Probed: true,
+    componentReplaced: true,
+    tp3VerifiedAfterRepair: true,
+    mistakes: 0,
+    durationSec: 95
+  });
+  assert.equal(s2, 20);
+
+  const s3 = computeHardwareScore3D({
+    esdWorn: true,
+    cpuInstalled: true,
+    socketClosed: true,
+    pasteApplied: true,
+    coolerInstalled: true,
+    ramDualChannel: true,
+    ramCount: 2,
+    nvmeInstalled: true,
+    gpuInstalled: true,
+    cablesConnected: true,
+    postPassed: true,
+    esdMistakes: 0,
+    failedPosts: 0,
+    elapsedSec: 120
+  });
+  assert.equal(s3.score, 20);
+  assert.ok(s3.xp >= 350);
+
+  const s4 = computeRackVlanScore3D({
+    totalCables: 4,
+    matchedCables: 4,
+    mediaOk: 4,
+    fiberCleaned: true,
+    psuRedundant: true,
+    vlansConfigured: 3,
+    portsConfigured: 4,
+    pingSuccessCount: 3,
+    pingTotal: 3,
+    cableErrors: 0,
+    elapsedSec: 140
+  });
+  assert.equal(s4.score, 20);
+
+  const s5 = computeSocDefenseScore3D({
+    isolatedCompromised: true,
+    firewallBlockedCount: 3,
+    firewallTotal: 3,
+    cvePatchedCount: 3,
+    cveTotal: 3,
+    edrScanDone: true,
+    integrityRemaining: 95,
+    mistakes: 0,
+    elapsedSec: 90
+  });
+  assert.equal(s5.score, 20);
+
+  const s6 = computeAvStudioScore3D({
+    kelvin: 5600,
+    chromaUniformity: 96,
+    focusSharpness: 95,
+    irisOk: true,
+    audioMasterDb: -12,
+    phantom48v: true,
+    highPass80: true,
+    elapsedSec: 110
+  });
+  assert.equal(s6.score, 20);
 });

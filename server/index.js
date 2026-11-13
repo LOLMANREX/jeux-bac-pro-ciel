@@ -4,7 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { GameStore, MapStore, TP_IDS, TP_LABELS } from './store.js';
+import { GameStore, MapStore, ALL_TP_IDS, TP_IDS, TP_LABELS } from './store.js';
 import { attachWsHub } from './wsHub.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,6 +53,7 @@ export function createGameServer(options = {}) {
       game: 'Atelier CIEL 3D',
       playersOnline: wsHub.getOnlineCount(),
       tps: TP_IDS,
+      allTps: ALL_TP_IDS,
       timestamp: new Date().toISOString()
     });
   });
@@ -95,15 +96,18 @@ export function createGameServer(options = {}) {
     res.json({ profile });
   });
 
-  app.post('/api/score', (req, res) => {
+  const handleRecordTpScore = (req, res) => {
     const { name, tpId, score, durationSec, skin } = req.body || {};
-    if (!name || !TP_IDS.includes(tpId)) {
+    if (!name || !ALL_TP_IDS.includes(tpId)) {
       return res.status(400).json({ error: 'Paramètres invalides' });
     }
     const result = store.recordTpScore(name, tpId, score, durationSec, skin);
     wsHub.notifyScore(name, tpId, result);
     res.json(result);
-  });
+  };
+
+  app.post('/api/score', handleRecordTpScore);
+  app.post('/api/tp', handleRecordTpScore);
 
   app.get('/api/suggestions', (_req, res) => {
     res.json({

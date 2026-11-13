@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : "v3.9 - Aimantation murale précise des tableaux dans l'éditeur";
+    : 'v4.0 - Refonte Complète des 6 TPs en 3D Interactive';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,22 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: "v3.9 — Aimantation murale précise des tableaux dans l'éditeur",
+    version: 'v4.0 — Refonte Complète des 6 TPs en 3D Interactive',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Architecture 3D commune pour tous les TPs (Workbench3DHost) : transition fluide de caméra vers la paillasse 3D éclairée en plein jour, manipulation Souris & Tactile (glisser-déposer, rotation, orbit/zoom), particules, chronomètre et enregistrement /20 + XP via /api/tp.',
+      'TP 1 Soudure & Brasure 3D : fer à souder interactif à panne rougeoyante, chauffage des pastilles, dépôt de cônes d’étain métalliques 3D, panaches de fumée blanche/noire et test de mise sous tension 5V en cascade.',
+      'TP 2 Oscilloscope & Électronique 3D : oscilloscope numérique DSO temps réel, GBF, carte en panne avec sonde rouge & pince crocodile, 3 molettes rotatives 3D (VOLTS/DIV, TIME/DIV, TRIGGER) et remplacement 3D des composants brûlés.',
+      'TP 3 Montage PC Hardware 3D : bracelet ESD cliquable, levier socket LGA1700, CPU avec triangle doré, seringue de pâte thermique, ventirad, RAM Dual-Channel A2/B2, NVMe, GPU RTX, câbles ATX, bouton Power 3D, LEDs POST et BIOS UEFI animé.',
+      'TP 4 Baie Réseau 19" & Switch VLAN 3D : jarretières flexibles Cat.6A/Fibre 3D entre bandeau et switch avec LEDs port, console laptop 3D interactive VLAN 10/20/30 + Trunk 802.1Q et paquets Ping animés sur les câbles.',
+      'TP 5 Cybersécurité SOC 3D & TP 6 Studio Audiovisuel 3D : topologie réseau holographique sous attaque avec interrupteurs d’isolation 3D & dôme pare-feu, plus plateau fond vert avec projecteurs orientables, bagues caméra Focus/Iris et faders audio/DMX motorisés.'
+    ]
+  },
+  {
+    version: "v3.9 — Aimantation murale précise des tableaux dans l'éditeur",
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Alignement 3D corrigé pour tous les éléments muraux (tableau blanc, carte murale du laboratoire, classement 3D en direct, écran de monitoring SOC et baie réseau) : face arrière ancrée au point local + 0,015 m de décalage anti-scintillement.',
       'Aimantation murale intelligente dans l’éditeur 2D (/admin) : détection automatique du mur le plus proche dans un rayon de 0,8 m (hors portes) prioritaire sur la grille, avec maintien de Alt pour désactiver temporairement.',

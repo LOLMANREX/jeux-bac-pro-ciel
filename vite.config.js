@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify("v3.9 - Aimantation murale précise des tableaux dans l'éditeur"),
+    __APP_VERSION__: JSON.stringify('v4.0 - Refonte Complète des 6 TPs en 3D Interactive'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

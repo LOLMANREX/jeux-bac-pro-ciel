@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
-import { sanitizeName, sanitizeSkin, TP_IDS, TP_LABELS } from './store.js';
+import { sanitizeName, sanitizeSkin, ALL_TP_IDS, TP_IDS, TP_LABELS } from './store.js';
 
 const DEFAULT_ROOMS = ['plateau-u300', 'salle-reseau'];
 
@@ -481,7 +481,7 @@ export function attachWsHub(httpServer, store) {
 
         case 'submit_score': {
           if (!state.name) return;
-          if (!TP_IDS.includes(msg.tpId)) return;
+          if (!ALL_TP_IDS.includes(msg.tpId)) return;
           const result = store.recordTpScore(
             state.name,
             msg.tpId,

@@ -383,7 +383,7 @@ export class NetworkClient {
     const sent = this.send({ type: 'submit_score', tpId, score, durationSec });
     if (!sent) {
       try {
-        const res = await fetch('/api/score', {
+        const res = await fetch('/api/tp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, tpId, score, durationSec, skin })

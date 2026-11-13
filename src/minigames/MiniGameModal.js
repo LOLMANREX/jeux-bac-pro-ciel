@@ -35,9 +35,13 @@ export class MiniGameModal {
     this.onCloseCallback = onClose;
 
     this.iconEl.textContent = tp.icon;
-    this.subtitleEl.textContent = `BAC PRO CIEL • ${tp.pole.toUpperCase()}`;
+    this.subtitleEl.textContent = `BAC PRO CIEL • ATELIER 3D • ${tp.pole.toUpperCase()}`;
     this.titleEl.textContent = tp.title;
+    this.backdrop.classList.add('tp3d-mode');
     this.backdrop.classList.remove('hidden');
+    requestAnimationFrame(() => {
+      this.backdrop.classList.add('tp3d-visible');
+    });
 
     this.startTimeMs = Date.now();
     this._updateTimer();
@@ -87,6 +91,7 @@ export class MiniGameModal {
   _showResultScreen(tp, score, durationSec, summaryHtml) {
     this.cleanupActive();
     const passed = score >= 10;
+    const estXp = Math.round(score * 15) + 30;
     const mention =
       score >= 18
         ? 'Félicitations du Professeur CIEL !'
@@ -97,18 +102,21 @@ export class MiniGameModal {
             : 'TP non validé (< 10/20) — Recommencez pour améliorer votre note.';
 
     this.contentEl.innerHTML = `
-      <div class="mg-result-card">
-        <div class="mg-result-badge ${passed ? 'pass' : 'fail'}">
-          <div class="mg-result-score">${score.toFixed(1)}<span>/20</span></div>
-          <div class="mg-result-status">${passed ? '✅ COMPÉTENCE VALIDÉE' : '⚠️ À RETRAVAILLER'}</div>
-        </div>
-        <h3>${tp.icon} ${tp.title}</h3>
-        <p class="mg-result-prof">👨‍🏫 <strong>Professeur CIEL :</strong> « ${mention} »</p>
-        <div class="mg-result-meta">⏱️ Temps réalisé : <strong>${this._formatSec(durationSec)}</strong></div>
-        <div class="mg-result-summary">${summaryHtml || ''}</div>
-        <div class="mg-result-actions">
-          <button id="mg-replay-btn" class="btn-hud">🔄 Refaire le TP</button>
-          <button id="mg-back-3d-btn" class="btn-primary">Retour à l'atelier 3D ▶</button>
+      <div class="mg-result-backdrop">
+        <div class="mg-result-card">
+          <div class="mg-result-badge ${passed ? 'pass' : 'fail'}">
+            <div class="mg-result-score">${score.toFixed(1)}<span>/20</span></div>
+            <div class="mg-result-xp">+${estXp} XP</div>
+            <div class="mg-result-status">${passed ? '✅ COMPÉTENCE VALIDÉE' : '⚠️ À RETRAVAILLER'}</div>
+          </div>
+          <h3>${tp.icon} ${tp.title}</h3>
+          <p class="mg-result-prof">👨‍🏫 <strong>Professeur CIEL :</strong> « ${mention} »</p>
+          <div class="mg-result-meta">⏱️ Temps réalisé : <strong>${this._formatSec(durationSec)}</strong></div>
+          <div class="mg-result-summary">${summaryHtml || ''}</div>
+          <div class="mg-result-actions">
+            <button id="mg-replay-btn" class="btn-hud">🔄 Refaire le TP</button>
+            <button id="mg-back-3d-btn" class="btn-primary">Retour à l'atelier 3D ▶</button>
+          </div>
         </div>
       </div>
     `;
@@ -147,6 +155,7 @@ export class MiniGameModal {
 
   close() {
     this.cleanupActive();
+    this.backdrop.classList.remove('tp3d-visible', 'tp3d-mode');
     this.backdrop.classList.add('hidden');
     this.contentEl.innerHTML = '';
     this.stagePillsEl.innerHTML = '';

@@ -1,5 +1,6 @@
 import { sfx } from '../core/audio.js';
 import { getMention, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
+import { getStationTeleportInMap, getZoneAtPositionInMap } from '../world/mapSchema.js';
 import { renderSkinPreviewSvg } from '../world/AvatarBuilder.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 import { PlateauMiniMap } from './PlateauMiniMap.js';
@@ -497,8 +498,16 @@ export class HudManager {
     }
   }
 
-  _renderQuickNav() {
+  _renderQuickNav(mapData = null) {
     this.quickNavEl.innerHTML = '';
+    const resolveRoomLabel = (targetId) => {
+      if (!mapData) return '';
+      const spot = getStationTeleportInMap(mapData, targetId);
+      if (!spot?.pos) return '';
+      const zone = getZoneAtPositionInMap(mapData, spot.pos.x, spot.pos.z);
+      return zone?.code ? ` (${zone.code})` : '';
+    };
+
     const teacherBtn = document.createElement('button');
     teacherBtn.type = 'button';
     teacherBtn.className = 'btn-quick teacher';
@@ -516,7 +525,7 @@ export class HudManager {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-quick';
-      btn.textContent = `${tp.icon} ${tp.shortTitle} (${tp.room})`;
+      btn.textContent = `${tp.icon} ${tp.shortTitle}${resolveRoomLabel(tp.id)}`;
       btn.addEventListener('click', () => {
         sfx.click();
         this.handlers.onQuickNav?.(tp.id);
@@ -531,7 +540,7 @@ export class HudManager {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-quick';
-      btn.textContent = `${st.icon} ${st.shortTitle} (${st.room})`;
+      btn.textContent = `${st.icon} ${st.shortTitle}${resolveRoomLabel(st.id)}`;
       btn.addEventListener('click', () => {
         sfx.click();
         this.handlers.onQuickNav?.(st.id);
@@ -541,6 +550,10 @@ export class HudManager {
       });
       this.quickNavEl.appendChild(btn);
     });
+  }
+
+  setMapData(mapData) {
+    this._renderQuickNav(mapData);
   }
 
   _renderEmoteBar() {
