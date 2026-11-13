@@ -62,7 +62,7 @@ sceneMgr.setQuality(gameState.quality);
 sceneMgr.setFov(gameState.fov);
 
 let currentMapData = createDefaultMap();
-const lab = buildLabWorld(sceneMgr.scene, currentMapData);
+const lab = buildLabWorld(sceneMgr.scene, currentMapData, { maxAnisotropy: sceneMgr.getMaxAnisotropy() });
 sceneMgr.updateWorldBounds(currentMapData.bounds);
 
 const player = new PlayerController(sceneMgr.camera, canvas, lab.colliders, {

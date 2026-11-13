@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { sfx } from '../core/audio.js';
 import { buildStudentAvatarMesh, disposeObject3D, SKIN_OPTIONS } from '../world/AvatarBuilder.js';
+import { createStudioPedestalMaterials } from '../world/RealisticMaterials.js';
 
 export function pickRandomSkin() {
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)].id;
@@ -84,6 +86,7 @@ export class SkinPreview3D {
     this.height = height;
     this.interactivePodium = Boolean(options.interactivePodium);
     this.showcaseGold = Boolean(options.showcaseGold);
+    this.studioMode = options.studioMode || (this.showcaseGold ? 'gold' : 'daylight');
     this.active = false;
     this.yaw = 0.35;
     this.yawVelocity = 0;
@@ -93,6 +96,9 @@ export class SkinPreview3D {
     this.avatarData = null;
     this.podiumRings = [];
     this.neonLights = [];
+    this._pedestalMats = null;
+    this._pmrem = null;
+    this._envRt = null;
     this.initialized = false;
     this.animId = null;
   }
@@ -105,6 +111,9 @@ export class SkinPreview3D {
       this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       this.renderer.setSize(this.width, this.height, false);
+      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = this.showcaseGold ? 1.05 : 1.0;
 
       this.scene = new THREE.Scene();
       const isStudio = this.interactivePodium || this.showcaseGold;
@@ -121,22 +130,22 @@ export class SkinPreview3D {
       );
       this.camera.lookAt(0, this.showcaseGold ? 0.98 : (isStudio ? 0.92 : 0.95), 0);
 
-      const hemi = new THREE.HemisphereLight('#f8fafc', '#0f172a', isStudio ? 1.3 : 1.1);
-      this.scene.add(hemi);
-      const dir = new THREE.DirectionalLight('#ffffff', this.showcaseGold ? 1.7 : (isStudio ? 1.45 : 1.3));
-      dir.position.set(2.2, 4.4, 3.2);
-      this.scene.add(dir);
+      if (this.showcaseGold) {
+        const hemi = new THREE.HemisphereLight('#f8fafc', '#0f172a', 1.3);
+        this.scene.add(hemi);
+        const dir = new THREE.DirectionalLight('#ffffff', 1.7);
+        dir.position.set(2.2, 4.4, 3.2);
+        this.scene.add(dir);
 
-      if (isStudio) {
-        const leftColor = this.showcaseGold ? '#fbbf24' : '#22d3ee';
-        const rightColor = this.showcaseGold ? '#38bdf8' : '#a855f7';
-        const baseGlowColor = this.showcaseGold ? '#f59e0b' : '#06b6d4';
+        const leftColor = '#fbbf24';
+        const rightColor = '#38bdf8';
+        const baseGlowColor = '#f59e0b';
 
-        const leftRim = new THREE.PointLight(leftColor, this.showcaseGold ? 3.2 : 2.8, 8);
+        const leftRim = new THREE.PointLight(leftColor, 3.2, 8);
         leftRim.position.set(-2.1, 1.65, -1.1);
         this.scene.add(leftRim);
 
-        const rightRim = new THREE.PointLight(rightColor, this.showcaseGold ? 2.8 : 2.6, 8);
+        const rightRim = new THREE.PointLight(rightColor, 2.8, 8);
         rightRim.position.set(2.1, 1.45, -1.0);
         this.scene.add(rightRim);
 
@@ -144,24 +153,22 @@ export class SkinPreview3D {
         underGlow.position.set(0, 0.2, 0.2);
         this.scene.add(underGlow);
 
-        if (this.showcaseGold) {
-          const studioTop = new THREE.SpotLight('#fef08a', 2.4, 10, Math.PI / 4, 0.55);
-          studioTop.position.set(0, 3.8, 1.4);
-          this.scene.add(studioTop);
-          const frontFill = new THREE.PointLight('#fde68a', 1.3, 6);
-          frontFill.position.set(0, 1.4, 2.5);
-          this.scene.add(frontFill);
-        }
+        const studioTop = new THREE.SpotLight('#fef08a', 2.4, 10, Math.PI / 4, 0.55);
+        studioTop.position.set(0, 3.8, 1.4);
+        this.scene.add(studioTop);
+        const frontFill = new THREE.PointLight('#fde68a', 1.3, 6);
+        frontFill.position.set(0, 1.4, 2.5);
+        this.scene.add(frontFill);
 
         this.neonLights = [leftRim, rightRim, underGlow];
 
         const base = new THREE.Mesh(
           new THREE.CylinderGeometry(0.92, 1.08, 0.14, 6),
           new THREE.MeshStandardMaterial({
-            color: this.showcaseGold ? '#1c1204' : '#091124',
+            color: '#1c1204',
             roughness: 0.26,
             metalness: 0.88,
-            emissive: this.showcaseGold ? '#451a03' : '#082f49',
+            emissive: '#451a03',
             emissiveIntensity: 0.5
           })
         );
@@ -171,7 +178,7 @@ export class SkinPreview3D {
         const topCap = new THREE.Mesh(
           new THREE.CylinderGeometry(0.84, 0.86, 0.03, 32),
           new THREE.MeshStandardMaterial({
-            color: this.showcaseGold ? '#111827' : '#0f172a',
+            color: '#111827',
             roughness: 0.18,
             metalness: 0.92
           })
@@ -204,7 +211,7 @@ export class SkinPreview3D {
         const beamMat = new THREE.MeshBasicMaterial({
           color: leftColor,
           transparent: true,
-          opacity: this.showcaseGold ? 0.13 : 0.11,
+          opacity: 0.13,
           side: THREE.DoubleSide,
           depthWrite: false
         });
@@ -214,20 +221,72 @@ export class SkinPreview3D {
 
         this.podiumRings = [outerRing, innerRing, beam];
       } else {
-        const pedestal = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.75, 0.85, 0.1, 32),
-          new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4, metalness: 0.5 })
-        );
-        pedestal.position.y = -0.05;
-        this.scene.add(pedestal);
+        this._pmrem = new THREE.PMREMGenerator(this.renderer);
+        this._envRt = this._pmrem.fromScene(new RoomEnvironment(), 0.04);
+        this.scene.environment = this._envRt.texture;
+        this.scene.environmentIntensity = 0.72;
 
-        const ring = new THREE.Mesh(
-          new THREE.RingGeometry(0.72, 0.78, 32),
-          new THREE.MeshBasicMaterial({ color: '#22d3ee', side: THREE.DoubleSide })
-        );
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.y = 0.01;
-        this.scene.add(ring);
+        const hemi = new THREE.HemisphereLight('#f8fafc', '#d6d3cd', 1.05);
+        this.scene.add(hemi);
+
+        const keyLight = new THREE.DirectionalLight('#fff7eb', 1.55);
+        keyLight.position.set(2.4, 4.6, 3.2);
+        this.scene.add(keyLight);
+
+        const skyFill = new THREE.DirectionalLight('#e0f2fe', 0.65);
+        skyFill.position.set(-2.5, 2.2, 2.0);
+        this.scene.add(skyFill);
+
+        const backRim = new THREE.DirectionalLight('#ffffff', 0.55);
+        backRim.position.set(0, 3.0, -3.2);
+        this.scene.add(backRim);
+
+        const maxAniso = this.renderer.capabilities?.getMaxAnisotropy?.() || 8;
+        this._pedestalMats = createStudioPedestalMaterials(maxAniso);
+
+        if (isStudio) {
+          const base = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.92, 1.04, 0.13, 36),
+            this._pedestalMats.concreteMat
+          );
+          base.position.y = -0.065;
+          this.scene.add(base);
+
+          const collar = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.87, 0.91, 0.024, 36),
+            this._pedestalMats.trimMetalMat
+          );
+          collar.position.y = -0.002;
+          this.scene.add(collar);
+
+          const oakDeck = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.84, 0.85, 0.032, 36),
+            this._pedestalMats.oakMat
+          );
+          oakDeck.position.y = 0.012;
+          this.scene.add(oakDeck);
+        } else {
+          const pedestal = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.75, 0.85, 0.09, 32),
+            this._pedestalMats.concreteMat
+          );
+          pedestal.position.y = -0.045;
+          this.scene.add(pedestal);
+
+          const collar = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.73, 0.74, 0.018, 32),
+            this._pedestalMats.trimMetalMat
+          );
+          collar.position.y = -0.004;
+          this.scene.add(collar);
+
+          const oakCap = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.7, 0.72, 0.025, 32),
+            this._pedestalMats.oakMat
+          );
+          oakCap.position.y = 0.005;
+          this.scene.add(oakCap);
+        }
       }
 
       this.canvas.addEventListener('mousedown', (e) => {

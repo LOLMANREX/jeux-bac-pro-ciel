@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v3.7 - Interface Lobby ultra-épurée & ergonomique';
+    : 'v3.8 - Textures Réalistes PBR & Éclairage Plein Jour';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v3.7 — Interface Lobby ultra-épurée & ergonomique',
+    version: 'v3.8 — Textures Réalistes PBR & Éclairage Plein Jour',
     date: '13/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Génération procédurale haute résolution de textures PBR (cartes couleur, rugosité et relief) pour les sols PVC satinés, murs enduits blanc cassé avec plinthes, bureaux en chêne clair, établis gris technique, portes, équipements et dalles acoustiques de plafond avec éclairage LED 4000K.',
+      'Matériau vitré transparent réaliste (MeshPhysicalMaterial) appliqué sur l’ensemble des parois vitrées et baies des salles sans modifier aucune dimension ni collision.',
+      'Passage à un éclairage plein jour de lycée technique : ciel bleu clair naturel (#cfe4f7), environnement HDR RoomEnvironment (PMREM), lumière hémisphérique ciel/sol et soleil directionnel chaud à ombres douces (PCFSoftShadowMap).',
+      'Refonte visuelle claire "Light Glassmorphism" du Lobby, des Salles Multijoueur et du podium studio 3D (socle béton ciré et chêne clair) sans altérer les fonctionnalités existantes.'
+    ]
+  },
+  {
+    version: 'v3.7 — Interface Lobby ultra-épurée & ergonomique',
+    date: '13/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Menu Principal repensé sur un seul écran plein cadre (100vh sans défilement vertical sur PC) avec zéro doublon.',
       'Barre supérieure sur une seule ligne : logo compact ATELIER CIEL 3D, 4 onglets (JOUER, SKINS, PASSE 👑, POSTS) et badge joueur avec boutons Plateforme et Paramètres.',

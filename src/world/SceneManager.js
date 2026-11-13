@@ -1,11 +1,12 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#0c1526');
-    this.scene.fog = new THREE.Fog('#0c1526', 28, 72);
+    this.scene.background = new THREE.Color('#cfe4f7');
+    this.scene.fog = new THREE.Fog('#cfe4f7', 38, 105);
 
     this.camera = new THREE.PerspectiveCamera(
       68,
@@ -21,9 +22,17 @@ export class SceneManager {
       powerPreference: 'high-performance'
     });
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMappingExposure = 0.96;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+    this.pmremGenerator.compileEquirectangularShader();
+    const roomEnv = new RoomEnvironment();
+    this.envRenderTarget = this.pmremGenerator.fromScene(roomEnv, 0.04);
+    this.scene.environment = this.envRenderTarget.texture;
+    this.scene.environmentIntensity = 0.65;
+    roomEnv.dispose();
 
     this.paused = false;
     this.quality = 'high';
@@ -38,10 +47,10 @@ export class SceneManager {
   }
 
   _setupLights() {
-    const hemi = new THREE.HemisphereLight('#e0f2fe', '#1e293b', 1.12);
+    const hemi = new THREE.HemisphereLight('#e6f2ff', '#cbd5e1', 0.88);
     this.scene.add(hemi);
 
-    this.sun = new THREE.DirectionalLight('#f8fafc', 1.2);
+    this.sun = new THREE.DirectionalLight('#fff4de', 1.48);
     this.sun.position.set(8, 16, 10);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
@@ -51,13 +60,19 @@ export class SceneManager {
     this.sun.shadow.camera.right = 16;
     this.sun.shadow.camera.top = 15;
     this.sun.shadow.camera.bottom = -15;
-    this.sun.shadow.bias = -0.0005;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.02;
+    this.sun.shadow.radius = 2.5;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
-    this.fill = new THREE.DirectionalLight('#38bdf8', 0.48);
+    this.fill = new THREE.DirectionalLight('#f8fafc', 0.42);
     this.fill.position.set(-11, 8, -10);
     this.scene.add(this.fill);
+  }
+
+  getMaxAnisotropy() {
+    return this.renderer?.capabilities?.getMaxAnisotropy?.() || 8;
   }
 
   updateWorldBounds(bounds) {
@@ -75,8 +90,8 @@ export class SceneManager {
     this.camera.updateProjectionMatrix();
 
     if (this.scene.fog) {
-      this.scene.fog.near = Math.max(28, diag * 0.65);
-      this.scene.fog.far = Math.max(72, diag * 1.45);
+      this.scene.fog.near = Math.max(38, diag * 0.82);
+      this.scene.fog.far = Math.max(105, diag * 1.85);
     }
 
     const halfSpan = Math.max(16, Math.max(width, depth) * 0.6);
@@ -90,7 +105,7 @@ export class SceneManager {
       this.sun.shadow.camera.bottom = -halfSpan;
       this.sun.shadow.camera.near = 1;
       this.sun.shadow.camera.far = Math.max(45, halfSpan * 3.2);
-      const targetMapSize = halfSpan > 28 ? 2048 : 1024;
+      const targetMapSize = this.quality === 'high' || halfSpan > 28 ? 2048 : 1024;
       if (this.sun.shadow.mapSize.x !== targetMapSize) {
         this.sun.shadow.mapSize.set(targetMapSize, targetMapSize);
         if (this.sun.shadow.map) {
@@ -132,7 +147,7 @@ export class SceneManager {
   setPaused(paused) {
     this.paused = Boolean(paused);
     if (!this.paused) {
-      this.clock.getDelta(); // Reset delta spike after unpausing
+      this.clock.getDelta();
     }
   }
 

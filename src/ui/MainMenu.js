@@ -70,7 +70,7 @@ export class MainMenu {
         () => this.gameState.skin,
         520,
         540,
-        { interactivePodium: true }
+        { interactivePodium: true, studioMode: 'daylight' }
       );
       this.preview.setActive(true);
     } catch (err) {

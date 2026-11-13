@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import { createNpcTeacher } from './NpcTeacher.js';
+import { createRealisticMaterialPack } from './RealisticMaterials.js';
 import {
   createDefaultMap,
   getCatalogItem,
@@ -15,8 +16,10 @@ const ALL_STATIONS_MAP = new Map([...TP_CATALOG, ...EXTRA_STATIONS].map((s) => [
 function disposeNodeTree(root) {
   if (!root) return;
   const disposeMat = (mat) => {
-    if (!mat) return;
+    if (!mat || mat.userData?.managedByMaterialPack) return;
     if (mat.map) mat.map.dispose();
+    if (mat.roughnessMap) mat.roughnessMap.dispose();
+    if (mat.bumpMap) mat.bumpMap.dispose();
     if (mat.emissiveMap) mat.emissiveMap.dispose();
     mat.dispose();
   };
@@ -47,56 +50,33 @@ function makeCanvasTexture(width, height, drawFn) {
   return tex;
 }
 
-function makeFloorTexture() {
-  return makeCanvasTexture(512, 512, (ctx, w, h) => {
-    ctx.fillStyle = '#141e33';
-    ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#1f2e4a';
-    ctx.lineWidth = 2;
-    for (let x = 0; x <= w; x += 64) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= h; y += 64) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
-    ctx.fillRect(0, 0, 10, 10);
-  });
-}
-
-function makeDoorSignTexture(label, accent = '#38bdf8') {
+function makeDoorSignTexture(label, accent = '#0284c7') {
   return makeCanvasTexture(512, 112, (ctx, w, h) => {
-    ctx.fillStyle = '#071124';
-    ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 5;
-    ctx.strokeRect(4, 4, w - 8, h - 8);
-    ctx.fillStyle = accent;
-    ctx.fillRect(4, 4, 14, h - 8);
     ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(3, 3, w - 6, h - 6);
+    ctx.fillStyle = accent;
+    ctx.fillRect(3, 3, 16, h - 6);
+    ctx.fillStyle = '#0f172a';
     ctx.font = 'bold 26px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(label || 'SALLE CIEL').slice(0, 26), w / 2 + 6, h / 2);
+    ctx.fillText(String(label || 'SALLE CIEL').slice(0, 26), w / 2 + 8, h / 2);
   });
 }
 
 function makeOrientationMapTexture(mapData) {
   return makeCanvasTexture(1024, 680, (ctx, w, h) => {
     const b = mapData.bounds;
-    ctx.fillStyle = '#071022';
+    ctx.fillStyle = '#f8fafc';
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#38bdf8';
+    ctx.strokeStyle = '#94a3b8';
     ctx.lineWidth = 5;
     ctx.strokeRect(10, 10, w - 20, h - 20);
 
-    ctx.fillStyle = '#0f2344';
+    ctx.fillStyle = '#0f172a';
     ctx.fillRect(16, 16, w - 32, 68);
     ctx.fillStyle = '#f8fafc';
     ctx.font = 'bold 28px system-ui, sans-serif';
@@ -111,9 +91,9 @@ function makeOrientationMapTexture(mapData) {
     const toPxX = (wx) => padX + ((wx - b.minX) / Math.max(1, b.width)) * mapW;
     const toPxY = (wz) => padY + ((wz - b.minZ) / Math.max(1, b.depth)) * mapH;
 
-    ctx.fillStyle = '#0c1830';
+    ctx.fillStyle = '#eef2f6';
     ctx.fillRect(padX, padY, mapW, mapH);
-    ctx.strokeStyle = '#475569';
+    ctx.strokeStyle = '#94a3b8';
     ctx.lineWidth = 2;
     ctx.strokeRect(padX, padY, mapW, mapH);
 
@@ -129,19 +109,19 @@ function makeOrientationMapTexture(mapData) {
         else ctx.lineTo(px, py);
       });
       ctx.closePath();
-      ctx.fillStyle = `${z.color || '#38bdf8'}26`;
+      ctx.fillStyle = `${z.color || '#0284c7'}24`;
       ctx.fill();
-      ctx.strokeStyle = z.color || '#38bdf8';
+      ctx.strokeStyle = z.color || '#0284c7';
       ctx.lineWidth = 2;
       ctx.stroke();
 
       const lx = toPxX(z.x);
       const ly = toPxY(z.z);
-      ctx.fillStyle = '#f8fafc';
+      ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 19px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(z.code || '', lx, ly - 10);
-      ctx.fillStyle = '#cbd5e1';
+      ctx.fillStyle = '#475569';
       ctx.font = '13px system-ui, sans-serif';
       ctx.fillText(z.shortName || '', lx, ly + 12);
     }
@@ -150,7 +130,7 @@ function makeOrientationMapTexture(mapData) {
     ctx.lineCap = 'round';
     for (const wall of wallSegments) {
       if (wall.kind === 'door_single' || wall.kind === 'door_double') continue;
-      ctx.strokeStyle = wall.kind === 'glazed' ? '#38bdf8' : '#cbd5e1';
+      ctx.strokeStyle = wall.kind === 'glazed' ? '#0284c7' : '#334155';
       ctx.lineWidth = wall.kind === 'solid' ? 4 : 2.5;
       ctx.beginPath();
       ctx.moveTo(toPxX(wall.x1), toPxY(wall.z1));
@@ -161,14 +141,34 @@ function makeOrientationMapTexture(mapData) {
     const sp = mapData.spawn || { x: 0, z: 0 };
     const hx = toPxX(sp.x);
     const hy = toPxY(sp.z);
-    ctx.fillStyle = '#22d3ee';
+    ctx.fillStyle = '#0284c7';
     ctx.beginPath();
     ctx.arc(hx, hy, 8, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#67e8f9';
+    ctx.fillStyle = '#0369a1';
     ctx.font = 'bold 13px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('SPAWN', hx, hy + 20);
+  });
+}
+
+function makeAvMonitorTexture() {
+  return makeCanvasTexture(256, 160, (ctx, w, h) => {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(10, 10, 112, 82);
+    ctx.fillRect(134, 10, 112, 82);
+    ctx.fillStyle = '#0284c7';
+    ctx.fillRect(16, 16, 100, 70);
+    ctx.fillStyle = '#059669';
+    ctx.fillRect(140, 16, 100, 70);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(10, 104, w - 20, 46);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(18, 114, 150, 10);
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(18, 130, 195, 10);
   });
 }
 
@@ -292,7 +292,7 @@ function truncateBoardText(ctx, text, maxWidth) {
   return `${cut}…`;
 }
 
-function createWallLeaderboardBoard(parent, obj) {
+function createWallLeaderboardBoard(parent, obj, mats) {
   const W = 1280;
   const H = 744;
   const canvas = document.createElement('canvas');
@@ -313,20 +313,20 @@ function createWallLeaderboardBoard(parent, obj) {
 
   const glowFrame = new THREE.Mesh(
     new THREE.BoxGeometry(3.48, 2.12, 0.06),
-    new THREE.MeshBasicMaterial({ color: obj.color || '#06b6d4' })
+    mats.brushedMetalMat
   );
   glowFrame.position.z = -0.02;
   boardGroup.add(glowFrame);
 
   const bezel = new THREE.Mesh(
     new THREE.BoxGeometry(3.38, 2.02, 0.1),
-    new THREE.MeshStandardMaterial({ color: '#0b1324', metalness: 0.65, roughness: 0.35 })
+    mats.darkMetalMat
   );
   boardGroup.add(bezel);
 
   const headerLed = new THREE.Mesh(
     new THREE.BoxGeometry(3.22, 0.03, 0.02),
-    new THREE.MeshBasicMaterial({ color: '#22d3ee' })
+    new THREE.MeshStandardMaterial({ color: '#0284c7', metalness: 0.35, roughness: 0.3 })
   );
   headerLed.position.set(0, 0.97, 0.06);
   boardGroup.add(headerLed);
@@ -560,9 +560,10 @@ function createWallLeaderboardBoard(parent, obj) {
   };
 }
 
-function buildWorkbenchMesh(w, d, topHeight = 0.82, accentColor = '#38bdf8', mats) {
+function buildWorkbenchMesh(w, d, topHeight = 0.82, mats, useTechTop = false) {
   const grp = new THREE.Group();
-  const top = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), mats.deskTopMat);
+  const topMat = useTechTop ? mats.techBenchMat : mats.oakDeskMat;
+  const top = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), topMat);
   top.position.y = topHeight;
   top.castShadow = true;
   top.receiveShadow = true;
@@ -570,9 +571,11 @@ function buildWorkbenchMesh(w, d, topHeight = 0.82, accentColor = '#38bdf8', mat
 
   const trim = new THREE.Mesh(
     new THREE.BoxGeometry(w + 0.02, 0.026, d + 0.02),
-    new THREE.MeshBasicMaterial({ color: accentColor })
+    mats.deskEdgeMat
   );
   trim.position.y = topHeight - 0.032;
+  trim.castShadow = true;
+  trim.receiveShadow = true;
   grp.add(trim);
 
   const lx = Math.max(0.12, w / 2 - 0.1);
@@ -585,6 +588,8 @@ function buildWorkbenchMesh(w, d, topHeight = 0.82, accentColor = '#38bdf8', mat
   ]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, topHeight, 0.06), mats.legMat);
     leg.position.set(px, topHeight / 2, pz);
+    leg.castShadow = true;
+    leg.receiveShadow = true;
     grp.add(leg);
   }
   return grp;
@@ -594,27 +599,22 @@ function buildRackMesh(w, d, h = 2.15, ledOffsetPhase = 0, ledColor = '#10b981',
   const grp = new THREE.Group();
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshStandardMaterial({ color: '#0f172a', metalness: 0.58, roughness: 0.34 })
+    mats.darkMetalMat
   );
   body.position.y = h / 2;
   body.castShadow = true;
+  body.receiveShadow = true;
   grp.add(body);
 
   const glassDoor = new THREE.Mesh(
     new THREE.BoxGeometry(w * 0.84, h * 0.86, 0.03),
-    new THREE.MeshStandardMaterial({
-      color: '#38bdf8',
-      transparent: true,
-      opacity: 0.2,
-      roughness: 0.15,
-      metalness: 0.3
-    })
+    mats.rackGlassMat
   );
   glassDoor.position.set(0, h / 2, d / 2 + 0.01);
   grp.add(glassDoor);
 
   for (let i = 0; i < 6; i++) {
-    const tray = new THREE.Mesh(new THREE.BoxGeometry(w * 0.78, 0.07, 0.04), mats.mullionMat);
+    const tray = new THREE.Mesh(new THREE.BoxGeometry(w * 0.78, 0.07, 0.04), mats.brushedMetalMat);
     tray.position.set(0, 0.38 + i * 0.27, d / 2 - 0.01);
     grp.add(tray);
 
@@ -650,11 +650,14 @@ function createPropMountGroup(obj, supportHeight, mats) {
   let mountY = supportHeight;
   if (mountY === null) {
     mountY = 0.78;
-    const base = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.55, obj.w + 0.2), 0.05, Math.max(0.55, obj.d + 0.2)), mats.deskTopMat);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.55, obj.w + 0.2), 0.05, Math.max(0.55, obj.d + 0.2)), mats.oakDeskMat);
     base.position.y = 0.755;
+    base.castShadow = true;
+    base.receiveShadow = true;
     grp.add(base);
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.12, 0.75, 10), mats.legMat);
     post.position.y = 0.375;
+    post.castShadow = true;
     grp.add(post);
   }
   return { grp, mountY };
@@ -672,29 +675,19 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     leds: []
   };
   let leaderboardBoards = [];
+  let materialPack = null;
   let currentMapData = normalizeMapData(initialMapData || createDefaultMap());
   let lastLeaderboardEntries = [];
   let lastLocalPlayerName = '';
   let lastGrades = {};
   const showSprites = !options.hideSprites;
 
-  function makeMats() {
-    return {
-      deskTopMat: new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.5, metalness: 0.15 }),
-      legMat: new THREE.MeshStandardMaterial({ color: '#64748b', metalness: 0.7, roughness: 0.35 }),
-      screenCaseMat: new THREE.MeshStandardMaterial({ color: '#0f172a', metalness: 0.45, roughness: 0.35 }),
-      mullionMat: new THREE.MeshStandardMaterial({ color: '#334155', metalness: 0.7, roughness: 0.3 }),
-      dadoMat: new THREE.MeshStandardMaterial({ color: '#162238', roughness: 0.8 }),
-      trimMat: new THREE.MeshStandardMaterial({ color: '#0ea5e9', emissive: '#0284c7', emissiveIntensity: 0.25 })
-    };
-  }
-
-  function addDoorSign(parentGroup, cx, cz, y, rotY, thickness, label, accent = '#38bdf8') {
+  function addDoorSign(parentGroup, cx, cz, y, rotY, thickness, label, accent = '#0284c7', housingMat) {
     const tex = makeDoorSignTexture(label, accent);
     const mat = new THREE.MeshBasicMaterial({ map: tex });
     const housing = new THREE.Mesh(
       new THREE.BoxGeometry(1.46, 0.34, thickness + 0.1),
-      new THREE.MeshStandardMaterial({ color: '#0f172a', metalness: 0.6, roughness: 0.3 })
+      housingMat
     );
     housing.position.set(cx, y, cz);
     housing.rotation.y = rotY;
@@ -711,7 +704,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   }
 
   function attachStationMarker(stationDef, obj, parentGroup, radius = 2.6, ySprite = 2.55) {
-    const color = obj.color || stationDef.color || '#38bdf8';
+    const color = obj.color || stationDef.color || '#0284c7';
     const ringGeo = new THREE.RingGeometry(0.68, 0.86, 36);
     const ringMat = new THREE.MeshBasicMaterial({
       color,
@@ -745,20 +738,19 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   }
 
   function renderMapIntoGroup(mapData) {
-    const mats = makeMats();
+    const mats = createRealisticMaterialPack(options.maxAnisotropy || 8);
+    materialPack = mats;
     const b = mapData.bounds;
     const H = b.height || 4.6;
     const centerX = (b.minX + b.maxX) / 2;
     const centerZ = (b.minZ + b.maxZ) / 2;
 
-    const floorTex = makeFloorTexture();
-    floorTex.wrapS = THREE.RepeatWrapping;
-    floorTex.wrapT = THREE.RepeatWrapping;
-    floorTex.repeat.set(Math.max(2, Math.round(b.width / 2)), Math.max(2, Math.round(b.depth / 2)));
+    mats.setFloorRepeat(b.width, b.depth);
+    mats.setCeilingRepeat(b.width, b.depth);
 
     const floorMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(b.width, b.depth),
-      new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.72, metalness: 0.12 })
+      mats.floorMat
     );
     floorMesh.rotation.x = -Math.PI / 2;
     floorMesh.position.set(centerX, 0, centerZ);
@@ -778,9 +770,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       const pad = new THREE.Mesh(
         new THREE.ShapeGeometry(shape),
         new THREE.MeshBasicMaterial({
-          color: z.color || '#38bdf8',
+          color: z.color || '#0284c7',
           transparent: true,
-          opacity: z.code === 'ESC' || z.id === 'ESCALIER' ? 0.14 : 0.065,
+          opacity: z.code === 'ESC' || z.id === 'ESCALIER' ? 0.11 : 0.055,
           side: THREE.DoubleSide
         })
       );
@@ -791,14 +783,13 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
     const ceilingMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(b.width, b.depth),
-      new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.9 })
+      mats.ceilingMat
     );
     ceilingMesh.rotation.x = Math.PI / 2;
     ceilingMesh.position.set(centerX, H, centerZ);
+    ceilingMesh.receiveShadow = true;
     worldGroup.add(ceilingMesh);
 
-    const ledPanelMat = new THREE.MeshBasicMaterial({ color: '#e0f2fe' });
-    const ledFrameMat = new THREE.MeshStandardMaterial({ color: '#334155', metalness: 0.5 });
     const ledPositions = [];
     for (let lx = b.minX + 3.2; lx <= b.maxX - 2.2; lx += 4.75) {
       for (let lz = b.minZ + 3.0; lz <= b.maxZ - 2.0; lz += 6.0) {
@@ -808,8 +799,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     if (ledPositions.length > 0) {
       const frameGeo = new THREE.BoxGeometry(1.6, 0.07, 0.6);
       const panelGeo = new THREE.PlaneGeometry(1.45, 0.48);
-      const framesInst = new THREE.InstancedMesh(frameGeo, ledFrameMat, ledPositions.length);
-      const panelsInst = new THREE.InstancedMesh(panelGeo, ledPanelMat, ledPositions.length);
+      const framesInst = new THREE.InstancedMesh(frameGeo, mats.ledFrameMat, ledPositions.length);
+      const panelsInst = new THREE.InstancedMesh(panelGeo, mats.ledPanelMat, ledPositions.length);
       const dummy = new THREE.Object3D();
       for (let i = 0; i < ledPositions.length; i++) {
         const [lx, lz] = ledPositions[i];
@@ -829,13 +820,6 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     }
 
     const wallSegments = subtractDoorsFromWalls(mapData.walls || []);
-    const glassBaseMat = {
-      transparent: true,
-      opacity: 0.24,
-      roughness: 0.1,
-      metalness: 0.15,
-      side: THREE.DoubleSide
-    };
 
     for (const seg of wallSegments) {
       const dx = seg.x2 - seg.x1;
@@ -855,25 +839,31 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
         const doorH = 2.4;
         const lintelH = Math.max(0.25, wallH - doorH);
-        const lintelMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.85 });
-        const lintel = new THREE.Mesh(new THREE.BoxGeometry(len, lintelH, thick), lintelMat);
+        const lintel = new THREE.Mesh(
+          new THREE.BoxGeometry(len, lintelH, thick),
+          mats.getWallMaterial(len, seg.color)
+        );
         lintel.position.y = doorH + lintelH / 2;
         lintel.castShadow = true;
+        lintel.receiveShadow = true;
         grp.add(lintel);
 
         const jambThick = Math.min(0.09, len * 0.15);
         for (const sx of [-len / 2 + jambThick / 2, len / 2 - jambThick / 2]) {
-          const post = new THREE.Mesh(new THREE.BoxGeometry(jambThick, doorH, thick + 0.03), mats.mullionMat);
+          const post = new THREE.Mesh(new THREE.BoxGeometry(jambThick, doorH, thick + 0.03), mats.doorFrameMat);
           post.position.set(sx, doorH / 2, 0);
+          post.castShadow = true;
+          post.receiveShadow = true;
           grp.add(post);
         }
 
-        const headerBar = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, thick + 0.04), mats.mullionMat);
+        const headerBar = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, thick + 0.04), mats.doorFrameMat);
         headerBar.position.set(0, doorH - 0.03, 0);
+        headerBar.castShadow = true;
         grp.add(headerBar);
 
         if (seg.doorLabel) {
-          addDoorSign(grp, 0, 0, Math.min(2.66, wallH - 0.34), 0, thick, seg.doorLabel, seg.color || '#38bdf8');
+          addDoorSign(grp, 0, 0, Math.min(2.66, wallH - 0.34), 0, thick, seg.doorLabel, seg.color || '#0284c7', mats.brushedMetalMat);
         }
         worldGroup.add(grp);
         continue;
@@ -891,28 +881,31 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
         const dado = new THREE.Mesh(new THREE.BoxGeometry(len, dadoH, thick), mats.dadoMat);
         dado.position.y = dadoH / 2;
+        dado.castShadow = true;
         dado.receiveShadow = true;
         grp.add(dado);
 
         const glass = new THREE.Mesh(
           new THREE.BoxGeometry(len, glassH, 0.045),
-          new THREE.MeshStandardMaterial({ color: seg.color || '#93c5fd', ...glassBaseMat })
+          mats.glassMat
         );
         glass.position.y = dadoH + glassH / 2;
         grp.add(glass);
 
         const topWall = new THREE.Mesh(
           new THREE.BoxGeometry(len, topH, thick),
-          new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.85 })
+          mats.getWallMaterial(len, seg.color)
         );
         topWall.position.y = topStart + topH / 2;
+        topWall.castShadow = true;
+        topWall.receiveShadow = true;
         grp.add(topWall);
 
-        const midRail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, thick + 0.015), mats.mullionMat);
+        const midRail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, thick + 0.015), mats.brushedMetalMat);
         midRail.position.y = dadoH + 0.01;
         grp.add(midRail);
 
-        const topRail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, thick + 0.015), mats.mullionMat);
+        const topRail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, thick + 0.015), mats.brushedMetalMat);
         topRail.position.y = topStart - 0.01;
         grp.add(topRail);
 
@@ -924,15 +917,18 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       grp.position.set(cx, 0, cz);
       grp.rotation.y = angle;
 
-      const solidMat = new THREE.MeshStandardMaterial({ color: seg.color || '#1e293b', roughness: 0.85 });
-      const solid = new THREE.Mesh(new THREE.BoxGeometry(len, wallH, thick), solidMat);
+      const solid = new THREE.Mesh(
+        new THREE.BoxGeometry(len, wallH, thick),
+        mats.getWallMaterial(len, seg.color)
+      );
       solid.position.y = wallH / 2;
       solid.castShadow = true;
       solid.receiveShadow = true;
       grp.add(solid);
 
-      const trim = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, thick + 0.02), mats.trimMat);
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, thick + 0.02), mats.plinthMat);
       trim.position.y = 0.05;
+      trim.receiveShadow = true;
       grp.add(trim);
 
       worldGroup.add(grp);
@@ -1002,7 +998,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'leaderboard') {
-        const lb = createWallLeaderboardBoard(grp, obj);
+        const lb = createWallLeaderboardBoard(grp, obj, mats);
         leaderboardBoards.push(lb);
         continue;
       }
@@ -1012,7 +1008,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const frameH = frameW * 0.65;
         const frame = new THREE.Mesh(
           new THREE.BoxGeometry(frameW, frameH, 0.07),
-          mats.screenCaseMat
+          mats.brushedMetalMat
         );
         frame.position.y = 2.25;
         grp.add(frame);
@@ -1026,21 +1022,27 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'stair_block') {
-        const stepMat = new THREE.MeshStandardMaterial({ color: '#475569', roughness: 0.7 });
-        const railMat = new THREE.MeshStandardMaterial({ color: '#cbd5e1', metalness: 0.85, roughness: 0.25 });
+        const stepMat = mats.concreteMat;
+        const railMat = mats.brushedMetalMat;
         const sx = w / 4.2;
         const sz = d / 3.66;
         for (let s = 0; s < 10; s++) {
           const step = new THREE.Mesh(new THREE.BoxGeometry(1.4 * sx, 0.2, 0.34 * sz), stepMat);
           step.position.set(-1.05 * sx, 0.1 + s * 0.22, (-1.48 + s * 0.31) * sz);
+          step.castShadow = true;
+          step.receiveShadow = true;
           grp.add(step);
         }
         const landing = new THREE.Mesh(new THREE.BoxGeometry(3.6 * sx, 0.24, 1.3 * sz), stepMat);
         landing.position.set(0, 2.3, 1.07 * sz);
+        landing.castShadow = true;
+        landing.receiveShadow = true;
         grp.add(landing);
         for (let s = 0; s < 8; s++) {
           const step2 = new THREE.Mesh(new THREE.BoxGeometry(1.4 * sx, 0.2, 0.3 * sz), stepMat);
           step2.position.set(1.15 * sx, 2.52 + s * 0.22, (0.37 - s * 0.28) * sz);
+          step2.castShadow = true;
+          step2.receiveShadow = true;
           grp.add(step2);
         }
         const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.2 * sz, 8), railMat);
@@ -1061,18 +1063,21 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         };
 
         if (obj.type === 'tp_soldering') {
-          const bench = buildWorkbenchMesh(w, d, 0.84, color, mats);
+          const bench = buildWorkbenchMesh(w, d, 0.84, mats, true);
           grp.add(bench);
           const esd = new THREE.Mesh(
             new THREE.BoxGeometry(Math.min(w * 0.72, 1.4), 0.02, Math.min(d * 0.72, 1.05)),
-            new THREE.MeshStandardMaterial({ color: '#0369a1' })
+            mats.esdMat
           );
           esd.position.y = 0.88;
           grp.add(esd);
-          const unit = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.34), new THREE.MeshStandardMaterial({ color: '#ea580c' }));
+          const unit = new THREE.Mesh(
+            new THREE.BoxGeometry(0.36, 0.24, 0.34),
+            new THREE.MeshStandardMaterial({ color: '#ea580c', roughness: 0.48, metalness: 0.08 })
+          );
           unit.position.set(-w * 0.22, 1.0, 0);
           grp.add(unit);
-          const hood = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.45, 4), mats.legMat);
+          const hood = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.45, 4), mats.brushedMetalMat);
           hood.rotation.y = Math.PI / 4;
           hood.position.set(0, 2.2, 0);
           grp.add(hood);
@@ -1081,10 +1086,11 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         }
 
         if (obj.type === 'tp_oscilloscope') {
-          const bench = buildWorkbenchMesh(w, d, 0.84, color, mats);
+          const bench = buildWorkbenchMesh(w, d, 0.84, mats, true);
           grp.add(bench);
-          const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.42, 0.56), mats.screenCaseMat);
+          const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.42, 0.56), mats.lightPlasticMat);
           chassis.position.set(0, 1.09, 0);
+          chassis.castShadow = true;
           grp.add(chassis);
           const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.3), new THREE.MeshBasicMaterial({ map: makeScopeTexture() }));
           scr.position.set(0, 1.12, 0.29);
@@ -1094,12 +1100,12 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         }
 
         if (obj.type === 'tp_electronics') {
-          const bench = buildWorkbenchMesh(w, d, 0.84, color, mats);
+          const bench = buildWorkbenchMesh(w, d, 0.84, mats, true);
           grp.add(bench);
-          const bread = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.05, 0.5), new THREE.MeshStandardMaterial({ color: '#f8fafc' }));
+          const bread = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.05, 0.5), mats.lightPlasticMat);
           bread.position.set(0.15, 0.9, 0.05);
           grp.add(bread);
-          const psu = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.28, 0.42), mats.mullionMat);
+          const psu = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.28, 0.42), mats.brushedMetalMat);
           psu.position.set(-0.65, 1.02, -0.1);
           grp.add(psu);
           attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.6, 2.55);
@@ -1107,9 +1113,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         }
 
         if (obj.type === 'tp_antivirus') {
-          const desk = buildWorkbenchMesh(w, d, 0.82, color, mats);
+          const desk = buildWorkbenchMesh(w, d, 0.82, mats, false);
           grp.add(desk);
-          const mon = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.72, 1.4), 0.52, 0.06), mats.screenCaseMat);
+          const mon = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.72, 1.4), 0.52, 0.06), mats.darkMetalMat);
           mon.position.set(0, 1.24, -0.2);
           grp.add(mon);
           const alertLed = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 12), new THREE.MeshBasicMaterial({ color: '#f43f5e' }));
@@ -1135,15 +1141,15 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         }
 
         if (obj.type === 'tp_hardware') {
-          const bench = buildWorkbenchMesh(w, d, 0.84, color, mats);
+          const bench = buildWorkbenchMesh(w, d, 0.84, mats, true);
           grp.add(bench);
           const esd = new THREE.Mesh(
             new THREE.BoxGeometry(Math.min(w * 0.75, 1.6), 0.02, Math.min(d * 0.72, 0.85)),
-            new THREE.MeshStandardMaterial({ color: '#4c1d95' })
+            mats.esdMat
           );
           esd.position.y = 0.89;
           grp.add(esd);
-          const tower = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.48, 0.24), mats.screenCaseMat);
+          const tower = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.48, 0.24), mats.darkMetalMat);
           tower.position.set(-w * 0.2, 1.14, 0);
           grp.add(tower);
           attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.8, 2.55);
@@ -1151,12 +1157,15 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         }
 
         if (obj.type === 'tp_audiovisual') {
-          const desk = buildWorkbenchMesh(w, d, 0.82, color, mats);
+          const desk = buildWorkbenchMesh(w, d, 0.82, mats, false);
           grp.add(desk);
-          const dualMon = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.74, 1.45), 0.5, 0.07), mats.screenCaseMat);
+          const dualMon = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.74, 1.45), 0.5, 0.07), mats.darkMetalMat);
           dualMon.position.set(0, 1.24, -0.2);
           grp.add(dualMon);
-          const monFace = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w * 0.68, 1.34), 0.42), new THREE.MeshBasicMaterial({ color: '#ec4899' }));
+          const monFace = new THREE.Mesh(
+            new THREE.PlaneGeometry(Math.min(w * 0.68, 1.34), 0.42),
+            new THREE.MeshBasicMaterial({ map: makeAvMonitorTexture() })
+          );
           monFace.position.set(0, 1.24, -0.158);
           grp.add(monFace);
           attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.8, 2.6);
@@ -1164,14 +1173,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         }
 
         if (obj.type === 'tp_studio') {
-          const desk = buildWorkbenchMesh(w, d, 0.82, color, mats);
+          const desk = buildWorkbenchMesh(w, d, 0.82, mats, false);
           grp.add(desk);
-          const mixer = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.62, 1.25), 0.14, 0.62), new THREE.MeshStandardMaterial({ color: '#312e81' }));
+          const mixer = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.62, 1.25), 0.14, 0.62), mats.darkMetalMat);
           mixer.position.set(0, 0.92, 0.1);
           mixer.rotation.x = 0.18;
           grp.add(mixer);
           for (const sx of [-Math.min(w * 0.38, 0.85), Math.min(w * 0.38, 0.85)]) {
-            const spk = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 0.24), mats.screenCaseMat);
+            const spk = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 0.24), mats.plasticMat);
             spk.position.set(sx, 1.15, -0.32);
             grp.add(spk);
           }
@@ -1187,44 +1196,48 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const col = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 8), mats.legMat);
         col.position.y = 0.25;
         grp.add(col);
-        const seat = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.07, 0.46), new THREE.MeshStandardMaterial({ color }));
+        const seatMat = mats.getChairSeatMaterial(obj.color || color);
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.07, 0.46), seatMat);
         seat.position.y = 0.48;
+        seat.castShadow = true;
         grp.add(seat);
-        const back = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.46, 0.06), new THREE.MeshStandardMaterial({ color }));
+        const back = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.46, 0.06), seatMat);
         back.position.set(0, 0.74, -0.2);
+        back.castShadow = true;
         grp.add(back);
         continue;
       }
 
       if (obj.type === 'desk_individual' || obj.type === 'desk_teacher' || obj.type === 'workbench_large' || obj.type === 'elec_bench' || obj.type === 'network_island') {
-        const topH = obj.type === 'workbench_large' || obj.type === 'elec_bench' ? 0.84 : 0.78;
-        const bench = buildWorkbenchMesh(w, d, topH, color, mats);
+        const useTechTop = obj.type === 'workbench_large' || obj.type === 'elec_bench';
+        const topH = useTechTop ? 0.84 : 0.78;
+        const bench = buildWorkbenchMesh(w, d, topH, mats, useTechTop);
         grp.add(bench);
 
         if (obj.type === 'desk_individual') {
           if (String(obj.label || '').toLowerCase().includes('studio')) {
             const acoustic = new THREE.Mesh(
               new THREE.BoxGeometry(w, 1.4, 0.12),
-              new THREE.MeshStandardMaterial({ color: '#4c1d95', roughness: 0.95 })
+              mats.acousticMat
             );
             acoustic.position.set(0, 1.48, d / 2 - 0.08);
             grp.add(acoustic);
           } else {
-            const mon = new THREE.Mesh(new THREE.BoxGeometry(Math.min(0.65, w * 0.55), 0.36, 0.05), mats.screenCaseMat);
+            const mon = new THREE.Mesh(new THREE.BoxGeometry(Math.min(0.65, w * 0.55), 0.36, 0.05), mats.darkMetalMat);
             mon.position.set(0, topH + 0.32, -d * 0.2);
             grp.add(mon);
           }
         } else if (obj.type === 'desk_teacher') {
-          const mod = new THREE.Mesh(new THREE.BoxGeometry(w - 0.18, 0.46, 0.05), mats.dadoMat);
+          const mod = new THREE.Mesh(new THREE.BoxGeometry(w - 0.18, 0.46, 0.05), mats.oakDeskMat);
           mod.position.set(0, 0.52, d / 2 - 0.08);
           grp.add(mod);
           for (const mx of [-0.36, 0.36]) {
-            const mon = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.38, 0.05), mats.screenCaseMat);
+            const mon = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.38, 0.05), mats.darkMetalMat);
             mon.position.set(mx, topH + 0.34, -0.15);
             grp.add(mon);
           }
         } else if (obj.type === 'elec_bench') {
-          const riser = new THREE.Mesh(new THREE.BoxGeometry(w * 0.94, 0.46, 0.28), mats.mullionMat);
+          const riser = new THREE.Mesh(new THREE.BoxGeometry(w * 0.94, 0.46, 0.28), mats.brushedMetalMat);
           riser.position.set(0, topH + 0.26, -d * 0.3);
           grp.add(riser);
           const dial = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.24), new THREE.MeshBasicMaterial({ map: makeScopeTexture() }));
@@ -1232,7 +1245,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           grp.add(dial);
         } else if (obj.type === 'network_island') {
           for (const mx of [-Math.min(0.45, w * 0.22), Math.min(0.45, w * 0.22)]) {
-            const mon = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.36, 0.05), mats.screenCaseMat);
+            const mon = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.36, 0.05), mats.darkMetalMat);
             mon.position.set(mx, topH + 0.32, 0);
             grp.add(mon);
           }
@@ -1243,7 +1256,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       if (obj.type === 'whiteboard') {
         const boardW = Math.max(1.2, w);
         const boardH = Math.min(1.6, Math.max(1.1, cat.defaultH || 1.5));
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(boardW, boardH, 0.08), mats.legMat);
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(boardW, boardH, 0.08), mats.brushedMetalMat);
         frame.position.y = 1.65;
         grp.add(frame);
         const face = new THREE.Mesh(
@@ -1252,7 +1265,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         );
         face.position.set(0, 1.65, 0.045);
         grp.add(face);
-        const tray = new THREE.Mesh(new THREE.BoxGeometry(boardW * 0.7, 0.05, 0.12), mats.mullionMat);
+        const tray = new THREE.Mesh(new THREE.BoxGeometry(boardW * 0.7, 0.05, 0.12), mats.brushedMetalMat);
         tray.position.set(0, 1.65 - boardH / 2, 0.07);
         grp.add(tray);
         continue;
@@ -1262,12 +1275,13 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const cabH = 1.98;
         const body = new THREE.Mesh(
           new THREE.BoxGeometry(w, cabH, d),
-          new THREE.MeshStandardMaterial({ color: color || '#64748b', metalness: 0.55, roughness: 0.38 })
+          mats.cabinetMat
         );
         body.position.y = cabH / 2;
         body.castShadow = true;
+        body.receiveShadow = true;
         grp.add(body);
-        const seam = new THREE.Mesh(new THREE.BoxGeometry(0.02, cabH * 0.9, 0.02), mats.screenCaseMat);
+        const seam = new THREE.Mesh(new THREE.BoxGeometry(0.02, cabH * 0.9, 0.02), mats.darkMetalMat);
         seam.position.set(0, cabH / 2, d / 2 + 0.008);
         grp.add(seam);
         continue;
@@ -1276,15 +1290,16 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       if (obj.type === 'av_greenscreen') {
         const wall = new THREE.Mesh(
           new THREE.BoxGeometry(w, 2.85, Math.min(0.24, d)),
-          new THREE.MeshStandardMaterial({ color: '#16a34a', roughness: 0.92 })
+          mats.greenScreenMat
         );
         wall.position.y = 1.425;
+        wall.castShadow = true;
         grp.add(wall);
         for (const px of [-w / 2 + 0.06, w / 2 - 0.06]) {
-          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.95, 8), mats.mullionMat);
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.95, 8), mats.brushedMetalMat);
           post.position.set(px, 1.475, 0);
           grp.add(post);
-          const foot = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, Math.max(0.75, d)), mats.mullionMat);
+          const foot = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, Math.max(0.75, d)), mats.brushedMetalMat);
           foot.position.set(px, 0.025, 0);
           grp.add(foot);
         }
@@ -1295,10 +1310,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const legCol = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.25, 1.38, 6), mats.legMat);
         legCol.position.y = 0.69;
         grp.add(legCol);
-        const camBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.5), mats.screenCaseMat);
+        const camBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.5), mats.plasticMat);
         camBody.position.y = 1.48;
         grp.add(camBody);
-        const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.26, 12), mats.mullionMat);
+        const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.26, 12), mats.darkMetalMat);
         lens.rotation.x = Math.PI / 2;
         lens.position.set(0, 1.48, 0.34);
         grp.add(lens);
@@ -1312,18 +1327,18 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.26, 1.65, 6), mats.legMat);
         stand.position.y = 0.825;
         grp.add(stand);
-        const housing = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.42, 0.14), mats.screenCaseMat);
+        const housing = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.42, 0.14), mats.plasticMat);
         housing.position.set(0, 1.82, 0);
         housing.rotation.x = 0.18;
         grp.add(housing);
-        const face = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.36), new THREE.MeshBasicMaterial({ color: '#fef9c3' }));
+        const face = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.36), new THREE.MeshBasicMaterial({ color: '#fffef7' }));
         face.position.set(0, 0, 0.075);
         housing.add(face);
         continue;
       }
 
       if (obj.type === 'av_mic_stand') {
-        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.04, 14), mats.screenCaseMat);
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.04, 14), mats.darkMetalMat);
         base.position.y = 0.02;
         grp.add(base);
         const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.38, 8), mats.legMat);
@@ -1333,7 +1348,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         boom.rotation.x = Math.PI / 2 - 0.35;
         boom.position.set(0, 1.44, 0.14);
         grp.add(boom);
-        const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.16, 10), new THREE.MeshStandardMaterial({ color: color || '#e879f9' }));
+        const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.16, 10), mats.brushedMetalMat);
         mic.position.set(0, 1.5, 0.34);
         grp.add(mic);
         continue;
@@ -1346,14 +1361,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'net_patch_wall') {
-        const chassis = new THREE.Mesh(new THREE.BoxGeometry(w, 0.85, Math.min(0.42, d)), mats.screenCaseMat);
+        const chassis = new THREE.Mesh(new THREE.BoxGeometry(w, 0.85, Math.min(0.42, d)), mats.darkMetalMat);
         chassis.position.y = 1.55;
         grp.add(chassis);
         for (let r = 0; r < 3; r++) {
-          const strip = new THREE.Mesh(new THREE.BoxGeometry(w * 0.88, 0.09, 0.04), mats.mullionMat);
+          const strip = new THREE.Mesh(new THREE.BoxGeometry(w * 0.88, 0.09, 0.04), mats.brushedMetalMat);
           strip.position.set(0, 1.32 + r * 0.22, Math.min(0.42, d) / 2 + 0.01);
           grp.add(strip);
-          const led = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.035, 0.03), new THREE.MeshBasicMaterial({ color: color || '#38bdf8' }));
+          const led = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.035, 0.03), new THREE.MeshBasicMaterial({ color: '#10b981' }));
           led.position.set(-w * 0.28, 1.32 + r * 0.22, Math.min(0.42, d) / 2 + 0.028);
           grp.add(led);
           animatedRefs.leds.push({ mesh: led, phase: r * 0.9, alert: false });
@@ -1362,49 +1377,59 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'net_ups') {
-        const ups = new THREE.Mesh(new THREE.BoxGeometry(w, 1.4, d), mats.screenCaseMat);
+        const ups = new THREE.Mesh(new THREE.BoxGeometry(w, 1.4, d), mats.darkMetalMat);
         ups.position.y = 0.7;
         ups.castShadow = true;
+        ups.receiveShadow = true;
         grp.add(ups);
-        const lcd = new THREE.Mesh(new THREE.BoxGeometry(w * 0.55, 0.14, 0.03), new THREE.MeshBasicMaterial({ color: color || '#f59e0b' }));
+        const lcd = new THREE.Mesh(new THREE.BoxGeometry(w * 0.55, 0.14, 0.03), new THREE.MeshBasicMaterial({ color: '#0284c7' }));
         lcd.position.set(0, 1.15, d / 2 + 0.01);
         grp.add(lcd);
         continue;
       }
 
       if (obj.type === 'pc_gamer_cyber') {
-        const bench = buildWorkbenchMesh(w, d, 0.78, color || '#f43f5e', mats);
+        const bench = buildWorkbenchMesh(w, d, 0.78, mats, false);
         grp.add(bench);
-        const monL = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.38, 0.05), mats.screenCaseMat);
+        const monL = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.38, 0.05), mats.darkMetalMat);
         monL.position.set(-0.36, 1.16, -0.15);
         monL.rotation.y = 0.14;
         grp.add(monL);
-        const monR = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.38, 0.05), mats.screenCaseMat);
+        const monR = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.38, 0.05), mats.darkMetalMat);
         monR.position.set(0.32, 1.16, -0.15);
         monR.rotation.y = -0.14;
         grp.add(monR);
-        const tower = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.48, 0.44), mats.screenCaseMat);
+        const tower = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.48, 0.44), mats.darkMetalMat);
         tower.position.set(w * 0.36, 1.04, -0.05);
         grp.add(tower);
-        const rgb = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.36, 0.36), new THREE.MeshBasicMaterial({ color: '#ec4899' }));
+        const rgb = new THREE.Mesh(
+          new THREE.BoxGeometry(0.03, 0.36, 0.36),
+          new THREE.MeshStandardMaterial({ color: '#0284c7', roughness: 0.3, metalness: 0.4 })
+        );
         rgb.position.set(w * 0.36 - 0.125, 1.04, -0.05);
         grp.add(rgb);
         continue;
       }
 
       if (obj.type === 'pc_open_maint') {
-        const bench = buildWorkbenchMesh(w, d, 0.84, color || '#a78bfa', mats);
+        const bench = buildWorkbenchMesh(w, d, 0.84, mats, true);
         grp.add(bench);
-        const esd = new THREE.Mesh(new THREE.BoxGeometry(w * 0.75, 0.02, d * 0.72), new THREE.MeshStandardMaterial({ color: '#4c1d95' }));
+        const esd = new THREE.Mesh(new THREE.BoxGeometry(w * 0.75, 0.02, d * 0.72), mats.esdMat);
         esd.position.y = 0.89;
         grp.add(esd);
-        const openCase = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.09, 0.48), mats.mullionMat);
+        const openCase = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.09, 0.48), mats.brushedMetalMat);
         openCase.position.set(0, 0.94, 0.05);
         grp.add(openCase);
-        const mobo = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.3), new THREE.MeshStandardMaterial({ color: '#047857' }));
+        const mobo = new THREE.Mesh(
+          new THREE.BoxGeometry(0.34, 0.03, 0.3),
+          new THREE.MeshStandardMaterial({ color: '#047857', roughness: 0.48, metalness: 0.15 })
+        );
         mobo.position.set(-0.04, 0.995, 0.05);
         grp.add(mobo);
-        const gpu = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.08, 0.05), new THREE.MeshStandardMaterial({ color: '#38bdf8' }));
+        const gpu = new THREE.Mesh(
+          new THREE.BoxGeometry(0.24, 0.08, 0.05),
+          new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.38, metalness: 0.55 })
+        );
         gpu.position.set(0, 1.03, 0.12);
         grp.add(gpu);
         continue;
@@ -1413,7 +1438,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       if (obj.type === 'soc_wall_screen') {
         const sw = Math.max(1.8, w);
         const sh = Math.max(1.2, Math.min(2.1, sw * 0.45));
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(sw + 0.12, sh + 0.12, 0.08), mats.screenCaseMat);
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(sw + 0.12, sh + 0.12, 0.08), mats.darkMetalMat);
         frame.position.y = 2.35;
         grp.add(frame);
         const screen = new THREE.Mesh(
@@ -1430,12 +1455,15 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       grp.add(propGrp);
 
       if (obj.type === 'av_mixer') {
-        const body = new THREE.Mesh(new THREE.BoxGeometry(w, 0.14, d), new THREE.MeshStandardMaterial({ color: '#312e81' }));
+        const body = new THREE.Mesh(new THREE.BoxGeometry(w, 0.14, d), mats.darkMetalMat);
         body.position.set(0, mountY + 0.08, 0);
         body.rotation.x = 0.14;
         propGrp.add(body);
         for (let f = -2; f <= 2; f++) {
-          const ledStrip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, 0.24), new THREE.MeshBasicMaterial({ color: f === 0 ? '#ec4899' : '#22d3ee' }));
+          const ledStrip = new THREE.Mesh(
+            new THREE.BoxGeometry(0.05, 0.02, 0.24),
+            new THREE.MeshStandardMaterial({ color: f === 0 ? '#0284c7' : '#64748b', roughness: 0.4, metalness: 0.3 })
+          );
           ledStrip.position.set(f * (w * 0.15), 0.08, 0);
           body.add(ledStrip);
         }
@@ -1444,10 +1472,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
       if (obj.type === 'net_switch_stack') {
         for (let s = 0; s < 2; s++) {
-          const sw = new THREE.Mesh(new THREE.BoxGeometry(w, 0.11, d), mats.screenCaseMat);
+          const sw = new THREE.Mesh(new THREE.BoxGeometry(w, 0.11, d), mats.darkMetalMat);
           sw.position.set(0, mountY + 0.06 + s * 0.13, 0);
           propGrp.add(sw);
-          const bar = new THREE.Mesh(new THREE.BoxGeometry(w * 0.78, 0.03, 0.02), new THREE.MeshBasicMaterial({ color: color || '#22d3ee' }));
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(w * 0.78, 0.03, 0.02), new THREE.MeshBasicMaterial({ color: '#10b981' }));
           bar.position.set(0, 0, d / 2 + 0.01);
           sw.add(bar);
         }
@@ -1455,7 +1483,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'elec_solder_unit') {
-        const box = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.3), new THREE.MeshStandardMaterial({ color: '#ea580c' }));
+        const box = new THREE.Mesh(
+          new THREE.BoxGeometry(0.34, 0.2, 0.3),
+          new THREE.MeshStandardMaterial({ color: '#ea580c', roughness: 0.48, metalness: 0.08 })
+        );
         box.position.set(0, mountY + 0.11, 0);
         propGrp.add(box);
         const iron = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.26, 8), mats.legMat);
@@ -1466,7 +1497,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'elec_scope_unit') {
-        const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.32), mats.screenCaseMat);
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.32), mats.lightPlasticMat);
         body.position.set(0, mountY + 0.16, 0);
         propGrp.add(body);
         const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.2), new THREE.MeshBasicMaterial({ map: makeScopeTexture() }));
@@ -1476,11 +1507,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'elec_multimeter') {
-        const mm = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.08, 0.28), new THREE.MeshStandardMaterial({ color: '#eab308' }));
+        const mm = new THREE.Mesh(
+          new THREE.BoxGeometry(0.22, 0.08, 0.28),
+          new THREE.MeshStandardMaterial({ color: '#eab308', roughness: 0.5, metalness: 0.05 })
+        );
         mm.position.set(0, mountY + 0.06, 0);
         mm.rotation.x = 0.2;
         propGrp.add(mm);
-        const lcd = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.09), new THREE.MeshBasicMaterial({ color: '#0f172a' }));
+        const lcd = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.09), new THREE.MeshBasicMaterial({ color: '#94a3b8' }));
         lcd.rotation.x = -Math.PI / 2;
         lcd.position.set(0, 0.045, -0.04);
         mm.add(lcd);
@@ -1488,10 +1522,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'elec_fume_extractor') {
-        const unit = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.32, 0.3), mats.mullionMat);
+        const unit = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.32, 0.3), mats.lightPlasticMat);
         unit.position.set(0, mountY + 0.17, 0);
         propGrp.add(unit);
-        const fan = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 16), mats.screenCaseMat);
+        const fan = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 16), mats.darkMetalMat);
         fan.rotation.x = Math.PI / 2;
         fan.position.set(0, mountY + 0.18, 0.16);
         propGrp.add(fan);
@@ -1500,7 +1534,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
       const fallback = new THREE.Mesh(
         new THREE.BoxGeometry(w, cat.defaultH || 0.8, d),
-        new THREE.MeshStandardMaterial({ color })
+        new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 })
       );
       fallback.position.y = (cat.defaultH || 0.8) / 2;
       grp.add(fallback);
@@ -1533,6 +1567,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     leaderboardBoards = [];
 
     disposeNodeTree(worldGroup);
+    if (materialPack) {
+      materialPack.dispose();
+      materialPack = null;
+    }
     while (worldGroup.children.length > 0) {
       worldGroup.remove(worldGroup.children[0]);
     }
@@ -1564,6 +1602,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
   function dispose() {
     disposeNodeTree(worldGroup);
+    if (materialPack) {
+      materialPack.dispose();
+      materialPack = null;
+    }
     while (worldGroup.children.length > 0) {
       worldGroup.remove(worldGroup.children[0]);
     }
