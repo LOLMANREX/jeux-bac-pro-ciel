@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.10 - Refonte Complète & Correction des TPs Audiovisuel';
+    : 'v4.11 - Correctif Condition 20/20 Intégral & Reset Global';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.10 — Refonte Complète & Correction des TPs Audiovisuel',
+    version: 'v4.11 — Correctif Condition 20/20 Intégral & Reset Global',
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Correction critique du déclenchement de la Cinématique d’Ascension « Dieu du Bac Pro CIEL » et du déblocage des Skins Divins : exige désormais 20/20 sur 100 % des TPs du jeu (Cyber, Réseaux, Électronique, Systèmes et Audiovisuel), uniquement lors de la première validation intégrale (ou via le pouvoir manuel du créateur Louis / le bouton « 💯 Tout valider à 20/20 » du Serveur Privé Debug).',
+      'Suppression du déclenchement sur un seul TP à 20/20 (client et serveur) : obtenir 20/20 sur un seul TP affiche désormais uniquement la réussite normale du TP sans cinématique mondiale ni déblocage de skin spécial.',
+      'Durcissement serveur sur POST /api/account/save, WebSocket et normalisation GameStore : impossible d’ajouter ou d’équiper un Skin Divin dans unlockedDivineSkins tant que tous les TPs du compte ne sont pas à 20/20.',
+      'Reset global unique au démarrage de la v4.11 sur server/data/accounts.json (avec marqueur de migration version 4.11 / resetV411Done pour préserver les comptes créés ensuite) afin que chaque élève reparte sur une base propre sans skin obtenu par erreur.'
+    ]
+  },
+  {
+    version: 'v4.10 — Refonte Complète & Correction des TPs Audiovisuel',
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Audit et refonte complète du raycasting 3D et des interactions audiovisuelles sur le plateau (pickLabInteractable avec occultation par murs pleins, surbrillance sans mutation des matériaux partagés, halo au sol, visée pointeur verrouillé et libre, équipements U303/U304 interactifs et synchronisation VR WebXR complète sans état bloqué).',
       'Refonte complète des TPs DMX Lighting 3D (chaînage XLR DMX512 dans l’ordre avec bouchon 120 Ω, écrans OLED avant/arrière + boutons -1/+1 VR-ready, faders inclinés fluides 20/20 garanti) et Studio Régie Vidéo/Son 3D (patch 3 liaisons SDI/XLR obligatoires avant signal, balance des blancs & éclairage 3D dynamique, mixage +48V/HPF/-12 dBFS sans NaN, réalisation ATEM Cut/Take et conseils contextuels du Professeur CIEL).',

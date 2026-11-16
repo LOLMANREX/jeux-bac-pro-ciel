@@ -9,6 +9,13 @@ export const EXTRA_TP_IDS = ['patchrack', 'hardware', 'audiovisual', 'studio'];
 
 export const ALL_TP_IDS = [...TP_IDS, ...EXTRA_TP_IDS];
 
+export const ACCOUNTS_MIGRATION_VERSION = '4.11';
+
+export function hasAllTpsAt20InScores(scores = {}) {
+  if (!scores || typeof scores !== 'object') return false;
+  return ALL_TP_IDS.length > 0 && ALL_TP_IDS.every((id) => Number(scores[id]) === 20);
+}
+
 export const TP_LABELS = {
   oscilloscope: 'TP Oscilloscope & Diagnostic 3D',
   soldering: 'TP Brasure PCB 3D',
@@ -231,6 +238,7 @@ export class GameStore {
     this.dbFilePath = isAccountsTarget ? null : dbFilePath || null;
     this.data = { players: {}, suggestions: [], pigeons: [] };
     this.accounts = new Map();
+    this.migratedToV411 = false;
     if (this.accountsFilePath || this.dbFilePath) {
       this._load();
     }
@@ -269,15 +277,17 @@ export class GameStore {
         : avatarCustomization.divineSpecialty || 'standard';
     const selectedDivine = resolveDivineSpecialtyId(rawSelected);
     let selectedSkin = 'standard';
-    if (selectedDivine) {
+    if (selectedDivine && unlockedDivineSkins.includes(selectedDivine)) {
       selectedSkin = selectedDivine;
       avatarCustomization.divineSpecialty = selectedDivine;
       avatarCustomization.outfitColor = DIVINE_SPECIALTY_COLORS[selectedDivine];
       avatarCustomization.outfitStyle = 'cyber';
-      if (!unlockedDivineSkins.includes(selectedDivine)) {
-        unlockedDivineSkins.push(selectedDivine);
-      }
-    } else if (rawSelected && rawSelected !== 'standard' && rawSelected !== 'default') {
+    } else if (
+      rawSelected &&
+      !selectedDivine &&
+      rawSelected !== 'standard' &&
+      rawSelected !== 'default'
+    ) {
       selectedSkin = rawSelected;
       delete avatarCustomization.divineSpecialty;
     } else {
@@ -301,6 +311,7 @@ export class GameStore {
       ? Math.max(0, Math.round(Number(base.playtimeSeconds)))
       : 0;
     const questAccepted = Boolean(base.questAccepted) || scoreVals.length > 0;
+    const ascensionTriggered = Boolean(base.ascensionTriggered);
 
     return {
       id,
@@ -314,6 +325,7 @@ export class GameStore {
       xp,
       bestTimes,
       questAccepted,
+      ascensionTriggered,
       playtimeSeconds,
       lastLogin,
       lastSeen,
@@ -335,6 +347,7 @@ export class GameStore {
       xp: norm.xp,
       bestTimes: { ...norm.bestTimes },
       questAccepted: norm.questAccepted,
+      ascensionTriggered: norm.ascensionTriggered,
       playtimeSeconds: norm.playtimeSeconds,
       lastLogin: norm.lastLogin,
       lastSeen: norm.lastSeen,
@@ -356,6 +369,7 @@ export class GameStore {
         avatarCustomization: norm.avatarCustomization,
         xp: norm.xp,
         questAccepted: norm.questAccepted,
+        ascensionTriggered: norm.ascensionTriggered,
         grades: norm.tpScores,
         bestTimes: norm.bestTimes,
         createdAt: norm.createdAt,
@@ -376,19 +390,24 @@ export class GameStore {
     const normPlayer = this._normalizePlayer(player, player.name);
     const unlocked = normalizeDivineSkinList([
       ...(existing.unlockedDivineSkins || []),
-      ...(normPlayer.unlockedDivineSkins || []),
-      ...(normPlayer.skin?.divineSpecialty ? [normPlayer.skin.divineSpecialty] : [])
+      ...(normPlayer.unlockedDivineSkins || [])
     ]);
-    const selectedSkin = normPlayer.skin?.divineSpecialty
-      ? normPlayer.skin.divineSpecialty
-      : 'standard';
+    const selectedSkin =
+      normPlayer.skin?.divineSpecialty && unlocked.includes(normPlayer.skin.divineSpecialty)
+        ? normPlayer.skin.divineSpecialty
+        : 'standard';
+    const nextAvatarCustom = { ...normPlayer.skin };
+    if (selectedSkin === 'standard') {
+      delete nextAvatarCustom.divineSpecialty;
+    }
     existing.tpScores = { ...normPlayer.grades };
     existing.unlockedDivineSkins = unlocked;
     existing.selectedSkin = selectedSkin;
-    existing.avatarCustomization = { ...normPlayer.skin };
+    existing.avatarCustomization = nextAvatarCustom;
     existing.xp = normPlayer.xp;
     existing.bestTimes = { ...normPlayer.bestTimes };
     existing.questAccepted = normPlayer.questAccepted;
+    existing.ascensionTriggered = Boolean(existing.ascensionTriggered || normPlayer.ascensionTriggered);
     existing.playtimeSeconds = normPlayer.playtimeSeconds;
     existing.lastLogin = normPlayer.lastLogin;
     existing.lastSeen = normPlayer.lastSeen;
@@ -401,15 +420,18 @@ export class GameStore {
     const name = sanitizeName(base.name || base.username || fallbackKey);
     const fallbackColor = isValidHex(base.color) ? base.color : hashColor(name);
     const skin = sanitizeSkin(base.skin || base.avatarCustomization, fallbackColor);
-    const color = skin.outfitColor || fallbackColor;
     const grades = this._normalizeGrades(base.grades || base.tpScores);
-    const unlockedDivineSkins = normalizeDivineSkinList([
-      ...(Array.isArray(base.unlockedDivineSkins) ? base.unlockedDivineSkins : []),
-      ...(skin.divineSpecialty ? [skin.divineSpecialty] : [])
-    ]);
-    const selectedSkin = skin.divineSpecialty
-      ? skin.divineSpecialty
-      : String(base.selectedSkin || 'standard');
+    const unlockedDivineSkins = normalizeDivineSkinList(
+      Array.isArray(base.unlockedDivineSkins) ? base.unlockedDivineSkins : []
+    );
+    if (skin.divineSpecialty && !unlockedDivineSkins.includes(skin.divineSpecialty)) {
+      delete skin.divineSpecialty;
+    }
+    const color = skin.outfitColor || fallbackColor;
+    const selectedSkin =
+      skin.divineSpecialty && unlockedDivineSkins.includes(skin.divineSpecialty)
+        ? skin.divineSpecialty
+        : 'standard';
     const bestTimes = {};
     if (base.bestTimes && typeof base.bestTimes === 'object') {
       for (const id of ALL_TP_IDS) {
@@ -444,6 +466,7 @@ export class GameStore {
       tpScores: { ...grades },
       xp,
       questAccepted: Boolean(base.questAccepted),
+      ascensionTriggered: Boolean(base.ascensionTriggered),
       grades,
       bestTimes,
       average,
@@ -482,51 +505,54 @@ export class GameStore {
     this.accounts = new Map();
 
     if (this.accountsFilePath) {
-      let needsInitialResetSave = false;
+      let needsMigrationResetSave = false;
+      this.migratedToV411 = false;
       try {
         if (fs.existsSync(this.accountsFilePath)) {
           const raw = fs.readFileSync(this.accountsFilePath, 'utf8');
           const parsed = JSON.parse(raw);
           if (parsed && typeof parsed === 'object') {
-            const rawAccounts = Array.isArray(parsed.accounts)
-              ? parsed.accounts
-              : parsed.accounts && typeof parsed.accounts === 'object'
-                ? Object.values(parsed.accounts)
-                : Array.isArray(parsed)
-                  ? parsed
-                  : null;
-            if (rawAccounts && (parsed.version === '4.9' || parsed.resetDone === true || Array.isArray(parsed.accounts))) {
-              for (const item of rawAccounts) {
+            if (Array.isArray(parsed.suggestions)) {
+              this.data.suggestions = parsed.suggestions
+                .map((s) => this._normalizeSuggestion(s))
+                .filter(Boolean);
+            }
+            if (Array.isArray(parsed.pigeons)) {
+              this.data.pigeons = parsed.pigeons
+                .map((p) => this._normalizePigeon(p))
+                .filter(Boolean);
+            }
+            const isMigratedV411 =
+              parsed.version === ACCOUNTS_MIGRATION_VERSION &&
+              parsed.resetV411Done === true;
+            if (isMigratedV411 && Array.isArray(parsed.accounts)) {
+              for (const item of parsed.accounts) {
                 if (item && typeof item === 'object') {
                   const normAcc = this._normalizeAccount(item);
                   this._syncPlayerFromAccount(normAcc);
                 }
               }
-              if (Array.isArray(parsed.suggestions)) {
-                this.data.suggestions = parsed.suggestions
-                  .map((s) => this._normalizeSuggestion(s))
-                  .filter(Boolean);
-              }
-              if (Array.isArray(parsed.pigeons)) {
-                this.data.pigeons = parsed.pigeons
-                  .map((p) => this._normalizePigeon(p))
-                  .filter(Boolean);
-              }
             } else {
-              needsInitialResetSave = true;
+              this.accounts = new Map();
+              this.data.players = {};
+              needsMigrationResetSave = true;
+              this.migratedToV411 = true;
             }
           } else {
-            needsInitialResetSave = true;
+            needsMigrationResetSave = true;
+            this.migratedToV411 = true;
           }
         } else {
-          needsInitialResetSave = true;
+          needsMigrationResetSave = true;
+          this.migratedToV411 = true;
         }
       } catch {
         this.data = { players: {}, suggestions: [], pigeons: [] };
         this.accounts = new Map();
-        needsInitialResetSave = true;
+        needsMigrationResetSave = true;
+        this.migratedToV411 = true;
       }
-      if (needsInitialResetSave) {
+      if (needsMigrationResetSave) {
         this._save();
       }
       return;
@@ -567,8 +593,9 @@ export class GameStore {
       try {
         fs.mkdirSync(path.dirname(this.accountsFilePath), { recursive: true });
         const payload = {
-          version: '4.9',
+          version: ACCOUNTS_MIGRATION_VERSION,
           resetDone: true,
+          resetV411Done: true,
           accounts: [...this.accounts.values()].map((acc) => this._serializeAccount(acc)),
           suggestions: this.data.suggestions,
           pigeons: this.data.pigeons
@@ -612,19 +639,21 @@ export class GameStore {
     const norm = this._normalizeAccount(acc);
     const key = norm.username.toLowerCase();
     const profile = this.getPublicProfile(key);
-    const tpsAt20Count = TP_IDS.filter((id) => Number(norm.tpScores[id]) >= 20).length;
+    const tpsAt20Count = ALL_TP_IDS.filter((id) => Number(norm.tpScores[id]) === 20).length;
     return {
       id: norm.id,
       username: norm.username,
       createdAt: norm.createdAt,
       tpScores: { ...norm.tpScores },
       tpsAt20Count,
+      allTpsTotal: ALL_TP_IDS.length,
       completedCount: profile?.completedCount ?? 0,
       average: profile?.average ?? computeAverage(norm.tpScores),
       xp: norm.xp,
       unlockedDivineSkins: [...norm.unlockedDivineSkins],
       selectedSkin: norm.selectedSkin,
       avatarCustomization: { ...norm.avatarCustomization },
+      ascensionTriggered: norm.ascensionTriggered,
       lastLogin: norm.lastLogin,
       lastSeen: norm.lastSeen,
       playtimeSeconds: norm.playtimeSeconds,
@@ -699,18 +728,20 @@ export class GameStore {
       rawInput.avatarCustomization || rawInput.skin || DEFAULT_SKIN,
       defColor
     );
+    delete customSkin.divineSpecialty;
     const account = this._normalizeAccount({
       id: `acc_${crypto.randomUUID().slice(0, 12)}`,
       username,
       password,
       createdAt: nowIso,
       tpScores: {},
-      unlockedDivineSkins: normalizeDivineSkinList(rawInput.unlockedDivineSkins),
-      selectedSkin: rawInput.selectedSkin || customSkin.divineSpecialty || 'standard',
+      unlockedDivineSkins: [],
+      selectedSkin: 'standard',
       avatarCustomization: customSkin,
       xp: 0,
       bestTimes: {},
       questAccepted: false,
+      ascensionTriggered: false,
       playtimeSeconds: 0,
       lastLogin: nowIso,
       lastSeen: nowIso,
@@ -799,19 +830,23 @@ export class GameStore {
       }
     }
 
-    if (Array.isArray(payload.unlockedDivineSkins)) {
-      const merged = normalizeDivineSkinList([
-        ...account.unlockedDivineSkins,
-        ...payload.unlockedDivineSkins
-      ]);
-      account.unlockedDivineSkins = merged;
-    }
-    if (payload.unlockDivineSkin || payload.divineSpecialty) {
-      const unlockedSpec = resolveDivineSpecialtyId(
-        payload.unlockDivineSkin || payload.divineSpecialty
-      );
-      if (unlockedSpec && !account.unlockedDivineSkins.includes(unlockedSpec)) {
-        account.unlockedDivineSkins.push(unlockedSpec);
+    const allTps20 = hasAllTpsAt20InScores(account.tpScores);
+
+    if (allTps20) {
+      if (Array.isArray(payload.unlockedDivineSkins)) {
+        const merged = normalizeDivineSkinList([
+          ...account.unlockedDivineSkins,
+          ...payload.unlockedDivineSkins
+        ]);
+        account.unlockedDivineSkins = merged;
+      }
+      if (payload.unlockDivineSkin || payload.divineSpecialty) {
+        const unlockedSpec = resolveDivineSpecialtyId(
+          payload.unlockDivineSkin || payload.divineSpecialty
+        );
+        if (unlockedSpec && !account.unlockedDivineSkins.includes(unlockedSpec)) {
+          account.unlockedDivineSkins.push(unlockedSpec);
+        }
       }
     }
 
@@ -821,14 +856,19 @@ export class GameStore {
         { ...account.avatarCustomization, ...incomingCustom },
         account.avatarCustomization.outfitColor
       );
+      const customDivineSpec = account.avatarCustomization.divineSpecialty;
       if (!incomingCustom.divineSpecialty && payload.selectedSkin === undefined) {
         delete account.avatarCustomization.divineSpecialty;
         account.selectedSkin = 'standard';
-      } else if (account.avatarCustomization.divineSpecialty) {
-        const specId = account.avatarCustomization.divineSpecialty;
-        account.selectedSkin = specId;
-        if (!account.unlockedDivineSkins.includes(specId)) {
-          account.unlockedDivineSkins.push(specId);
+      } else if (customDivineSpec) {
+        if (allTps20 && !account.unlockedDivineSkins.includes(customDivineSpec)) {
+          account.unlockedDivineSkins.push(customDivineSpec);
+        }
+        if (account.unlockedDivineSkins.includes(customDivineSpec)) {
+          account.selectedSkin = customDivineSpec;
+        } else {
+          delete account.avatarCustomization.divineSpecialty;
+          account.selectedSkin = 'standard';
         }
       }
     }
@@ -845,18 +885,23 @@ export class GameStore {
       } else {
         const specId = resolveDivineSpecialtyId(payload.selectedSkin);
         if (specId) {
-          account.selectedSkin = specId;
-          account.avatarCustomization = sanitizeSkin(
-            {
-              ...account.avatarCustomization,
-              outfitColor: DIVINE_SPECIALTY_COLORS[specId],
-              outfitStyle: 'cyber',
-              divineSpecialty: specId
-            },
-            DIVINE_SPECIALTY_COLORS[specId]
-          );
-          if (!account.unlockedDivineSkins.includes(specId)) {
+          if (allTps20 && !account.unlockedDivineSkins.includes(specId)) {
             account.unlockedDivineSkins.push(specId);
+          }
+          if (account.unlockedDivineSkins.includes(specId)) {
+            account.selectedSkin = specId;
+            account.avatarCustomization = sanitizeSkin(
+              {
+                ...account.avatarCustomization,
+                outfitColor: DIVINE_SPECIALTY_COLORS[specId],
+                outfitStyle: 'cyber',
+                divineSpecialty: specId
+              },
+              DIVINE_SPECIALTY_COLORS[specId]
+            );
+          } else {
+            account.selectedSkin = 'standard';
+            delete account.avatarCustomization.divineSpecialty;
           }
         } else if (typeof payload.selectedSkin === 'string') {
           account.selectedSkin = payload.selectedSkin.trim().slice(0, 32) || 'standard';
@@ -878,15 +923,22 @@ export class GameStore {
     };
   }
 
-  unlockDivineSkin(rawName, rawSpecialty, equip = true) {
+  unlockDivineSkin(rawName, rawSpecialty, equip = true, options = {}) {
     const specId = resolveDivineSpecialtyId(rawSpecialty) || 'cyber';
     const name = sanitizeName(rawName);
     const key = name.toLowerCase();
     this.getOrCreatePlayer(name);
     const player = this._normalizePlayer(this.data.players[key], name);
+    const hasAll20 = hasAllTpsAt20InScores(player.grades);
+    if (!hasAll20 && !options.allowCreator) {
+      return this.getPublicProfile(key);
+    }
 
     const unlocked = normalizeDivineSkinList([...(player.unlockedDivineSkins || []), specId]);
     player.unlockedDivineSkins = unlocked;
+    if (hasAll20) {
+      player.ascensionTriggered = true;
+    }
     if (equip) {
       player.selectedSkin = specId;
       player.skin = sanitizeSkin(
@@ -962,15 +1014,17 @@ export class GameStore {
       } else {
         const defColor = hashColor(name);
         const skin = sanitizeSkin(rawSkin, defColor);
+        delete skin.divineSpecialty;
         this.data.players[key] = this._normalizePlayer(
           {
             name,
             color: skin.outfitColor,
             skin,
-            unlockedDivineSkins: skin.divineSpecialty ? [skin.divineSpecialty] : [],
-            selectedSkin: skin.divineSpecialty || 'standard',
+            unlockedDivineSkins: [],
+            selectedSkin: 'standard',
             xp: 0,
             questAccepted: false,
+            ascensionTriggered: false,
             grades: {},
             bestTimes: {},
             average: null,
@@ -985,13 +1039,13 @@ export class GameStore {
     } else if (rawSkin && typeof rawSkin === 'object') {
       const current = this._normalizePlayer(this.data.players[key], name);
       const nextSkin = sanitizeSkin(rawSkin, current.color);
+      if (nextSkin.divineSpecialty && !current.unlockedDivineSkins.includes(nextSkin.divineSpecialty)) {
+        delete nextSkin.divineSpecialty;
+      }
       current.skin = nextSkin;
       current.color = nextSkin.outfitColor;
       current.selectedSkin = nextSkin.divineSpecialty || 'standard';
       current.avatarCustomization = { ...nextSkin };
-      if (nextSkin.divineSpecialty && !current.unlockedDivineSkins.includes(nextSkin.divineSpecialty)) {
-        current.unlockedDivineSkins.push(nextSkin.divineSpecialty);
-      }
       current.updatedAt = new Date().toISOString();
       this.data.players[key] = current;
       this._syncAccountFromPlayer(current);
@@ -1008,13 +1062,13 @@ export class GameStore {
     this.getOrCreatePlayer(name);
     const player = this._normalizePlayer(this.data.players[key], name);
     const nextSkin = sanitizeSkin(rawSkin, player.color);
+    if (nextSkin.divineSpecialty && !player.unlockedDivineSkins.includes(nextSkin.divineSpecialty)) {
+      delete nextSkin.divineSpecialty;
+    }
     player.skin = nextSkin;
     player.color = nextSkin.outfitColor;
     player.selectedSkin = nextSkin.divineSpecialty || 'standard';
     player.avatarCustomization = { ...nextSkin };
-    if (nextSkin.divineSpecialty && !player.unlockedDivineSkins.includes(nextSkin.divineSpecialty)) {
-      player.unlockedDivineSkins.push(nextSkin.divineSpecialty);
-    }
     player.updatedAt = new Date().toISOString();
     this.data.players[key] = player;
     this._syncAccountFromPlayer(player);
@@ -1075,6 +1129,14 @@ export class GameStore {
       player.diplomaEarned = true;
     }
     player.diplomas = computeDiplomas(player.grades, player.average, player.diplomaEarned);
+    const allTpsAt20 = hasAllTpsAt20InScores(player.grades);
+    const firstTimeAllAt20 =
+      allTpsAt20 &&
+      !player.ascensionTriggered &&
+      player.unlockedDivineSkins.length === 0;
+    if (firstTimeAllAt20) {
+      player.ascensionTriggered = true;
+    }
     player.updatedAt = new Date().toISOString();
     this.data.players[key] = player;
     this._syncAccountFromPlayer(player);
@@ -1085,7 +1147,9 @@ export class GameStore {
       xpGain,
       isNewBest,
       score,
-      completedCount
+      completedCount,
+      allTpsAt20,
+      firstTimeAllAt20
     };
   }
 
@@ -1102,6 +1166,7 @@ export class GameStore {
     }
     player.xp = Math.max(player.xp + 1750, 3150);
     player.questAccepted = true;
+    player.ascensionTriggered = true;
     player.average = computeAverage(player.grades);
     player.diplomaEarned = true;
     player.diplomas = computeDiplomas(player.grades, player.average, true);
@@ -1173,6 +1238,7 @@ export class GameStore {
         selectedSkin: 'standard',
         xp: 0,
         questAccepted: false,
+        ascensionTriggered: false,
         grades: {},
         bestTimes: {},
         average: null,
@@ -1196,6 +1262,7 @@ export class GameStore {
       existingAcc.xp = 0;
       existingAcc.bestTimes = {};
       existingAcc.questAccepted = false;
+      existingAcc.ascensionTriggered = false;
       existingAcc.playtimeSeconds = 0;
       existingAcc.lastSeen = nowIso;
       existingAcc.updatedAt = nowIso;
@@ -1219,8 +1286,8 @@ export class GameStore {
     const completedCount = TP_IDS.filter(
       (id) => typeof norm.grades[id] === 'number' && norm.grades[id] >= 10
     ).length;
-    const tpsAt20Count = TP_IDS.filter(
-      (id) => typeof norm.grades[id] === 'number' && norm.grades[id] >= 20
+    const tpsAt20Count = ALL_TP_IDS.filter(
+      (id) => typeof norm.grades[id] === 'number' && norm.grades[id] === 20
     ).length;
     return {
       name: norm.name,
@@ -1231,8 +1298,10 @@ export class GameStore {
       avatarCustomization: { ...norm.skin },
       tpScores: { ...norm.grades },
       tpsAt20Count,
+      allTpsTotal: ALL_TP_IDS.length,
       xp: norm.xp,
       questAccepted: norm.questAccepted,
+      ascensionTriggered: Boolean(norm.ascensionTriggered),
       grades: { ...norm.grades },
       bestTimes: { ...norm.bestTimes },
       average: norm.average,

@@ -29,13 +29,13 @@ export function isCreatorPseudo(rawName) {
 }
 
 export function hasAllTpsAt20(profile) {
-  if (!profile || !profile.grades || typeof profile.grades !== 'object') return false;
-  return TP_IDS.every((id) => Number(profile.grades[id]) >= 20);
+  const scores = profile?.grades || profile?.tpScores;
+  if (!scores || typeof scores !== 'object') return false;
+  return ALL_TP_IDS.length > 0 && ALL_TP_IDS.every((id) => Number(scores[id]) === 20);
 }
 
 export function hasAllStationTpsAt20(profile) {
-  if (!profile || !profile.grades || typeof profile.grades !== 'object') return false;
-  return ALL_TP_IDS.every((id) => Number(profile.grades[id]) >= 20);
+  return hasAllTpsAt20(profile);
 }
 
 export function formatCelebrationBanner(playerName, rawTpLabel) {
@@ -424,6 +424,7 @@ export function attachWsHub(httpServer, store) {
       room: targetRoom,
       playerId: winnerId,
       playerName,
+      reason: opts.reason || 'all_tps_20',
       winnerSpot: layout.winnerSpot
     });
 
@@ -453,14 +454,26 @@ export function attachWsHub(httpServer, store) {
     const playerId = targetPeer?.state?.id || targetId || null;
     const baseSkin = targetPeer?.state?.skin || sanitizeSkin(opts.skin || null);
     const sessionSkin = applySessionDivineSkin(baseSkin, spec.id);
-    const persistedProfile = store.unlockDivineSkin
-      ? store.unlockDivineSkin(playerName, spec.id, true)
-      : null;
+    const currentProfile = store.getPublicProfile(playerName.toLowerCase());
+    const canUnlockCreator =
+      activeCeleb?.reason === 'creator' && isCreatorPseudo(playerName);
+    const hasAll20 = hasAllTpsAt20(currentProfile);
+    const canPersist = hasAll20 || canUnlockCreator;
+    const persistedProfile =
+      canPersist && store.unlockDivineSkin
+        ? store.unlockDivineSkin(playerName, spec.id, true, { allowCreator: canUnlockCreator })
+        : null;
+    const isPersisted = Boolean(
+      persistedProfile &&
+        Array.isArray(persistedProfile.unlockedDivineSkins) &&
+        persistedProfile.unlockedDivineSkins.includes(spec.id)
+    );
+    const activeSkin = isPersisted ? persistedProfile.skin : sessionSkin;
 
     if (targetPeer?.state) {
-      targetPeer.state.skin = persistedProfile?.skin || sessionSkin;
+      targetPeer.state.skin = activeSkin;
       targetPeer.state.color = spec.primaryColor;
-      if (persistedProfile && targetPeer.sock?.readyState === 1) {
+      if (isPersisted && targetPeer.sock?.readyState === 1) {
         targetPeer.sock.send(
           JSON.stringify({
             type: 'profile_updated',
@@ -476,9 +489,11 @@ export function attachWsHub(httpServer, store) {
           name: targetPeer.state.name,
           skin: targetPeer.state.skin,
           color: targetPeer.state.color,
-          unlockedDivineSkins: persistedProfile?.unlockedDivineSkins || [spec.id],
-          selectedSkin: spec.id,
-          persisted: true
+          unlockedDivineSkins: isPersisted
+            ? persistedProfile.unlockedDivineSkins
+            : currentProfile?.unlockedDivineSkins || [],
+          selectedSkin: isPersisted ? spec.id : currentProfile?.selectedSkin || 'standard',
+          persisted: isPersisted
         },
         null
       );
@@ -497,11 +512,13 @@ export function attachWsHub(httpServer, store) {
       icon: spec.icon,
       tpChosen: spec.label,
       bannerText,
-      skin: persistedProfile?.skin || sessionSkin,
-      unlockedDivineSkins: persistedProfile?.unlockedDivineSkins || [spec.id],
-      selectedSkin: spec.id,
-      persisted: true,
-      sessionOnly: false,
+      skin: activeSkin,
+      unlockedDivineSkins: isPersisted
+        ? persistedProfile.unlockedDivineSkins
+        : currentProfile?.unlockedDivineSkins || [],
+      selectedSkin: isPersisted ? spec.id : currentProfile?.selectedSkin || 'standard',
+      persisted: isPersisted,
+      sessionOnly: !isPersisted,
       levitationDurationMs: 3800,
       applaudDurationMs: 8000,
       durationMs: 8000,
@@ -569,14 +586,13 @@ export function attachWsHub(httpServer, store) {
     );
 
     const allTps20 = hasAllTpsAt20(result.profile);
-    const allStationTps20 = hasAllStationTpsAt20(result.profile);
-    if (allTps20 || allStationTps20 || Number(result.score) >= 20) {
+    if (allTps20 && result.firstTimeAllAt20) {
       broadcastCelebrationInRoom(state.room, {
         playerId: state.id,
         playerName: state.name,
         tpId,
         tpLabel,
-        reason: allTps20 || allStationTps20 ? 'all_tps_20' : 'tp_20'
+        reason: 'all_tps_20'
       });
     }
 
@@ -586,7 +602,7 @@ export function attachWsHub(httpServer, store) {
         system: true,
         author: 'Professeur CIEL',
         text:
-          allTps20 || allStationTps20
+          allTps20 && result.firstTimeAllAt20
             ? `🏆 20/20 INTÉGRAL ! ${state.name} a validé tous les TPs à 20/20 et accède à la Cérémonie d'Ascension !`
             : Number(result.score) >= 20
               ? `🏆 EXPLOIT PARFAIT ! ${state.name} vient de décrocher 20/20 au ${tpLabel} !`
@@ -857,8 +873,7 @@ export function attachWsHub(httpServer, store) {
           if (!state.name) return;
           const allowed =
             isCreatorPseudo(state.name) ||
-            isPrivateDebugRoom(state.room) ||
-            Boolean(msg.debug);
+            isPrivateDebugRoom(state.room);
           if (!allowed) return;
           const tpId = msg.tpId && ALL_TP_IDS.includes(msg.tpId) ? msg.tpId : 'oscilloscope';
           broadcastCelebrationInRoom(state.room, {
@@ -876,6 +891,14 @@ export function attachWsHub(httpServer, store) {
         case 'celebration_choice': {
           if (!state.name) return;
           const activeCeleb = roomCelebrations.get(state.room);
+          if (!activeCeleb) {
+            const currentProfile = store.getPublicProfile(state.name.toLowerCase());
+            const canAscendDirectly =
+              hasAllTpsAt20(currentProfile) ||
+              isCreatorPseudo(state.name) ||
+              isPrivateDebugRoom(state.room);
+            if (!canAscendDirectly) return;
+          }
           const isWinner =
             !activeCeleb ||
             activeCeleb.playerId === state.id ||
@@ -883,8 +906,7 @@ export function attachWsHub(httpServer, store) {
           const allowed =
             isWinner ||
             isCreatorPseudo(state.name) ||
-            isPrivateDebugRoom(state.room) ||
-            Boolean(msg.debug);
+            isPrivateDebugRoom(state.room);
           if (!allowed) return;
           broadcastAscensionInRoom(state.room, {
             celebrationId: msg.celebrationId || activeCeleb?.id,

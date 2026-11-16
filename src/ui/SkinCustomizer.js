@@ -27,8 +27,7 @@ export function renderSkinControls(ids, gameState, onChanged) {
     ...(Array.isArray(gameState.unlockedDivineSkins) ? gameState.unlockedDivineSkins : []),
     ...(Array.isArray(gameState.profile?.unlockedDivineSkins)
       ? gameState.profile.unlockedDivineSkins
-      : []),
-    ...(skin?.divineSpecialty ? [skin.divineSpecialty] : [])
+      : [])
   ]);
 
   const divineElId = ids.divine || (ids.style === 'hud-skin-style-list' ? 'hud-skin-divine-list' : 'skin-divine-list');

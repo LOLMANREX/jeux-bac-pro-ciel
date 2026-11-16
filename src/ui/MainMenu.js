@@ -1,4 +1,5 @@
 import { sfx } from '../core/audio.js';
+import { getAllTps } from '../core/gameState.js';
 import { DEFAULT_ROOM } from '../core/network.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 
@@ -209,12 +210,11 @@ export class MainMenu {
         this.connectedUsernameEl.textContent = acc.username;
       }
       if (this.connectedMetaEl) {
+        const allTps = getAllTps();
         const grades = this.gameState.profile?.grades || acc.tpScores || {};
-        const tps20 = ['oscilloscope', 'soldering', 'electronics', 'antivirus', 'vmvlan'].filter(
-          (id) => Number(grades[id]) >= 20
-        ).length;
+        const tps20 = allTps.filter((tp) => Number(grades[tp.id]) === 20).length;
         const divines = (this.gameState.unlockedDivineSkins || []).length;
-        this.connectedMetaEl.textContent = `🏆 ${tps20}/5 TP à 20/20 • ⚡ ${divines} Skin(s) Divin(s)`;
+        this.connectedMetaEl.textContent = `🏆 ${tps20}/${allTps.length} TP à 20/20 • ⚡ ${divines} Skin(s) Divin(s)`;
       }
     }
   }
@@ -342,12 +342,14 @@ export class MainMenu {
     this.authBusy = true;
     this.showAuthFeedback('Création de votre compte élève...', 'info');
     try {
+      const cleanCustomSkin = { ...this.gameState.skin };
+      delete cleanCustomSkin.divineSpecialty;
       const res = await this.network.registerAccount({
         username,
         password,
         confirmPassword,
-        avatarCustomization: this.gameState.skin,
-        selectedSkin: this.gameState.skin?.divineSpecialty || 'standard'
+        avatarCustomization: cleanCustomSkin,
+        selectedSkin: 'standard'
       });
       if (!res.ok || !res.account) {
         this.showAuthFeedback(res.error || 'Impossible de créer le compte.', 'error');

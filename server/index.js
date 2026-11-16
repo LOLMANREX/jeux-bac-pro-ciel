@@ -4,7 +4,14 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { GameStore, MapStore, ALL_TP_IDS, TP_IDS, TP_LABELS } from './store.js';
+import {
+  GameStore,
+  MapStore,
+  ALL_TP_IDS,
+  TP_IDS,
+  TP_LABELS,
+  hasAllTpsAt20InScores
+} from './store.js';
 import { attachWsHub, isCreatorPseudo, isPrivateDebugRoom } from './wsHub.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -159,6 +166,7 @@ export function createGameServer(options = {}) {
       playersOnline: wsHub.getOnlineCount(),
       tps: TP_IDS,
       allTps: ALL_TP_IDS,
+      allTpsCount: ALL_TP_IDS.length,
       timestamp: new Date().toISOString()
     });
   });
@@ -279,11 +287,11 @@ export function createGameServer(options = {}) {
   app.post('/api/tp', handleRecordTpScore);
 
   app.post('/api/celebration', (req, res) => {
-    const { name, room, tpId, tpLabel, specialty, debug } = req.body || {};
+    const { name, room, tpId, tpLabel, specialty } = req.body || {};
     if (!name) {
       return res.status(400).json({ error: 'Pseudo requis' });
     }
-    if (!isCreatorPseudo(name) && !isPrivateDebugRoom(room) && !debug) {
+    if (!isCreatorPseudo(name) && !isPrivateDebugRoom(room)) {
       return res.status(403).json({ error: 'Pouvoir réservé au Créateur Louis ou au Serveur Privé Debug' });
     }
     const celebration = wsHub.triggerCelebration({
@@ -301,6 +309,16 @@ export function createGameServer(options = {}) {
     const { name, room, specialty, celebrationId } = req.body || {};
     if (!name) {
       return res.status(400).json({ error: 'Pseudo requis' });
+    }
+    const existingProfile = store.getPublicProfile(name.toLowerCase());
+    const canAscend =
+      hasAllTpsAt20InScores(existingProfile?.grades || {}) ||
+      isCreatorPseudo(name) ||
+      isPrivateDebugRoom(room);
+    if (!canAscend) {
+      return res.status(403).json({
+        error: 'Ascension réservée aux élèves ayant obtenu 20/20 sur tous les TPs du jeu.'
+      });
     }
     const ascension = wsHub.triggerAscension({
       playerName: name,
@@ -409,6 +427,7 @@ export function createGameServer(options = {}) {
       accounts,
       total: accounts.length,
       tpIds: TP_IDS,
+      allTpIds: ALL_TP_IDS,
       tpLabels: TP_LABELS
     });
   });
@@ -576,7 +595,10 @@ export function createGameServer(options = {}) {
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 if (isMain) {
   const PORT = Number(process.env.PORT || 3000);
-  const { server } = createGameServer();
+  const { server, store } = createGameServer();
+  if (store.migratedToV411) {
+    console.log('[Atelier CIEL 3D] Migration v4.11 : reset global des comptes, notes et skins divins effectué.');
+  }
   server.listen(PORT, () => {
     console.log(`[Atelier CIEL 3D] Serveur prêt sur http://localhost:${PORT}`);
   });

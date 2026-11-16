@@ -6,6 +6,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { WebSocket } from 'ws';
 import { createGameServer } from '../server/index.js';
+import { ALL_TP_IDS } from '../server/store.js';
 import {
   ASCENSION_SPECIALTIES,
   formatAscensionBanner,
@@ -17,6 +18,11 @@ import {
   resolveAscensionSpecialty
 } from '../server/wsHub.js';
 import { buildPrivateDebugUrl, requestPrivateDebugSession } from '../src/admin.js';
+import {
+  GameState,
+  getAllTps,
+  hasAllTpsAt20 as clientHasAllTpsAt20
+} from '../src/core/gameState.js';
 import { APP_VERSION, CHANGELOG_RELEASES } from '../src/ui/ChangelogModal.js';
 import {
   formatAscensionBanner as formatHudAscensionBanner,
@@ -157,6 +163,10 @@ test('v4.8 : Cinématique d’Ascension Dieu du Bac Pro CIEL rassemble la classe
     ws2.send(JSON.stringify({ type: 'join', name: 'BobSpectateur', room: 'plateau-u300' }));
     await w2P;
 
+    for (const tpId of ALL_TP_IDS.filter((id) => id !== 'oscilloscope')) {
+      store.recordTpScore('Alice20', tpId, 20, 40);
+    }
+
     const c1CelebP = waitForWsMsg(ws1, (m) => m.type === 'world_celebration');
     const c2CelebP = waitForWsMsg(ws2, (m) => m.type === 'world_celebration');
     ws1.send(
@@ -169,6 +179,7 @@ test('v4.8 : Cinématique d’Ascension Dieu du Bac Pro CIEL rassemble la classe
     );
 
     const [celeb1, celeb2] = await Promise.all([c1CelebP, c2CelebP]);
+    assert.equal(celeb1.reason, 'all_tps_20');
     assert.equal(celeb1.cinematic, 'ascension_20');
     assert.equal(celeb1.phase, 'dialogue');
     assert.equal(celeb1.playerId, w1.id);
@@ -423,8 +434,9 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
   try {
     assert.equal(fs.existsSync(accountsPath), true);
     const initialRaw = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
-    assert.equal(initialRaw.version, '4.9');
+    assert.equal(initialRaw.version, '4.11');
     assert.equal(initialRaw.resetDone, true);
+    assert.equal(initialRaw.resetV411Done, true);
     assert.deepEqual(initialRaw.accounts, []);
     assert.equal(store.getAllPlayers().length, 0);
 
@@ -512,7 +524,11 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
           soldering: 20,
           electronics: 20,
           antivirus: 20,
-          vmvlan: 20
+          vmvlan: 20,
+          patchrack: 20,
+          hardware: 20,
+          audiovisual: 20,
+          studio: 20
         },
         unlockedDivineSkins: ['cyber', 'reseaux'],
         selectedSkin: 'cyber',
@@ -528,7 +544,7 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
     });
     assert.equal(saveRes.status, 200);
     const saveData = await saveRes.json();
-    assert.equal(saveData.account.tpsAt20Count, 5);
+    assert.equal(saveData.account.tpsAt20Count, ALL_TP_IDS.length);
     assert.deepEqual(saveData.account.unlockedDivineSkins, ['cyber', 'reseaux']);
     assert.equal(saveData.account.selectedSkin, 'cyber');
     assert.equal(saveData.account.avatarCustomization.divineSpecialty, 'cyber');
@@ -560,7 +576,7 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
     assert.equal(adminAccountsData.total, 1);
     assert.equal(adminAccountsData.accounts[0].username, 'Lucas_CIEL');
     assert.equal(adminAccountsData.accounts[0].password, 'SecretPassword42');
-    assert.equal(adminAccountsData.accounts[0].tpsAt20Count, 5);
+    assert.equal(adminAccountsData.accounts[0].tpsAt20Count, ALL_TP_IDS.length);
     assert.deepEqual(adminAccountsData.accounts[0].unlockedDivineSkins, ['cyber', 'reseaux']);
 
     const pwChangeRes = await fetch(`${baseUrl}/api/admin/accounts/Lucas_CIEL/password`, {
@@ -626,11 +642,11 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
   }
 });
 
-test('v4.10 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
-  assert.ok(APP_VERSION.startsWith('v4.10'));
-  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.10'));
+test('v4.11 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
+  assert.ok(APP_VERSION.startsWith('v4.11'));
+  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.11'));
   assert.equal(CHANGELOG_RELEASES[0].tag, 'DERNIÈRE MÀJ');
-  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.9'));
+  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.10'));
   assert.equal(CHANGELOG_RELEASES[1].tag, 'HISTORIQUE');
 
   const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
@@ -751,7 +767,7 @@ test('v4.10 : Sauvegarde TPs Audiovisuel (audiovisual & studio) dans accounts.js
     wsStudent.send(JSON.stringify({ type: 'join', name: 'Av_Student', room: 'priv-debug-av' }));
     await welcomeP;
 
-    const celebP = waitForWsMsg(wsStudent, (m) => m.type === 'world_celebration');
+    const noCelebOnPartialP = assertNoWsMsg(wsStudent, (m) => m.type === 'world_celebration');
     const submittedP = waitForWsMsg(wsStudent, (m) => m.type === 'score_recorded');
     wsStudent.send(
       JSON.stringify({
@@ -762,9 +778,9 @@ test('v4.10 : Sauvegarde TPs Audiovisuel (audiovisual & studio) dans accounts.js
       })
     );
     const subMsg = await submittedP;
-    const celebMsg = await celebP;
+    await noCelebOnPartialP;
     assert.equal(subMsg.profile.grades.studio, 20);
-    assert.equal(celebMsg.tpId, 'studio');
+    assert.deepEqual(subMsg.profile.unlockedDivineSkins, []);
 
     const validateAllCelebP = waitForWsMsg(wsStudent, (m) => m.type === 'world_celebration');
     const dbgResultP = waitForWsMsg(
@@ -787,6 +803,292 @@ test('v4.10 : Sauvegarde TPs Audiovisuel (audiovisual & studio) dans accounts.js
     wsStudent?.close();
     wsHub.close();
     await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('v4.11 : 20/20 sur un seul TP ne débloque PAS de skin divin ni la cinématique — seuls tous les TPs à 20/20 le permettent', async () => {
+  const allTps = getAllTps();
+  assert.equal(allTps.length, ALL_TP_IDS.length);
+  for (const id of [
+    'oscilloscope',
+    'soldering',
+    'electronics',
+    'antivirus',
+    'vmvlan',
+    'patchrack',
+    'hardware',
+    'audiovisual',
+    'studio'
+  ]) {
+    assert.ok(allTps.some((tp) => tp.id === id), `TP manquant dans getAllTps: ${id}`);
+  }
+
+  assert.equal(clientHasAllTpsAt20({ oscilloscope: 20 }, allTps), false);
+  assert.equal(
+    clientHasAllTpsAt20(
+      { oscilloscope: 20, soldering: 20, electronics: 20, antivirus: 20, vmvlan: 20 },
+      allTps
+    ),
+    false
+  );
+  const fullScores = Object.fromEntries(allTps.map((tp) => [tp.id, 20]));
+  assert.equal(clientHasAllTpsAt20(fullScores, allTps), true);
+
+  const gs = new GameState();
+  gs.equipDivineSkin('cyber');
+  assert.deepEqual(gs.unlockedDivineSkins, []);
+  assert.equal(gs.selectedSkin, 'standard');
+  assert.equal(gs.skin.divineSpecialty, undefined);
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-v411-strict-'));
+  const accountsPath = path.join(tmpDir, 'accounts.json');
+  const { server, wsHub } = createGameServer({ accountsPath });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const wsUrl = `ws://127.0.0.1:${port}/ws`;
+
+  let wsEleve = null;
+
+  try {
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'EleveTest20',
+        password: 'Password2026',
+        confirmPassword: 'Password2026'
+      })
+    });
+    assert.equal(regRes.status, 201);
+    const regData = await regRes.json();
+
+    wsEleve = new WebSocket(wsUrl);
+    await new Promise((r) => wsEleve.once('open', r));
+    const welcomeP = waitForWsMsg(wsEleve, (m) => m.type === 'welcome');
+    wsEleve.send(JSON.stringify({ type: 'join', name: 'EleveTest20', room: 'plateau-u300' }));
+    await welcomeP;
+
+    const noCelebSingleP = assertNoWsMsg(wsEleve, (m) => m.type === 'world_celebration');
+    const noAscSingleP = assertNoWsMsg(wsEleve, (m) => m.type === 'world_ascension');
+    const singleScoreP = waitForWsMsg(wsEleve, (m) => m.type === 'score_recorded');
+    wsEleve.send(
+      JSON.stringify({
+        type: 'submit_score',
+        tpId: 'oscilloscope',
+        score: 20,
+        durationSec: 40
+      })
+    );
+    const singleScore = await singleScoreP;
+    await noCelebSingleP;
+    await noAscSingleP;
+    assert.equal(singleScore.score, 20);
+    assert.equal(singleScore.allTpsAt20, false);
+    assert.equal(singleScore.firstTimeAllAt20, false);
+    assert.deepEqual(singleScore.profile.unlockedDivineSkins, []);
+    assert.equal(singleScore.profile.selectedSkin, 'standard');
+
+    const forgedSaveRes = await fetch(`${baseUrl}/api/account/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${regData.token}`
+      },
+      body: JSON.stringify({
+        tpScores: { oscilloscope: 20, antivirus: 20 },
+        unlockedDivineSkins: ['cyber', 'reseaux'],
+        unlockDivineSkin: 'cyber',
+        selectedSkin: 'cyber',
+        avatarCustomization: {
+          outfitColor: '#f43f5e',
+          outfitStyle: 'cyber',
+          hat: 'headset',
+          skinTone: '#f1c29b',
+          pantsColor: '#1d4ed8',
+          divineSpecialty: 'cyber'
+        }
+      })
+    });
+    assert.equal(forgedSaveRes.status, 200);
+    const forgedSaveData = await forgedSaveRes.json();
+    assert.deepEqual(forgedSaveData.account.unlockedDivineSkins, []);
+    assert.equal(forgedSaveData.account.selectedSkin, 'standard');
+    assert.equal(forgedSaveData.account.avatarCustomization.divineSpecialty, undefined);
+
+    const forgedAscendRes = await fetch(`${baseUrl}/api/celebration/ascend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'EleveTest20',
+        room: 'plateau-u300',
+        specialty: 'cyber'
+      })
+    });
+    assert.equal(forgedAscendRes.status, 403);
+
+    const noAscSpoofP = assertNoWsMsg(wsEleve, (m) => m.type === 'world_ascension');
+    wsEleve.send(JSON.stringify({ type: 'ascension_choice', specialty: 'cyber' }));
+    await noAscSpoofP;
+
+    const remainingExceptLast = ALL_TP_IDS.filter(
+      (id) => id !== 'oscilloscope' && id !== 'antivirus' && id !== 'studio'
+    );
+    for (const tpId of remainingExceptLast) {
+      const noCelebP = assertNoWsMsg(wsEleve, (m) => m.type === 'world_celebration', 80);
+      const recP = waitForWsMsg(wsEleve, (m) => m.type === 'score_recorded' && m.tpId === tpId);
+      wsEleve.send(
+        JSON.stringify({
+          type: 'submit_score',
+          tpId,
+          score: 20,
+          durationSec: 42
+        })
+      );
+      const rec = await recP;
+      await noCelebP;
+      assert.equal(rec.allTpsAt20, false);
+      assert.deepEqual(rec.profile.unlockedDivineSkins, []);
+    }
+
+    const finalCelebP = waitForWsMsg(wsEleve, (m) => m.type === 'world_celebration');
+    const finalRecP = waitForWsMsg(wsEleve, (m) => m.type === 'score_recorded' && m.tpId === 'studio');
+    wsEleve.send(
+      JSON.stringify({
+        type: 'submit_score',
+        tpId: 'studio',
+        score: 20,
+        durationSec: 55
+      })
+    );
+    const [finalRec, finalCeleb] = await Promise.all([finalRecP, finalCelebP]);
+    assert.equal(finalRec.allTpsAt20, true);
+    assert.equal(finalRec.firstTimeAllAt20, true);
+    assert.equal(finalCeleb.reason, 'all_tps_20');
+    assert.equal(finalCeleb.cinematic, 'ascension_20');
+
+    const ascP = waitForWsMsg(wsEleve, (m) => m.type === 'world_ascension');
+    wsEleve.send(
+      JSON.stringify({
+        type: 'ascension_choice',
+        specialty: 'electronique',
+        celebrationId: finalCeleb.id
+      })
+    );
+    const ascMsg = await ascP;
+    assert.equal(ascMsg.specialty, 'electronique');
+    assert.equal(ascMsg.persisted, true);
+    assert.deepEqual(ascMsg.unlockedDivineSkins, ['electronique']);
+
+    const noReplayCelebP = assertNoWsMsg(wsEleve, (m) => m.type === 'world_celebration');
+    const replayRecP = waitForWsMsg(wsEleve, (m) => m.type === 'score_recorded' && m.tpId === 'oscilloscope');
+    wsEleve.send(
+      JSON.stringify({
+        type: 'submit_score',
+        tpId: 'oscilloscope',
+        score: 20,
+        durationSec: 35
+      })
+    );
+    const replayRec = await replayRecP;
+    await noReplayCelebP;
+    assert.equal(replayRec.firstTimeAllAt20, false);
+
+    const diskAfter = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+    assert.deepEqual(diskAfter.accounts[0].unlockedDivineSkins, ['electronique']);
+    assert.equal(diskAfter.accounts[0].selectedSkin, 'electronique');
+  } finally {
+    wsEleve?.close();
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('v4.11 : Reset global unique au démarrage de accounts.json hérité sans effacer les comptes aux redémarrages suivants', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-v411-migration-'));
+  const accountsPath = path.join(tmpDir, 'accounts.json');
+
+  fs.writeFileSync(
+    accountsPath,
+    JSON.stringify({
+      version: '4.9',
+      resetDone: true,
+      accounts: [
+        {
+          id: 'acc_legacy1',
+          username: 'AncienEleveBugge',
+          password: 'OldPassword',
+          tpScores: { oscilloscope: 20 },
+          unlockedDivineSkins: ['cyber'],
+          selectedSkin: 'cyber',
+          avatarCustomization: {
+            outfitColor: '#f43f5e',
+            outfitStyle: 'cyber',
+            hat: 'glasses',
+            skinTone: '#f1c29b',
+            pantsColor: '#1e293b',
+            divineSpecialty: 'cyber'
+          }
+        }
+      ],
+      suggestions: [
+        {
+          id: 'sug_1',
+          author: 'Prof',
+          message: 'Garder les suggestions',
+          createdAt: '2026-11-16T10:00:00.000Z'
+        }
+      ],
+      pigeons: []
+    }),
+    'utf8'
+  );
+
+  const srv1 = createGameServer({ accountsPath });
+  await new Promise((resolve) => srv1.server.listen(0, resolve));
+  const port1 = srv1.server.address().port;
+  const baseUrl1 = `http://127.0.0.1:${port1}`;
+
+  try {
+    assert.equal(srv1.store.migratedToV411, true);
+    assert.equal(srv1.store.getAllAccounts().length, 0);
+    assert.equal(srv1.store.getAllPlayers().length, 0);
+    assert.equal(srv1.store.getSuggestions().length, 1);
+
+    const diskMigrated = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+    assert.equal(diskMigrated.version, '4.11');
+    assert.equal(diskMigrated.resetV411Done, true);
+    assert.deepEqual(diskMigrated.accounts, []);
+
+    const regRes = await fetch(`${baseUrl1}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'NouveauEleveV411',
+        password: 'CleanPassword411',
+        confirmPassword: 'CleanPassword411'
+      })
+    });
+    assert.equal(regRes.status, 201);
+  } finally {
+    srv1.wsHub.close();
+    await new Promise((resolve) => srv1.server.close(resolve));
+  }
+
+  const srv2 = createGameServer({ accountsPath });
+  await new Promise((resolve) => srv2.server.listen(0, resolve));
+
+  try {
+    assert.equal(srv2.store.migratedToV411, false);
+    const allAfterRestart = srv2.store.getAllAccounts();
+    assert.equal(allAfterRestart.length, 1);
+    assert.equal(allAfterRestart[0].username, 'NouveauEleveV411');
+    assert.deepEqual(allAfterRestart[0].unlockedDivineSkins, []);
+  } finally {
+    srv2.wsHub.close();
+    await new Promise((resolve) => srv2.server.close(resolve));
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

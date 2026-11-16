@@ -3,7 +3,15 @@ import './styles/minigames.css';
 
 import * as THREE from 'three';
 import { sfx } from './core/audio.js';
-import { GameState, getTpById, getStationById, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from './core/gameState.js';
+import {
+  GameState,
+  getAllTps,
+  getTpById,
+  getStationById,
+  hasAllTpsAt20,
+  QUICK_EMOTES,
+  TP_CATALOG
+} from './core/gameState.js';
 import { NetworkClient } from './core/network.js';
 import { SceneManager, computeAscensionGatheringLayout, pickLabInteractable } from './world/SceneManager.js';
 import {
@@ -25,6 +33,7 @@ import {
   buildStudentAvatarMesh,
   createVoiceIndicatorSprite,
   disposeObject3D,
+  isCreatorLouis,
   resolveAscensionSpecialty,
   updateVoiceIndicatorSprite
 } from './world/AvatarBuilder.js';
@@ -64,6 +73,10 @@ const MINIGAME_FACTORIES = {
   audiovisual: createDmxLightingGame,
   studio: createStudioRegieGame
 };
+
+function getDynamicAllTps() {
+  return getAllTps().filter((item) => Boolean(MINIGAME_FACTORIES[item.id]));
+}
 
 const extraStationGrades = {};
 
@@ -327,16 +340,26 @@ function runAscensionPhase(payload = {}) {
   sfx.playAscensionFanfare(spec.id);
 
   if (isWinner) {
+    const allTps = getDynamicAllTps();
+    const allTpsAt20 = hasAllTpsAt20(gameState.profile.grades, allTps);
+    const canUnlock =
+      allTpsAt20 || (Boolean(payload.persisted) && isCreatorLouis(gameState.profile.name));
     sessionDivineSpecialty = spec.id;
-    gameState.unlockDivineSkin(spec.id, true);
-    rebuildLocalAvatar(gameState.skin);
-    mainMenu?.renderSkinUi?.();
-    network.saveAccount({
-      tpScores: gameState.profile.grades,
-      unlockedDivineSkins: gameState.unlockedDivineSkins,
-      selectedSkin: spec.id,
-      avatarCustomization: gameState.skin
-    });
+    if (canUnlock) {
+      gameState.unlockDivineSkin(spec.id, true);
+      rebuildLocalAvatar(gameState.skin);
+      mainMenu?.renderSkinUi?.();
+      if (allTpsAt20) {
+        network.saveAccount({
+          tpScores: gameState.profile.grades,
+          unlockedDivineSkins: gameState.unlockedDivineSkins,
+          selectedSkin: spec.id,
+          avatarCustomization: gameState.skin
+        });
+      }
+    } else {
+      rebuildLocalAvatar(gameState.skin);
+    }
     if (localAvatar?.group) {
       localAvatar.group.visible = true;
     }
@@ -677,6 +700,8 @@ async function openTp(tpId, stationItem = null) {
       const safeScore = Number.isFinite(Number(score))
         ? Math.max(0, Math.min(20, Math.round(Number(score) * 10) / 10))
         : 0;
+      const allTps = getDynamicAllTps();
+      const wasAllAt20 = hasAllTpsAt20(gameState.profile.grades, allTps);
       const p = { ...gameState.profile, grades: { ...gameState.profile.grades } };
       const prev = typeof p.grades[doneId] === 'number' ? p.grades[doneId] : -1;
       if (safeScore > prev) p.grades[doneId] = safeScore;
@@ -689,8 +714,9 @@ async function openTp(tpId, stationItem = null) {
       gameState.setProfile(p);
       lab.updateStationBadges(p.grades);
 
-      const allCoreAt20 = TP_CATALOG.every((item) => Number(p.grades[item.id]) >= 20);
-      const allStationsAt20 = [...TP_CATALOG, ...EXTRA_STATIONS].every((item) => Number(p.grades[item.id]) >= 20);
+      const allTpsAt20 = hasAllTpsAt20(p.grades, allTps);
+      const firstTimeAllAt20 =
+        !wasAllAt20 && allTpsAt20 && gameState.unlockedDivineSkins.length === 0;
       network.submitScore(gameState.profile.name, doneId, safeScore, durationSec, gameState.skin);
       network.saveAccount({
         tpScores: p.grades,
@@ -698,16 +724,21 @@ async function openTp(tpId, stationItem = null) {
         selectedSkin: gameState.skin?.divineSpecialty || 'standard',
         avatarCustomization: gameState.skin
       });
-      if ((allCoreAt20 || allStationsAt20 || safeScore >= 20) && !network.connected) {
+      if (firstTimeAllAt20 && !network.connected) {
         runWorldCelebration({
           playerName: gameState.profile.name,
           tpId: doneId,
           tpLabel: tp.title || tp.shortTitle,
-          reason: allCoreAt20 ? 'all_tps_20' : 'tp_20'
+          reason: 'all_tps_20'
         });
       }
       setTimeout(() => refreshWallLeaderboard(), 420);
-      if (!getTpById(doneId)) {
+      if (safeScore === 20 && !allTpsAt20) {
+        hud.toast(
+          `🏆 20/20 obtenu sur ${tp.shortTitle} ! Validez les ${allTps.length} TPs à 20/20 pour l'Ascension.`,
+          'success'
+        );
+      } else if (!getTpById(doneId)) {
         hud.toast(`${tp.icon} Atelier ${tp.shortTitle} validé (${safeScore.toFixed(1)}/20) !`, safeScore >= 10 ? 'success' : 'info');
       }
     },
@@ -897,11 +928,8 @@ hud = new HudManager(gameState, network, {
   },
   onDebugValidateAll: () => {
     const nextGrades = { ...gameState.profile.grades };
-    TP_CATALOG.forEach((tp) => {
+    getDynamicAllTps().forEach((tp) => {
       nextGrades[tp.id] = 20;
-    });
-    EXTRA_STATIONS.forEach((st) => {
-      nextGrades[st.id] = 20;
     });
     const nextProfile = {
       ...gameState.profile,

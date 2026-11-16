@@ -303,10 +303,11 @@ function renderAccountsTable() {
       const lowerKey = acc.username.toLowerCase();
       const isPwVisible = allPasswordsRevealed || revealedPasswords.has(lowerKey);
       const pwDisplay = isPwVisible ? escapeHtml(acc.password) : '••••••••';
+      const allTpTotal = Math.max(1, Number(acc.allTpsTotal) || 9);
       const tps20 =
         typeof acc.tpsAt20Count === 'number'
           ? acc.tpsAt20Count
-          : TP_CATALOG.filter((tp) => Number(acc.tpScores?.[tp.id]) >= 20).length;
+          : Object.values(acc.tpScores || {}).filter((v) => Number(v) === 20).length;
       const avgTxt = typeof acc.average === 'number' ? `${acc.average.toFixed(1)}/20` : '--/20';
 
       const divineList = Array.isArray(acc.unlockedDivineSkins) ? acc.unlockedDivineSkins : [];
@@ -368,7 +369,7 @@ function renderAccountsTable() {
           <td>
             <div class="acc-prog-cell">
               <div class="acc-prog-top">
-                <span class="tps20-pill ${tps20 >= 5 ? 'full' : ''}">🏆 ${tps20} / 5 TPs à 20/20</span>
+                <span class="tps20-pill ${tps20 >= allTpTotal ? 'full' : ''}">🏆 ${tps20} / ${allTpTotal} TPs à 20/20</span>
                 <span class="player-sub">Moy. ${avgTxt}</span>
               </div>
               <div class="divine-badges-row">${divineHtml}</div>
