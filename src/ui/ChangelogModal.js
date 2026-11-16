@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.9 - Système de Comptes Élèves, Persistance des Skins Divins & Gestion Admin';
+    : 'v4.10 - Refonte Complète & Correction des TPs Audiovisuel';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.9 — Système de Comptes Élèves, Persistance des Skins Divins & Gestion Admin',
+    version: 'v4.10 — Refonte Complète & Correction des TPs Audiovisuel',
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Audit et refonte complète du raycasting 3D et des interactions audiovisuelles sur le plateau (pickLabInteractable avec occultation par murs pleins, surbrillance sans mutation des matériaux partagés, halo au sol, visée pointeur verrouillé et libre, équipements U303/U304 interactifs et synchronisation VR WebXR complète sans état bloqué).',
+      'Refonte complète des TPs DMX Lighting 3D (chaînage XLR DMX512 dans l’ordre avec bouchon 120 Ω, écrans OLED avant/arrière + boutons -1/+1 VR-ready, faders inclinés fluides 20/20 garanti) et Studio Régie Vidéo/Son 3D (patch 3 liaisons SDI/XLR obligatoires avant signal, balance des blancs & éclairage 3D dynamique, mixage +48V/HPF/-12 dBFS sans NaN, réalisation ATEM Cut/Take et conseils contextuels du Professeur CIEL).',
+      'Nouveaux retours sonores synthétisés Web Audio API dédiés à l’audiovisuel (sélection/verrouillage XLR & SDI, bip d’adressage DMX, crans de faders, +48V, Cut ATEM et validation d’étape) et panneaux latéraux foncés haute lisibilité (.av-*).',
+      'Persistance réseau sécurisée des notes audiovisuelles dans server/data/accounts.json (protection anti-NaN/undefined/hors-bornes côté client et serveur), affichage des notes obtenues sur l’accès rapide du HUD, déclenchement cohérent de l’Ascension « Dieu du Bac Pro CIEL » et validation 20/20 via le mode Serveur Privé Debug.'
+    ]
+  },
+  {
+    version: 'v4.9 — Système de Comptes Élèves, Persistance des Skins Divins & Gestion Admin',
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Stockage dédié des comptes dans server/data/accounts.json et remise à zéro initiale des anciens profils afin de repartir sur une base 100 % liée aux comptes élèves (id, username unique insensible à la casse, password récupérable, createdAt, tpScores, unlockedDivineSkins, selectedSkin, avatarCustomization).',
       'Nouvelle interface d’authentification à deux onglets sur l’accueil (« Connexion » et « Créer un compte ») reliée aux routes sécurisées POST /api/auth/register, POST /api/auth/login, GET /api/auth/me et POST /api/account/save.',

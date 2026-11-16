@@ -789,10 +789,13 @@ export class GameStore {
     }
 
     if (payload.tpId && ALL_TP_IDS.includes(payload.tpId) && payload.score !== undefined) {
-      const val = Math.max(0, Math.min(20, Math.round(Number(payload.score) * 10) / 10));
-      const prev = typeof account.tpScores[payload.tpId] === 'number' ? account.tpScores[payload.tpId] : -1;
-      if (val > prev) {
-        account.tpScores[payload.tpId] = val;
+      const parsedScore = Number(payload.score);
+      if (Number.isFinite(parsedScore)) {
+        const val = Math.max(0, Math.min(20, Math.round(parsedScore * 10) / 10));
+        const prev = typeof account.tpScores[payload.tpId] === 'number' ? account.tpScores[payload.tpId] : -1;
+        if (val > prev) {
+          account.tpScores[payload.tpId] = val;
+        }
       }
     }
 
@@ -1041,7 +1044,10 @@ export class GameStore {
     this.getOrCreatePlayer(name, rawSkin);
     const player = this._normalizePlayer(this.data.players[key], name);
 
-    const score = Math.max(0, Math.min(20, Math.round(Number(rawScore) * 10) / 10));
+    const parsedScore = Number(rawScore);
+    const score = Number.isFinite(parsedScore)
+      ? Math.max(0, Math.min(20, Math.round(parsedScore * 10) / 10))
+      : 0;
     const prevScore = typeof player.grades[tpId] === 'number' ? player.grades[tpId] : 0;
     const isNewBest = score > prevScore || typeof player.grades[tpId] !== 'number';
 

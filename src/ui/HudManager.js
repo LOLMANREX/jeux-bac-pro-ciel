@@ -738,7 +738,10 @@ export class HudManager {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-quick';
-      btn.textContent = `${tp.icon} ${tp.shortTitle}${resolveRoomLabel(tp.id)}`;
+      btn.dataset.quickId = tp.id;
+      const baseLabel = `${tp.icon} ${tp.shortTitle}${resolveRoomLabel(tp.id)}`;
+      btn.dataset.baseLabel = baseLabel;
+      btn.textContent = baseLabel;
       btn.addEventListener('click', () => {
         sfx.click();
         this.handlers.onQuickNav?.(tp.id);
@@ -753,7 +756,11 @@ export class HudManager {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-quick';
-      btn.textContent = `${st.icon} ${st.shortTitle}${resolveRoomLabel(st.id)}`;
+      btn.dataset.quickId = st.id;
+      btn.dataset.isExtra = '1';
+      const baseLabel = `${st.icon} ${st.shortTitle}${resolveRoomLabel(st.id)}`;
+      btn.dataset.baseLabel = baseLabel;
+      btn.textContent = baseLabel;
       btn.addEventListener('click', () => {
         sfx.click();
         this.handlers.onQuickNav?.(st.id);
@@ -762,6 +769,24 @@ export class HudManager {
         }
       });
       this.quickNavEl.appendChild(btn);
+    });
+
+    this._syncQuickNavGrades();
+  }
+
+  _syncQuickNavGrades() {
+    if (!this.quickNavEl) return;
+    const grades = this.gameState?.profile?.grades || {};
+    this.quickNavEl.querySelectorAll('[data-quick-id]').forEach((btn) => {
+      const id = btn.dataset.quickId;
+      const g = grades[id];
+      const hasScore = typeof g === 'number' && Number.isFinite(g);
+      const passed = hasScore && g >= 10;
+      btn.classList.toggle('done', passed);
+      const baseLabel = btn.dataset.baseLabel || btn.textContent;
+      if (btn.dataset.isExtra === '1') {
+        btn.textContent = hasScore ? `${baseLabel} • ${g.toFixed(1)}/20` : baseLabel;
+      }
     });
   }
 
@@ -1045,6 +1070,7 @@ export class HudManager {
           <span class="q-score">${typeof g === 'number' ? `${g.toFixed(1)}/20` : '--'}</span>
         </li>`;
     }).join('');
+    this._syncQuickNavGrades();
   }
 
   setNetworkStatus(statusInput, onlineCount) {

@@ -626,10 +626,11 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
   }
 });
 
-test('v4.9 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
-  assert.ok(APP_VERSION.startsWith('v4.9'));
-  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.9'));
+test('v4.10 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
+  assert.ok(APP_VERSION.startsWith('v4.10'));
+  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.10'));
   assert.equal(CHANGELOG_RELEASES[0].tag, 'DERNIÈRE MÀJ');
+  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.9'));
   assert.equal(CHANGELOG_RELEASES[1].tag, 'HISTORIQUE');
 
   const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
@@ -693,4 +694,99 @@ test('v4.9 : DOM index.html, admin.html et ChangelogModal exposent tous les él�
     assert.ok(adminHtml.includes(`id="${id}"`), `ID manquant dans admin.html: ${id}`);
   }
   assert.ok(adminHtml.includes("Comptes Élèves &amp; Récupération d'Accès"));
+});
+
+test('v4.10 : Sauvegarde TPs Audiovisuel (audiovisual & studio) dans accounts.json, célébration 20/20 et validate_all Debug', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-v410-av-'));
+  const accountsPath = path.join(tmpDir, 'accounts.json');
+
+  const { server, wsHub } = createGameServer({ accountsPath });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const wsUrl = `ws://127.0.0.1:${port}/ws`;
+
+  let wsStudent = null;
+
+  try {
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Av_Student',
+        password: 'AudioPassword42',
+        confirmPassword: 'AudioPassword42'
+      })
+    });
+    assert.equal(regRes.status, 201);
+    const regData = await regRes.json();
+
+    const saveRes = await fetch(`${baseUrl}/api/account/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${regData.token}`
+      },
+      body: JSON.stringify({
+        tpScores: {
+          audiovisual: 20,
+          studio: 18.5
+        },
+        tpId: 'studio',
+        score: Number.NaN
+      })
+    });
+    assert.equal(saveRes.status, 200);
+    const saveData = await saveRes.json();
+    assert.equal(saveData.account.tpScores.audiovisual, 20);
+    assert.equal(saveData.account.tpScores.studio, 18.5);
+
+    const onDiskBefore = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+    assert.equal(onDiskBefore.accounts[0].tpScores.audiovisual, 20);
+    assert.equal(onDiskBefore.accounts[0].tpScores.studio, 18.5);
+
+    wsStudent = new WebSocket(wsUrl);
+    await new Promise((r) => wsStudent.once('open', r));
+    const welcomeP = waitForWsMsg(wsStudent, (m) => m.type === 'welcome');
+    wsStudent.send(JSON.stringify({ type: 'join', name: 'Av_Student', room: 'priv-debug-av' }));
+    await welcomeP;
+
+    const celebP = waitForWsMsg(wsStudent, (m) => m.type === 'world_celebration');
+    const submittedP = waitForWsMsg(wsStudent, (m) => m.type === 'score_recorded');
+    wsStudent.send(
+      JSON.stringify({
+        type: 'submit_score',
+        tpId: 'studio',
+        score: 20,
+        durationSec: 85
+      })
+    );
+    const subMsg = await submittedP;
+    const celebMsg = await celebP;
+    assert.equal(subMsg.profile.grades.studio, 20);
+    assert.equal(celebMsg.tpId, 'studio');
+
+    const validateAllCelebP = waitForWsMsg(wsStudent, (m) => m.type === 'world_celebration');
+    const dbgResultP = waitForWsMsg(
+      wsStudent,
+      (m) => m.type === 'profile_updated' && m.profile?.grades?.audiovisual === 20
+    );
+    wsStudent.send(JSON.stringify({ type: 'debug_action', action: 'validate_all' }));
+    const dbgMsg = await dbgResultP;
+    const dbgCeleb = await validateAllCelebP;
+    assert.equal(dbgMsg.profile.grades.audiovisual, 20);
+    assert.equal(dbgMsg.profile.grades.studio, 20);
+    assert.equal(dbgMsg.profile.diplomaEarned, true);
+    assert.equal(dbgCeleb.reason, 'all_tps_20');
+
+    const onDiskAfter = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+    assert.equal(onDiskAfter.accounts[0].tpScores.audiovisual, 20);
+    assert.equal(onDiskAfter.accounts[0].tpScores.studio, 20);
+    assert.equal(onDiskAfter.accounts[0].tpScores.oscilloscope, 20);
+  } finally {
+    wsStudent?.close();
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });

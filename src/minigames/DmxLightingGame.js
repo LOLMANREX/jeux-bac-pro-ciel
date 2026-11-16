@@ -7,40 +7,17 @@ import {
   buildFlexibleCable
 } from './Workbench3DHost.js';
 
-export function computeDmxScore3D(metrics = {}) {
-  const hasStage1Metrics =
-    metrics.cablesConnected !== undefined || metrics.terminatorInstalled !== undefined;
-
-  if (hasStage1Metrics) {
-    const cables = Math.max(0, Math.min(4, metrics.cablesConnected ?? 0));
-    const cablePts = (cables / 4) * 4;
-    const termPts = metrics.terminatorInstalled ? 2 : 0;
-
-    const exactAddr = Math.max(0, Math.min(4, metrics.exactAddressesCount ?? 0));
-    const addrPts = (exactAddr / 4) * 4 + (metrics.dmxNoOverlap ? 1 : 0);
-
-    const matchedFixtures = Math.max(0, Math.min(4, metrics.matchedFixtures ?? 0));
-    const aim = Math.max(0, Math.min(4, metrics.aimScore ?? 0));
-    const scenePts = (matchedFixtures / 4) * 6 + (aim / 4) * 2;
-
-    const elapsed = metrics.elapsedSec ?? 120;
-    const bonus = elapsed < 100 ? 1 : elapsed < 160 ? 0.5 : 0;
-    const raw = cablePts + termPts + addrPts + scenePts + bonus;
-    return Math.max(0, Math.min(20, Math.round(raw * 2) / 2));
-  }
-
-  const noConflicts = Boolean(metrics.dmxNoOverlap);
-  const conflictPts = noConflicts ? 5 : Math.max(0, 5 - (metrics.overlapCount ?? 2) * 2);
-  const matchedFixtures = Math.max(0, Math.min(4, metrics.matchedFixtures ?? 0));
-  const faderPts = (matchedFixtures / 4) * 10;
-  const aimPts = Math.max(0, Math.min(4, metrics.aimScore ?? 0));
-  const elapsed = metrics.elapsedSec ?? 90;
-  const bonus = elapsed < 80 ? 1 : elapsed < 140 ? 0.5 : 0;
-  const raw = conflictPts + faderPts + aimPts + bonus;
-  return Math.max(0, Math.min(20, Math.round(raw * 2) / 2));
+function toSafeNum(val, fallback = 0) {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : fallback;
 }
 
-const FIXTURE_SPECS = [
+function clamp20(raw) {
+  const n = toSafeNum(raw, 0);
+  return Math.max(0, Math.min(20, Math.round(n * 2) / 2));
+}
+
+export const FIXTURE_SPECS = [
   {
     id: 0,
     code: 'PAR-1',
@@ -83,18 +60,176 @@ const FIXTURE_SPECS = [
   }
 ];
 
-const DAISY_LINKS = [
+export const DMX_FIXTURE_SPECS = FIXTURE_SPECS;
+
+export const DAISY_LINKS = [
   { id: 0, fromId: 'CONSOLE_OUT', toId: 'P0_IN', label: 'Pupitre DMX OUT → PAR-1 IN' },
   { id: 1, fromId: 'P0_OUT', toId: 'P1_IN', label: 'PAR-1 OUT → MOV-2 IN' },
   { id: 2, fromId: 'P1_OUT', toId: 'P2_IN', label: 'MOV-2 OUT → MOV-3 IN' },
   { id: 3, fromId: 'P2_OUT', toId: 'P3_IN', label: 'MOV-3 OUT → PAR-4 IN' }
 ];
 
+export const DMX_DAISY_LINKS = DAISY_LINKS;
+
+export function evaluateDmxConfiguration(state = {}) {
+  const s = state && typeof state === 'object' ? state : {};
+  let cablesConnected = 0;
+  if (s.cablesDone instanceof Set) {
+    cablesConnected = s.cablesDone.size;
+  } else if (Array.isArray(s.cablesDone)) {
+    cablesConnected = new Set(s.cablesDone).size;
+  } else if (s.cablesConnected !== undefined) {
+    cablesConnected = Math.max(0, Math.min(4, Math.round(toSafeNum(s.cablesConnected, 0))));
+  }
+  cablesConnected = Math.max(0, Math.min(DAISY_LINKS.length, cablesConnected));
+  const terminatorInstalled = Boolean(s.terminatorInstalled);
+  const daisyOk = cablesConnected === DAISY_LINKS.length && terminatorInstalled;
+
+  const rawFixtures = Array.isArray(s.fixtures) ? s.fixtures : [];
+  const fixtures = FIXTURE_SPECS.map((sp, idx) => {
+    const raw = rawFixtures[idx] && typeof rawFixtures[idx] === 'object' ? rawFixtures[idx] : {};
+    return {
+      addr: Math.max(1, Math.min(512, Math.round(toSafeNum(raw.addr, sp.startAddr)))),
+      master: Math.max(0, Math.min(100, Math.round(toSafeNum(raw.master, 20)))),
+      r: Math.max(0, Math.min(255, Math.round(toSafeNum(raw.r, 120)))),
+      g: Math.max(0, Math.min(255, Math.round(toSafeNum(raw.g, 120)))),
+      b: Math.max(0, Math.min(255, Math.round(toSafeNum(raw.b, 120)))),
+      pan: Math.max(0, Math.min(100, Math.round(toSafeNum(raw.pan, 25)))),
+      tilt: Math.max(0, Math.min(100, Math.round(toSafeNum(raw.tilt, 25))))
+    };
+  });
+
+  let overlaps = 0;
+  const conflictingIds = new Set();
+  for (let i = 0; i < fixtures.length; i++) {
+    for (let j = i + 1; j < fixtures.length; j++) {
+      if (Math.abs(fixtures[i].addr - fixtures[j].addr) < 8) {
+        overlaps += 1;
+        conflictingIds.add(i);
+        conflictingIds.add(j);
+      }
+    }
+  }
+
+  let exactAddressesCount = 0;
+  let matchedFixtures = 0;
+  let aimScore = 0;
+  const fixtureResults = [];
+
+  for (let i = 0; i < FIXTURE_SPECS.length; i++) {
+    const sp = FIXTURE_SPECS[i];
+    const fx = fixtures[i];
+    const t = sp.target;
+
+    const addrExact = fx.addr === sp.targetAddr;
+    if (addrExact) exactAddressesCount += 1;
+    const addrClean = !conflictingIds.has(i);
+
+    const colorOk =
+      fx.master >= 60 &&
+      Math.abs(fx.r - t.r) <= 55 &&
+      Math.abs(fx.g - t.g) <= 55 &&
+      Math.abs(fx.b - t.b) <= 55;
+    const aimOk = Math.abs(fx.pan - t.pan) <= 18 && Math.abs(fx.tilt - t.tilt) <= 18;
+    if (aimOk) aimScore += 1;
+
+    const ok = daisyOk && addrClean && addrExact && colorOk && aimOk;
+    if (ok) matchedFixtures += 1;
+    fixtureResults.push({ ok, colorOk, aimOk, addrExact, addrClean });
+  }
+
+  const dmxNoOverlap = overlaps === 0;
+  const allValid = daisyOk && dmxNoOverlap && exactAddressesCount === 4 && matchedFixtures === 4;
+
+  let teacherAdvice = '';
+  if (!daisyOk) {
+    if (cablesConnected < 4) {
+      teacherAdvice = `Professeur CIEL : « Relie en série (Daisy-Chain XLR) la sortie du pupitre vers PAR-1, puis chaque projecteur OUT → IN (${cablesConnected}/4 câblés). »`;
+    } else {
+      teacherAdvice = 'Professeur CIEL : « Les 4 liaisons XLR sont branchées ! Installe maintenant le bouchon de terminaison 120 Ω sur la sortie de PAR-4 pour supprimer les échos DMX. »';
+    }
+  } else if (exactAddressesCount < 4 || !dmxNoOverlap) {
+    teacherAdvice = `Professeur CIEL : « Chaque projecteur utilise 8 canaux DMX512. Configure les adresses cibles sans chevauchement : A001, A009, A017 et A025 (${exactAddressesCount}/4 exactes). »`;
+  } else if (matchedFixtures < 4) {
+    teacherAdvice = `Professeur CIEL : « Bus et adressage DMX impeccables ! Règle maintenant Master, RGB, Pan et Tilt sur les 4 projecteurs (${matchedFixtures}/4 conformes). »`;
+  } else {
+    teacherAdvice = 'Professeur CIEL : « Parfait ! Le bus XLR 120 Ω, l’adressage DMX512 et les 4 projecteurs sont 100 % conformes. Valide la scène pour décrocher 20/20 ! »';
+  }
+
+  return {
+    cablesConnected,
+    terminatorInstalled,
+    daisyOk,
+    overlaps,
+    conflictingIds,
+    dmxNoOverlap,
+    exactAddressesCount,
+    matchedFixtures,
+    aimScore,
+    fixtureResults,
+    allValid,
+    teacherAdvice
+  };
+}
+
+export function computeDmxScore3D(metrics = {}) {
+  const m = metrics && typeof metrics === 'object' ? metrics : {};
+  const hasStage1Metrics =
+    m.cablesConnected !== undefined || m.terminatorInstalled !== undefined;
+
+  if (hasStage1Metrics) {
+    const cables = Math.max(0, Math.min(4, toSafeNum(m.cablesConnected, 0)));
+    const termOk = Boolean(m.terminatorInstalled);
+    const exactAddr = Math.max(0, Math.min(4, toSafeNum(m.exactAddressesCount, 0)));
+    const noOverlap = Boolean(m.dmxNoOverlap);
+    const matchedFixtures = Math.max(0, Math.min(4, toSafeNum(m.matchedFixtures, 0)));
+    const aim = Math.max(0, Math.min(4, toSafeNum(m.aimScore, 0)));
+
+    const cablePts = (cables / 4) * 4.5;
+    const termPts = termOk ? 2.0 : 0;
+    const addrPts = (exactAddr / 4) * 4.0 + (noOverlap ? 1.5 : 0);
+    const scenePts = (matchedFixtures / 4) * 6.0 + (aim / 4) * 2.0;
+
+    const allMet =
+      cables >= 4 &&
+      termOk &&
+      exactAddr >= 4 &&
+      noOverlap &&
+      matchedFixtures >= 4 &&
+      aim >= 4;
+
+    if (allMet) {
+      return 20;
+    }
+
+    const elapsed = Math.max(0, toSafeNum(m.elapsedSec, 120));
+    const bonus = elapsed < 100 ? 0.5 : 0;
+    const raw = cablePts + termPts + addrPts + scenePts + bonus;
+    return clamp20(raw);
+  }
+
+  const noConflicts = Boolean(m.dmxNoOverlap);
+  const overlapCount = Math.max(0, toSafeNum(m.overlapCount, 2));
+  const conflictPts = noConflicts ? 5 : Math.max(0, 5 - overlapCount * 2);
+  const matchedFixtures = Math.max(0, Math.min(4, toSafeNum(m.matchedFixtures, 0)));
+  const faderPts = (matchedFixtures / 4) * 11;
+  const aimPts = Math.max(0, Math.min(4, toSafeNum(m.aimScore, 0)));
+
+  if (noConflicts && matchedFixtures >= 4 && aimPts >= 4) {
+    return 20;
+  }
+
+  const elapsed = Math.max(0, toSafeNum(m.elapsedSec, 90));
+  const bonus = elapsed < 80 ? 0.5 : 0;
+  const raw = conflictPts + faderPts + aimPts + bonus;
+  return clamp20(raw);
+}
+
 const CAM_VIEWS = [
-  { id: 'overview', label: 'Vue Scène Globale', pos: [0.0, 1.0, 1.66], lookAt: [0, 0.36, -0.05], fov: 42 },
-  { id: 'cabling', label: 'Câblage XLR & Bouchon', pos: [0.06, 0.88, 1.15], lookAt: [0.04, 0.56, -0.22], fov: 40 },
-  { id: 'address', label: 'Écrans Arrière DMX', pos: [0.0, 0.78, -1.28], lookAt: [0, 0.62, -0.36], fov: 38 },
-  { id: 'console', label: 'Pupitre Faders DMX', pos: [0.0, 0.56, 0.82], lookAt: [0, 0.08, 0.25], fov: 36 }
+  { id: 'overview', label: 'Vue Scène Globale', pos: [0.0, 1.02, 1.66], lookAt: [0, 0.38, -0.05], fov: 42 },
+  { id: 'cabling', label: 'Câblage XLR & Bouchon', pos: [0.06, 0.96, 1.12], lookAt: [0.04, 0.62, -0.24], fov: 40 },
+  { id: 'address', label: 'Écrans Arrière DMX', pos: [0.0, 0.82, -1.26], lookAt: [0, 0.64, -0.36], fov: 38 },
+  { id: 'console', label: 'Pupitre Faders DMX', pos: [0.0, 0.58, 0.84], lookAt: [0, 0.08, 0.25], fov: 36 }
 ];
 
 export function createDmxLightingGame(api) {
@@ -106,7 +241,7 @@ export function createDmxLightingGame(api) {
     benchColor: '#1e293b',
     wallColor: '#0f172a',
     background: '#162032',
-    envIntensity: 0.48
+    envIntensity: 0.52
   });
 
   const regieCarpet = new THREE.Mesh(
@@ -177,59 +312,7 @@ export function createDmxLightingGame(api) {
   };
 
   function evaluateDmx() {
-    const cablesConnected = state.cablesDone.size;
-    const daisyOk = cablesConnected === DAISY_LINKS.length && state.terminatorInstalled;
-
-    let overlaps = 0;
-    const conflictingIds = new Set();
-    for (let i = 0; i < state.fixtures.length; i++) {
-      for (let j = i + 1; j < state.fixtures.length; j++) {
-        if (Math.abs(state.fixtures[i].addr - state.fixtures[j].addr) < 8) {
-          overlaps += 1;
-          conflictingIds.add(i);
-          conflictingIds.add(j);
-        }
-      }
-    }
-
-    let exactAddressesCount = 0;
-    let matchedFixtures = 0;
-    let aimScore = 0;
-    const fixtureResults = [];
-
-    for (let i = 0; i < FIXTURE_SPECS.length; i++) {
-      const sp = FIXTURE_SPECS[i];
-      const fx = state.fixtures[i];
-      const t = sp.target;
-
-      const addrExact = fx.addr === sp.targetAddr;
-      if (addrExact) exactAddressesCount += 1;
-      const addrClean = !conflictingIds.has(i);
-
-      const colorOk =
-        fx.master >= 60 &&
-        Math.abs(fx.r - t.r) <= 55 &&
-        Math.abs(fx.g - t.g) <= 55 &&
-        Math.abs(fx.b - t.b) <= 55;
-      const aimOk = Math.abs(fx.pan - t.pan) <= 18 && Math.abs(fx.tilt - t.tilt) <= 18;
-      if (aimOk) aimScore += 1;
-
-      const ok = daisyOk && addrClean && addrExact && colorOk && aimOk;
-      if (ok) matchedFixtures += 1;
-      fixtureResults.push({ ok, colorOk, aimOk, addrExact, addrClean });
-    }
-
-    return {
-      cablesConnected,
-      daisyOk,
-      overlaps,
-      conflictingIds,
-      dmxNoOverlap: overlaps === 0,
-      exactAddressesCount,
-      matchedFixtures,
-      aimScore,
-      fixtureResults
-    };
+    return evaluateDmxConfiguration(state);
   }
 
   const trussGroup = new THREE.Group();
@@ -267,27 +350,83 @@ export function createDmxLightingGame(api) {
   const xlrPorts = {};
   const fixtureObjects = [];
 
-  function createXlrSocket(parent, localPos, portId, label) {
+  function createXlrSocket(parent, localPos, portId, label, isInput = false) {
+    const baseHex = isInput ? 0x38bdf8 : 0x0ea5e9;
+    const holder = new THREE.Group();
+    holder.position.copy(localPos);
+    parent.add(holder);
+
     const ring = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.019, 0.019, 0.018, 16),
-      new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.35, metalness: 0.75 })
+      new THREE.CylinderGeometry(0.022, 0.022, 0.022, 18),
+      new THREE.MeshStandardMaterial({
+        color: baseHex,
+        emissive: 0x000000,
+        emissiveIntensity: 0,
+        roughness: 0.32,
+        metalness: 0.72
+      })
     );
     ring.rotation.x = Math.PI / 2;
-    ring.position.copy(localPos);
-    parent.add(ring);
+    holder.add(ring);
+
+    const hitMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.036, 10, 10),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    holder.add(hitMesh);
 
     const worldAnchor = new THREE.Object3D();
-    worldAnchor.position.copy(localPos);
-    parent.add(worldAnchor);
-    xlrPorts[portId] = { mesh: ring, anchor: worldAnchor, label };
+    holder.add(worldAnchor);
+    xlrPorts[portId] = { mesh: ring, anchor: worldAnchor, label, baseHex };
 
-    bench.addInteractive(ring, {
+    bench.addInteractive(holder, {
       label: `Port XLR ${label}`,
       cursor: 'pointer',
+      highlightTargets: [ring],
       onClick: () => handlePortClick(portId)
     });
-    return ring;
+    return holder;
   }
+
+  function makeButtonLabelTexture(text, bgHex = '#334155', fgHex = '#f8fafc') {
+    const c = document.createElement('canvas');
+    c.width = 96;
+    c.height = 64;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = bgHex;
+    ctx.fillRect(0, 0, 96, 64);
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, 92, 60);
+    ctx.fillStyle = fgHex;
+    ctx.font = 'bold 34px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 48, 34);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  function isFixtureChainPowered(idx) {
+    for (let k = 0; k <= idx; k++) {
+      if (!state.cablesDone.has(k)) return false;
+    }
+    return true;
+  }
+
+  function getValidNextTargetPort(fromPortId) {
+    if (!fromPortId) return null;
+    for (const lk of DAISY_LINKS) {
+      if (state.cablesDone.has(lk.id)) continue;
+      if (lk.fromId === fromPortId) return lk.toId;
+      if (lk.toId === fromPortId) return lk.fromId;
+    }
+    return null;
+  }
+
+  const minusBtnTex = bench.track(makeButtonLabelTexture('-1', '#334155', '#f8fafc'));
+  const plusBtnTex = bench.track(makeButtonLabelTexture('+1', '#0284c7', '#ffffff'));
 
   for (let i = 0; i < FIXTURE_SPECS.length; i++) {
     const sp = FIXTURE_SPECS[i];
@@ -303,52 +442,103 @@ export function createDmxLightingGame(api) {
     podBox.castShadow = true;
     mount.add(podBox);
 
-    createXlrSocket(podBox, new THREE.Vector3(-0.055, -0.02, -0.055), `P${i}_IN`, `${sp.code} DMX IN`);
-    createXlrSocket(podBox, new THREE.Vector3(0.055, -0.02, -0.055), `P${i}_OUT`, `${sp.code} DMX OUT`);
+    createXlrSocket(podBox, new THREE.Vector3(-0.064, 0.062, 0.016), `P${i}_IN`, `${sp.code} DMX IN`, true);
+    createXlrSocket(podBox, new THREE.Vector3(0.064, 0.062, 0.016), `P${i}_OUT`, `${sp.code} DMX OUT`, false);
 
     const rearScreen = makeCanvasScreen(192, 96, (ctx, w, h) => {
       ctx.fillStyle = '#020617';
       ctx.fillRect(0, 0, w, h);
     });
+    const rearBezel = new THREE.Mesh(
+      new THREE.BoxGeometry(0.128, 0.064, 0.008),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0x000000, roughness: 0.4 })
+    );
+    rearBezel.position.set(0, 0.024, -0.051);
+    podBox.add(rearBezel);
     const rearScrMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.11, 0.052),
+      new THREE.PlaneGeometry(0.116, 0.054),
       new THREE.MeshBasicMaterial({ map: rearScreen.texture })
     );
     rearScrMesh.rotation.y = Math.PI;
-    rearScrMesh.position.set(0, 0.028, -0.052);
+    rearScrMesh.position.set(0, 0.024, -0.056);
     podBox.add(rearScrMesh);
 
-    const minusBtn = new THREE.Mesh(
-      new THREE.BoxGeometry(0.026, 0.02, 0.012),
-      new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.4 })
+    bench.addInteractive(rearScrMesh, {
+      label: () => `${sp.code} Écran DMX (Cliquer pour calibrer A${String(sp.targetAddr).padStart(3, '0')})`,
+      cursor: 'pointer',
+      highlightTargets: [rearBezel, rearScrMesh],
+      onClick: () => {
+        state.selectedFixture = i;
+        state.fixtures[i].addr = sp.targetAddr;
+        sfx.dmxAddressBeep(true);
+        bench.showToast(`${sp.code} adressé sur A${String(sp.targetAddr).padStart(3, '0')} !`, 'success');
+        syncDmx3D();
+        refreshUi();
+      }
+    });
+
+    const frontScreen = makeCanvasScreen(192, 72, (ctx, w, h) => {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, w, h);
+    });
+    const frontBezel = new THREE.Mesh(
+      new THREE.BoxGeometry(0.132, 0.052, 0.008),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0x000000, roughness: 0.4 })
     );
-    minusBtn.position.set(0.042, -0.02, -0.053);
+    frontBezel.position.set(0, 0.015, 0.051);
+    podBox.add(frontBezel);
+    const frontScrMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.122, 0.044),
+      new THREE.MeshBasicMaterial({ map: frontScreen.texture })
+    );
+    frontScrMesh.position.set(0, 0.015, 0.056);
+    podBox.add(frontScrMesh);
+
+    bench.addInteractive(frontScrMesh, {
+      label: () => `${sp.code} OLED DMX (Cliquer pour adresser A${String(sp.targetAddr).padStart(3, '0')})`,
+      cursor: 'pointer',
+      highlightTargets: [frontBezel, frontScrMesh],
+      onClick: () => {
+        state.selectedFixture = i;
+        state.fixtures[i].addr = sp.targetAddr;
+        sfx.dmxAddressBeep(true);
+        bench.showToast(`${sp.code} adressé sur A${String(sp.targetAddr).padStart(3, '0')} !`, 'success');
+        syncDmx3D();
+        refreshUi();
+      }
+    });
+
+    const minusBtn = new THREE.Mesh(
+      new THREE.BoxGeometry(0.038, 0.024, 0.016),
+      new THREE.MeshStandardMaterial({ map: minusBtnTex, emissive: 0x000000, roughness: 0.4 })
+    );
+    minusBtn.position.set(0.038, -0.032, -0.054);
     podBox.add(minusBtn);
     bench.addInteractive(minusBtn, {
-      label: `${sp.code} Adresse -4`,
+      label: `${sp.code} Adresse -1`,
       cursor: 'pointer',
       onClick: () => {
         state.selectedFixture = i;
-        state.fixtures[i].addr = Math.max(1, state.fixtures[i].addr - 4);
-        sfx.click();
+        state.fixtures[i].addr = Math.max(1, state.fixtures[i].addr - 1);
+        sfx.dmxAddressBeep(state.fixtures[i].addr === sp.targetAddr);
         syncDmx3D();
         refreshUi();
       }
     });
 
     const plusBtn = new THREE.Mesh(
-      new THREE.BoxGeometry(0.026, 0.02, 0.012),
-      new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4 })
+      new THREE.BoxGeometry(0.038, 0.024, 0.016),
+      new THREE.MeshStandardMaterial({ map: plusBtnTex, emissive: 0x000000, roughness: 0.4 })
     );
-    plusBtn.position.set(-0.042, -0.02, -0.053);
+    plusBtn.position.set(-0.038, -0.032, -0.054);
     podBox.add(plusBtn);
     bench.addInteractive(plusBtn, {
-      label: `${sp.code} Adresse +4`,
+      label: `${sp.code} Adresse +1`,
       cursor: 'pointer',
       onClick: () => {
         state.selectedFixture = i;
-        state.fixtures[i].addr = Math.min(480, state.fixtures[i].addr + 4);
-        sfx.click();
+        state.fixtures[i].addr = Math.min(505, state.fixtures[i].addr + 1);
+        sfx.dmxAddressBeep(state.fixtures[i].addr === sp.targetAddr);
         syncDmx3D();
         refreshUi();
       }
@@ -371,7 +561,7 @@ export function createDmxLightingGame(api) {
 
     const headBody = new THREE.Mesh(
       new THREE.CylinderGeometry(0.048, 0.056, 0.12, 16),
-      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.34, metalness: 0.78 })
+      new THREE.MeshStandardMaterial({ color: 0x111827, emissive: 0x000000, roughness: 0.34, metalness: 0.78 })
     );
     headBody.rotation.x = Math.PI / 2;
     headBody.castShadow = true;
@@ -417,7 +607,25 @@ export function createDmxLightingGame(api) {
       }
     });
 
-    fixtureObjects.push({ panGroup, tiltGroup, lensMat, coneMat, spot, rearScreen });
+    fixtureObjects.push({ panGroup, tiltGroup, lensMat, coneMat, spot, rearScreen, frontScreen, podBox });
+  }
+
+  function buildTerminatorPlugMesh() {
+    const plugGrp = new THREE.Group();
+    const cap = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.024, 0.024, 0.058, 16),
+      new THREE.MeshStandardMaterial({ color: 0xdc2626, emissive: 0x000000, roughness: 0.3, metalness: 0.65 })
+    );
+    cap.rotation.x = Math.PI / 2;
+    plugGrp.add(cap);
+    const tip = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.019, 0.019, 0.022, 16),
+      new THREE.MeshStandardMaterial({ color: 0xfacc15, emissive: 0x000000, roughness: 0.25, metalness: 0.85 })
+    );
+    tip.rotation.x = Math.PI / 2;
+    tip.position.z = 0.032;
+    plugGrp.add(tip);
+    return { plugGrp, cap, tip };
   }
 
   const splitterGroup = new THREE.Group();
@@ -432,32 +640,30 @@ export function createDmxLightingGame(api) {
   splitterBox.castShadow = true;
   splitterGroup.add(splitterBox);
 
-  const termBenchPlug = new THREE.Group();
+  const { plugGrp: termBenchPlug, cap: termCap, tip: termTip } = buildTerminatorPlugMesh();
   termBenchPlug.position.set(0, 0.095, 0.02);
   splitterGroup.add(termBenchPlug);
 
-  const termCap = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.022, 0.022, 0.055, 16),
-    new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.3, metalness: 0.65 })
-  );
-  termCap.rotation.x = Math.PI / 2;
-  termBenchPlug.add(termCap);
-
-  const termTip = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.018, 0.018, 0.02, 16),
-    new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.25, metalness: 0.85 })
-  );
-  termTip.rotation.x = Math.PI / 2;
-  termTip.position.z = 0.032;
-  termBenchPlug.add(termTip);
+  const { plugGrp: mountedTermPlug } = buildTerminatorPlugMesh();
+  mountedTermPlug.position.set(0.064, 0.062, 0.042);
+  mountedTermPlug.visible = false;
+  fixtureObjects[3].podBox.add(mountedTermPlug);
 
   function installTerminator() {
     if (state.terminatorInstalled) return;
     state.terminatorInstalled = true;
+    state.selectedPort = null;
     termBenchPlug.visible = false;
     mountedTermPlug.visible = true;
-    bench.spawnSparks([0.62, 0.85, -0.44], { color: 0x22c55e, count: 16, speed: 1.1 });
-    sfx.success();
+    const pTerm = new THREE.Vector3();
+    xlrPorts.P3_OUT.anchor.getWorldPosition(pTerm);
+    bench.spawnSparks(pTerm, { color: 0x22c55e, count: 16, speed: 1.1 });
+    bench.spawnPulseRing(pTerm, '#22c55e', 0.09);
+    sfx.xlrPlug();
+    if (state.cablesDone.size === DAISY_LINKS.length) {
+      sfx.stageComplete();
+    }
+    bench.showToast('Bouchon de terminaison DMX 120 Ω verrouillé sur PAR-4 OUT !', 'success');
     syncDmx3D();
     refreshUi();
   }
@@ -465,13 +671,10 @@ export function createDmxLightingGame(api) {
   bench.addInteractive(termBenchPlug, {
     label: 'Bouchon Terminaison DMX 120 Ω (Cliquer pour brancher sur PAR-4 OUT)',
     cursor: 'pointer',
+    enabled: () => !state.terminatorInstalled,
+    highlightTargets: [termCap, termTip],
     onClick: installTerminator
   });
-
-  const mountedTermPlug = termBenchPlug.clone();
-  mountedTermPlug.position.set(0.625, 0.834, -0.45);
-  mountedTermPlug.visible = false;
-  bench.scene.add(mountedTermPlug);
 
   const consoleGroup = new THREE.Group();
   consoleGroup.position.set(0.0, 0.014, 0.26);
@@ -486,19 +689,105 @@ export function createDmxLightingGame(api) {
   consoleBody.castShadow = true;
   consoleGroup.add(consoleBody);
 
-  createXlrSocket(consoleGroup, new THREE.Vector3(-0.38, 0.052, -0.155), 'CONSOLE_OUT', 'Pupitre DMX OUT');
+  createXlrSocket(consoleGroup, new THREE.Vector3(-0.38, 0.068, -0.145), 'CONSOLE_OUT', 'Pupitre DMX OUT', false);
 
   const lcdScreen = makeCanvasScreen(420, 140, (ctx, w, h) => {
     ctx.fillStyle = '#061524';
     ctx.fillRect(0, 0, w, h);
   });
+  const lcdBezel = new THREE.Mesh(
+    new THREE.BoxGeometry(0.334, 0.104, 0.008),
+    new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0x000000, roughness: 0.4 })
+  );
+  lcdBezel.rotation.x = -Math.PI / 2 + 0.14;
+  lcdBezel.position.set(-0.26, 0.092, -0.055);
+  consoleGroup.add(lcdBezel);
   const lcdMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(0.32, 0.092),
     new THREE.MeshBasicMaterial({ map: lcdScreen.texture })
   );
   lcdMesh.rotation.x = -Math.PI / 2 + 0.14;
-  lcdMesh.position.set(-0.26, 0.095, -0.055);
+  lcdMesh.position.set(-0.26, 0.098, -0.055);
   consoleGroup.add(lcdMesh);
+
+  bench.addInteractive(lcdMesh, {
+    label: () => {
+      const sp = FIXTURE_SPECS[state.selectedFixture];
+      return `Écran DMX Console : Adresser ${sp.code} sur A${String(sp.targetAddr).padStart(3, '0')}`;
+    },
+    cursor: 'pointer',
+    highlightTargets: [lcdBezel, lcdMesh],
+    onClick: () => {
+      const sp = FIXTURE_SPECS[state.selectedFixture];
+      state.fixtures[state.selectedFixture].addr = sp.targetAddr;
+      sfx.dmxAddressBeep(true);
+      bench.showToast(`${sp.code} adressé sur A${String(sp.targetAddr).padStart(3, '0')} !`, 'success');
+      syncDmx3D();
+      refreshUi();
+    }
+  });
+
+  const consoleMinusBtn = new THREE.Mesh(
+    new THREE.BoxGeometry(0.055, 0.02, 0.036),
+    new THREE.MeshStandardMaterial({ map: minusBtnTex, emissive: 0x000000, roughness: 0.35 })
+  );
+  consoleMinusBtn.position.set(-0.37, 0.088, 0.022);
+  consoleMinusBtn.rotation.x = 0.14;
+  consoleGroup.add(consoleMinusBtn);
+  bench.addInteractive(consoleMinusBtn, {
+    label: () => `${FIXTURE_SPECS[state.selectedFixture].code} Adresse DMX -1`,
+    cursor: 'pointer',
+    onClick: () => {
+      const i = state.selectedFixture;
+      const sp = FIXTURE_SPECS[i];
+      state.fixtures[i].addr = Math.max(1, state.fixtures[i].addr - 1);
+      sfx.dmxAddressBeep(state.fixtures[i].addr === sp.targetAddr);
+      syncDmx3D();
+      refreshUi();
+    }
+  });
+
+  const consolePlusBtn = new THREE.Mesh(
+    new THREE.BoxGeometry(0.055, 0.02, 0.036),
+    new THREE.MeshStandardMaterial({ map: plusBtnTex, emissive: 0x000000, roughness: 0.35 })
+  );
+  consolePlusBtn.position.set(-0.305, 0.088, 0.022);
+  consolePlusBtn.rotation.x = 0.14;
+  consoleGroup.add(consolePlusBtn);
+  bench.addInteractive(consolePlusBtn, {
+    label: () => `${FIXTURE_SPECS[state.selectedFixture].code} Adresse DMX +1`,
+    cursor: 'pointer',
+    onClick: () => {
+      const i = state.selectedFixture;
+      const sp = FIXTURE_SPECS[i];
+      state.fixtures[i].addr = Math.min(505, state.fixtures[i].addr + 1);
+      sfx.dmxAddressBeep(state.fixtures[i].addr === sp.targetAddr);
+      syncDmx3D();
+      refreshUi();
+    }
+  });
+
+  const consoleCalAddrTex = bench.track(makeButtonLabelTexture('A*', '#15803d', '#ffffff'));
+  const consoleCalAddrBtn = new THREE.Mesh(
+    new THREE.BoxGeometry(0.068, 0.02, 0.036),
+    new THREE.MeshStandardMaterial({ map: consoleCalAddrTex, emissive: 0x000000, roughness: 0.35 })
+  );
+  consoleCalAddrBtn.position.set(-0.228, 0.088, 0.022);
+  consoleCalAddrBtn.rotation.x = 0.14;
+  consoleGroup.add(consoleCalAddrBtn);
+  bench.addInteractive(consoleCalAddrBtn, {
+    label: () => `Régler adresse cible ${FIXTURE_SPECS[state.selectedFixture].code} (A${String(FIXTURE_SPECS[state.selectedFixture].targetAddr).padStart(3, '0')})`,
+    cursor: 'pointer',
+    onClick: () => {
+      const i = state.selectedFixture;
+      const sp = FIXTURE_SPECS[i];
+      state.fixtures[i].addr = sp.targetAddr;
+      sfx.dmxAddressBeep(true);
+      bench.showToast(`${sp.code} adressé sur A${String(sp.targetAddr).padStart(3, '0')} !`, 'success');
+      syncDmx3D();
+      refreshUi();
+    }
+  });
 
   const faderDefs = [
     { key: 'master', label: 'Master', max: 100, color: 0xf8fafc, x: -0.02 },
@@ -510,49 +799,104 @@ export function createDmxLightingGame(api) {
   ];
 
   const faderKnobs = [];
-  const faderPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.095);
+  const faderPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+    new THREE.Vector3(0, Math.cos(0.14), Math.sin(0.14)).normalize(),
+    new THREE.Vector3(0, 0.105, 0.26)
+  );
+  let lastFaderTickMs = 0;
+
   for (const fd of faderDefs) {
     const slot = new THREE.Mesh(
-      new THREE.BoxGeometry(0.012, 0.01, 0.17),
-      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6 })
+      new THREE.BoxGeometry(0.026, 0.012, 0.175),
+      new THREE.MeshStandardMaterial({ color: 0x334155, emissive: 0x000000, roughness: 0.6 })
     );
     slot.position.set(fd.x, 0.088, 0.015);
     slot.rotation.x = 0.14;
     consoleGroup.add(slot);
 
     const knob = new THREE.Mesh(
-      new THREE.BoxGeometry(0.044, 0.024, 0.028),
-      new THREE.MeshStandardMaterial({ color: fd.color, roughness: 0.3, metalness: 0.25 })
+      new THREE.BoxGeometry(0.048, 0.026, 0.032),
+      new THREE.MeshStandardMaterial({ color: fd.color, emissive: 0x000000, roughness: 0.3, metalness: 0.25 })
     );
-    knob.position.set(fd.x, 0.1, 0.015);
+    knob.position.set(fd.x, 0.102, 0.015);
+    knob.rotation.x = 0.14;
     knob.castShadow = true;
     consoleGroup.add(knob);
-    faderKnobs.push({ def: fd, knob });
+    faderKnobs.push({ def: fd, knob, slot });
+
+    let dragAccum = 0;
+    const applyFaderFromDrag = (planePt, dy) => {
+      const fx = state.fixtures[state.selectedFixture];
+      let nextVal = fx[fd.key];
+      if (planePt && Number.isFinite(planePt.z)) {
+        const localZ = planePt.z - consoleGroup.position.z;
+        const ratio = Math.max(0, Math.min(1, (0.085 - localZ) / 0.14));
+        nextVal = Math.round(ratio * fd.max);
+      } else {
+        dragAccum += (-dy / 110) * fd.max;
+        if (Math.abs(dragAccum) >= 1) {
+          const step = Math.trunc(dragAccum);
+          dragAccum -= step;
+          nextVal = Math.max(0, Math.min(fd.max, fx[fd.key] + step));
+        }
+      }
+      if (nextVal !== fx[fd.key]) {
+        fx[fd.key] = nextVal;
+        const now = performance.now();
+        if (now - lastFaderTickMs > 55) {
+          lastFaderTickMs = now;
+          sfx.faderTick(nextVal / fd.max);
+        }
+        syncDmx3D();
+        syncLiveUiWithoutRebuild();
+      }
+    };
 
     bench.addInteractive(knob, {
-      label: `Fader DMX ${fd.label}`,
+      label: () => `Fader DMX ${fd.label} (${state.fixtures[state.selectedFixture][fd.key]}/${fd.max})`,
       cursor: 'ns-resize',
       dragPlane: faderPlane,
-      onDragMove: (_pt, _dx, dy) => {
-        const fx = state.fixtures[state.selectedFixture];
-        const step = (-dy / 120) * fd.max;
-        fx[fd.key] = Math.max(0, Math.min(fd.max, Math.round(fx[fd.key] + step)));
-        syncDmx3D();
-        refreshUi();
-      }
+      highlightTargets: [knob],
+      onDragStart: () => {
+        dragAccum = 0;
+      },
+      onDragMove: (planePt, _dx, dy) => applyFaderFromDrag(planePt, dy),
+      onDragEnd: () => refreshUi()
+    });
+
+    bench.addInteractive(slot, {
+      label: () => `Piste Fader ${fd.label} (Cliquer ou glisser)`,
+      cursor: 'ns-resize',
+      dragPlane: faderPlane,
+      highlightTargets: [knob],
+      onDragStart: () => {
+        dragAccum = 0;
+      },
+      onClick: (_hit, info) => {
+        if (info?.planePoint && Number.isFinite(info.planePoint.z)) {
+          const localZ = info.planePoint.z - consoleGroup.position.z;
+          const ratio = Math.max(0, Math.min(1, (0.085 - localZ) / 0.14));
+          state.fixtures[state.selectedFixture][fd.key] = Math.round(ratio * fd.max);
+          sfx.faderTick(ratio);
+          syncDmx3D();
+          refreshUi();
+        }
+      },
+      onDragMove: (planePt, _dx, dy) => applyFaderFromDrag(planePt, dy),
+      onDragEnd: () => refreshUi()
     });
   }
 
   const fixBtns = [];
   for (let i = 0; i < 4; i++) {
-    const mat = new THREE.MeshStandardMaterial({ color: 0x334155, emissive: 0x000000 });
-    const btn = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.02, 0.042), mat);
-    btn.position.set(-0.37 + i * 0.085, 0.085, 0.085);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x334155, emissive: 0x000000, emissiveIntensity: 0.4 });
+    const btn = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.022, 0.044), mat);
+    btn.position.set(-0.37 + i * 0.085, 0.086, 0.085);
     consoleGroup.add(btn);
     fixBtns.push(mat);
 
     bench.addInteractive(btn, {
-      label: `Sélection ${FIXTURE_SPECS[i].code}`,
+      label: `Sélection ${FIXTURE_SPECS[i].code} (${FIXTURE_SPECS[i].role})`,
       cursor: 'pointer',
       onClick: () => {
         state.selectedFixture = i;
@@ -567,15 +911,27 @@ export function createDmxLightingGame(api) {
   bench.scene.add(cableGroup);
 
   function handlePortClick(portId) {
-    if (portId === 'P3_OUT' && state.cablesDone.size === DAISY_LINKS.length && !state.terminatorInstalled) {
-      installTerminator();
+    if (portId === 'P3_OUT' && !state.selectedPort) {
+      if (state.cablesDone.size === DAISY_LINKS.length && !state.terminatorInstalled) {
+        installTerminator();
+        return;
+      }
+      if (!state.terminatorInstalled) {
+        sfx.cableSelect();
+        bench.showToast('PAR-4 DMX OUT : réservez cette sortie pour le bouchon 120 Ω (ou cliquez le bouchon rouge/or) !', 'info');
+        return;
+      }
+      sfx.click();
+      bench.showToast('Terminaison DMX 120 Ω déjà verrouillée sur PAR-4 OUT.', 'info');
       return;
     }
 
     if (!state.selectedPort) {
       state.selectedPort = portId;
-      sfx.click();
-      bench.showToast(`Port ${xlrPorts[portId]?.label} sélectionné — cliquez la prise suivante`, 'info');
+      sfx.cableSelect();
+      const targetId = getValidNextTargetPort(portId);
+      const targetHint = targetId ? ` → reliez maintenant à ${xlrPorts[targetId]?.label}` : '';
+      bench.showToast(`Port ${xlrPorts[portId]?.label} sélectionné${targetHint}`, 'info');
       syncDmx3D();
       refreshUi();
       return;
@@ -583,6 +939,7 @@ export function createDmxLightingGame(api) {
 
     if (state.selectedPort === portId) {
       state.selectedPort = null;
+      sfx.click();
       syncDmx3D();
       refreshUi();
       return;
@@ -596,13 +953,23 @@ export function createDmxLightingGame(api) {
     state.selectedPort = null;
     if (matched && !state.cablesDone.has(matched.id)) {
       state.cablesDone.add(matched.id);
-      sfx.snap();
+      sfx.xlrPlug();
+      const pTarget = new THREE.Vector3();
+      xlrPorts[b]?.anchor.getWorldPosition(pTarget);
+      bench.spawnPulseRing(pTarget, '#38bdf8', 0.08);
+      if (state.cablesDone.size === DAISY_LINKS.length && state.terminatorInstalled) {
+        sfx.stageComplete();
+      }
       bench.showToast(`Câble XLR relié : ${matched.label}`, 'success');
       rebuildXlrCables();
       syncDmx3D();
+    } else if (matched && state.cablesDone.has(matched.id)) {
+      sfx.click();
+      bench.showToast(`Liaison XLR déjà branchée : ${matched.label}`, 'info');
+      syncDmx3D();
     } else {
       sfx.error();
-      bench.showToast('Ordre Daisy-Chain incorrect : reliez OUT → IN en série', 'error');
+      bench.showToast('Ordre Daisy-Chain incorrect : reliez chaque sortie OUT vers l’entrée IN suivante', 'error');
       syncDmx3D();
     }
     refreshUi();
@@ -611,21 +978,51 @@ export function createDmxLightingGame(api) {
   function connectNextXlr() {
     const nextLink = DAISY_LINKS.find((lk) => !state.cablesDone.has(lk.id));
     if (nextLink) {
+      state.selectedPort = null;
       state.cablesDone.add(nextLink.id);
-      sfx.snap();
+      sfx.xlrPlug();
+      const pTarget = new THREE.Vector3();
+      xlrPorts[nextLink.toId]?.anchor.getWorldPosition(pTarget);
+      bench.spawnPulseRing(pTarget, '#38bdf8', 0.08);
       bench.showToast(`Câble XLR relié : ${nextLink.label}`, 'success');
       rebuildXlrCables();
       syncDmx3D();
       refreshUi();
     } else if (!state.terminatorInstalled) {
       installTerminator();
+    } else {
+      sfx.stageComplete();
+      bench.showToast('Bus DMX512 complet (4/4 câbles XLR + terminaison 120 Ω)', 'success');
     }
+  }
+
+  function applyTargetToFixture(idx) {
+    const sp = FIXTURE_SPECS[idx];
+    if (!sp) return;
+    state.selectedFixture = idx;
+    state.fixtures[idx].addr = sp.targetAddr;
+    state.fixtures[idx].master = sp.target.master;
+    state.fixtures[idx].r = sp.target.r;
+    state.fixtures[idx].g = sp.target.g;
+    state.fixtures[idx].b = sp.target.b;
+    state.fixtures[idx].pan = sp.target.pan;
+    state.fixtures[idx].tilt = sp.target.tilt;
+    sfx.dmxAddressBeep(true);
+    const evAfter = evaluateDmx();
+    if (evAfter.allValid) sfx.stageComplete();
+    bench.showToast(`${sp.code} calibré (A${String(sp.targetAddr).padStart(3, '0')} + Scène RGB/Pan/Tilt)`, 'success');
+    syncDmx3D();
+    refreshUi();
   }
 
   function rebuildXlrCables() {
     while (cableGroup.children.length > 0) {
       const child = cableGroup.children.pop();
       if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        for (const m of mats) m.dispose?.();
+      }
     }
     bench.scene.updateMatrixWorld(true);
     for (const lk of DAISY_LINKS) {
@@ -635,8 +1032,8 @@ export function createDmxLightingGame(api) {
       xlrPorts[lk.fromId].anchor.getWorldPosition(pA);
       xlrPorts[lk.toId].anchor.getWorldPosition(pB);
       const mid = pA.clone().lerp(pB, 0.5);
-      mid.y -= lk.id === 0 ? 0.12 : 0.08;
-      mid.z -= 0.05;
+      mid.y += lk.id === 0 ? -0.06 : 0.04;
+      mid.z += lk.id === 0 ? 0.04 : 0.02;
       const cableObj = buildFlexibleCable([pA, mid, pB], '#0ea5e9', 0.0085, '#0284c7');
       cableGroup.add(cableObj.mesh);
     }
@@ -646,7 +1043,7 @@ export function createDmxLightingGame(api) {
     const { ctx, canvas, texture } = lcdScreen;
     ctx.fillStyle = '#061524';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = ev.matchedFixtures === 4 ? '#22c55e' : '#38bdf8';
+    ctx.strokeStyle = ev.allValid ? '#22c55e' : '#38bdf8';
     ctx.lineWidth = 4;
     ctx.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
 
@@ -681,27 +1078,42 @@ export function createDmxLightingGame(api) {
     texture.needsUpdate = true;
   }
 
-  function drawRearFixtureScreen(i, ev) {
-    const scr = fixtureObjects[i].rearScreen;
-    const { ctx, canvas, texture } = scr;
+  function drawFixtureScreens(i, ev) {
     const fx = state.fixtures[i];
     const sp = FIXTURE_SPECS[i];
     const ok = fx.addr === sp.targetAddr && !ev.conflictingIds.has(i);
+    const isSel = i === state.selectedFixture;
 
-    ctx.fillStyle = '#020617';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = ok ? '#22c55e' : '#ef4444';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+    const rear = fixtureObjects[i].rearScreen;
+    rear.ctx.fillStyle = '#020617';
+    rear.ctx.fillRect(0, 0, rear.canvas.width, rear.canvas.height);
+    rear.ctx.strokeStyle = ok ? '#22c55e' : isSel ? '#38bdf8' : '#ef4444';
+    rear.ctx.lineWidth = 4;
+    rear.ctx.strokeRect(2, 2, rear.canvas.width - 4, rear.canvas.height - 4);
+    rear.ctx.fillStyle = '#94a3b8';
+    rear.ctx.font = 'bold 15px monospace';
+    rear.ctx.fillText(`${sp.code} CIBLE: A${String(sp.targetAddr).padStart(3, '0')}`, 12, 26);
+    rear.ctx.fillStyle = ok ? '#4ade80' : '#fbbf24';
+    rear.ctx.font = 'bold 34px monospace';
+    rear.ctx.fillText(`A${String(fx.addr).padStart(3, '0')}`, 42, 72);
+    rear.texture.needsUpdate = true;
 
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = 'bold 15px monospace';
-    ctx.fillText(`${sp.code} CIBLE: A${String(sp.targetAddr).padStart(3, '0')}`, 12, 26);
-
-    ctx.fillStyle = ok ? '#4ade80' : '#fbbf24';
-    ctx.font = 'bold 34px monospace';
-    ctx.fillText(`A${String(fx.addr).padStart(3, '0')}`, 42, 72);
-    texture.needsUpdate = true;
+    const front = fixtureObjects[i].frontScreen;
+    front.ctx.fillStyle = '#020617';
+    front.ctx.fillRect(0, 0, front.canvas.width, front.canvas.height);
+    front.ctx.strokeStyle = ok ? '#22c55e' : isSel ? '#38bdf8' : '#f59e0b';
+    front.ctx.lineWidth = 4;
+    front.ctx.strokeRect(2, 2, front.canvas.width - 4, front.canvas.height - 4);
+    front.ctx.fillStyle = isSel ? '#38bdf8' : '#94a3b8';
+    front.ctx.font = 'bold 15px monospace';
+    front.ctx.fillText(`${sp.code} • CIBLE A${String(sp.targetAddr).padStart(3, '0')}`, 10, 22);
+    front.ctx.fillStyle = ok ? '#4ade80' : '#fbbf24';
+    front.ctx.font = 'bold 30px monospace';
+    front.ctx.fillText(`A${String(fx.addr).padStart(3, '0')}`, 14, 58);
+    front.ctx.fillStyle = ok ? '#4ade80' : '#f87171';
+    front.ctx.font = 'bold 16px monospace';
+    front.ctx.fillText(ok ? 'OK' : 'EDIT', 128, 56);
+    front.texture.needsUpdate = true;
   }
 
   function syncDmx3D() {
@@ -710,20 +1122,23 @@ export function createDmxLightingGame(api) {
 
     for (const item of faderKnobs) {
       const ratio = curFx[item.def.key] / item.def.max;
-      item.knob.position.z = 0.085 - ratio * 0.14;
+      const localZ = 0.085 - ratio * 0.14;
+      item.knob.position.z = localZ;
+      item.knob.position.y = 0.102 - (localZ - 0.015) * Math.sin(0.14);
     }
 
     for (let i = 0; i < 4; i++) {
       const active = i === state.selectedFixture;
       fixBtns[i].color.setHex(active ? 0x38bdf8 : 0x334155);
       fixBtns[i].emissive.setHex(active ? 0x0284c7 : 0x000000);
+      fixBtns[i].emissiveIntensity = active ? 0.65 : 0;
 
       const fx = state.fixtures[i];
       const obj = fixtureObjects[i];
       obj.panGroup.rotation.y = ((fx.pan - 50) / 50) * 0.72;
       obj.tiltGroup.rotation.x = 0.42 + (fx.tilt / 100) * 0.75;
 
-      const cableActive = state.cablesDone.has(i);
+      const cableActive = isFixtureChainPowered(i);
       const signalClean = ev.daisyOk && !ev.conflictingIds.has(i);
       const jitter = cableActive && !signalClean ? (Math.sin(state.glitchPhase * 18 + i) > 0 ? 0.35 : 0.9) : 1.0;
 
@@ -737,14 +1152,23 @@ export function createDmxLightingGame(api) {
       obj.spot.color.copy(c);
       obj.spot.intensity = cableActive ? intensity * 3.8 : 0;
 
-      drawRearFixtureScreen(i, ev);
+      drawFixtureScreens(i, ev);
     }
 
+    const validNextPort = getValidNextTargetPort(state.selectedPort);
     for (const [pid, port] of Object.entries(xlrPorts)) {
       const isSel = state.selectedPort === pid;
-      port.mesh.material.color.setHex(isSel ? 0xfbbf24 : 0x38bdf8);
-      port.mesh.material.emissive.setHex(isSel ? 0xf59e0b : 0x000000);
-      port.mesh.material.emissiveIntensity = isSel ? 0.7 : 0;
+      const isNextHint = validNextPort === pid;
+      const isConnected = DAISY_LINKS.some(
+        (lk) => state.cablesDone.has(lk.id) && (lk.fromId === pid || lk.toId === pid)
+      ) || (pid === 'P3_OUT' && state.terminatorInstalled);
+      port.mesh.material.color.setHex(
+        isSel ? 0xfbbf24 : isNextHint ? 0x22d3ee : isConnected ? 0x22c55e : port.baseHex
+      );
+      port.mesh.material.emissive.setHex(
+        isSel ? 0xf59e0b : isNextHint ? 0x06b6d4 : isConnected ? 0x15803d : 0x000000
+      );
+      port.mesh.material.emissiveIntensity = isSel ? 0.85 : isNextHint ? 0.8 : isConnected ? 0.45 : 0;
     }
 
     drawLcdScreen(ev);
@@ -753,68 +1177,172 @@ export function createDmxLightingGame(api) {
   function setCameraById(id) {
     const cam = CAM_VIEWS.find((c) => c.id === id) || CAM_VIEWS[0];
     state.camId = cam.id;
+    bench.resetInteractionState?.();
     bench.setCameraView(cam.pos, cam.lookAt, cam.fov);
     bench.setCameras(CAM_VIEWS, cam.id, setCameraById);
+  }
+
+  function computeCurrentEstimatedScore(ev) {
+    return computeDmxScore3D({
+      cablesConnected: ev.cablesConnected,
+      terminatorInstalled: state.terminatorInstalled,
+      exactAddressesCount: ev.exactAddressesCount,
+      dmxNoOverlap: ev.dmxNoOverlap,
+      overlapCount: ev.overlaps,
+      matchedFixtures: ev.matchedFixtures,
+      aimScore: ev.aimScore,
+      elapsedSec: (performance.now() - state.startMs) / 1000
+    });
+  }
+
+  let lastStageKey = '';
+  function syncStagesBar(ev) {
+    const stepIdx = !ev.daisyOk
+      ? 0
+      : ev.exactAddressesCount < 4 || !ev.dmxNoOverlap
+      ? 1
+      : 2;
+    const stages = [
+      { name: `1. XLR & 120 Ω (${ev.cablesConnected}/4)` },
+      { name: `2. Adressage (${ev.exactAddressesCount}/4)` },
+      { name: `3. Faders & Scène (${ev.matchedFixtures}/4)` }
+    ];
+    const nextKey = `${stepIdx}|${stages.map((s) => s.name).join('|')}`;
+    if (nextKey === lastStageKey) return;
+    lastStageKey = nextKey;
+    api.setStages(stages, stepIdx, (idx) => {
+      if (idx === 0) setCameraById('cabling');
+      else if (idx === 1) setCameraById('address');
+      else setCameraById('console');
+    });
+  }
+
+  function syncLiveUiWithoutRebuild() {
+    const ev = evaluateDmx();
+    const estScore = computeCurrentEstimatedScore(ev);
+    const stepSub = state.selectedPort
+      ? `Port sélectionné : ${xlrPorts[state.selectedPort]?.label} — cliquez le port suivant sur le Truss ou Pupitre.`
+      : ev.teacherAdvice;
+
+    bench.setInstruction(
+      'ATELIER DMX512, CÂBLAGE XLR & SCÈNE 3D',
+      `XLR ${ev.cablesConnected}/4 • 120Ω ${state.terminatorInstalled ? 'OK' : 'NON'} • Adresses ${ev.exactAddressesCount}/4 • Scène ${ev.matchedFixtures}/4`,
+      stepSub
+    );
+    bench.setAccuracy(`Note est. ${estScore.toFixed(1)}/20`);
+    syncStagesBar(ev);
+
+    const profEl = api.container.querySelector('#dmx-prof-advice');
+    if (profEl) profEl.textContent = ev.teacherAdvice;
+
+    const selCurFx = state.fixtures[state.selectedFixture];
+    const selCurSp = FIXTURE_SPECS[state.selectedFixture];
+    const curAddrEl = api.container.querySelector('[data-addr-cur]');
+    if (curAddrEl) {
+      curAddrEl.textContent = `A${String(selCurFx.addr).padStart(3, '0')}`;
+      curAddrEl.style.color = selCurFx.addr === selCurSp.targetAddr ? '#4ade80' : '#38bdf8';
+    }
+
+    for (let i = 0; i < FIXTURE_SPECS.length; i++) {
+      const sp = FIXTURE_SPECS[i];
+      const res = ev.fixtureResults[i];
+      const f = state.fixtures[i];
+      const cardEl = api.container.querySelector(`[data-fix-card="${i}"]`);
+      if (cardEl) {
+        cardEl.classList.toggle('ok', res.ok);
+        cardEl.style.borderColor = res.ok
+          ? 'rgba(34,197,94,0.75)'
+          : res.addrExact
+          ? 'rgba(56,189,248,0.55)'
+          : 'rgba(239,68,68,0.65)';
+      }
+      const addrBadge = api.container.querySelector(`[data-fix-addr="${i}"]`);
+      if (addrBadge) {
+        addrBadge.textContent = `A${String(f.addr).padStart(3, '0')} / A${String(sp.targetAddr).padStart(3, '0')}`;
+        addrBadge.style.color = res.addrExact && res.addrClean ? '#4ade80' : '#fbbf24';
+      }
+      const statusLine = api.container.querySelector(`[data-fix-status="${i}"]`);
+      if (statusLine) {
+        statusLine.textContent = res.ok ? '✔ Scène DMX conforme OK' : sp.hint;
+        statusLine.style.color = res.ok ? '#4ade80' : '#cbd5e1';
+      }
+    }
+
+    const curFx = state.fixtures[state.selectedFixture];
+    for (const fd of faderDefs) {
+      const span = api.container.querySelector(`[data-fader-val="${fd.key}"]`);
+      if (span) span.textContent = String(curFx[fd.key]);
+      const inp = api.container.querySelector(`input[data-fader="${fd.key}"]`);
+      if (inp && document.activeElement !== inp) {
+        inp.value = String(curFx[fd.key]);
+      }
+    }
   }
 
   function updateSidebar() {
     const ev = evaluateDmx();
     const selSpec = FIXTURE_SPECS[state.selectedFixture];
     const fx = state.fixtures[state.selectedFixture];
+    const selTarget = selSpec.target;
 
     const linkRows = DAISY_LINKS.map((lk) => {
       const ok = state.cablesDone.has(lk.id);
-      return `<div style="display:flex;justify-content:space-between;padding:3px 6px;border-radius:4px;background:rgba(15,23,42,0.55);color:${
-        ok ? '#4ade80' : '#cbd5e1'
-      };"><span>${lk.label}</span><span>${ok ? 'OK' : 'À relier'}</span></div>`;
+      return `<div class="av-link-row ${ok ? 'ok' : 'pending'}"><span>${lk.label}</span><strong>${ok ? '✔ Relié' : 'À relier'}</strong></div>`;
     }).join('');
 
     const fixCards = FIXTURE_SPECS.map((sp, i) => {
       const res = ev.fixtureResults[i];
       const f = state.fixtures[i];
       const active = i === state.selectedFixture;
-      return `<div data-sel="${i}" style="padding:5px 7px;border-radius:6px;cursor:pointer;background:${
-        active ? 'rgba(56,189,248,0.22)' : 'rgba(15,23,42,0.55)'
-      };border:1px solid ${res.ok ? 'rgba(34,197,94,0.6)' : res.addrExact ? 'rgba(56,189,248,0.45)' : 'rgba(239,68,68,0.6)'};">
-        <div style="display:flex;justify-content:space-between;font-weight:700;">
+      return `<div data-fix-card="${i}" data-sel="${i}" class="av-fix-card ${active ? 'active' : ''} ${res.ok ? 'ok' : ''}" style="border-color:${
+        res.ok ? 'rgba(34,197,94,0.75)' : res.addrExact ? 'rgba(56,189,248,0.55)' : 'rgba(239,68,68,0.65)'
+      };">
+        <div class="av-fix-head">
           <span>${sp.code} (${sp.role})</span>
-          <span style="color:${res.addrExact ? '#4ade80' : '#fbbf24'};">A${String(f.addr).padStart(3, '0')} / cible A${String(sp.targetAddr).padStart(3, '0')}</span>
+          <span data-fix-addr="${i}" style="font-family:monospace;color:${res.addrExact && res.addrClean ? '#4ade80' : '#fbbf24'};">A${String(f.addr).padStart(3, '0')} / A${String(sp.targetAddr).padStart(3, '0')}</span>
         </div>
-        <div style="font-size:10px;color:${res.ok ? '#4ade80' : '#cbd5e1'};">${res.ok ? 'Scène DMX conforme OK' : sp.hint}</div>
+        <div data-fix-status="${i}" class="av-fix-status" style="color:${res.ok ? '#4ade80' : '#cbd5e1'};">${res.ok ? '✔ Scène DMX conforme OK' : sp.hint}</div>
       </div>`;
     }).join('');
 
     const drawer = bench.setSideDrawer(`
-      <div style="display:flex;flex-direction:column;gap:6px;font-size:11px;">
-        <div style="font-weight:800;color:#38bdf8;font-size:12px;">1. DAISY-CHAIN XLR (${ev.cablesConnected}/4) & 120 Ω</div>
-        <div style="display:flex;flex-direction:column;gap:3px;">${linkRows}</div>
-        <div style="display:flex;gap:4px;">
-          <button id="dmx-next-xlr" style="flex:1;padding:5px;border-radius:5px;border:none;background:#0284c7;color:#fff;font-weight:700;cursor:pointer;">${
-            ev.cablesConnected < 4 ? 'Relier câble XLR suivant' : state.terminatorInstalled ? 'Bus XLR + 120Ω OK' : 'Brancher Bouchon 120 Ω'
+      <div class="av-drawer-shell">
+        <div id="dmx-prof-advice" class="av-prof-banner">${ev.teacherAdvice}</div>
+
+        <div class="av-step-header">
+          <span class="av-step-title cyan">1. DAISY-CHAIN XLR (${ev.cablesConnected}/4) & 120 Ω</span>
+        </div>
+        <div class="av-link-list">${linkRows}</div>
+        <div class="av-btn-row">
+          <button type="button" id="dmx-next-xlr" class="av-btn ${ev.daisyOk ? 'success' : 'primary'}">${
+            ev.cablesConnected < 4 ? `🔌 Relier câble XLR (${ev.cablesConnected}/4)` : state.terminatorInstalled ? '✔ Bus XLR + Bouchon 120 Ω OK' : '🛡️ Brancher Bouchon 120 Ω'
           }</button>
         </div>
 
-        <div style="font-weight:800;color:#a855f7;font-size:12px;margin-top:2px;">2. ADRESSAGE & 3. SCÈNE DMX512</div>
-        <div style="display:flex;flex-direction:column;gap:4px;">${fixCards}</div>
+        <div class="av-step-header">
+          <span class="av-step-title purple">2. ADRESSAGE & 3. SCÈNE DMX512 (${ev.matchedFixtures}/4)</span>
+        </div>
+        <div class="av-fix-list">${fixCards}</div>
 
-        <div style="padding:6px;border-radius:6px;background:rgba(15,23,42,0.86);color:#f8fafc;border:1px solid #334155;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-            <strong>${selSpec.code} Adresse :</strong>
-            <div style="display:flex;gap:4px;align-items:center;">
-              <button data-addr="-4" style="padding:2px 6px;border-radius:4px;border:1px solid #475569;background:#1e293b;color:#fff;cursor:pointer;">-4</button>
-              <button data-addr="-1" style="padding:2px 6px;border-radius:4px;border:1px solid #475569;background:#1e293b;color:#fff;cursor:pointer;">-1</button>
-              <span style="font-family:monospace;font-weight:700;color:#38bdf8;min-width:44px;text-align:center;">A${String(fx.addr).padStart(3, '0')}</span>
-              <button data-addr="1" style="padding:2px 6px;border-radius:4px;border:1px solid #475569;background:#1e293b;color:#fff;cursor:pointer;">+1</button>
-              <button data-addr="4" style="padding:2px 6px;border-radius:4px;border:1px solid #475569;background:#1e293b;color:#fff;cursor:pointer;">+4</button>
+        <div class="av-control-card">
+          <div class="av-control-head">
+            <strong>${selSpec.code} (Cible A${String(selSpec.targetAddr).padStart(3, '0')})</strong>
+            <div class="av-addr-controls">
+              <button type="button" class="av-mini-btn" data-addr="-4">-4</button>
+              <button type="button" class="av-mini-btn" data-addr="-1">-1</button>
+              <span data-addr-cur class="av-addr-readout" style="color:${fx.addr === selSpec.targetAddr ? '#4ade80' : '#38bdf8'};">A${String(fx.addr).padStart(3, '0')}</span>
+              <button type="button" class="av-mini-btn" data-addr="1">+1</button>
+              <button type="button" class="av-mini-btn" data-addr="4">+4</button>
+              <button type="button" id="dmx-preset-fix" class="av-btn primary compact" title="Appliquer les valeurs cibles sur ${selSpec.code}">Calibrer ${selSpec.code}</button>
             </div>
           </div>
           ${faderDefs
             .map(
               (fd) => `
-            <label style="display:flex;align-items:center;gap:6px;margin-top:2px;">
-              <span style="width:52px;color:#cbd5e1;">${fd.label}</span>
-              <input type="range" min="0" max="${fd.max}" value="${fx[fd.key]}" data-fader="${fd.key}" style="flex:1;" />
-              <span style="width:28px;text-align:right;font-family:monospace;">${fx[fd.key]}</span>
+            <label class="av-slider-row">
+              <span class="av-slider-lbl">${fd.label} <small>(${selTarget[fd.key]})</small></span>
+              <input type="range" min="0" max="${fd.max}" value="${fx[fd.key]}" data-fader="${fd.key}" />
+              <span data-fader-val="${fd.key}" class="av-slider-val">${fx[fd.key]}</span>
             </label>`
             )
             .join('')}
@@ -825,6 +1353,11 @@ export function createDmxLightingGame(api) {
     if (!drawer) return;
     const xlrBtn = drawer.querySelector('#dmx-next-xlr');
     if (xlrBtn) xlrBtn.addEventListener('click', connectNextXlr);
+
+    const presetBtn = drawer.querySelector('#dmx-preset-fix');
+    if (presetBtn) {
+      presetBtn.addEventListener('click', () => applyTargetToFixture(state.selectedFixture));
+    }
 
     drawer.querySelectorAll('[data-sel]').forEach((el) => {
       el.addEventListener('click', () => {
@@ -838,60 +1371,63 @@ export function createDmxLightingGame(api) {
       btn.addEventListener('click', () => {
         const delta = Number(btn.dataset.addr);
         const fxCur = state.fixtures[state.selectedFixture];
-        fxCur.addr = Math.max(1, Math.min(500, fxCur.addr + delta));
-        sfx.snap();
+        fxCur.addr = Math.max(1, Math.min(505, fxCur.addr + delta));
+        sfx.dmxAddressBeep(fxCur.addr === selSpec.targetAddr);
         syncDmx3D();
         refreshUi();
       });
     });
     drawer.querySelectorAll('[data-fader]').forEach((inp) => {
       inp.addEventListener('input', () => {
-        state.fixtures[state.selectedFixture][inp.dataset.fader] = Number(inp.value);
+        const key = inp.dataset.fader;
+        const val = Number(inp.value);
+        state.fixtures[state.selectedFixture][key] = val;
+        const now = performance.now();
+        if (now - lastFaderTickMs > 65) {
+          lastFaderTickMs = now;
+          sfx.faderTick(val / (Number(inp.max) || 100));
+        }
         syncDmx3D();
-        const span = inp.nextElementSibling;
-        if (span) span.textContent = inp.value;
+        syncLiveUiWithoutRebuild();
       });
       inp.addEventListener('change', () => refreshUi());
     });
   }
 
-  function syncStagesBar(ev) {
-    const stepIdx = !ev.daisyOk
-      ? 0
-      : ev.exactAddressesCount < 4 || !ev.dmxNoOverlap
-      ? 1
-      : 2;
-    api.setStages(
-      [
-        { name: `1. XLR & 120 Ω (${ev.cablesConnected}/4)` },
-        { name: `2. Adressage (${ev.exactAddressesCount}/4)` },
-        { name: `3. Faders & Scène (${ev.matchedFixtures}/4)` }
-      ],
-      stepIdx,
-      (idx) => {
-        if (idx === 0) setCameraById('cabling');
-        else if (idx === 1) setCameraById('address');
-        else setCameraById('console');
-      }
+  function submitDmxTp() {
+    if (state.submitted) return;
+    state.submitted = true;
+    const finalEv = evaluateDmx();
+    const finalScore = computeDmxScore3D({
+      cablesConnected: finalEv.cablesConnected,
+      terminatorInstalled: state.terminatorInstalled,
+      exactAddressesCount: finalEv.exactAddressesCount,
+      dmxNoOverlap: finalEv.dmxNoOverlap,
+      overlapCount: finalEv.overlaps,
+      matchedFixtures: finalEv.matchedFixtures,
+      aimScore: finalEv.aimScore,
+      elapsedSec: (performance.now() - state.startMs) / 1000
+    });
+    api.finishTp(
+      finalScore,
+      `
+        <p>Plateforme Éclairage Scénique DMX512 évaluée par le <strong>Professeur CIEL</strong> :</p>
+        <ul>
+          <li>Liaison série XLR-5 : <strong>${finalEv.cablesConnected}/4 câbles</strong> • Bouchon 120 Ω : <strong>${state.terminatorInstalled ? 'Installé ✔' : 'Absent'}</strong></li>
+          <li>Adressage DMX512 sans conflit : <strong>${finalEv.exactAddressesCount}/4 adresses exactes</strong> (Conflits : ${finalEv.overlaps})</li>
+          <li>Restitution chromatique & orientation lyres : <strong>${finalEv.matchedFixtures}/4 projecteurs conformes</strong></li>
+        </ul>
+      `
     );
   }
 
   function refreshUi() {
     const ev = evaluateDmx();
-    const estScore = computeDmxScore3D({
-      cablesConnected: ev.cablesConnected,
-      terminatorInstalled: state.terminatorInstalled,
-      exactAddressesCount: ev.exactAddressesCount,
-      dmxNoOverlap: ev.dmxNoOverlap,
-      overlapCount: ev.overlaps,
-      matchedFixtures: ev.matchedFixtures,
-      aimScore: ev.aimScore,
-      elapsedSec: (performance.now() - state.startMs) / 1000
-    });
+    const estScore = computeCurrentEstimatedScore(ev);
 
     const stepSub = state.selectedPort
       ? `Port sélectionné : ${xlrPorts[state.selectedPort]?.label} — cliquez le port suivant sur le Truss ou Pupitre.`
-      : '1) Câblez les 4 liens XLR en série + bouchon 120 Ω  2) Réglez A001/A009/A017/A025  3) Glissez les faders RGB/Pan/Tilt.';
+      : ev.teacherAdvice;
 
     bench.setInstruction(
       'ATELIER DMX512, CÂBLAGE XLR & SCÈNE 3D',
@@ -930,38 +1466,17 @@ export function createDmxLightingGame(api) {
         onClick: connectNextXlr
       },
       {
+        id: 'calibrate-cur-btn',
+        label: `Calibrer ${FIXTURE_SPECS[state.selectedFixture].code}`,
+        primary: ev.daisyOk && !ev.fixtureResults[state.selectedFixture]?.ok,
+        onClick: () => applyTargetToFixture(state.selectedFixture)
+      },
+      {
         id: 'finish-btn',
         label: 'Valider Scène DMX',
-        primary: ev.daisyOk && ev.matchedFixtures >= 3,
+        primary: ev.allValid,
         disabled: state.submitted,
-        onClick: () => {
-          if (state.submitted) return;
-          state.submitted = true;
-          const finalEv = evaluateDmx();
-          const finalScore = computeDmxScore3D({
-            cablesConnected: finalEv.cablesConnected,
-            terminatorInstalled: state.terminatorInstalled,
-            exactAddressesCount: finalEv.exactAddressesCount,
-            dmxNoOverlap: finalEv.dmxNoOverlap,
-            overlapCount: finalEv.overlaps,
-            matchedFixtures: finalEv.matchedFixtures,
-            aimScore: finalEv.aimScore,
-            elapsedSec: (performance.now() - state.startMs) / 1000
-          });
-          if (finalScore >= 12) sfx.success();
-          else sfx.error();
-          api.finishTp(
-            finalScore,
-            `
-              <p>Plateforme Éclairage DMX512 évaluée :</p>
-              <ul>
-                <li>Liaison série XLR-5 : <strong>${finalEv.cablesConnected}/4 câbles</strong> • Bouchon 120 Ω : <strong>${state.terminatorInstalled ? 'Installé' : 'Absent'}</strong></li>
-                <li>Adressage DMX sans conflit : <strong>${finalEv.exactAddressesCount}/4 adresses exactes</strong> (Conflits : ${finalEv.overlaps})</li>
-                <li>Restitution chromatique & orientation : <strong>${finalEv.matchedFixtures}/4 projecteurs conformes</strong></li>
-              </ul>
-            `
-          );
-        }
+        onClick: submitDmxTp
       }
     ]);
 
@@ -984,7 +1499,7 @@ export function createDmxLightingGame(api) {
       for (let i = 0; i < 4; i++) {
         const obj = fixtureObjects[i];
         const fx = state.fixtures[i];
-        const cableActive = state.cablesDone.has(i);
+        const cableActive = isFixtureChainPowered(i);
         const signalClean = ev.daisyOk && !ev.conflictingIds.has(i);
         const jitter = cableActive && !signalClean ? (Math.sin(state.glitchPhase * 18 + i) > 0 ? 0.35 : 0.9) : 1.0;
         const intensity = cableActive ? (fx.master / 100) * jitter : 0.05;

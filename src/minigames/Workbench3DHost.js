@@ -508,28 +508,89 @@ export function createWorkbench3D(container, options = {}) {
       if (!entry.hoverSnapshot) {
         const snap = new Map();
         for (const mesh of entry.trackedMeshes) {
-          if (mesh.material && !Array.isArray(mesh.material) && mesh.material.emissive) {
+          if (!mesh.material || Array.isArray(mesh.material)) continue;
+          if (mesh.material.emissive) {
+            const origColor = mesh.material.emissive.getHex();
+            const origIntensity =
+              typeof mesh.material.emissiveIntensity === 'number'
+                ? mesh.material.emissiveIntensity
+                : 1;
+            const appliedColor = origColor === 0x000000 || origIntensity < 0.35 ? 0x38bdf8 : origColor;
+            const appliedIntensity = Math.max(origIntensity + 0.38, 0.48);
             snap.set(mesh, {
-              color: mesh.material.emissive.getHex(),
-              intensity: mesh.material.emissiveIntensity || 0
+              kind: 'emissive',
+              color: origColor,
+              intensity: origIntensity,
+              appliedColor,
+              appliedIntensity
+            });
+          } else if (mesh.material.color) {
+            const origColor = mesh.material.color.getHex();
+            const tmp = new THREE.Color(origColor);
+            tmp.lerp(new THREE.Color(0x7dd3fc), 0.24);
+            const appliedColor = tmp.getHex();
+            snap.set(mesh, {
+              kind: 'color',
+              color: origColor,
+              appliedColor
             });
           }
         }
         entry.hoverSnapshot = snap;
       }
       for (const [mesh, orig] of entry.hoverSnapshot.entries()) {
-        if (!mesh.material || !mesh.material.emissive) continue;
-        if (orig.intensity < 0.35) mesh.material.emissive.setHex(0x38bdf8);
-        mesh.material.emissiveIntensity = Math.max(orig.intensity + 0.38, 0.48);
+        if (!mesh.material) continue;
+        if (orig.kind === 'emissive' && mesh.material.emissive) {
+          mesh.material.emissive.setHex(orig.appliedColor);
+          mesh.material.emissiveIntensity = orig.appliedIntensity;
+        } else if (orig.kind === 'color' && mesh.material.color) {
+          mesh.material.color.setHex(orig.appliedColor);
+        }
       }
     } else if (entry.hoverSnapshot) {
       for (const [mesh, orig] of entry.hoverSnapshot.entries()) {
-        if (!mesh.material || !mesh.material.emissive) continue;
-        mesh.material.emissive.setHex(orig.color);
-        mesh.material.emissiveIntensity = orig.intensity;
+        if (!mesh.material) continue;
+        if (orig.kind === 'emissive' && mesh.material.emissive) {
+          if (mesh.material.emissive.getHex() === orig.appliedColor) {
+            mesh.material.emissive.setHex(orig.color);
+            mesh.material.emissiveIntensity = orig.intensity;
+          }
+        } else if (orig.kind === 'color' && mesh.material.color) {
+          if (mesh.material.color.getHex() === orig.appliedColor) {
+            mesh.material.color.setHex(orig.color);
+          }
+        }
       }
       entry.hoverSnapshot = null;
     }
+  };
+
+  const runWithSuspendedHighlight = (fn) => {
+    const prevHover = hoveredEntry;
+    if (prevHover) setEntryHighlight(prevHover, false);
+    try {
+      return fn();
+    } finally {
+      if (hoveredEntry && hoveredEntry.enabled()) {
+        setEntryHighlight(hoveredEntry, true);
+      }
+    }
+  };
+
+  const resetInteractionState = () => {
+    if (activePointerId !== null) {
+      canvas.releasePointerCapture?.(activePointerId);
+      activePointerId = null;
+    }
+    if (hoveredEntry) {
+      setEntryHighlight(hoveredEntry, false);
+      hoveredEntry = null;
+    }
+    dragEntry = null;
+    dragHit = null;
+    orbiting = false;
+    totalDragPx = 0;
+    tooltipEl.classList.add('hidden');
   };
 
   const updateTooltip = (entry, clientX, clientY) => {
@@ -540,8 +601,10 @@ export function createWorkbench3D(container, options = {}) {
     const b = root.getBoundingClientRect();
     tooltipEl.textContent = typeof entry.label === 'function' ? entry.label() : entry.label;
     tooltipEl.classList.remove('hidden');
-    tooltipEl.style.left = `${Math.min(b.width - 140, Math.max(12, clientX - b.left + 14))}px`;
-    tooltipEl.style.top = `${Math.max(58, clientY - b.top - 34)}px`;
+    const maxLeft = Math.max(12, b.width - 220);
+    const maxTop = Math.max(58, b.height - 60);
+    tooltipEl.style.left = `${Math.min(maxLeft, Math.max(12, clientX - b.left + 14))}px`;
+    tooltipEl.style.top = `${Math.min(maxTop, Math.max(58, clientY - b.top - 34))}px`;
   };
 
   const onPointerMoveCallbackFns = [];
@@ -560,7 +623,9 @@ export function createWorkbench3D(container, options = {}) {
       dragHit = picked.hit;
       orbiting = false;
       const planePt = projectOntoPlane(e.clientX, e.clientY, dragEntry.dragPlane);
-      dragEntry.onDragStart?.(dragHit, { clientX: e.clientX, clientY: e.clientY, planePoint: planePt });
+      runWithSuspendedHighlight(() => {
+        dragEntry?.onDragStart?.(dragHit, { clientX: e.clientX, clientY: e.clientY, planePoint: planePt });
+      });
     } else {
       dragEntry = null;
       dragHit = null;
@@ -581,7 +646,9 @@ export function createWorkbench3D(container, options = {}) {
       totalDragPx += Math.hypot(dx, dy);
       if (dragEntry) {
         const planePt = projectOntoPlane(e.clientX, e.clientY, dragEntry.dragPlane);
-        dragEntry.onDragMove?.(planePt, dx, dy, dragHit, { clientX: e.clientX, clientY: e.clientY });
+        runWithSuspendedHighlight(() => {
+          dragEntry?.onDragMove?.(planePt, dx, dy, dragHit, { clientX: e.clientX, clientY: e.clientY });
+        });
         updateTooltip(dragEntry, e.clientX, e.clientY);
         return;
       }
@@ -590,6 +657,16 @@ export function createWorkbench3D(container, options = {}) {
         orbitPitch = Math.max(-0.32, Math.min(0.32, orbitPitch + dy * 0.0035));
         return;
       }
+    }
+
+    if (e.target && e.target !== canvas) {
+      if (hoveredEntry) {
+        setEntryHighlight(hoveredEntry, false);
+        hoveredEntry = null;
+      }
+      canvas.style.cursor = 'grab';
+      tooltipEl.classList.add('hidden');
+      return;
     }
 
     const picked = pickInteractive(e.clientX, e.clientY);
@@ -607,11 +684,16 @@ export function createWorkbench3D(container, options = {}) {
     if (activePointerId !== e.pointerId) return;
     canvas.releasePointerCapture?.(e.pointerId);
     if (dragEntry) {
-      const planePt = projectOntoPlane(e.clientX, e.clientY, dragEntry.dragPlane);
-      if (totalDragPx < 9 && dragEntry.onClick) {
-        dragEntry.onClick(dragHit, { clientX: e.clientX, clientY: e.clientY, planePoint: planePt });
-      }
-      dragEntry.onDragEnd?.({ clientX: e.clientX, clientY: e.clientY, planePoint: planePt, dragDist: totalDragPx });
+      const targetDrag = dragEntry;
+      const targetHit = dragHit;
+      const dist = totalDragPx;
+      const planePt = projectOntoPlane(e.clientX, e.clientY, targetDrag.dragPlane);
+      runWithSuspendedHighlight(() => {
+        if (dist < 9 && targetDrag.onClick) {
+          targetDrag.onClick(targetHit, { clientX: e.clientX, clientY: e.clientY, planePoint: planePt });
+        }
+        targetDrag.onDragEnd?.({ clientX: e.clientX, clientY: e.clientY, planePoint: planePt, dragDist: dist });
+      });
     }
     activePointerId = null;
     dragEntry = null;
@@ -634,12 +716,24 @@ export function createWorkbench3D(container, options = {}) {
     renderer.setSize(w, h, false);
   };
 
+  const handlePointerLeave = () => {
+    if (activePointerId !== null) return;
+    if (hoveredEntry) {
+      setEntryHighlight(hoveredEntry, false);
+      hoveredEntry = null;
+    }
+    tooltipEl.classList.add('hidden');
+    canvas.style.cursor = 'grab';
+  };
+
   let resizeObserver = null;
   if (!vrActive) {
     canvas.addEventListener('pointerdown', handlePointerDown);
+    canvas.addEventListener('pointerleave', handlePointerLeave);
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
     window.addEventListener('pointercancel', handlePointerUp);
+    window.addEventListener('blur', resetInteractionState);
     canvas.addEventListener('wheel', handleWheel, { passive: false });
     window.addEventListener('resize', handleResize);
     resizeObserver =
@@ -962,6 +1056,11 @@ export function createWorkbench3D(container, options = {}) {
       syncVrPanel();
       return sideDrawerEl;
     },
+    refreshDrawerControls: () => {
+      extractDrawerControls();
+      syncVrPanel();
+    },
+    resetInteractionState,
     showToast: (msg, kind = 'info') => {
       if (toastTimer) clearTimeout(toastTimer);
       toastEl.textContent = msg;
@@ -986,13 +1085,18 @@ export function createWorkbench3D(container, options = {}) {
     destroy: () => {
       if (rafId) cancelAnimationFrame(rafId);
       if (toastTimer) clearTimeout(toastTimer);
+      resetInteractionState();
+      updaters.length = 0;
+      onPointerMoveCallbackFns.length = 0;
       if (vrActive) {
         vrBridge?.detachWorkbench?.();
       } else {
         canvas.removeEventListener('pointerdown', handlePointerDown);
+        canvas.removeEventListener('pointerleave', handlePointerLeave);
         window.removeEventListener('pointermove', handlePointerMove);
         window.removeEventListener('pointerup', handlePointerUp);
         window.removeEventListener('pointercancel', handlePointerUp);
+        window.removeEventListener('blur', resetInteractionState);
         canvas.removeEventListener('wheel', handleWheel);
         window.removeEventListener('resize', handleResize);
         resizeObserver?.disconnect();
@@ -1025,6 +1129,16 @@ export function createWorkbench3D(container, options = {}) {
       scene,
       interactiveMeshes,
       vrStep,
+      resetInteractionState,
+      setHoveredEntry: (nextEntry) => {
+        if (nextEntry !== hoveredEntry) {
+          if (hoveredEntry) setEntryHighlight(hoveredEntry, false);
+          hoveredEntry = nextEntry || null;
+          if (hoveredEntry && hoveredEntry.enabled()) {
+            setEntryHighlight(hoveredEntry, true);
+          }
+        }
+      },
       emitPointerRay: (vrRaycaster, workPt) => {
         activeVrRay = vrRaycaster;
         for (const fn of onPointerMoveCallbackFns) {

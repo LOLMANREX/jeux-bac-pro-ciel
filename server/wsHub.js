@@ -33,6 +33,11 @@ export function hasAllTpsAt20(profile) {
   return TP_IDS.every((id) => Number(profile.grades[id]) >= 20);
 }
 
+export function hasAllStationTpsAt20(profile) {
+  if (!profile || !profile.grades || typeof profile.grades !== 'object') return false;
+  return ALL_TP_IDS.every((id) => Number(profile.grades[id]) >= 20);
+}
+
 export function formatCelebrationBanner(playerName, rawTpLabel) {
   const cleanName = sanitizeName(playerName || 'Eleve_CIEL');
   const rawTp = String(rawTpLabel || 'Oscilloscope & Diagnostic 3D').trim();
@@ -564,13 +569,14 @@ export function attachWsHub(httpServer, store) {
     );
 
     const allTps20 = hasAllTpsAt20(result.profile);
-    if (allTps20 || Number(result.score) >= 20) {
+    const allStationTps20 = hasAllStationTpsAt20(result.profile);
+    if (allTps20 || allStationTps20 || Number(result.score) >= 20) {
       broadcastCelebrationInRoom(state.room, {
         playerId: state.id,
         playerName: state.name,
         tpId,
         tpLabel,
-        reason: allTps20 ? 'all_tps_20' : 'tp_20'
+        reason: allTps20 || allStationTps20 ? 'all_tps_20' : 'tp_20'
       });
     }
 
@@ -580,7 +586,7 @@ export function attachWsHub(httpServer, store) {
         system: true,
         author: 'Professeur CIEL',
         text:
-          allTps20
+          allTps20 || allStationTps20
             ? `🏆 20/20 INTÉGRAL ! ${state.name} a validé tous les TPs à 20/20 et accède à la Cérémonie d'Ascension !`
             : Number(result.score) >= 20
               ? `🏆 EXPLOIT PARFAIT ! ${state.name} vient de décrocher 20/20 au ${tpLabel} !`

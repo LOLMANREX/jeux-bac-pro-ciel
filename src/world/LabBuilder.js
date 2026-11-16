@@ -671,6 +671,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
   const colliders = [];
   const interactables = [];
+  const solidWallMeshes = [];
   const teacherRefs = [];
   const animatedRefs = {
     rings: [],
@@ -683,6 +684,71 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   let lastLocalPlayerName = '';
   let lastGrades = {};
   const showSprites = !options.hideSprites;
+  let hoveredItem = null;
+  const hoverSnapshot = new Map();
+  const hoverHaloMat = new THREE.MeshBasicMaterial({
+    color: '#22d3ee',
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false
+  });
+  const hoverHaloMesh = new THREE.Mesh(new THREE.RingGeometry(0.48, 0.62, 32), hoverHaloMat);
+  hoverHaloMesh.rotation.x = -Math.PI / 2;
+  hoverHaloMesh.position.y = 0.042;
+  hoverHaloMesh.visible = false;
+  scene.add(hoverHaloMesh);
+
+  function setHoveredInteractable(nextItem) {
+    if (hoveredItem === nextItem) return;
+    for (const [mat, orig] of hoverSnapshot.entries()) {
+      if (mat.emissive && orig.emissive !== undefined) {
+        mat.emissive.setHex(orig.emissive);
+        mat.emissiveIntensity = orig.emissiveIntensity;
+      } else if (mat.color && orig.color !== undefined) {
+        mat.color.setHex(orig.color);
+      }
+    }
+    hoverSnapshot.clear();
+    if (hoveredItem?.ring?.material) {
+      const ringEntry = animatedRefs.rings.find((r) => r.ring === hoveredItem.ring);
+      if (ringEntry) {
+        const g = lastGrades[ringEntry.id];
+        const passed = typeof g === 'number' && g >= 10;
+        hoveredItem.ring.material.color.set(passed ? '#10b981' : ringEntry.baseColor);
+      }
+    }
+    hoveredItem = nextItem || null;
+    if (!hoveredItem) {
+      hoverHaloMesh.visible = false;
+      return;
+    }
+    if (hoveredItem.position) {
+      const rScale = hoveredItem.isProp ? 0.9 : 1.45;
+      hoverHaloMesh.position.set(hoveredItem.position.x, 0.042, hoveredItem.position.z);
+      hoverHaloMesh.scale.set(rScale, rScale, 1);
+      hoverHaloMesh.visible = true;
+    }
+    if (hoveredItem.ring?.material) {
+      hoveredItem.ring.material.color.set('#67e8f9');
+    }
+    if (Array.isArray(hoveredItem.highlightMats)) {
+      for (const mat of hoveredItem.highlightMats) {
+        if (!mat || hoverSnapshot.has(mat)) continue;
+        if (mat.emissive) {
+          hoverSnapshot.set(mat, {
+            emissive: mat.emissive.getHex(),
+            emissiveIntensity: typeof mat.emissiveIntensity === 'number' ? mat.emissiveIntensity : 0
+          });
+          mat.emissive.setHex(0x38bdf8);
+          mat.emissiveIntensity = Math.max(0.55, (mat.emissiveIntensity || 0) + 0.45);
+        } else if (mat.color) {
+          hoverSnapshot.set(mat, { color: mat.color.getHex() });
+          mat.color.setHex(0x7dd3fc);
+        }
+      }
+    }
+  }
 
   function addDoorSign(parentGroup, cx, cz, y, rotY, thickness, label, accent = '#0284c7', housingMat) {
     const tex = makeDoorSignTexture(label, accent);
@@ -705,7 +771,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     housing.add(f2);
   }
 
-  function attachStationMarker(stationDef, obj, parentGroup, radius = 2.6, ySprite = 2.55) {
+  function attachStationMarker(stationDef, obj, parentGroup, radius = 2.6, ySprite = 2.55, highlightMats = null) {
     const color = obj.color || stationDef.color || '#0284c7';
     const ringGeo = new THREE.RingGeometry(0.68, 0.86, 36);
     const ringMat = new THREE.MeshBasicMaterial({
@@ -729,13 +795,15 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
     interactables.push({
       id: stationDef.id,
+      tpId: stationDef.id,
       label: `[E] ${obj.label || stationDef.title}`,
       type: 'tp',
       tp: stationDef,
       position: new THREE.Vector3(obj.x, 0, obj.z),
       interactRadius: radius,
       ring,
-      mesh: parentGroup
+      mesh: parentGroup,
+      highlightMats: Array.isArray(highlightMats) ? highlightMats : null
     });
   }
 
@@ -926,7 +994,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       solid.position.y = wallH / 2;
       solid.castShadow = true;
       solid.receiveShadow = true;
+      solid.userData.isSolidWall = true;
       grp.add(solid);
+      solidWallMeshes.push(solid);
 
       const trim = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, thick + 0.02), mats.plinthMat);
       trim.position.y = 0.05;
@@ -1162,7 +1232,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         if (obj.type === 'tp_audiovisual') {
           const desk = buildWorkbenchMesh(w, d, 0.82, mats, false);
           grp.add(desk);
-          const dualMon = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.74, 1.45), 0.5, 0.07), mats.darkMetalMat);
+          const dualMonMat = new THREE.MeshStandardMaterial({
+            color: '#1e293b',
+            roughness: 0.42,
+            metalness: 0.55,
+            emissive: '#000000',
+            emissiveIntensity: 0
+          });
+          const dualMon = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.74, 1.45), 0.5, 0.07), dualMonMat);
           dualMon.position.set(0, 1.24, -0.2);
           grp.add(dualMon);
           const monFace = new THREE.Mesh(
@@ -1171,23 +1248,74 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           );
           monFace.position.set(0, 1.24, -0.158);
           grp.add(monFace);
-          attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.8, 2.6);
+          const dmxConsoleMat = new THREE.MeshStandardMaterial({
+            color: '#0f172a',
+            roughness: 0.38,
+            metalness: 0.6,
+            emissive: '#000000',
+            emissiveIntensity: 0
+          });
+          const dmxConsole = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.58, 1.1), 0.08, 0.36), dmxConsoleMat);
+          dmxConsole.position.set(0, 0.88, 0.2);
+          dmxConsole.rotation.x = 0.14;
+          grp.add(dmxConsole);
+          for (let f = -2; f <= 2; f++) {
+            const faderCap = new THREE.Mesh(
+              new THREE.BoxGeometry(0.05, 0.03, 0.04),
+              new THREE.MeshStandardMaterial({
+                color: f === 0 ? '#f472b6' : '#38bdf8',
+                emissive: f === 0 ? '#9d174d' : '#0369a1',
+                emissiveIntensity: 0.35
+              })
+            );
+            faderCap.position.set(f * 0.14, 0.055, f % 2 === 0 ? -0.05 : 0.05);
+            dmxConsole.add(faderCap);
+          }
+          attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.8, 2.6, [dualMonMat, dmxConsoleMat]);
           continue;
         }
 
         if (obj.type === 'tp_studio') {
           const desk = buildWorkbenchMesh(w, d, 0.82, mats, false);
           grp.add(desk);
-          const mixer = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.62, 1.25), 0.14, 0.62), mats.darkMetalMat);
+          const mixerMat = new THREE.MeshStandardMaterial({
+            color: '#1e293b',
+            roughness: 0.4,
+            metalness: 0.58,
+            emissive: '#000000',
+            emissiveIntensity: 0
+          });
+          const mixer = new THREE.Mesh(new THREE.BoxGeometry(Math.min(w * 0.62, 1.25), 0.14, 0.62), mixerMat);
           mixer.position.set(0, 0.92, 0.1);
           mixer.rotation.x = 0.18;
           grp.add(mixer);
+          for (let f = -3; f <= 3; f++) {
+            const strip = new THREE.Mesh(
+              new THREE.BoxGeometry(0.04, 0.025, 0.05),
+              new THREE.MeshStandardMaterial({
+                color: f === 3 ? '#ef4444' : '#e879f9',
+                emissive: f === 3 ? '#991b1b' : '#701a75',
+                emissiveIntensity: 0.35
+              })
+            );
+            strip.position.set(f * 0.13, 0.08, (f % 2) * 0.06);
+            mixer.add(strip);
+          }
+          const spkHighlightMats = [mixerMat];
           for (const sx of [-Math.min(w * 0.38, 0.85), Math.min(w * 0.38, 0.85)]) {
-            const spk = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 0.24), mats.plasticMat);
+            const spkMat = new THREE.MeshStandardMaterial({
+              color: '#1e293b',
+              roughness: 0.5,
+              metalness: 0.25,
+              emissive: '#000000',
+              emissiveIntensity: 0
+            });
+            const spk = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 0.24), spkMat);
             spk.position.set(sx, 1.15, -0.32);
             grp.add(spk);
+            spkHighlightMats.push(spkMat);
           }
-          attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.7, 2.55);
+          attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.7, 2.55, spkHighlightMats);
           continue;
         }
       }
@@ -1292,9 +1420,15 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'av_greenscreen') {
+        const greenHlMat = new THREE.MeshStandardMaterial({
+          color: '#16a34a',
+          roughness: 0.82,
+          emissive: '#000000',
+          emissiveIntensity: 0
+        });
         const wall = new THREE.Mesh(
           new THREE.BoxGeometry(w, 2.85, Math.min(0.24, d)),
-          mats.greenScreenMat
+          greenHlMat
         );
         wall.position.y = 1.425;
         wall.castShadow = true;
@@ -1307,6 +1441,19 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           foot.position.set(px, 0.025, 0);
           grp.add(foot);
         }
+        const linkedTpId = obj.z < -3.2 ? 'audiovisual' : 'studio';
+        interactables.push({
+          id: obj.id,
+          tpId: linkedTpId,
+          isProp: true,
+          label: `[E] ${obj.label || 'Fond Vert Studio'} (Lancer TP AV)`,
+          type: 'tp',
+          tp: ALL_STATIONS_MAP.get(linkedTpId),
+          position: new THREE.Vector3(obj.x, 0, obj.z),
+          interactRadius: 2.3,
+          mesh: grp,
+          highlightMats: [greenHlMat]
+        });
         continue;
       }
 
@@ -1314,7 +1461,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const legCol = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.25, 1.38, 6), mats.legMat);
         legCol.position.y = 0.69;
         grp.add(legCol);
-        const camBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.5), mats.plasticMat);
+        const camHlMat = new THREE.MeshStandardMaterial({
+          color: '#1e293b',
+          roughness: 0.38,
+          metalness: 0.55,
+          emissive: '#000000',
+          emissiveIntensity: 0
+        });
+        const camBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.5), camHlMat);
         camBody.position.y = 1.48;
         grp.add(camBody);
         const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.26, 12), mats.darkMetalMat);
@@ -1324,6 +1478,19 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const tally = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), new THREE.MeshBasicMaterial({ color: '#ef4444' }));
         tally.position.set(0, 1.65, 0.2);
         grp.add(tally);
+        const linkedTpId = obj.z < -3.2 ? 'audiovisual' : 'studio';
+        interactables.push({
+          id: obj.id,
+          tpId: linkedTpId,
+          isProp: true,
+          label: `[E] ${obj.label || 'Caméra Broadcast'} (Lancer TP AV)`,
+          type: 'tp',
+          tp: ALL_STATIONS_MAP.get(linkedTpId),
+          position: new THREE.Vector3(obj.x, 0, obj.z),
+          interactRadius: 1.9,
+          mesh: grp,
+          highlightMats: [camHlMat]
+        });
         continue;
       }
 
@@ -1331,13 +1498,33 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.26, 1.65, 6), mats.legMat);
         stand.position.y = 0.825;
         grp.add(stand);
-        const housing = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.42, 0.14), mats.plasticMat);
+        const housingMat = new THREE.MeshStandardMaterial({
+          color: '#1e293b',
+          roughness: 0.42,
+          metalness: 0.5,
+          emissive: '#000000',
+          emissiveIntensity: 0
+        });
+        const housing = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.42, 0.14), housingMat);
         housing.position.set(0, 1.82, 0);
         housing.rotation.x = 0.18;
         grp.add(housing);
         const face = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.36), new THREE.MeshBasicMaterial({ color: '#fffef7' }));
         face.position.set(0, 0, 0.075);
         housing.add(face);
+        const linkedTpId = obj.z < -3.2 ? 'audiovisual' : 'studio';
+        interactables.push({
+          id: obj.id,
+          tpId: linkedTpId,
+          isProp: true,
+          label: `[E] ${obj.label || 'Projecteur DMX / LED'} (Lancer TP AV)`,
+          type: 'tp',
+          tp: ALL_STATIONS_MAP.get(linkedTpId),
+          position: new THREE.Vector3(obj.x, 0, obj.z),
+          interactRadius: 1.9,
+          mesh: grp,
+          highlightMats: [housingMat]
+        });
         continue;
       }
 
@@ -1352,9 +1539,28 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         boom.rotation.x = Math.PI / 2 - 0.35;
         boom.position.set(0, 1.44, 0.14);
         grp.add(boom);
-        const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.16, 10), mats.brushedMetalMat);
+        const micHlMat = new THREE.MeshStandardMaterial({
+          color: '#94a3b8',
+          roughness: 0.3,
+          metalness: 0.85,
+          emissive: '#000000',
+          emissiveIntensity: 0
+        });
+        const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.16, 10), micHlMat);
         mic.position.set(0, 1.5, 0.34);
         grp.add(mic);
+        interactables.push({
+          id: obj.id,
+          tpId: 'studio',
+          isProp: true,
+          label: `[E] ${obj.label || 'Micro Studio'} (Lancer TP Studio)`,
+          type: 'tp',
+          tp: ALL_STATIONS_MAP.get('studio'),
+          position: new THREE.Vector3(obj.x, 0, obj.z),
+          interactRadius: 1.85,
+          mesh: grp,
+          highlightMats: [micHlMat]
+        });
         continue;
       }
 
@@ -1461,7 +1667,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       grp.add(propGrp);
 
       if (obj.type === 'av_mixer') {
-        const body = new THREE.Mesh(new THREE.BoxGeometry(w, 0.14, d), mats.darkMetalMat);
+        const mixerHlMat = new THREE.MeshStandardMaterial({
+          color: '#1e293b',
+          roughness: 0.42,
+          metalness: 0.58,
+          emissive: '#000000',
+          emissiveIntensity: 0
+        });
+        const body = new THREE.Mesh(new THREE.BoxGeometry(w, 0.14, d), mixerHlMat);
         body.position.set(0, mountY + 0.08, 0);
         body.rotation.x = 0.14;
         propGrp.add(body);
@@ -1473,6 +1686,18 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           ledStrip.position.set(f * (w * 0.15), 0.08, 0);
           body.add(ledStrip);
         }
+        interactables.push({
+          id: obj.id,
+          tpId: 'studio',
+          isProp: true,
+          label: `[E] ${obj.label || 'Console Mixage Audio'} (Lancer TP Studio)`,
+          type: 'tp',
+          tp: ALL_STATIONS_MAP.get('studio'),
+          position: new THREE.Vector3(obj.x, 0, obj.z),
+          interactRadius: 2.0,
+          mesh: grp,
+          highlightMats: [mixerHlMat]
+        });
         continue;
       }
 
@@ -1565,8 +1790,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   }
 
   function rebuildWorld(nextMapData) {
+    setHoveredInteractable(null);
     colliders.length = 0;
     interactables.length = 0;
+    solidWallMeshes.length = 0;
     teacherRefs.length = 0;
     animatedRefs.rings.length = 0;
     animatedRefs.leds.length = 0;
@@ -1607,6 +1834,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   }
 
   function dispose() {
+    setHoveredInteractable(null);
+    scene.remove(hoverHaloMesh);
+    hoverHaloMesh.geometry.dispose();
+    hoverHaloMat.dispose();
     disposeNodeTree(worldGroup);
     if (materialPack) {
       materialPack.dispose();
@@ -1623,10 +1854,12 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   return {
     colliders,
     interactables,
+    solidWallMeshes,
     get mapData() {
       return currentMapData;
     },
     teacherRefs,
+    setHoveredInteractable,
     update,
     updateStationBadges,
     updateLeaderboardBoard,

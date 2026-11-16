@@ -12,9 +12,24 @@ import { AV_STAGES, evaluateAntivirusStage, computeSocDefenseScore3D } from '../
 import { VMVLAN_STAGES, evaluateVmVlanStage, computeVlanConfigScore3D } from '../src/minigames/VmVlanGame.js';
 import { computeHardwareScore3D } from '../src/minigames/PcHardwareGame.js';
 import { computeRackVlanScore3D, computePatchPanelScore3D } from '../src/minigames/PatchRackGame.js';
-import { computeAvStudioScore3D } from '../src/minigames/AudioVisualGame.js';
-import { computeDmxScore3D } from '../src/minigames/DmxLightingGame.js';
-import { computeStudioRegieScore3D } from '../src/minigames/StudioRegieGame.js';
+import {
+  AV_STAGES as AV_AUDIO_STAGES,
+  evaluateAvStage,
+  computeAvStudioScore3D
+} from '../src/minigames/AudioVisualGame.js';
+import {
+  FIXTURE_SPECS,
+  DAISY_LINKS,
+  evaluateDmxConfiguration,
+  computeDmxScore3D
+} from '../src/minigames/DmxLightingGame.js';
+import {
+  STUDIO_PATCH_LINKS,
+  CUE_LIST,
+  computeStudioAudioDb,
+  evaluateStudioRegieState,
+  computeStudioRegieScore3D
+} from '../src/minigames/StudioRegieGame.js';
 
 test('Oscilloscope : valide la calibration et les mesures sinusoïdales et PWM', () => {
   const s1 = evaluateOscilloscopeStage(
@@ -260,4 +275,141 @@ test('Scoring /20 des ateliers séparés (Électronique, Brassage, VLAN CLI, DMX
     elapsedSec: 70
   });
   assert.equal(regieScore, 20);
+});
+
+test('v4.10 DMX Lighting : validation daisy-chain XLR 120Ω, adressage 8ch, score 20/20 et bornes anti-NaN', () => {
+  const incompleteEval = evaluateDmxConfiguration({
+    cablesDone: new Set([0, 1]),
+    terminatorInstalled: false,
+    fixtures: FIXTURE_SPECS.map((sp) => ({ ...sp.target, addr: sp.startAddr }))
+  });
+  assert.equal(incompleteEval.daisyOk, false);
+  assert.equal(incompleteEval.dmxNoOverlap, false);
+  assert.equal(incompleteEval.allValid, false);
+  assert.ok(incompleteEval.teacherAdvice.includes('Professeur CIEL'));
+
+  const perfectFixtures = FIXTURE_SPECS.map((sp) => ({ ...sp.target, addr: sp.targetAddr }));
+  const perfectEval = evaluateDmxConfiguration({
+    cablesDone: new Set(DAISY_LINKS.map((l) => l.id)),
+    terminatorInstalled: true,
+    fixtures: perfectFixtures
+  });
+  assert.equal(perfectEval.daisyOk, true);
+  assert.equal(perfectEval.dmxNoOverlap, true);
+  assert.equal(perfectEval.exactAddressesCount, 4);
+  assert.equal(perfectEval.matchedFixtures, 4);
+  assert.equal(perfectEval.allValid, true);
+
+  const fullScore = computeDmxScore3D({
+    ...perfectEval,
+    elapsedSec: 95
+  });
+  assert.equal(fullScore, 20);
+
+  const nanScore = computeDmxScore3D({
+    cablesConnected: Number.NaN,
+    terminatorInstalled: false,
+    exactAddressesCount: undefined,
+    dmxNoOverlap: false,
+    matchedFixtures: Number.POSITIVE_INFINITY,
+    aimScore: Number.NaN,
+    elapsedSec: 'invalid'
+  });
+  assert.equal(Number.isFinite(nanScore), true);
+  assert.ok(nanScore >= 0 && nanScore <= 20);
+});
+
+test('v4.10 Studio Régie Vidéo/Son : patch SDI/XLR, optique 5600K, audio -12 dBFS, ATEM 20/20 et anti-NaN', () => {
+  const unpatchedAudioDb = computeStudioAudioDb({
+    xlrMicConnected: false,
+    phantom48v: true,
+    hpf80: true,
+    micCravate: 78,
+    micAmbiance: 28,
+    music: 25,
+    masterAudio: 80
+  });
+  assert.equal(unpatchedAudioDb, -48);
+
+  const unpatchedEval = evaluateStudioRegieState({
+    cablesDone: new Set([0]),
+    focus: 72,
+    iris: 56,
+    kelvin: 5600,
+    chromaKey: 84,
+    phantom48v: true,
+    hpf80: true,
+    micCravate: 78,
+    micAmbiance: 28,
+    music: 25,
+    masterAudio: 80,
+    cuesDone: new Set([0])
+  });
+  assert.equal(unpatchedEval.patchAllOk, false);
+  assert.equal(unpatchedEval.audioLevelOk, false);
+  assert.equal(unpatchedEval.allValid, false);
+  assert.ok(unpatchedEval.teacherAdvice.includes('Professeur CIEL'));
+
+  const perfectState = {
+    cablesDone: new Set(STUDIO_PATCH_LINKS.map((l) => l.id)),
+    focus: 72,
+    iris: 56,
+    kelvin: 5600,
+    chromaKey: 84,
+    phantom48v: true,
+    hpf80: true,
+    micCravate: 78,
+    micAmbiance: 28,
+    music: 25,
+    masterAudio: 80,
+    cuesDone: new Set(CUE_LIST.map((c) => c.id))
+  };
+  const perfectEval = evaluateStudioRegieState(perfectState);
+  assert.equal(perfectEval.patchAllOk, true);
+  assert.equal(perfectEval.opticsAllOk, true);
+  assert.equal(perfectEval.audioAllOk, true);
+  assert.equal(perfectEval.atemAllOk, true);
+  assert.equal(perfectEval.allValid, true);
+  assert.ok(perfectEval.peakDb >= -14.5 && perfectEval.peakDb <= -9.5);
+
+  const fullScore = computeStudioRegieScore3D({
+    ...perfectEval,
+    elapsedSec: 120
+  });
+  assert.equal(fullScore, 20);
+
+  const nanScore = computeStudioRegieScore3D({
+    cablesConnected: Number.NaN,
+    cuesCompleted: 999,
+    elapsedSec: undefined
+  });
+  assert.equal(Number.isFinite(nanScore), true);
+  assert.ok(nanScore >= 0 && nanScore <= 20);
+});
+
+test('v4.10 AudioVisualGame : étapes plateau/audio/matrice et protection bornes [0, 20]', () => {
+  const s1 = evaluateAvStage(AV_AUDIO_STAGES[0], { kelvin: 5600, keyDimmer: 78, chromaBacklight: true });
+  const s2 = evaluateAvStage(AV_AUDIO_STAGES[1], { phantom48v: true, highPass80: true, db: -12 });
+  const s3 = evaluateAvStage(AV_AUDIO_STAGES[2], {
+    routing: { 'out-pgm': 'cam-a', 'out-rec': 'cam-b', 'out-mon': 'pc-slides' }
+  });
+  assert.equal(s1.score, 20);
+  assert.equal(s2.score, 20);
+  assert.equal(s3.score, 20);
+  assert.ok(s1.teacherTip.includes('Professeur CIEL'));
+
+  const clamped = computeAvStudioScore3D({
+    kelvin: Number.NaN,
+    chromaUniformity: 500,
+    focusSharpness: undefined,
+    irisOk: true,
+    audioMasterDb: Number.NaN,
+    phantom48v: true,
+    highPass80: true,
+    elapsedSec: Number.NaN
+  });
+  assert.equal(Number.isFinite(clamped.score), true);
+  assert.ok(clamped.score >= 0 && clamped.score <= 20);
+  assert.equal(Number.isFinite(clamped.xp), true);
+  assert.ok(clamped.xp >= 0);
 });

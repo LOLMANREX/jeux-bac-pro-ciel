@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { pickLabInteractable } from '../world/SceneManager.js';
 import { buildArticulatedVRHand } from './VRHandBuilder.js';
 import { createTpSpatialPanel, createWristHudPanel } from './VRHudPanel.js';
 
@@ -318,6 +319,7 @@ export class VRManager {
     if (this.tpContext) {
       this.detachTpContext();
     }
+    this.options.onHoverInteractable?.(null);
     this.active = false;
     this.simMode = false;
     this.simMouseTrigger = false;
@@ -359,6 +361,12 @@ export class VRManager {
 
   attachTpContext(ctx) {
     if (!this.active || !ctx?.scene) return;
+    this.options.onHoverInteractable?.(null);
+    this._lastTpHoverLabel = '';
+    this.slots.left.hoveredKey = null;
+    this.slots.right.hoveredKey = null;
+    this.slots.left.prevTrigger = false;
+    this.slots.right.prevTrigger = false;
     this.tpContext = ctx;
     if (!this.savedExplorePose) {
       this.savedExplorePose = {
@@ -394,6 +402,17 @@ export class VRManager {
   }
 
   detachTpContext() {
+    if (this.tpContext) {
+      this.tpContext.setHoveredEntry?.(null);
+      this.tpContext.resetInteractionState?.();
+    }
+    this._lastTpHoverLabel = '';
+    this.slots.left.hoveredKey = null;
+    this.slots.right.hoveredKey = null;
+    this.slots.left.prevTrigger = false;
+    this.slots.right.prevTrigger = false;
+    this.slots.left.prevActionBtn = false;
+    this.slots.right.prevActionBtn = false;
     if (this.tpPanel) {
       this.tpPanel.group.parent?.remove(this.tpPanel.group);
       this.tpPanel.dispose();
@@ -550,18 +569,23 @@ export class VRManager {
       }
     }
 
+    let hoveredLabItem = null;
     if (!hitKey && !this.tpContext && this.options.getInteractables) {
       const list = this.options.getInteractables() || [];
-      for (const item of list) {
-        if (!item?.mesh) continue;
-        const hits = this.raycaster.intersectObject(item.mesh, true);
-        if (hits.length > 0 && hits[0].distance < 4.8) {
-          hitKey = `lab:${item.id}`;
-          hitDist = hits[0].distance;
-          hitAction = () => this.options.onInteract?.(item);
-          break;
-        }
+      const occluders = this.options.getOccluders ? this.options.getOccluders() : [];
+      const picked = pickLabInteractable(this.raycaster, list, occluders, 4.8);
+      if (picked?.item) {
+        hoveredLabItem = picked.item;
+        hitKey = `lab:${picked.item.id}`;
+        hitDist = picked.distance;
+        hitAction = () => this.options.onInteract?.(picked.item);
       }
+    }
+
+    if (this.tpContext && slot.handedness === 'right' && !slot.dragState) {
+      this.tpContext.setHoveredEntry?.(hitInteractiveEntry);
+    } else if (!this.tpContext && slot.handedness === 'right') {
+      this.options.onHoverInteractable?.(hoveredLabItem);
     }
 
     if (hitKey && hitKey !== slot.hoveredKey) {
@@ -608,22 +632,38 @@ export class VRManager {
         this._pulseHaptic(slot, 0.55, 35);
         hitAction();
       } else if (hitInteractiveEntry && this.tpContext) {
-        const dragPlane = hitInteractiveEntry.dragPlane || this.defaultPlane;
-        const planePt = new THREE.Vector3();
-        this.raycaster.ray.intersectPlane(dragPlane, planePt);
-        slot.dragState = {
-          entry: hitInteractiveEntry,
-          hit: hitIntersection,
-          startPt: planePt.clone(),
-          lastPt: planePt.clone(),
-          lastScreen: this._projectWorldToFakeScreen(planePt),
-          dragDist: 0
-        };
-        hitInteractiveEntry.onDragStart?.(hitIntersection, {
-          clientX: slot.dragState.lastScreen.x,
-          clientY: slot.dragState.lastScreen.y,
-          planePoint: planePt
-        });
+        const isPureClick = !hitInteractiveEntry.onDragMove && !hitInteractiveEntry.onHoldTick;
+        if (isPureClick && hitInteractiveEntry.onClick) {
+          this._pulseHaptic(slot, 0.55, 35);
+          this.tpContext.setHoveredEntry?.(null);
+          const dragPlane = hitInteractiveEntry.dragPlane || this.defaultPlane;
+          const planePt = new THREE.Vector3();
+          this.raycaster.ray.intersectPlane(dragPlane, planePt);
+          const fakePt = this._projectWorldToFakeScreen(planePt);
+          hitInteractiveEntry.onClick(hitIntersection, {
+            clientX: fakePt.x,
+            clientY: fakePt.y,
+            planePoint: planePt
+          });
+        } else {
+          const dragPlane = hitInteractiveEntry.dragPlane || this.defaultPlane;
+          const planePt = new THREE.Vector3();
+          this.raycaster.ray.intersectPlane(dragPlane, planePt);
+          this.tpContext.setHoveredEntry?.(null);
+          slot.dragState = {
+            entry: hitInteractiveEntry,
+            hit: hitIntersection,
+            startPt: planePt.clone(),
+            lastPt: planePt.clone(),
+            lastScreen: this._projectWorldToFakeScreen(planePt),
+            dragDist: 0
+          };
+          hitInteractiveEntry.onDragStart?.(hitIntersection, {
+            clientX: slot.dragState.lastScreen.x,
+            clientY: slot.dragState.lastScreen.y,
+            planePoint: planePt
+          });
+        }
       }
     } else if (state.triggerPressed && slot.dragState) {
       const ds = slot.dragState;
@@ -647,7 +687,7 @@ export class VRManager {
     } else if (justReleased && slot.dragState) {
       const ds = slot.dragState;
       slot.dragState = null;
-      if (ds.dragDist < 10 && ds.entry.onClick) {
+      if (ds.dragDist < 28 && ds.entry.onClick) {
         ds.entry.onClick(ds.hit, {
           clientX: ds.lastScreen.x,
           clientY: ds.lastScreen.y,

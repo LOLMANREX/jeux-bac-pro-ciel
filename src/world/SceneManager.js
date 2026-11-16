@@ -370,6 +370,48 @@ export function createWorldCelebrationRig(scene) {
   };
 }
 
+export function pickLabInteractable(raycaster, interactables = [], occluders = [], maxDist = 7.5) {
+  if (!raycaster || !Array.isArray(interactables) || interactables.length === 0) {
+    return null;
+  }
+  let bestHit = null;
+  for (const item of interactables) {
+    if (!item?.mesh || item.mesh.visible === false) continue;
+    const hits = raycaster.intersectObject(item.mesh, true);
+    for (const h of hits) {
+      if (!h || h.distance > maxDist) continue;
+      let cur = h.object;
+      let vis = true;
+      while (cur) {
+        if (cur.visible === false) {
+          vis = false;
+          break;
+        }
+        cur = cur.parent;
+      }
+      if (!vis) continue;
+      const effectiveDist = item.isProp ? h.distance + 0.05 : h.distance;
+      const bestEffective = bestHit
+        ? bestHit.item.isProp
+          ? bestHit.distance + 0.05
+          : bestHit.distance
+        : Infinity;
+      if (!bestHit || effectiveDist < bestEffective) {
+        bestHit = { item, distance: h.distance, hit: h };
+      }
+      break;
+    }
+  }
+  if (!bestHit) return null;
+  if (Array.isArray(occluders) && occluders.length > 0) {
+    const wallHits = raycaster.intersectObjects(occluders, false);
+    if (wallHits.length > 0 && wallHits[0].distance < bestHit.distance - 0.12) {
+      return null;
+    }
+  }
+  return bestHit;
+}
+
 export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
@@ -591,8 +633,8 @@ export class SceneManager {
 
   _handleResize() {
     if (this.renderer.xr?.isPresenting) return;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const w = Math.max(1, window.innerWidth || 1);
+    const h = Math.max(1, window.innerHeight || 1);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);

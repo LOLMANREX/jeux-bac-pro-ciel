@@ -125,7 +125,9 @@ export class MiniGameModal {
       },
       finishTp: (scoreOutOf20, summaryHtml) => {
         const durationSec = Math.max(1, Math.round((Date.now() - this.startTimeMs) / 1000));
-        const finalScore = Math.max(0, Math.min(20, Math.round(scoreOutOf20 * 10) / 10));
+        const rawNum = Number(scoreOutOf20);
+        const safeRaw = Number.isFinite(rawNum) ? rawNum : 0;
+        const finalScore = Math.max(0, Math.min(20, Math.round(safeRaw * 10) / 10));
         if (finalScore >= 10) sfx.success();
         else sfx.error();
 

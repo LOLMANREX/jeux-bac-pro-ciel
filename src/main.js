@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { sfx } from './core/audio.js';
 import { GameState, getTpById, getStationById, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from './core/gameState.js';
 import { NetworkClient } from './core/network.js';
-import { SceneManager, computeAscensionGatheringLayout } from './world/SceneManager.js';
+import { SceneManager, computeAscensionGatheringLayout, pickLabInteractable } from './world/SceneManager.js';
 import {
   createDefaultMap,
   getStationTeleportInMap,
@@ -154,7 +154,9 @@ vrManager = new VRManager(sceneMgr, player, {
   skin: gameState.skin,
   playerName: gameState.profile?.name || 'Eleve_CIEL',
   getInteractables: () => lab.interactables,
+  getOccluders: () => lab.solidWallMeshes,
   getNearestInteractable: () => nearestTarget,
+  onHoverInteractable: (item) => lab.setHoveredInteractable?.(item),
   onInteract: (item) => interactWith(item),
   onToggleMic: () => voiceChat.toggleMicrophone(),
   onEnterVr: () => {
@@ -459,6 +461,9 @@ function runWorldCelebration(payload = {}) {
     };
     player.teleportTo({ x: fallbackSpecPos.x, z: fallbackSpecPos.z }, stageCenter);
   }
+  if (vrManager?.isVrActive?.()) {
+    vrManager._mountVrRigForWorld?.(vrManager.simMode);
+  }
 
   for (const pl of layout.placements || []) {
     if (pl.id && pl.id !== network.clientId) {
@@ -585,6 +590,12 @@ async function refreshWallLeaderboard() {
 function setModalActive(active, pauseScene = false, lockActivity = false) {
   modalOpen = active;
   subModalActive = lockActivity;
+  if (active) {
+    lab.setHoveredInteractable?.(null);
+    hoveredInteractable = null;
+    canvas.style.cursor = '';
+    crosshairEl?.classList.remove('interact-ready');
+  }
   const vrOn = Boolean(vrManager?.isVrActive?.());
   player.setEnabled(joined && !active && !vrOn);
   touchControls?.setVisible(joined && !active && !vrOn && gameState.touchMode);
@@ -624,10 +635,16 @@ function animateCameraPose(targetPos, lookAtPos, durationMs = 420) {
   });
 }
 
+let tpOpenSeqId = 0;
+
 async function openTp(tpId, stationItem = null) {
   const tp = getStationById(tpId);
   const factory = MINIGAME_FACTORIES[tpId];
   if (!tp || !factory) return;
+
+  const openSeq = ++tpOpenSeqId;
+  lab.setHoveredInteractable?.(null);
+  hoveredInteractable = null;
 
   if (!gameState.profile.questAccepted) {
     gameState.profile.questAccepted = true;
@@ -651,14 +668,18 @@ async function openTp(tpId, stationItem = null) {
     );
     const lookTarget = new THREE.Vector3(stPos.x, 1.02, stPos.z);
     await animateCameraPose(camPos, lookTarget, 380);
+    if (openSeq !== tpOpenSeqId || !joined || activeCinematic) return;
   }
 
   miniGameModal.open(tpId, factory, {
     vrManager,
     onComplete: ({ tpId: doneId, score, durationSec }) => {
+      const safeScore = Number.isFinite(Number(score))
+        ? Math.max(0, Math.min(20, Math.round(Number(score) * 10) / 10))
+        : 0;
       const p = { ...gameState.profile, grades: { ...gameState.profile.grades } };
       const prev = typeof p.grades[doneId] === 'number' ? p.grades[doneId] : -1;
-      if (score > prev) p.grades[doneId] = score;
+      if (safeScore > prev) p.grades[doneId] = safeScore;
       const coreVals = TP_CATALOG.map((item) => p.grades[item.id]).filter((v) => typeof v === 'number');
       p.average = coreVals.length
         ? Math.round((coreVals.reduce((a, b) => a + b, 0) / coreVals.length) * 10) / 10
@@ -669,24 +690,25 @@ async function openTp(tpId, stationItem = null) {
       lab.updateStationBadges(p.grades);
 
       const allCoreAt20 = TP_CATALOG.every((item) => Number(p.grades[item.id]) >= 20);
-      network.submitScore(gameState.profile.name, doneId, score, durationSec, gameState.skin);
+      const allStationsAt20 = [...TP_CATALOG, ...EXTRA_STATIONS].every((item) => Number(p.grades[item.id]) >= 20);
+      network.submitScore(gameState.profile.name, doneId, safeScore, durationSec, gameState.skin);
       network.saveAccount({
         tpScores: p.grades,
         unlockedDivineSkins: gameState.unlockedDivineSkins,
         selectedSkin: gameState.skin?.divineSpecialty || 'standard',
         avatarCustomization: gameState.skin
       });
-      if (allCoreAt20 && !network.connected) {
+      if ((allCoreAt20 || allStationsAt20 || safeScore >= 20) && !network.connected) {
         runWorldCelebration({
           playerName: gameState.profile.name,
           tpId: doneId,
           tpLabel: tp.title || tp.shortTitle,
-          reason: 'all_tps_20'
+          reason: allCoreAt20 ? 'all_tps_20' : 'tp_20'
         });
       }
       setTimeout(() => refreshWallLeaderboard(), 420);
       if (!getTpById(doneId)) {
-        hud.toast(`${tp.icon} Atelier ${tp.shortTitle} validé (${score.toFixed(1)}/20) !`, score >= 10 ? 'success' : 'info');
+        hud.toast(`${tp.icon} Atelier ${tp.shortTitle} validé (${safeScore.toFixed(1)}/20) !`, safeScore >= 10 ? 'success' : 'info');
       }
     },
     onClose: ({ replayTpId } = {}) => {
@@ -899,16 +921,24 @@ hud = new HudManager(gameState, network, {
         tpId: 'oscilloscope',
         reason: 'all_tps_20'
       });
+      fetch('/api/debug/validate-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: gameState.profile.name,
+          skin: gameState.skin,
+          triggerCelebration: true
+        })
+      }).catch(() => {});
     }
-    fetch('/api/debug/validate-all', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: gameState.profile.name,
-        skin: gameState.skin,
-        triggerCelebration: !sent
-      })
-    }).catch(() => {});
+    if (gameState.isAuthenticated()) {
+      network.saveAccount({
+        tpScores: nextGrades,
+        unlockedDivineSkins: gameState.unlockedDivineSkins,
+        selectedSkin: gameState.skin?.divineSpecialty || 'standard',
+        avatarCustomization: gameState.skin
+      });
+    }
     hud?.toast?.('💯 Tous les TPs ont été validés à 20/20 (Mode Debug) !', 'success');
   },
   onDebugResetProgress: () => {
@@ -1014,9 +1044,15 @@ try {
 }
 
 function returnToMainMenu(isLogout = false) {
+  activeCameraTweenId++;
+  tpOpenSeqId++;
   if (vrManager?.isVrActive?.()) {
     vrManager.exitVr();
   }
+  if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
+    miniGameModal.close();
+  }
+  dialogueModal?.close?.();
   if (isLogout) {
     sessionDivineSpecialty = null;
   } else {
@@ -1027,6 +1063,9 @@ function returnToMainMenu(isLogout = false) {
   modalOpen = false;
   subModalActive = false;
   privateDebugMode = false;
+  setDesktopHoveredInteractable?.(null);
+  crosshairEl?.classList.remove('interact-ready');
+  canvas.style.cursor = '';
   player.setSpeedMultiplier(1);
   player.setNoclip(false);
   hud?.setPrivateDebugMode?.(false);
@@ -1243,7 +1282,7 @@ network.on('chat_message', ({ message }) => {
 function interactWith(target) {
   if (!target) return;
   if (target.id === 'teacher') openTeacherDialogue(target.dialogue || '');
-  else openTp(target.id, target);
+  else openTp(target.tpId || target.id, target);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -1365,20 +1404,44 @@ document.getElementById('interact-prompt')?.addEventListener('click', () => {
 });
 
 const raycaster = new THREE.Raycaster();
-function tryRaycastInteract(clientX, clientY) {
-  const ndc = new THREE.Vector2(
-    (clientX / window.innerWidth) * 2 - 1,
-    -(clientY / window.innerHeight) * 2 + 1
-  );
-  raycaster.setFromCamera(ndc, sceneMgr.camera);
-  for (const item of lab.interactables) {
-    const hits = raycaster.intersectObject(item.mesh, true);
-    if (hits.length > 0 && hits[0].distance < 7.5) {
-      interactWith(item);
-      return true;
-    }
+const crosshairEl = document.getElementById('crosshair');
+let hoveredInteractable = null;
+let lastHoverPollAt = 0;
+let lastCursorPos = null;
+
+function getRayHitInteractable(clientX = null, clientY = null) {
+  if (!joined || modalOpen || gameState.touchMode || vrManager?.isVrActive?.()) return null;
+  if (document.pointerLockElement === canvas || clientX === null || clientY === null) {
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), sceneMgr.camera);
+  } else {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    raycaster.setFromCamera(ndc, sceneMgr.camera);
   }
-  return false;
+  return pickLabInteractable(raycaster, lab.interactables, lab.solidWallMeshes, 7.5);
+}
+
+function setDesktopHoveredInteractable(item) {
+  const nextItem = item || null;
+  if (nextItem === hoveredInteractable) {
+    canvas.style.cursor = nextItem && document.pointerLockElement !== canvas ? 'pointer' : '';
+    return;
+  }
+  hoveredInteractable = nextItem;
+  lab.setHoveredInteractable?.(hoveredInteractable);
+  canvas.style.cursor = hoveredInteractable && document.pointerLockElement !== canvas ? 'pointer' : '';
+}
+
+function tryRaycastInteract(clientX, clientY) {
+  const item = getRayHitInteractable(clientX, clientY);
+  if (!item) return false;
+  setDesktopHoveredInteractable(null);
+  interactWith(item);
+  return true;
 }
 
 let downPos = { x: 0, y: 0 };
@@ -1387,6 +1450,25 @@ canvas.addEventListener('mousedown', (e) => {
   if (vrManager?.isVrActive?.() && vrManager.simMode && e.button === 0) {
     vrManager.setSimInput({ mouseTrigger: true });
   }
+});
+canvas.addEventListener('mousemove', (e) => {
+  if (document.pointerLockElement === canvas) return;
+  lastCursorPos = { x: e.clientX, y: e.clientY };
+  if (!joined || modalOpen || gameState.touchMode || vrManager?.isVrActive?.()) {
+    setDesktopHoveredInteractable(null);
+    return;
+  }
+  setDesktopHoveredInteractable(getRayHitInteractable(e.clientX, e.clientY));
+});
+canvas.addEventListener('mouseleave', () => {
+  lastCursorPos = null;
+  if (!vrManager?.isVrActive?.()) {
+    setDesktopHoveredInteractable(null);
+  }
+});
+window.addEventListener('blur', () => {
+  lastCursorPos = null;
+  setDesktopHoveredInteractable(null);
 });
 canvas.addEventListener('contextmenu', (e) => {
   if (vrManager?.isVrActive?.() && vrManager.simMode) {
@@ -1407,12 +1489,15 @@ window.addEventListener('mouseup', (e) => {
 canvas.addEventListener('mouseup', (e) => {
   if (!joined || modalOpen || e.button !== 0 || gameState.touchMode) return;
   if (vrManager?.isVrActive?.() && vrManager.simMode) return;
-  const dragDist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+  const isLocked = document.pointerLockElement === canvas;
+  const dragDist = isLocked ? 0 : Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
   if (dragDist > 6) return;
 
-  if (tryRaycastInteract(e.clientX, e.clientY)) return;
+  if (tryRaycastInteract(isLocked ? null : e.clientX, isLocked ? null : e.clientY)) return;
 
-  player.requestPointerLock();
+  if (!isLocked) {
+    player.requestPointerLock();
+  }
 });
 
 let lastZoneId = '';
@@ -1506,19 +1591,45 @@ sceneMgr.addUpdater((dt, elapsed) => {
       vrOn ? vrManager.getVrSyncPayload() : undefined
     );
 
-    let best = null;
-    let bestDist = Infinity;
+    let bestPrimary = null;
+    let bestPrimaryDist = Infinity;
+    let bestProp = null;
+    let bestPropDist = Infinity;
     for (const item of lab.interactables) {
       const dx = player.position.x - item.position.x;
       const dz = player.position.z - item.position.z;
       const d = Math.hypot(dx, dz);
-      if (d <= item.interactRadius && d < bestDist) {
-        best = item;
-        bestDist = d;
+      if (d > item.interactRadius) continue;
+      if (item.isProp) {
+        if (d < bestPropDist) {
+          bestProp = item;
+          bestPropDist = d;
+        }
+      } else if (d < bestPrimaryDist) {
+        bestPrimary = item;
+        bestPrimaryDist = d;
       }
     }
+    const best = bestPrimary || bestProp;
     nearestTarget = best;
-    hud?.setInteractPrompt?.(best);
+
+    if (!vrOn && !gameState.touchMode && elapsed - lastHoverPollAt >= 0.08) {
+      lastHoverPollAt = elapsed;
+      if (document.pointerLockElement === canvas) {
+        setDesktopHoveredInteractable(getRayHitInteractable(null, null));
+      } else if (lastCursorPos) {
+        setDesktopHoveredInteractable(getRayHitInteractable(lastCursorPos.x, lastCursorPos.y));
+      }
+    } else if (vrOn || gameState.touchMode) {
+      hoveredInteractable = null;
+      canvas.style.cursor = '';
+    }
+
+    const promptTarget = (!vrOn && document.pointerLockElement === canvas && hoveredInteractable)
+      ? hoveredInteractable
+      : best;
+    hud?.setInteractPrompt?.(promptTarget);
+    crosshairEl?.classList.toggle('interact-ready', Boolean(hoveredInteractable || best));
     touchControls?.setInteractTarget?.(best);
   }
 });
