@@ -4,12 +4,13 @@ import * as THREE from 'three';
 import { WebSocket } from 'ws';
 import { createGameServer } from '../server/index.js';
 import { buildArticulatedVRHand } from '../src/vr/VRHandBuilder.js';
-import { createTpSpatialPanel, createWristHudPanel } from '../src/vr/VRHudPanel.js';
+import { createTpSpatialPanel, createVrDebugPanel, createWristHudPanel } from '../src/vr/VRHudPanel.js';
 import { VRManager } from '../src/vr/VRManager.js';
 import { attachRemoteVrVisuals, buildStudentAvatarMesh } from '../src/world/AvatarBuilder.js';
 import { createDefaultMap } from '../src/world/mapSchema.js';
 import { PlayerController } from '../src/world/PlayerController.js';
 import { RemotePlayersManager } from '../src/world/RemotePlayers.js';
+import { SceneManager, pickLabInteractable } from '../src/world/SceneManager.js';
 
 function waitForMsg(sock, predicate, timeoutMs = 2500) {
   return new Promise((resolve, reject) => {
@@ -433,5 +434,303 @@ test('Serveur WebSocket valide, normalise et diffuse vrData (tête, mains, doigt
     wsHub.close();
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('v4.15 : pickLabInteractable et VRManager raycastent sans crash sur des bornes contenant THREE.Sprite', () => {
+  const stubs = createFakeDomStubs();
+  const mockScene = new THREE.Scene();
+  const mockCam = new THREE.PerspectiveCamera(72, 1.77, 0.1, 180);
+  const mockSceneMgr = {
+    scene: mockScene,
+    camera: mockCam,
+    renderer: null,
+    getFps: () => 72,
+    getXrErrors: () => [],
+    setVrPresentingState() {},
+    bindVrManager() {}
+  };
+
+  const stationGrp = new THREE.Group();
+  stationGrp.position.set(0, 0, -2.5);
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.2, 1.4), new THREE.MeshBasicMaterial());
+  box.position.y = 0.6;
+  stationGrp.add(box);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial());
+  sprite.position.set(0, 2.2, 0);
+  stationGrp.add(sprite);
+  mockScene.add(stationGrp);
+  mockScene.updateMatrixWorld(true);
+
+  const interactables = [
+    {
+      id: 'teacher',
+      label: 'Professeur CIEL',
+      position: new THREE.Vector3(0, 0, -2.5),
+      interactRadius: 3.1,
+      mesh: stationGrp
+    }
+  ];
+
+  const rawRay = new THREE.Raycaster(new THREE.Vector3(0, 0.6, 0), new THREE.Vector3(0, 0, -1));
+  assert.equal(rawRay.camera, null);
+  const safePick = pickLabInteractable(rawRay, interactables, [], 5);
+  assert.equal(safePick?.item?.id, 'teacher');
+
+  let vr = null;
+  try {
+    const mapData = createDefaultMap();
+    const player = new PlayerController(mockCam, stubs.canvas, []);
+    player.setBounds(mapData.bounds);
+    player.teleportTo({ x: 0, z: 0 }, { x: 0, z: -2.5 });
+    vr = new VRManager(mockSceneMgr, player, {
+      playerName: 'SpriteSafeVR',
+      mapData,
+      getInteractables: () => interactables,
+      getOccluders: () => []
+    });
+    assert.equal(vr.enterSimulationMode(), true);
+    vr.update(0.016, 0.1, 100);
+    assert.equal(vr.raycaster.camera, mockCam);
+    assert.equal(vr.debugPanel.group.visible, true);
+    assert.ok(vr.debugPanel.getState().frameCount >= 1);
+  } finally {
+    vr?.dispose?.();
+    stubs.restore();
+  }
+});
+
+test('v4.15 : SceneManager garantit boucle WebXR unique, éclairage complet, clearColor jour et isolation des erreurs', () => {
+  const listeners = new Map();
+  let loopFn = null;
+  let renderCalls = 0;
+  let lastClearColor = null;
+  let activeRt = null;
+  const xrListeners = new Map();
+
+  const mockRenderer = {
+    xr: {
+      enabled: false,
+      isPresenting: false,
+      setReferenceSpaceType() {},
+      addEventListener(type, fn) {
+        xrListeners.set(type, fn);
+      },
+      removeEventListener(type) {
+        xrListeners.delete(type);
+      }
+    },
+    autoClear: false,
+    toneMapping: null,
+    toneMappingExposure: 1,
+    shadowMap: { enabled: false, type: null },
+    setClearColor(col) {
+      lastClearColor = col;
+    },
+    setPixelRatio() {},
+    setSize() {},
+    getRenderTarget() {
+      return activeRt;
+    },
+    setRenderTarget(rt) {
+      activeRt = rt;
+    },
+    setAnimationLoop(fn) {
+      loopFn = fn;
+    },
+    render(scene, cam) {
+      renderCalls += 1;
+      assert.ok(scene);
+      assert.ok(cam);
+    }
+  };
+
+  const mockCanvas = {
+    addEventListener(type, fn) {
+      listeners.set(type, fn);
+    },
+    removeEventListener(type) {
+      listeners.delete(type);
+    }
+  };
+
+  const sm = new SceneManager(mockCanvas, { renderer: mockRenderer, skipEnvironment: true });
+  try {
+    assert.equal(mockRenderer.xr.enabled, true);
+    assert.equal(lastClearColor, '#cfe4f7');
+    const lightTypes = sm.scene.children.filter((c) => c.isLight).map((l) => l.type);
+    assert.ok(lightTypes.includes('AmbientLight'));
+    assert.ok(lightTypes.includes('HemisphereLight'));
+    assert.ok(lightTypes.includes('DirectionalLight'));
+
+    sm.setCustomRenderTarget(new THREE.Scene(), () => {});
+    sm.addUpdater(() => {
+      throw new Error('Boom updater test');
+    });
+
+    sm.start();
+    assert.equal(typeof loopFn, 'function');
+
+    mockRenderer.xr.isPresenting = true;
+    xrListeners.get('sessionstart')?.();
+    assert.equal(sm.vrPresenting, true);
+    assert.equal(sm.customRenderScene, null);
+    assert.equal(sm.camera.near, 0.05);
+
+    activeRt = { isXRRenderTarget: false };
+    loopFn();
+    assert.equal(renderCalls, 1);
+    assert.equal(activeRt, null);
+    assert.ok(sm.getXrErrors().some((e) => e.includes('Boom updater test')));
+
+    activeRt = { isXRRenderTarget: true };
+    loopFn();
+    assert.equal(renderCalls, 2);
+    assert.equal(activeRt.isXRRenderTarget, true);
+
+    listeners.get('webglcontextlost')?.({ preventDefault() {} });
+    assert.ok(sm.getXrErrors().some((e) => e.includes('WebGL context lost')));
+  } finally {
+    sm.dispose();
+  }
+});
+
+test('v4.15 : VRManager gère session WebXR local-floor (y=0), fallback local (y=1.65), spawn dégagé et panneau debug 3D', async () => {
+  const stubs = createFakeDomStubs();
+  const prevNav = globalThis.navigator;
+  const mockScene = new THREE.Scene();
+  const mockCam = new THREE.PerspectiveCamera(72, 1.77, 0.1, 100);
+  let setSessionCalls = 0;
+  let refSpaceConfigured = null;
+  let xrPresenting = false;
+  let allowLocalFloor = true;
+
+  const mockXr = {
+    enabled: false,
+    get isPresenting() {
+      return xrPresenting;
+    },
+    setReferenceSpaceType(t) {
+      refSpaceConfigured = t;
+    },
+    getController() {
+      return new THREE.Group();
+    },
+    getControllerGrip() {
+      return new THREE.Group();
+    },
+    getHand() {
+      return new THREE.Group();
+    },
+    addEventListener() {},
+    removeEventListener() {},
+    async setSession(sess) {
+      setSessionCalls += 1;
+      xrPresenting = true;
+      await sess.requestReferenceSpace(refSpaceConfigured);
+    }
+  };
+
+  const mockSceneMgr = {
+    scene: mockScene,
+    camera: mockCam,
+    renderer: {
+      xr: mockXr,
+      setRenderTarget() {}
+    },
+    getFps: () => 90,
+    getXrErrors: () => [],
+    setVrPresentingState(val) {
+      mockCam.near = val ? 0.05 : 0.1;
+    },
+    bindVrManager() {}
+  };
+
+  const makeMockSession = (supportsLocalFloor) => {
+    const endListeners = [];
+    return {
+      addEventListener(t, fn) {
+        if (t === 'end') endListeners.push(fn);
+      },
+      async requestReferenceSpace(type) {
+        if (type === 'local-floor' && !supportsLocalFloor) {
+          throw new Error('local-floor unsupported');
+        }
+        return {};
+      },
+      async end() {
+        xrPresenting = false;
+        endListeners.forEach((fn) => fn());
+      }
+    };
+  };
+
+  globalThis.navigator = {
+    xr: {
+      async isSessionSupported() {
+        return true;
+      },
+      async requestSession() {
+        return makeMockSession(allowLocalFloor);
+      }
+    }
+  };
+
+  let vr = null;
+  try {
+    const mapData = createDefaultMap();
+    const player = new PlayerController(mockCam, stubs.canvas, [{ minX: -1, maxX: 1, minZ: -1, maxZ: 1 }]);
+    player.setBounds(mapData.bounds);
+    player.teleportTo({ x: 0, z: 0 }, { x: 0, z: -2 });
+
+    vr = new VRManager(mockSceneMgr, player, {
+      playerName: 'QuestTester',
+      mapData
+    });
+
+    assert.equal(await vr.enterVr(), true);
+    assert.equal(mockXr.enabled, true);
+    assert.equal(setSessionCalls, 1);
+    assert.equal(vr.xrReferenceSpaceType, 'local-floor');
+    assert.equal(vr.vrRig.position.y, 0);
+    assert.equal(vr.vrRig.position.x, -3.95);
+    assert.equal(vr.vrRig.position.z, 0.65);
+    assert.equal(mockCam.near, 0.05);
+    assert.ok(mockCam.far >= 180);
+    assert.equal(vr.debugPanel.group.visible, true);
+    vr.update(0.016, 0.2, 200);
+    const dbgState1 = vr.debugPanel.getState();
+    assert.equal(dbgState1.xrPresenting, true);
+    assert.equal(dbgState1.referenceSpace, 'local-floor');
+    assert.equal(dbgState1.fps, 90);
+    await vr.exitVr();
+    assert.equal(vr.debugPanel.group.visible, false);
+
+    allowLocalFloor = false;
+    setSessionCalls = 0;
+    assert.equal(await vr.enterVr(), true);
+    assert.equal(setSessionCalls, 1);
+    assert.equal(vr.xrReferenceSpaceType, 'local');
+    assert.equal(vr.vrRig.position.y, 1.65);
+    vr.update(0.016, 0.4, 400);
+    assert.equal(vr.debugPanel.getState().referenceSpace, 'local');
+    await vr.exitVr();
+
+    const standaloneDebug = createVrDebugPanel();
+    standaloneDebug.updateState({
+      xrPresenting: true,
+      referenceSpace: 'local-floor',
+      rigPos: { x: 1.2, y: 0, z: -0.5 },
+      fps: 72,
+      frameCount: 42,
+      errors: ['[webgl] test err']
+    }, Date.now(), true);
+    assert.equal(standaloneDebug.getState().errors.length, 1);
+    standaloneDebug.dispose();
+  } finally {
+    vr?.dispose?.();
+    if (prevNav === undefined) delete globalThis.navigator;
+    else globalThis.navigator = prevNav;
+    stubs.restore();
   }
 });

@@ -438,9 +438,12 @@ export class SkinPreview3D {
 
       this.rebuild();
 
-      const tick = (now = 0) => {
-        this.animId = requestAnimationFrame(tick);
-        if (!this.active || !this.renderer || !this.scene || !this.camera) return;
+      this._tick = (now = 0) => {
+        if (!this.active || !this.renderer || !this.scene || !this.camera) {
+          this.animId = null;
+          return;
+        }
+        this.animId = requestAnimationFrame(this._tick);
         const t = now * 0.001;
         if (!this.dragging) {
           if (Math.abs(this.yawVelocity) > 0.0005) {
@@ -461,7 +464,9 @@ export class SkinPreview3D {
         }
         this.renderer.render(this.scene, this.camera);
       };
-      tick();
+      if (this.active) {
+        this._tick();
+      }
     } catch (err) {
       this.initialized = false;
       this.renderer = null;
@@ -490,6 +495,12 @@ export class SkinPreview3D {
     if (this.active) {
       this._init();
       this.rebuild();
+      if (this._tick && this.animId === null) {
+        this.animId = requestAnimationFrame(this._tick);
+      }
+    } else if (this.animId !== null) {
+      cancelAnimationFrame(this.animId);
+      this.animId = null;
     }
   }
 

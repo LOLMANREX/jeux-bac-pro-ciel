@@ -856,3 +856,240 @@ export function createTpSpatialPanel() {
     dispose
   };
 }
+
+export function createVrDebugPanel() {
+  const canvasW = 640;
+  const canvasH = 340;
+  let canvas = null;
+  let ctx = null;
+  let texture = null;
+
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    canvas = document.createElement('canvas');
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+    ctx = canvas.getContext('2d');
+    texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+  }
+
+  const group = new THREE.Group();
+  group.name = 'vr-debug-panel';
+
+  const screenMat = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0.94,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+  const screenMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.68, 0.36), screenMat);
+  screenMesh.renderOrder = 18;
+  group.add(screenMesh);
+
+  const state = {
+    xrPresenting: false,
+    simMode: false,
+    referenceSpace: 'local-floor',
+    rigPos: { x: 0, y: 0, z: 0 },
+    headY: 1.65,
+    fps: 60,
+    frameCount: 0,
+    errors: []
+  };
+
+  let lastDrawMs = 0;
+  let dirty = true;
+
+  const redraw = () => {
+    dirty = false;
+    if (!ctx || !texture) return;
+    ctx.clearRect(0, 0, canvasW, canvasH);
+
+    roundRectPath(ctx, 6, 6, canvasW - 12, canvasH - 12, 22);
+    const bg = ctx.createLinearGradient(0, 0, canvasW, canvasH);
+    bg.addColorStop(0, 'rgba(4, 12, 28, 0.94)');
+    bg.addColorStop(1, 'rgba(9, 25, 48, 0.94)');
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = state.errors.length > 0 ? '#f43f5e' : state.xrPresenting ? '#10b981' : '#38bdf8';
+    ctx.stroke();
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 21px system-ui, sans-serif';
+    ctx.fillText('🩺 DEBUG WEBXR • ATELIER CIEL 3D', 24, 38);
+
+    const pulseOn = state.frameCount % 30 < 15;
+    ctx.fillStyle = state.xrPresenting ? (pulseOn ? '#34d399' : '#10b981') : '#fbbf24';
+    ctx.beginPath();
+    ctx.arc(canvasW - 150, 31, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText(`FRAME #${state.frameCount}`, canvasW - 134, 36);
+
+    const rows = [
+      {
+        label: 'XR Presenting',
+        val: state.xrPresenting ? 'OUI (WebXR Actif)' : state.simMode ? 'SIMULATION PC' : 'NON',
+        color: state.xrPresenting ? '#34d399' : state.simMode ? '#38bdf8' : '#fb7185'
+      },
+      {
+        label: 'ReferenceSpace',
+        val: String(state.referenceSpace || 'local-floor'),
+        color: '#7dd3fc'
+      },
+      {
+        label: 'Rig XYZ',
+        val: `X:${Number(state.rigPos?.x || 0).toFixed(2)}  Y:${Number(state.rigPos?.y || 0).toFixed(2)}  Z:${Number(state.rigPos?.z || 0).toFixed(2)}  (Tête Y:${Number(state.headY || 0).toFixed(2)})`,
+        color: '#f8fafc'
+      },
+      {
+        label: 'FPS Moteur',
+        val: `${Math.round(Number(state.fps) || 0)} FPS`,
+        color: Number(state.fps) >= 55 ? '#34d399' : '#fbbf24'
+      }
+    ];
+
+    let ry = 62;
+    for (const r of rows) {
+      roundRectPath(ctx, 20, ry, canvasW - 40, 38, 10);
+      ctx.fillStyle = 'rgba(15, 34, 61, 0.85)';
+      ctx.fill();
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 16px system-ui, sans-serif';
+      ctx.fillText(r.label, 34, ry + 24);
+      ctx.fillStyle = r.color;
+      ctx.font = 'bold 17px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(r.val, canvasW - 34, ry + 24);
+      ctx.textAlign = 'left';
+      ry += 44;
+    }
+
+    roundRectPath(ctx, 20, 242, canvasW - 40, 76, 12);
+    ctx.fillStyle = state.errors.length > 0 ? 'rgba(127, 29, 29, 0.78)' : 'rgba(6, 78, 59, 0.62)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = state.errors.length > 0 ? '#fb7185' : '#34d399';
+    ctx.stroke();
+
+    ctx.fillStyle = state.errors.length > 0 ? '#fecdd3' : '#a7f3d0';
+    ctx.font = 'bold 16px system-ui, sans-serif';
+    if (state.errors.length === 0) {
+      ctx.fillText('✅ Erreurs WebGL / XR : Aucune erreur capturée', 34, 286);
+    } else {
+      ctx.fillText(`⚠️ Erreurs WebGL / XR (${state.errors.length}) :`, 34, 266);
+      ctx.font = '14px monospace';
+      const errLine = String(state.errors[state.errors.length - 1] || '').slice(0, 62);
+      ctx.fillText(errLine, 34, 292);
+    }
+
+    texture.needsUpdate = true;
+  };
+
+  redraw();
+
+  const localFwd = new THREE.Vector3();
+  const desiredPos = new THREE.Vector3();
+
+  const updateTransform = (vrRig, camera, dt = 0.016, snap = false) => {
+    if (!camera || !vrRig) return;
+    const camPos = camera.position;
+    localFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    const flatLen = Math.hypot(localFwd.x, localFwd.z);
+    const fx = flatLen > 0.05 ? localFwd.x / flatLen : 0;
+    const fz = flatLen > 0.05 ? localFwd.z / flatLen : -1;
+
+    desiredPos.set(
+      camPos.x + fx * 1.55,
+      Math.max(1.15, camPos.y + 0.3),
+      camPos.z + fz * 1.55
+    );
+    if (snap) {
+      group.position.copy(desiredPos);
+    } else {
+      group.position.lerp(desiredPos, Math.min(1, Math.max(0.08, dt * 4.5)));
+    }
+    group.rotation.order = 'YXZ';
+    const lookYaw = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
+    group.rotation.set(0.14, lookYaw, 0);
+  };
+
+  const updateState = (next = {}, nowMs = Date.now(), force = false) => {
+    let changed = false;
+    if (next.xrPresenting !== undefined && next.xrPresenting !== state.xrPresenting) {
+      state.xrPresenting = Boolean(next.xrPresenting);
+      changed = true;
+    }
+    if (next.simMode !== undefined && next.simMode !== state.simMode) {
+      state.simMode = Boolean(next.simMode);
+      changed = true;
+    }
+    if (next.referenceSpace !== undefined && next.referenceSpace !== state.referenceSpace) {
+      state.referenceSpace = next.referenceSpace;
+      changed = true;
+    }
+    if (next.rigPos) {
+      const nx = Number(next.rigPos.x) || 0;
+      const ny = Number(next.rigPos.y) || 0;
+      const nz = Number(next.rigPos.z) || 0;
+      if (
+        Math.abs(nx - state.rigPos.x) > 0.004 ||
+        Math.abs(ny - state.rigPos.y) > 0.004 ||
+        Math.abs(nz - state.rigPos.z) > 0.004
+      ) {
+        state.rigPos = { x: nx, y: ny, z: nz };
+        changed = true;
+      }
+    }
+    if (next.headY !== undefined && Math.abs((Number(next.headY) || 0) - state.headY) > 0.004) {
+      state.headY = Number(next.headY) || 0;
+      changed = true;
+    }
+    if (next.fps !== undefined && Math.round(Number(next.fps) || 0) !== Math.round(state.fps)) {
+      state.fps = Number(next.fps) || 0;
+      changed = true;
+    }
+    if (next.frameCount !== undefined && next.frameCount !== state.frameCount) {
+      state.frameCount = next.frameCount;
+      changed = true;
+    }
+    if (Array.isArray(next.errors)) {
+      if (next.errors.length !== state.errors.length || next.errors[next.errors.length - 1] !== state.errors[state.errors.length - 1]) {
+        state.errors = [...next.errors];
+        changed = true;
+        force = true;
+      }
+    }
+    if (changed) dirty = true;
+    if (force || (dirty && nowMs - lastDrawMs >= 140)) {
+      lastDrawMs = nowMs;
+      redraw();
+    }
+  };
+
+  const getState = () => ({
+    ...state,
+    errors: [...state.errors]
+  });
+
+  const dispose = () => {
+    texture?.dispose?.();
+    screenMesh.geometry.dispose();
+    screenMesh.material.dispose();
+  };
+
+  return {
+    group,
+    screenMesh,
+    updateTransform,
+    updateState,
+    getState,
+    redraw,
+    dispose
+  };
+}

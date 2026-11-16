@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.14 - Refonte VR : Mains Articulées, Sync Multi & Smartwatch Minimap';
+    : 'v4.15 - Audit WebXR Écran Noir, Panneau Debug VR & Rapport Technique';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,36 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.14 — Refonte VR Fondamentale : Mains Articulées, Sync Multijoueur & Smartwatch Minimap',
+    version: 'v4.15 — Diagnostic Profond Écran Noir WebXR, Panneau Debug VR & Rapport Technique',
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'CORRECTIF CRITIQUE VR',
+        title: 'Résolution du Crash Raycaster Sprite en VR (Cause Principale Écran Noir)',
+        desc: 'Correction du plantage fatal sur la toute première frame VR dans VRManager._updateSlotRayAndInteract et SceneManager.pickLabInteractable : les bornes TP et le Professeur CIEL possèdent un THREE.Sprite enfant qui provoquait TypeError (raycaster.camera === null) avant même renderer.render(), laissant le framebuffer Quest 3S totalement noir.'
+      },
+      {
+        badge: 'PIPELINE WEBXR',
+        title: 'Contexte WebGL2 xrCompatible, Boucle Unique & Isolation des Erreurs',
+        desc: 'Initialisation WebGL2 avec xrCompatible: true et alpha: false dans SceneManager, clearColor jour (#cfe4f7), vérification unique de sessionstart/sessionend, contournement garanti des customRenderScene/RenderTargets non-XR, arrêt des boucles requestAnimationFrame résiduelles (SkinPreview3D & animateCameraPose) et isolation try/catch de la boucle setAnimationLoop.'
+      },
+      {
+        badge: 'RIG & LUMIÈRES',
+        title: 'Positionnement Sécurisé du Rig VR & Éclairage Ambient/Hemisphere/Sun',
+        desc: 'Sonde préalable du ReferenceSpace (local-floor y=0 ou local y=1.65) pour un seul appel setSession propre, vérification de position dégagée au centre de U300, frustum near=0.05/far>=180, ajout d’une AmbientLight complémentaire et masquage des overlays HTML/CSS (body.vr-presenting).'
+      },
+      {
+        badge: 'DEBUG 3D & DOC',
+        title: 'Panneau de Diagnostic 3D Flottant en VR & Rapport Technique LAST_REPORT.md',
+        desc: 'Ajout d’un panneau 3D flottant temps réel devant le joueur en VR (XR Presenting, ReferenceSpace, Rig XYZ, FPS, compteur de frames et erreurs WebGL/XR capturées) et génération systématique du rapport complet dans LAST_REPORT.md.'
+      }
+    ]
+  },
+  {
+    version: 'v4.14 — Refonte VR Fondamentale : Mains Articulées, Sync Multijoueur & Smartwatch Minimap',
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'VR / WEBXR',
@@ -440,7 +467,17 @@ export class ChangelogModal {
           <span class="changelog-tag ${idx === 0 ? 'latest' : ''}">${rel.tag} • ${rel.date}</span>
         </div>
         <ul class="changelog-items">
-          ${rel.items.map((item) => `<li>${item}</li>`).join('')}
+          ${rel.items
+            .map((item) => {
+              if (item && typeof item === 'object') {
+                const badge = item.badge ? `<span class="changelog-item-badge">[${item.badge}]</span> ` : '';
+                const title = item.title ? `<strong>${item.title}</strong>` : '';
+                const desc = item.desc ? ` — ${item.desc}` : '';
+                return `<li>${badge}${title}${desc}</li>`;
+              }
+              return `<li>${item}</li>`;
+            })
+            .join('')}
         </ul>
       </section>`
     ).join('');

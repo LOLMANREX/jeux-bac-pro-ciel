@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { pickLabInteractable } from '../world/SceneManager.js';
 import { buildArticulatedVRHand } from './VRHandBuilder.js';
-import { createTpSpatialPanel, createWristHudPanel } from './VRHudPanel.js';
+import { createTpSpatialPanel, createVrDebugPanel, createWristHudPanel } from './VRHudPanel.js';
 
 const XR_FINGER_CHAINS = {
   thumb: ['thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip'],
@@ -66,6 +66,12 @@ export class VRManager {
     this.wristPanel.group.rotation.set(-1.12, 0.22, 0.28);
     this.slots.left.hand.root.add(this.wristPanel.group);
     this.wristPanel.group.visible = false;
+
+    this.debugPanel = createVrDebugPanel();
+    this.debugPanel.group.visible = false;
+    this.vrRig.add(this.debugPanel.group);
+    this.xrErrors = [];
+    this.frameCount = 0;
 
     this.tpPanel = null;
     this.tpContext = null;
@@ -252,13 +258,45 @@ export class VRManager {
     return this.xrSupported;
   }
 
+  recordError(source, err) {
+    const rawMsg =
+      err instanceof Error
+        ? `${err.name ? `${err.name}: ` : ''}${err.message || ''}`.trim()
+        : typeof err === 'string'
+          ? err
+          : String(err || 'Erreur WebXR');
+    const entry = `[${source}] ${rawMsg}`.slice(0, 140);
+    if (this.xrErrors[this.xrErrors.length - 1] !== entry) {
+      this.xrErrors.push(entry);
+      if (this.xrErrors.length > 8) {
+        this.xrErrors.shift();
+      }
+    }
+  }
+
+  getCapturedErrors() {
+    const sceneErrs = this.sceneMgr?.getXrErrors?.() || [];
+    const combined = [...this.xrErrors];
+    for (const e of sceneErrs) {
+      if (!combined.includes(e)) combined.push(e);
+    }
+    return combined.slice(-8);
+  }
+
   getPublicState() {
     return {
       xrSupported: this.xrSupported,
       active: this.active,
       xrPresenting: Boolean(this.xrSession),
       simMode: this.simMode,
-      referenceSpaceType: this.xrReferenceSpaceType
+      referenceSpaceType: this.simMode ? 'sim' : this.xrReferenceSpaceType,
+      rigPosition: {
+        x: Number(this.vrRig.position.x.toFixed(2)),
+        y: Number(this.vrRig.position.y.toFixed(2)),
+        z: Number(this.vrRig.position.z.toFixed(2))
+      },
+      frameCount: this.frameCount,
+      errors: this.getCapturedErrors()
     };
   }
 
@@ -298,27 +336,56 @@ export class VRManager {
   async enterVr() {
     if (this.active) return true;
     if (typeof navigator !== 'undefined' && typeof navigator.xr?.requestSession === 'function' && this.renderer?.xr) {
+      this.renderer.xr.enabled = true;
       let session = null;
+      let lastErr = null;
       try {
         session = await navigator.xr.requestSession('immersive-vr', {
           requiredFeatures: ['local-floor'],
           optionalFeatures: ['bounded-floor', 'hand-tracking']
         });
       } catch (err) {
-        if (err && (err.name === 'NotSupportedError' || err.name === 'TypeError')) {
+        lastErr = err;
+        if (err && (err.name === 'NotSupportedError' || err.name === 'TypeError' || err.name === 'OverconstrainedError')) {
           try {
             session = await navigator.xr.requestSession('immersive-vr', {
               optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
             });
-          } catch {
+            lastErr = null;
+          } catch (fallbackErr) {
+            lastErr = fallbackErr;
             session = null;
           }
         }
       }
       if (session) {
         this.xrSupported = true;
-        await this._activateXrSession(session);
-        return true;
+        try {
+          await this._activateXrSession(session);
+          return true;
+        } catch (actErr) {
+          this.recordError('setSession', actErr);
+          try {
+            await session.end?.();
+          } catch {
+          }
+          this._teardownSession();
+          this.options.onToast?.(
+            `Erreur démarrage session WebXR : ${actErr?.message || actErr}`,
+            'error'
+          );
+          return false;
+        }
+      }
+      if (lastErr) {
+        this.recordError('requestSession', lastErr);
+        if (lastErr.name === 'SecurityError' || lastErr.name === 'NotAllowedError') {
+          this.options.onToast?.(
+            'Autorisation WebXR requise : cliquez directement sur « Mode VR » dans la barre supérieure.',
+            'info'
+          );
+          return false;
+        }
       }
       this.options.onToast?.(
         'Casque WebXR non détecté : passage en Mode Simulation VR sur PC (Touche F9).',
@@ -334,29 +401,48 @@ export class VRManager {
   }
 
   async _activateXrSession(session) {
+    let refType = 'local-floor';
+    if (typeof session.requestReferenceSpace === 'function') {
+      try {
+        await session.requestReferenceSpace('local-floor');
+      } catch {
+        refType = 'local';
+      }
+    }
+
+    this.xrReferenceSpaceType = refType;
+    this.xrFloorFallbackOffset = refType === 'local' ? 1.65 : 0;
+    this.renderer.xr.enabled = true;
+    this.renderer.xr.setReferenceSpaceType(refType);
+    this.renderer.setRenderTarget?.(null);
+
+    await this.renderer.xr.setSession(session);
+
     this.xrSession = session;
     this.simMode = false;
     this.active = true;
-    this.xrFloorFallbackOffset = 0;
-    this.xrReferenceSpaceType = 'local-floor';
-    this.renderer.xr.setReferenceSpaceType('local-floor');
-
-    try {
-      await this.renderer.xr.setSession(session);
-    } catch {
-      this.xrReferenceSpaceType = 'local';
-      this.xrFloorFallbackOffset = 1.62;
-      this.renderer.xr.setReferenceSpaceType('local');
-      await this.renderer.xr.setSession(session);
-    }
+    this.frameCount = 0;
 
     session.addEventListener('end', this._onXrSessionEnd);
     this.sceneMgr?.setVrPresentingState?.(true);
     this._mountVrRigForWorld(false);
     this.wristPanel.setForceVisible(false);
-    this.options.onEnterVr?.({ mode: 'xr' });
+    this.debugPanel.group.visible = true;
+    this._syncDebugPanel(true);
+    this.options.onEnterVr?.({ mode: 'xr', referenceSpaceType: refType });
     this.options.onStateChange?.(this.getPublicState());
-    this.options.onToast?.('🥽 Mode VR WebXR (Quest / local-floor) activé !', 'success');
+    this.options.onToast?.(`🥽 Mode VR WebXR (Quest / ${refType}) activé !`, 'success');
+  }
+
+  handleXrSessionStart() {
+    this.sceneMgr?.setVrPresentingState?.(true);
+    if (this.active && !this.simMode && this.camera && this.camera.parent !== this.vrRig) {
+      this._mountVrRigForWorld(false);
+    }
+    if (this.active) {
+      this.debugPanel.group.visible = true;
+      this._syncDebugPanel(true);
+    }
   }
 
   enterSimulationMode() {
@@ -365,6 +451,7 @@ export class VRManager {
     this.active = true;
     this.simWatchInspect = false;
     this.xrFloorFallbackOffset = 0;
+    this.frameCount = 0;
 
     this.simRightPivot.add(this.slots.right.rayParent);
     this.simRightPivot.add(this.slots.right.visualParent);
@@ -380,7 +467,9 @@ export class VRManager {
 
     this._mountVrRigForWorld(true);
     this.wristPanel.setForceVisible(false);
-    this.options.onEnterVr?.({ mode: 'sim' });
+    this.debugPanel.group.visible = true;
+    this._syncDebugPanel(true);
+    this.options.onEnterVr?.({ mode: 'sim', referenceSpaceType: 'sim' });
     this.options.onStateChange?.(this.getPublicState());
     this.options.onToast?.(
       '🥽 Simulation VR PC active (F9 quitter • H smartwatch minimap • F grip • G pouce • Clic laser)',
@@ -389,18 +478,47 @@ export class VRManager {
     return true;
   }
 
+  _resolveClearRigPose() {
+    const fallbackX = -3.95;
+    const fallbackZ = 0.65;
+    const rawX = Number(this.player?.position?.x);
+    const rawZ = Number(this.player?.position?.z);
+    const yaw = Number.isFinite(Number(this.player?.yaw)) ? Number(this.player.yaw) : 0;
+
+    let x = Number.isFinite(rawX) ? rawX : fallbackX;
+    let z = Number.isFinite(rawZ) ? rawZ : fallbackZ;
+    const bnd = this.player?.bounds;
+    const outOfBounds =
+      bnd &&
+      (x < bnd.minX + 0.45 || x > bnd.maxX - 0.45 || z < bnd.minZ + 0.45 || z > bnd.maxZ - 0.45);
+    const blocked = typeof this.player?._collides === 'function' && this.player._collides(x, z);
+    if (outOfBounds || blocked) {
+      x = fallbackX;
+      z = fallbackZ;
+      this.player?.setVrPose?.({ x, z, yaw });
+    }
+    return { x, z, yaw };
+  }
+
   _mountVrRigForWorld(isSim) {
     if (!this.sceneMgr?.scene || !this.camera) return;
     this.sceneMgr.scene.add(this.vrRig);
-    const targetPos = this.player?.position || new THREE.Vector3(-3.95, 0, 0.65);
+    const { x: targetX, z: targetZ, yaw } = this._resolveClearRigPose();
     const groundY = this.worldFloorY;
-    const yaw = this.player?.yaw || 0;
+
+    this.vrRig.scale.set(1, 1, 1);
+    this.camera.scale.set(1, 1, 1);
+    this.camera.near = 0.05;
+    this.camera.far = Math.max(180, Number(this.camera.far) || 180);
+    if (!this.renderer?.xr?.isPresenting) {
+      this.camera.updateProjectionMatrix();
+    }
 
     if (isSim) {
-      this.vrRig.position.set(targetPos.x, groundY, targetPos.z);
+      this.vrRig.position.set(targetX, groundY, targetZ);
       this.vrRig.rotation.set(0, yaw, 0);
       this.simLookYaw = 0;
-      this.simLookPitch = this.player?.pitch || -0.06;
+      this.simLookPitch = Number.isFinite(Number(this.player?.pitch)) ? this.player.pitch : -0.06;
       this.camera.position.set(0, 1.65, 0);
       this.camera.rotation.set(this.simLookPitch, 0, 0, 'YXZ');
       this.vrRig.add(this.camera);
@@ -408,21 +526,24 @@ export class VRManager {
     } else {
       const cosY = Math.cos(yaw);
       const sinY = Math.sin(yaw);
-      const lx = this.lastXrLocalXZ.x;
-      const lz = this.lastXrLocalXZ.y;
+      const lx = Number.isFinite(this.lastXrLocalXZ.x) ? this.lastXrLocalXZ.x : 0;
+      const lz = Number.isFinite(this.lastXrLocalXZ.y) ? this.lastXrLocalXZ.y : 0;
       const worldOffX = lx * cosY + lz * sinY;
       const worldOffZ = -lx * sinY + lz * cosY;
       this.vrRig.position.set(
-        targetPos.x - worldOffX,
+        targetX - worldOffX,
         groundY + this.xrFloorFallbackOffset,
-        targetPos.z - worldOffZ
+        targetZ - worldOffZ
       );
       this.vrRig.rotation.set(0, yaw, 0);
       this.camera.position.set(0, 0, 0);
-      this.camera.rotation.set(0, 0, 0);
+      this.camera.rotation.set(0, 0, 0, 'YXZ');
       this.vrRig.add(this.camera);
     }
+
+    this.vrRig.add(this.debugPanel.group);
     this.vrRig.updateMatrixWorld(true);
+    this.debugPanel.updateTransform(this.vrRig, this.camera, 1, true);
     this.camera.getWorldDirection(this.tempVecB);
     const flatLen = Math.hypot(this.tempVecB.x, this.tempVecB.z);
     if (flatLen > 0.08) {
@@ -460,8 +581,10 @@ export class VRManager {
     this.simStickState = { lx: 0, ly: 0, rx: 0, sprint: false };
     this.xrSession = null;
     this.xrFloorFallbackOffset = 0;
+    this.lastXrLocalXZ.set(0, 0);
     this.wristPanel.setForceVisible(false);
     this.wristPanel.group.visible = false;
+    this.debugPanel.group.visible = false;
     this.sceneMgr?.setVrPresentingState?.(false);
 
     if (this.sceneMgr?.scene && this.camera) {
@@ -811,6 +934,10 @@ export class VRManager {
     this.tempMatrix.extractRotation(slot.rayParent.matrixWorld);
     this.tempDir.set(0, 0, -1).applyMatrix4(this.tempMatrix).normalize();
 
+    if (this.camera) {
+      this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert();
+      this.raycaster.camera = this.camera;
+    }
     this.raycaster.set(this.tempOrigin, this.tempDir);
     this.raycaster.far = 5.5;
 
@@ -1232,8 +1359,31 @@ export class VRManager {
     };
   }
 
+  _syncDebugPanel(force = false, nowMs = Date.now()) {
+    if (!this.debugPanel) return;
+    this.debugPanel.updateState(
+      {
+        xrPresenting: Boolean(this.renderer?.xr?.isPresenting || this.xrSession),
+        simMode: this.simMode,
+        referenceSpace: this.simMode ? 'sim' : this.xrReferenceSpaceType,
+        rigPos: {
+          x: this.vrRig.position.x,
+          y: this.vrRig.position.y,
+          z: this.vrRig.position.z
+        },
+        headY: this.camera?.position?.y || 0,
+        fps: this.sceneMgr?.getFps?.() ?? 60,
+        frameCount: this.frameCount,
+        errors: this.getCapturedErrors()
+      },
+      nowMs,
+      force
+    );
+  }
+
   update(dt = 0.016, elapsed = 0, nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now()) {
     if (!this.active) return;
+    this.frameCount += 1;
 
     const leftState = this._readControllerButtons(this.slots.left);
     const rightState = this._readControllerButtons(this.slots.right);
@@ -1259,8 +1409,10 @@ export class VRManager {
 
     if (this.camera) {
       this.camera.getWorldPosition(this.tempVecA);
-      this.wristPanel.updateVisibility(this.tempVecA, dt);
+      this.wristPanel.updateVisibility(this.tempVecA, dt, nowMs);
+      this.debugPanel.updateTransform(this.vrRig, this.camera, dt);
     }
+    this._syncDebugPanel(false, nowMs);
 
     this._updateSlotRayAndInteract(this.slots.left, leftState, dt, elapsed);
     this._updateSlotRayAndInteract(this.slots.right, rightState, dt, elapsed);
@@ -1272,6 +1424,7 @@ export class VRManager {
       this._teardownSession();
     }
     this.wristPanel?.dispose?.();
+    this.debugPanel?.dispose?.();
     this.tpPanel?.dispose?.();
     for (const slot of [this.slots.left, this.slots.right]) {
       slot.hand?.dispose?.();

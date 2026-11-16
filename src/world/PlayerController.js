@@ -35,16 +35,23 @@ export class PlayerController {
     this.cameraMode = 'first';
     this.avatar = null;
     this.avatarVisible = false;
+    this.vrModeActive = false;
 
     this.camera.rotation.order = 'YXZ';
     this._applyCamera();
     this._bindEvents();
   }
 
+  setVrMode(active) {
+    this.vrModeActive = Boolean(active);
+  }
+
   setAvatar(avatarObj) {
     this.avatar = avatarObj;
     this._syncAvatarVisibility();
-    this._applyCamera();
+    if (!this.vrModeActive) {
+      this._applyCamera();
+    }
   }
 
   setAvatarVisible(visible) {
@@ -55,7 +62,9 @@ export class PlayerController {
   setCameraMode(mode) {
     this.cameraMode = mode === 'third' ? 'third' : 'first';
     this._syncAvatarVisibility();
-    this._applyCamera();
+    if (!this.vrModeActive) {
+      this._applyCamera();
+    }
   }
 
   _syncAvatarVisibility() {
@@ -185,7 +194,9 @@ export class PlayerController {
       this.yaw = Math.atan2(-dx, -dz);
       this.pitch = -0.12;
     }
-    this._applyCamera();
+    if (!this.vrModeActive) {
+      this._applyCamera();
+    }
   }
 
   setColliders(colliders) {

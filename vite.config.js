@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.14 - Refonte VR : Mains Articulées, Sync Multi & Smartwatch Minimap'),
+    __APP_VERSION__: JSON.stringify('v4.15 - Audit WebXR Écran Noir, Panneau Debug VR & Rapport Technique'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

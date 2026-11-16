@@ -177,12 +177,26 @@ vrManager = new VRManager(sceneMgr, player, {
   onInteract: (item) => interactWith(item),
   onToggleMic: () => voiceChat.toggleMicrophone(),
   onEnterVr: () => {
+    activeCameraTweenId++;
+    mainMenu?.hide?.();
+    mainMenu?.preview?.setActive?.(false);
+    hud?.skinPreview?.setActive?.(false);
+    platformModal?.close?.();
+    changelogModal?.close?.();
+    faqModal?.close?.();
+    battlePassModal?.close?.();
     dialogueModal?.close?.();
+    hud?.hideIntroCinematic?.();
+    hud?.hideAscensionDialogue?.();
     hud?.closeAllModals?.();
     if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
       miniGameModal.close();
     }
+    if (typeof document !== 'undefined' && document.body?.classList) {
+      document.body.classList.add('vr-presenting');
+    }
     setModalActive(false, false, false);
+    player.setVrMode?.(true);
     localAvatar?.setFirstPersonVrHidden?.(true);
     player.setAvatarVisible(true);
     player.setEnabled(false);
@@ -194,9 +208,13 @@ vrManager = new VRManager(sceneMgr, player, {
     }
   },
   onExitVr: () => {
+    if (typeof document !== 'undefined' && document.body?.classList) {
+      document.body.classList.remove('vr-presenting');
+    }
     if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
       miniGameModal.close();
     }
+    player.setVrMode?.(false);
     localAvatar?.setFirstPersonVrHidden?.(false);
     player.setEnabled(joined && !modalOpen);
     player._applyCamera?.();
@@ -729,6 +747,9 @@ function setModalActive(active, pauseScene = false, lockActivity = false) {
 let activeCameraTweenId = 0;
 
 function animateCameraPose(targetPos, lookAtPos, durationMs = 420) {
+  if (vrManager?.isVrActive?.() || sceneMgr.renderer.xr?.isPresenting) {
+    return Promise.resolve(false);
+  }
   const tweenId = ++activeCameraTweenId;
   const startPos = sceneMgr.camera.position.clone();
   const startQuat = sceneMgr.camera.quaternion.clone();
@@ -740,7 +761,7 @@ function animateCameraPose(targetPos, lookAtPos, durationMs = 420) {
 
   return new Promise((resolve) => {
     const step = (now) => {
-      if (tweenId !== activeCameraTweenId) {
+      if (tweenId !== activeCameraTweenId || vrManager?.isVrActive?.() || sceneMgr.renderer.xr?.isPresenting) {
         resolve(false);
         return;
       }
@@ -1143,9 +1164,19 @@ hud = new HudManager(gameState, network, {
       const mapZone = (currentMapData?.zones || []).find((z) => z.code === code || z.id === code);
       const pos = DEBUG_ZONE_SPOTS[code] || (mapZone ? { x: mapZone.x || 0, z: mapZone.z || 0 } : { x: -3.95, z: 0.65 });
       player.teleportTo(pos, { x: pos.x, z: pos.z - 2 });
+      if (vrManager?.isVrActive?.()) {
+        vrManager._mountVrRigForWorld?.(vrManager.simMode);
+      }
       const zInfo = getZoneAtPositionInMap(currentMapData, pos.x, pos.z);
       hud?.setCurrentZone?.(zInfo);
-      network.sendMove(pos.x, 0, pos.z, player.yaw, true);
+      network.sendMove(
+        pos.x,
+        0,
+        pos.z,
+        player.yaw,
+        true,
+        vrManager?.isVrActive?.() ? vrManager.getVrSyncPayload() : undefined
+      );
       network.sendZone(zInfo.id, zInfo.badgeText.replace('📍 ', ''));
       hud?.toast?.(`📍 Téléporté vers ${zInfo.badgeText}`);
     }

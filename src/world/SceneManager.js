@@ -411,14 +411,29 @@ export function createWorldCelebrationRig(scene) {
   };
 }
 
+function collectNonSpriteMeshes(root) {
+  const targets = [];
+  if (!root || typeof root.traverse !== 'function') return targets;
+  root.traverse((obj) => {
+    if (obj.isSprite) return;
+    if (obj.isMesh || obj.isLine || obj.isPoints) {
+      targets.push(obj);
+    }
+  });
+  return targets;
+}
+
 export function pickLabInteractable(raycaster, interactables = [], occluders = [], maxDist = 7.5) {
   if (!raycaster || !Array.isArray(interactables) || interactables.length === 0) {
     return null;
   }
+  const canTestSprites = Boolean(raycaster.camera);
   let bestHit = null;
   for (const item of interactables) {
     if (!item?.mesh || item.mesh.visible === false) continue;
-    const hits = raycaster.intersectObject(item.mesh, true);
+    const hits = canTestSprites
+      ? raycaster.intersectObject(item.mesh, true)
+      : raycaster.intersectObjects(collectNonSpriteMeshes(item.mesh), false);
     for (const h of hits) {
       if (!h || h.distance > maxDist) continue;
       let cur = h.object;
@@ -454,40 +469,23 @@ export function pickLabInteractable(raycaster, interactables = [], occluders = [
 }
 
 export class SceneManager {
-  constructor(canvas) {
+  constructor(canvas, options = {}) {
     this.canvas = canvas;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#cfe4f7');
     this.scene.fog = new THREE.Fog('#cfe4f7', 38, 105);
 
+    const viewW = typeof window !== 'undefined' && window.innerWidth ? window.innerWidth : 1280;
+    const viewH = typeof window !== 'undefined' && window.innerHeight ? window.innerHeight : 720;
     this.camera = new THREE.PerspectiveCamera(
       68,
-      window.innerWidth / window.innerHeight,
+      viewW / Math.max(1, viewH),
       0.1,
-      120
+      180
     );
     this.camera.position.set(-3.95, 1.68, 0.65);
 
-    this.renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      powerPreference: 'high-performance'
-    });
-    this.renderer.xr.enabled = true;
-    this.renderer.xr.setReferenceSpaceType('local-floor');
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.96;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
-    this.pmremGenerator.compileEquirectangularShader();
-    const roomEnv = new RoomEnvironment();
-    this.envRenderTarget = this.pmremGenerator.fromScene(roomEnv, 0.04);
-    this.scene.environment = this.envRenderTarget.texture;
-    this.scene.environmentIntensity = 0.65;
-    roomEnv.dispose();
-
+    this.xrErrors = [];
     this.paused = false;
     this.vrPresenting = false;
     this.vrManager = null;
@@ -498,20 +496,147 @@ export class SceneManager {
     this.customStepFn = null;
     this.clock = new THREE.Clock();
     this.fps = 60;
+    this._loopErrorLogged = new Set();
+
+    if (options.renderer) {
+      this.renderer = options.renderer;
+    } else {
+      let glContext = null;
+      if (canvas && typeof canvas.getContext === 'function') {
+        try {
+          glContext = canvas.getContext('webgl2', {
+            alpha: false,
+            depth: true,
+            stencil: false,
+            antialias: true,
+            powerPreference: 'high-performance',
+            xrCompatible: true
+          });
+        } catch {
+          glContext = null;
+        }
+      }
+      const rendererOpts = {
+        canvas,
+        antialias: true,
+        powerPreference: 'high-performance'
+      };
+      if (glContext) {
+        rendererOpts.context = glContext;
+      }
+      this.renderer = new THREE.WebGLRenderer(rendererOpts);
+    }
+
+    if (this.renderer.xr) {
+      this.renderer.xr.enabled = true;
+      this.renderer.xr.setReferenceSpaceType?.('local-floor');
+    }
+    this.renderer.autoClear = true;
+    this.renderer.setClearColor?.('#cfe4f7', 1);
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.96;
+    if (this.renderer.shadowMap) {
+      this.renderer.shadowMap.enabled = true;
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    }
+
+    if (!options.skipEnvironment && !options.renderer) {
+      this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+      this.pmremGenerator.compileEquirectangularShader();
+      const roomEnv = new RoomEnvironment();
+      this.envRenderTarget = this.pmremGenerator.fromScene(roomEnv, 0.04);
+      this.scene.environment = this.envRenderTarget.texture;
+      this.scene.environmentIntensity = 0.65;
+      roomEnv.dispose();
+    } else {
+      this.pmremGenerator = null;
+      this.envRenderTarget = null;
+    }
+
     this.celebrationRig = createWorldCelebrationRig(this.scene);
+
+    this._onXrSessionStart = () => {
+      this.customRenderScene = null;
+      this.customStepFn = null;
+      this.renderer.autoClear = true;
+      this.renderer.setClearColor?.('#cfe4f7', 1);
+      this.setVrPresentingState(true);
+      this.vrManager?.handleXrSessionStart?.();
+    };
+    this._onXrSessionEnd = () => {
+      this.setVrPresentingState(false);
+    };
+    this._onContextLost = (ev) => {
+      ev?.preventDefault?.();
+      this.recordXrError('webgl', 'WebGL context lost');
+    };
+    this._onContextRestored = () => {
+      this.renderer.autoClear = true;
+      this.renderer.setClearColor?.('#cfe4f7', 1);
+    };
+
+    this.renderer.xr?.addEventListener?.('sessionstart', this._onXrSessionStart);
+    this.renderer.xr?.addEventListener?.('sessionend', this._onXrSessionEnd);
+    this.canvas?.addEventListener?.('webglcontextlost', this._onContextLost, false);
+    this.canvas?.addEventListener?.('webglcontextrestored', this._onContextRestored, false);
 
     this._setupLights();
     this.setQuality('high');
     this._onResize = this._handleResize.bind(this);
-    window.addEventListener('resize', this._onResize);
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('resize', this._onResize);
+    }
     this._handleResize();
+
+    if (typeof navigator !== 'undefined' && navigator.xr) {
+      this.ensureXrCompatible().catch(() => {});
+    }
+  }
+
+  recordXrError(source, err) {
+    const rawMsg =
+      err instanceof Error
+        ? err.message || err.name
+        : typeof err === 'string'
+          ? err
+          : String(err || 'Erreur inconnue');
+    const entry = `[${source}] ${rawMsg}`.slice(0, 140);
+    if (this.xrErrors[this.xrErrors.length - 1] !== entry) {
+      this.xrErrors.push(entry);
+      if (this.xrErrors.length > 8) {
+        this.xrErrors.shift();
+      }
+    }
+  }
+
+  getXrErrors() {
+    return [...this.xrErrors];
+  }
+
+  async ensureXrCompatible() {
+    const gl = this.renderer?.getContext?.();
+    if (!gl) return false;
+    try {
+      const attrs = gl.getContextAttributes?.();
+      if (attrs?.xrCompatible === true) return true;
+      if (typeof gl.makeXRCompatible === 'function') {
+        await gl.makeXRCompatible();
+      }
+      return true;
+    } catch (err) {
+      this.recordXrError('xrCompatible', err);
+      return false;
+    }
   }
 
   _setupLights() {
-    const hemi = new THREE.HemisphereLight('#e6f2ff', '#cbd5e1', 0.88);
-    this.scene.add(hemi);
+    this.ambient = new THREE.AmbientLight('#f8fafc', 0.42);
+    this.scene.add(this.ambient);
 
-    this.sun = new THREE.DirectionalLight('#fff4de', 1.48);
+    this.hemi = new THREE.HemisphereLight('#e6f2ff', '#cbd5e1', 0.82);
+    this.scene.add(this.hemi);
+
+    this.sun = new THREE.DirectionalLight('#fff4de', 1.42);
     this.sun.position.set(8, 16, 10);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
@@ -595,7 +720,14 @@ export class SceneManager {
 
   setVrPresentingState(presenting) {
     this.vrPresenting = Boolean(presenting);
-    this.camera.near = this.vrPresenting ? 0.03 : 0.1;
+    this.camera.near = this.vrPresenting ? 0.05 : 0.1;
+    this.camera.far = Math.max(180, Number(this.camera.far) || 180);
+    if (this.vrPresenting) {
+      this.customRenderScene = null;
+      this.customStepFn = null;
+      this.renderer.autoClear = true;
+      this.renderer.setClearColor?.('#cfe4f7', 1);
+    }
     if (!this.renderer.xr?.isPresenting) {
       this.camera.updateProjectionMatrix();
     }
@@ -607,18 +739,19 @@ export class SceneManager {
 
   setQuality(quality) {
     this.quality = quality;
-    const xrPresenting = Boolean(this.renderer.xr?.isPresenting);
+    const xrPresenting = Boolean(this.renderer.xr?.isPresenting || this.vrPresenting);
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     if (quality === 'eco') {
-      if (!xrPresenting) this.renderer.setPixelRatio(1);
-      this.renderer.shadowMap.enabled = false;
+      if (!xrPresenting) this.renderer.setPixelRatio?.(1);
+      if (this.renderer.shadowMap) this.renderer.shadowMap.enabled = false;
       this.sun.castShadow = false;
     } else if (quality === 'balanced') {
-      if (!xrPresenting) this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
-      this.renderer.shadowMap.enabled = true;
+      if (!xrPresenting) this.renderer.setPixelRatio?.(Math.min(dpr, 1.35));
+      if (this.renderer.shadowMap) this.renderer.shadowMap.enabled = true;
       this.sun.castShadow = true;
     } else {
-      if (!xrPresenting) this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      this.renderer.shadowMap.enabled = true;
+      if (!xrPresenting) this.renderer.setPixelRatio?.(Math.min(dpr, 2));
+      if (this.renderer.shadowMap) this.renderer.shadowMap.enabled = true;
       this.sun.castShadow = true;
     }
     this._handleResize();
@@ -721,12 +854,12 @@ export class SceneManager {
   }
 
   _handleResize() {
-    if (this.renderer.xr?.isPresenting) return;
-    const w = Math.max(1, window.innerWidth || 1);
-    const h = Math.max(1, window.innerHeight || 1);
+    if (this.renderer.xr?.isPresenting || this.vrPresenting) return;
+    const w = Math.max(1, (typeof window !== 'undefined' ? window.innerWidth : 1280) || 1);
+    const h = Math.max(1, (typeof window !== 'undefined' ? window.innerHeight : 720) || 1);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h, false);
+    this.renderer.setSize?.(w, h, false);
   }
 
   start() {
@@ -739,28 +872,69 @@ export class SceneManager {
       const dt = Math.min(rawDt, 0.1);
       const elapsed = this.clock.elapsedTime;
       const isXr = Boolean(this.renderer.xr?.isPresenting || this.vrPresenting);
-      this.celebrationRig?.update(dt, elapsed);
+      try {
+        this.celebrationRig?.update(dt, elapsed);
+      } catch (err) {
+        this.recordXrError('celebration', err);
+      }
       if (this.customRenderScene && !isXr) {
-        if (this.customStepFn) {
-          this.customStepFn(dt, elapsed);
+        try {
+          if (this.customStepFn) {
+            this.customStepFn(dt, elapsed);
+          }
+          for (const fn of this.alwaysUpdaters) {
+            fn(dt, elapsed);
+          }
+          this.renderer.render(this.customRenderScene, this.camera);
+        } catch (err) {
+          this.recordXrError('customRender', err);
         }
-        for (const fn of this.alwaysUpdaters) {
-          fn(dt, elapsed);
-        }
-        this.renderer.render(this.customRenderScene, this.camera);
         return;
       }
       if (!this.paused) {
-        for (const fn of this.updaters) {
-          fn(dt, elapsed);
+        for (let i = 0; i < this.updaters.length; i++) {
+          try {
+            this.updaters[i](dt, elapsed);
+          } catch (err) {
+            this.recordXrError(`updater:${i}`, err);
+          }
         }
       }
       if (!this.paused || isXr) {
-        for (const fn of this.alwaysUpdaters) {
-          fn(dt, elapsed);
+        for (let i = 0; i < this.alwaysUpdaters.length; i++) {
+          try {
+            this.alwaysUpdaters[i](dt, elapsed);
+          } catch (err) {
+            this.recordXrError(`alwaysUpdater:${i}`, err);
+          }
         }
-        this.renderer.render(this.scene, this.camera);
+        if (isXr) {
+          this.renderer.autoClear = true;
+          this.renderer.setClearColor?.('#cfe4f7', 1);
+          const activeRt = this.renderer.getRenderTarget?.();
+          if (activeRt && !activeRt.isXRRenderTarget) {
+            this.renderer.setRenderTarget?.(null);
+          }
+        }
+        try {
+          this.renderer.render(this.scene, this.camera);
+        } catch (err) {
+          this.recordXrError('render', err);
+        }
       }
     });
+  }
+
+  dispose() {
+    this.renderer?.setAnimationLoop?.(null);
+    this.renderer?.xr?.removeEventListener?.('sessionstart', this._onXrSessionStart);
+    this.renderer?.xr?.removeEventListener?.('sessionend', this._onXrSessionEnd);
+    this.canvas?.removeEventListener?.('webglcontextlost', this._onContextLost, false);
+    this.canvas?.removeEventListener?.('webglcontextrestored', this._onContextRestored, false);
+    if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+      window.removeEventListener('resize', this._onResize);
+    }
+    this.envRenderTarget?.dispose?.();
+    this.pmremGenerator?.dispose?.();
   }
 }
