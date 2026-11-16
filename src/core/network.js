@@ -1,4 +1,5 @@
 export const DEFAULT_ROOM = 'plateau-u300';
+export const AUTH_TOKEN_STORAGE_KEY = 'ciel_auth_token';
 
 export function buildWebSocketUrl(loc = typeof window !== 'undefined' ? window.location : null) {
   if (!loc || !loc.host) return '';
@@ -29,6 +30,205 @@ export class NetworkClient {
     this.wsUrl = '';
     this.lastPingMs = null;
     this.lastPingSentAt = 0;
+    this.authToken =
+      typeof localStorage !== 'undefined'
+        ? localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || ''
+        : '';
+  }
+
+  getAuthToken() {
+    if (this.authToken) return this.authToken;
+    if (typeof localStorage !== 'undefined') {
+      this.authToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || '';
+    }
+    return this.authToken;
+  }
+
+  setAuthToken(token) {
+    this.authToken = String(token || '').trim();
+    if (typeof localStorage !== 'undefined') {
+      if (this.authToken) {
+        localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, this.authToken);
+      } else {
+        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+      }
+    }
+  }
+
+  clearAuthToken() {
+    this.setAuthToken('');
+  }
+
+  _buildAuthHeaders() {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+      headers['x-auth-token'] = token;
+    }
+    return headers;
+  }
+
+  async registerAccount(payload = {}, timeoutMs = 4500) {
+    try {
+      const res = await this._fetchWithTimeout(
+        '/api/auth/register',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        },
+        timeoutMs
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          error: data.error || 'Impossible de créer le compte élève.'
+        };
+      }
+      if (data.token) {
+        this.setAuthToken(data.token);
+      }
+      this.emit('auth_changed', data);
+      return { ok: true, ...data };
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Serveur inaccessible pour créer le compte.'
+      };
+    }
+  }
+
+  async loginAccount(payload = {}, timeoutMs = 4500) {
+    try {
+      const res = await this._fetchWithTimeout(
+        '/api/auth/login',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        },
+        timeoutMs
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          error: data.error || 'Identifiant ou mot de passe incorrect.'
+        };
+      }
+      if (data.token) {
+        this.setAuthToken(data.token);
+      }
+      this.emit('auth_changed', data);
+      return { ok: true, ...data };
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Serveur inaccessible pour la connexion.'
+      };
+    }
+  }
+
+  async fetchCurrentAccount(tokenOverride = null, timeoutMs = 3500) {
+    const token = String(tokenOverride ?? this.getAuthToken() ?? '').trim();
+    if (!token) {
+      return { ok: false, status: 401, error: 'Aucun jeton de session' };
+    }
+    try {
+      const res = await this._fetchWithTimeout(
+        '/api/auth/me',
+        {
+          method: 'GET',
+          cache: 'no-store',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'x-auth-token': token
+          }
+        },
+        timeoutMs
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        if (res.status === 401) {
+          this.clearAuthToken();
+        }
+        return {
+          ok: false,
+          status: res.status,
+          error: data.error || 'Session expirée'
+        };
+      }
+      this.setAuthToken(token);
+      this.emit('auth_changed', { ...data, token });
+      return { ok: true, token, ...data };
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Impossible de vérifier la session'
+      };
+    }
+  }
+
+  async saveAccount(payload = {}, timeoutMs = 4000) {
+    const token = String(payload.token || this.getAuthToken() || '').trim();
+    if (!token && !payload.password) {
+      return { ok: false, status: 401, error: 'Non connecté' };
+    }
+    try {
+      const res = await this._fetchWithTimeout(
+        '/api/account/save',
+        {
+          method: 'POST',
+          headers: {
+            ...this._buildAuthHeaders(),
+            ...(token ? { Authorization: `Bearer ${token}`, 'x-auth-token': token } : {})
+          },
+          body: JSON.stringify({
+            token: token || undefined,
+            ...payload
+          })
+        },
+        timeoutMs
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          error: data.error || 'Échec de sauvegarde du compte'
+        };
+      }
+      if (data.profile) {
+        this.emit('profile_updated', { profile: data.profile });
+      }
+      this.emit('account_saved', data);
+      return { ok: true, ...data };
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Erreur réseau lors de la sauvegarde'
+      };
+    }
+  }
+
+  logoutAccount() {
+    this.clearAuthToken();
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('ciel_player_name');
+      localStorage.removeItem('ciel_skin');
+    }
+    if (this.connected || this.ws) {
+      this.disconnect();
+    }
+    this.emit('auth_logout', {});
   }
 
   on(event, fn) {

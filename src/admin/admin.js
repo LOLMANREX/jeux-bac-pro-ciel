@@ -1,5 +1,5 @@
 import './admin.css';
-import { renderSkinPreviewSvg } from '../world/AvatarBuilder.js';
+import { renderSkinPreviewSvg, resolveAscensionSpecialty } from '../world/AvatarBuilder.js';
 import { TP_CATALOG } from '../core/gameState.js';
 import { MapEditor } from './MapEditor.js';
 import { PRIVATE_DEBUG_STORAGE_KEY, requestPrivateDebugSession } from '../admin.js';
@@ -19,18 +19,35 @@ const statTotalPlaytime = document.getElementById('stat-total-playtime');
 const statPostsTotal = document.getElementById('stat-posts-total');
 const lastSyncLabel = document.getElementById('last-sync-label');
 
+const tabAccountsBtn = document.getElementById('admin-tab-accounts');
 const tabUsersBtn = document.getElementById('admin-tab-users');
 const tabPostsBtn = document.getElementById('admin-tab-posts');
 const tabPigeonsBtn = document.getElementById('admin-tab-pigeons');
 const tabMapBtn = document.getElementById('admin-tab-map');
+const panelAccounts = document.getElementById('admin-panel-accounts');
 const panelUsers = document.getElementById('admin-panel-users');
 const panelPosts = document.getElementById('admin-panel-posts');
 const panelPigeons = document.getElementById('admin-panel-pigeons');
 const panelMap = document.getElementById('admin-panel-map');
 const mapEditorRoot = document.getElementById('map-editor-root');
+const tabBadgeAccounts = document.getElementById('tab-badge-accounts');
 const tabBadgeUsers = document.getElementById('tab-badge-users');
 const tabBadgePosts = document.getElementById('tab-badge-posts');
 const tabBadgePigeons = document.getElementById('tab-badge-pigeons');
+
+const searchAccountInput = document.getElementById('search-account-input');
+const accountsCountPill = document.getElementById('accounts-count-pill');
+const accountsTbody = document.getElementById('accounts-tbody');
+const accountsEmptyEl = document.getElementById('accounts-empty-state');
+const toggleAllAccPwBtn = document.getElementById('btn-toggle-all-acc-pw');
+
+const pwModal = document.getElementById('admin-password-modal');
+const pwForm = document.getElementById('admin-password-form');
+const pwModalTitle = document.getElementById('pw-modal-title');
+const pwModalSubtitle = document.getElementById('pw-modal-subtitle');
+const editPwInput = document.getElementById('admin-edit-pw-input');
+const pwModalCancelBtn = document.getElementById('btn-pw-modal-cancel');
+const pwModalSaveBtn = document.getElementById('btn-pw-modal-save');
 
 const pigeonsStatTotalEl = document.getElementById('pigeons-stat-total');
 const pigeonsStatLatestEl = document.getElementById('pigeons-stat-latest');
@@ -61,14 +78,18 @@ const confirmExecBtn = document.getElementById('btn-confirm-exec');
 const toastContainer = document.getElementById('admin-toast-container');
 
 let adminToken = sessionStorage.getItem(TOKEN_STORAGE_KEY) || '';
+let allAccounts = [];
 let allPlayers = [];
 let allSuggestions = [];
 let allPigeons = [];
 let onlineOnly = false;
-let activeSection = 'users';
+let activeSection = 'accounts';
 let refreshTimer = null;
 let pendingConfirmAction = null;
 let mapEditor = null;
+let allPasswordsRevealed = false;
+const revealedPasswords = new Set();
+let editingPasswordUsername = null;
 
 function ensureMapEditor() {
   if (!mapEditor && mapEditorRoot) {
@@ -79,17 +100,21 @@ function ensureMapEditor() {
 
 function switchAdminSection(section) {
   activeSection =
-    section === 'posts'
-      ? 'posts'
-      : section === 'pigeons'
-        ? 'pigeons'
-        : section === 'map'
-          ? 'map'
-          : 'users';
+    section === 'users'
+      ? 'users'
+      : section === 'posts'
+        ? 'posts'
+        : section === 'pigeons'
+          ? 'pigeons'
+          : section === 'map'
+            ? 'map'
+            : 'accounts';
+  tabAccountsBtn?.classList.toggle('active', activeSection === 'accounts');
   tabUsersBtn?.classList.toggle('active', activeSection === 'users');
   tabPostsBtn?.classList.toggle('active', activeSection === 'posts');
   tabPigeonsBtn?.classList.toggle('active', activeSection === 'pigeons');
   tabMapBtn?.classList.toggle('active', activeSection === 'map');
+  panelAccounts?.classList.toggle('hidden', activeSection !== 'accounts');
   panelUsers?.classList.toggle('hidden', activeSection !== 'users');
   panelPosts?.classList.toggle('hidden', activeSection !== 'posts');
   panelPigeons?.classList.toggle('hidden', activeSection !== 'pigeons');
@@ -201,14 +226,21 @@ async function apiFetch(url, options = {}) {
 async function loadPlayers(silent = false) {
   if (!adminToken) return;
   try {
-    const [data, sugData, pigeonsData] = await Promise.all([
+    const [data, accData, sugData, pigeonsData] = await Promise.all([
       apiFetch('/api/admin/players'),
+      apiFetch('/api/admin/accounts').catch(() => ({ accounts: [] })),
       fetch('/api/suggestions', { cache: 'no-store' })
         .then((r) => r.json())
         .catch(() => ({ suggestions: [] })),
       apiFetch('/api/admin/pigeons').catch(() => ({ pigeons: [] }))
     ]);
     allPlayers = Array.isArray(data.players) ? data.players : [];
+    const rawAccounts = Array.isArray(accData.accounts)
+      ? accData.accounts
+      : Array.isArray(data.accounts)
+        ? data.accounts
+        : [];
+    allAccounts = rawAccounts;
     const rawSuggestions = Array.isArray(sugData.suggestions) ? sugData.suggestions : [];
     allSuggestions = [...rawSuggestions].sort(
       (a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)
@@ -218,9 +250,13 @@ async function loadPlayers(silent = false) {
       (a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)
     );
     const summary = data.summary || {};
-    const totalCount = summary.totalPlayers ?? allPlayers.length;
+    const totalCount = Math.max(
+      allAccounts.length,
+      summary.totalPlayers ?? allPlayers.length
+    );
     statTotalPlayers.textContent = String(totalCount);
-    if (tabBadgeUsers) tabBadgeUsers.textContent = String(totalCount);
+    if (tabBadgeAccounts) tabBadgeAccounts.textContent = String(allAccounts.length);
+    if (tabBadgeUsers) tabBadgeUsers.textContent = String(allPlayers.length);
     statOnlineCount.textContent = String(
       summary.onlineCount ?? allPlayers.filter((p) => p.online).length
     );
@@ -236,12 +272,189 @@ async function loadPlayers(silent = false) {
       minute: '2-digit',
       second: '2-digit'
     })}`;
+    renderAccountsTable();
     renderPlayersTable();
     renderSuggestionsList();
     renderPigeonsTable();
   } catch (err) {
-    if (!silent) showToast(err.message || 'Impossible de charger les élèves', 'error');
+    if (!silent) showToast(err.message || 'Impossible de charger les données', 'error');
   }
+}
+
+function renderAccountsTable() {
+  if (!accountsTbody || !accountsEmptyEl) return;
+  const q = (searchAccountInput?.value || '').trim().toLowerCase();
+  const filtered = allAccounts.filter((acc) => {
+    if (!q) return true;
+    return (
+      acc.username.toLowerCase().includes(q) ||
+      String(acc.id || '').toLowerCase().includes(q)
+    );
+  });
+
+  if (accountsCountPill) {
+    const n = filtered.length;
+    accountsCountPill.textContent = n > 1 ? `${n} comptes inscrits` : `${n} compte inscrit`;
+  }
+  accountsEmptyEl.classList.toggle('hidden', filtered.length > 0);
+
+  accountsTbody.innerHTML = filtered
+    .map((acc) => {
+      const lowerKey = acc.username.toLowerCase();
+      const isPwVisible = allPasswordsRevealed || revealedPasswords.has(lowerKey);
+      const pwDisplay = isPwVisible ? escapeHtml(acc.password) : '••••••••';
+      const tps20 =
+        typeof acc.tpsAt20Count === 'number'
+          ? acc.tpsAt20Count
+          : TP_CATALOG.filter((tp) => Number(acc.tpScores?.[tp.id]) >= 20).length;
+      const avgTxt = typeof acc.average === 'number' ? `${acc.average.toFixed(1)}/20` : '--/20';
+
+      const divineList = Array.isArray(acc.unlockedDivineSkins) ? acc.unlockedDivineSkins : [];
+      const divineHtml =
+        divineList.length > 0
+          ? divineList
+              .map((specId) => {
+                const spec = resolveAscensionSpecialty(specId);
+                const isEquipped = acc.selectedSkin === spec.id;
+                return `<span class="divine-admin-badge ${isEquipped ? 'equipped' : ''}" title="${escapeHtml(spec.label)}">${spec.icon} ${escapeHtml(spec.shortLabel)}${isEquipped ? ' ★' : ''}</span>`;
+              })
+              .join('')
+          : '<span class="divine-admin-badge empty">Aucun Skin Divin</span>';
+
+      const onlineBadge = acc.online
+        ? '<span class="status-pill online"><span class="dot"></span>En ligne</span>'
+        : '<span class="status-pill offline"><span class="dot"></span>Hors ligne</span>';
+
+      return `
+        <tr>
+          <td>
+            <div class="player-cell">
+              ${renderSkinPreviewSvg(acc.avatarCustomization, 42)}
+              <div>
+                <div class="player-name-row">
+                  <strong class="acc-username">${escapeHtml(acc.username)}</strong>
+                  ${onlineBadge}
+                </div>
+                <div class="player-sub">ID : ${escapeHtml(acc.id)}</div>
+              </div>
+            </div>
+          </td>
+          <td>
+            <div class="acc-pw-cell">
+              <code class="acc-pw-code ${isPwVisible ? 'revealed' : 'masked'}">${pwDisplay}</code>
+              <div class="acc-pw-actions">
+                <button
+                  type="button"
+                  class="btn-secondary btn-xs"
+                  data-acc-action="toggle-pw"
+                  data-username="${escapeHtml(acc.username)}"
+                  title="Afficher / Masquer le mot de passe"
+                >
+                  ${isPwVisible ? '🙈 Masquer' : '👁️ Afficher'}
+                </button>
+                <button
+                  type="button"
+                  class="btn-secondary btn-xs"
+                  data-acc-action="copy-pw"
+                  data-username="${escapeHtml(acc.username)}"
+                  data-password="${escapeHtml(acc.password)}"
+                  title="Copier le mot de passe en un clic"
+                >
+                  📋 Copier
+                </button>
+              </div>
+            </div>
+          </td>
+          <td>
+            <div class="acc-prog-cell">
+              <div class="acc-prog-top">
+                <span class="tps20-pill ${tps20 >= 5 ? 'full' : ''}">🏆 ${tps20} / 5 TPs à 20/20</span>
+                <span class="player-sub">Moy. ${avgTxt}</span>
+              </div>
+              <div class="divine-badges-row">${divineHtml}</div>
+            </div>
+          </td>
+          <td>
+            <div class="date-val">${formatDateTime(acc.createdAt)}</div>
+            <div class="player-sub">Vu : ${formatDateTime(acc.lastSeen || acc.lastLogin)}</div>
+          </td>
+          <td>
+            <div class="actions-cell">
+              <button
+                type="button"
+                class="btn-secondary btn-xs"
+                data-acc-action="edit-password"
+                data-username="${escapeHtml(acc.username)}"
+                data-password="${escapeHtml(acc.password)}"
+              >
+                🔑 Modifier MDP
+              </button>
+              <button
+                type="button"
+                class="btn-reset"
+                data-acc-action="reset-account"
+                data-username="${escapeHtml(acc.username)}"
+              >
+                🔄 Réinitialiser
+              </button>
+              <button
+                type="button"
+                class="btn-delete"
+                data-acc-action="delete-account"
+                data-username="${escapeHtml(acc.username)}"
+              >
+                🗑️ Supprimer
+              </button>
+            </div>
+          </td>
+        </tr>`;
+    })
+    .join('');
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    return true;
+  } catch {
+    return false;
+  } finally {
+    ta.remove();
+  }
+}
+
+function openPasswordEditModal(username, currentPassword = '') {
+  editingPasswordUsername = username;
+  if (pwModalTitle) {
+    pwModalTitle.textContent = `Modifier le MDP de "${username}"`;
+  }
+  if (pwModalSubtitle) {
+    pwModalSubtitle.textContent = `Définissez un nouveau mot de passe pour le compte élève "${username}".`;
+  }
+  if (editPwInput) {
+    editPwInput.value = currentPassword;
+  }
+  pwModal?.classList.remove('hidden');
+  setTimeout(() => editPwInput?.focus(), 20);
+}
+
+function closePasswordEditModal() {
+  pwModal?.classList.add('hidden');
+  editingPasswordUsername = null;
 }
 
 function renderPigeonsTable() {
@@ -435,7 +648,8 @@ function openConfirmModal(mode, targetValue, extraLabel = '') {
   const isDeleteSuggestion = mode === 'delete_suggestion';
   const isDeletePigeon = mode === 'delete_pigeon';
   const isClearPigeons = mode === 'clear_pigeons';
-  const isDelete = mode === 'delete';
+  const isDelete = mode === 'delete' || mode === 'delete_account';
+  const isAccountReset = mode === 'reset_account';
   const dangerMode = isDelete || isDeleteSuggestion || isDeletePigeon || isClearPigeons;
   confirmBadge.textContent = dangerMode ? 'SUPPRESSION DÉFINITIVE' : 'RÉINITIALISATION';
   confirmBadge.className = `confirm-badge ${dangerMode ? 'danger' : 'warn'}`;
@@ -453,10 +667,10 @@ function openConfirmModal(mode, targetValue, extraLabel = '') {
     : isDeletePigeon
       ? `Cette tentative de "${extraLabel}" sera supprimée de l’historique.`
       : isDeleteSuggestion
-        ? `Ce post / rapport sera définitivement supprimé de la base de données.`
+        ? 'Ce post / rapport sera définitivement supprimé de la base de données.'
         : isDelete
-          ? `Cette action supprimera définitivement le profil "${targetValue}" de db.json et déconnectera l'élève s'il est en ligne.`
-          : `Toutes les notes de TP, l'XP, les diplômes et le temps de jeu de "${targetValue}" seront remis à zéro. Son compte et son skin seront conservés.`;
+          ? `Cette action supprimera définitivement le compte "${targetValue}" de accounts.json et déconnectera l'élève s'il est en ligne.`
+          : `Toutes les notes de TP, les Skins Divins débloqués, l'XP et le temps de jeu de "${targetValue}" seront remis à zéro. Ses identifiants de connexion seront conservés.`;
 
   confirmExecBtn.className = dangerMode ? 'btn-delete' : 'btn-reset';
   confirmExecBtn.textContent = dangerMode ? 'Oui, supprimer définitivement' : 'Oui, réinitialiser à 0';
@@ -474,9 +688,15 @@ function openConfirmModal(mode, targetValue, extraLabel = '') {
       } else if (isDeleteSuggestion) {
         await apiFetch(`/api/admin/suggestions/${encoded}`, { method: 'DELETE' });
         showToast('Post / rapport supprimé.', 'success');
+      } else if (mode === 'delete_account') {
+        await apiFetch(`/api/admin/accounts/${encoded}`, { method: 'DELETE' });
+        showToast(`Compte "${targetValue}" supprimé.`, 'success');
       } else if (isDelete) {
         await apiFetch(`/api/admin/players/${encoded}`, { method: 'DELETE' });
         showToast(`Profil "${targetValue}" supprimé.`, 'success');
+      } else if (isAccountReset) {
+        await apiFetch(`/api/admin/accounts/${encoded}/reset`, { method: 'POST' });
+        showToast(`Progression du compte "${targetValue}" réinitialisée à 0.`, 'success');
       } else {
         await apiFetch(`/api/admin/players/${encoded}/reset`, { method: 'POST' });
         showToast(`Progression de "${targetValue}" réinitialisée à 0.`, 'success');
@@ -554,14 +774,108 @@ launchPrivateDebugBtn?.addEventListener('click', async () => {
   }
 });
 logoutBtn.addEventListener('click', () => {
-  switchAdminSection('users');
+  switchAdminSection('accounts');
   clearSession();
 });
 
+tabAccountsBtn?.addEventListener('click', () => switchAdminSection('accounts'));
 tabUsersBtn?.addEventListener('click', () => switchAdminSection('users'));
 tabPostsBtn?.addEventListener('click', () => switchAdminSection('posts'));
 tabPigeonsBtn?.addEventListener('click', () => switchAdminSection('pigeons'));
 tabMapBtn?.addEventListener('click', () => switchAdminSection('map'));
+
+searchAccountInput?.addEventListener('input', renderAccountsTable);
+
+toggleAllAccPwBtn?.addEventListener('click', () => {
+  allPasswordsRevealed = !allPasswordsRevealed;
+  if (!allPasswordsRevealed) {
+    revealedPasswords.clear();
+  }
+  toggleAllAccPwBtn.classList.toggle('active', allPasswordsRevealed);
+  renderAccountsTable();
+});
+
+accountsTbody?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-acc-action]');
+  if (!btn) return;
+  const action = btn.dataset.accAction;
+  const username = btn.dataset.username || '';
+  if (!username) return;
+
+  if (action === 'toggle-pw') {
+    const key = username.toLowerCase();
+    if (allPasswordsRevealed) {
+      allPasswordsRevealed = false;
+      toggleAllAccPwBtn?.classList.remove('active');
+      allAccounts.forEach((a) => {
+        if (a.username.toLowerCase() !== key) {
+          revealedPasswords.add(a.username.toLowerCase());
+        }
+      });
+    } else if (revealedPasswords.has(key)) {
+      revealedPasswords.delete(key);
+    } else {
+      revealedPasswords.add(key);
+    }
+    renderAccountsTable();
+    return;
+  }
+
+  if (action === 'copy-pw') {
+    const pw = btn.dataset.password || '';
+    const ok = await copyTextToClipboard(pw);
+    showToast(
+      ok
+        ? `📋 Mot de passe de "${username}" copié dans le presse-papiers !`
+        : `Mot de passe de "${username}" : ${pw}`,
+      'success'
+    );
+    return;
+  }
+
+  if (action === 'edit-password') {
+    openPasswordEditModal(username, btn.dataset.password || '');
+    return;
+  }
+
+  if (action === 'reset-account') {
+    openConfirmModal('reset_account', username);
+    return;
+  }
+
+  if (action === 'delete-account') {
+    openConfirmModal('delete_account', username);
+  }
+});
+
+pwModalCancelBtn?.addEventListener('click', closePasswordEditModal);
+pwModal?.addEventListener('click', (e) => {
+  if (e.target === pwModal) closePasswordEditModal();
+});
+pwForm?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!editingPasswordUsername) return;
+  const newPassword = (editPwInput?.value || '').trim();
+  if (newPassword.length < 3) {
+    showToast('Le nouveau mot de passe doit contenir au moins 3 caractères.', 'error');
+    return;
+  }
+  if (pwModalSaveBtn) pwModalSaveBtn.disabled = true;
+  try {
+    const encoded = encodeURIComponent(editingPasswordUsername);
+    await apiFetch(`/api/admin/accounts/${encoded}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ password: newPassword })
+    });
+    showToast(`🔑 Mot de passe de "${editingPasswordUsername}" mis à jour !`, 'success');
+    closePasswordEditModal();
+    await loadPlayers(true);
+  } catch (err) {
+    showToast(err.message || 'Impossible de modifier le mot de passe', 'error');
+  } finally {
+    if (pwModalSaveBtn) pwModalSaveBtn.disabled = false;
+  }
+});
 
 clearPigeonsBtn?.addEventListener('click', () => {
   if (allPigeons.length === 0) return;

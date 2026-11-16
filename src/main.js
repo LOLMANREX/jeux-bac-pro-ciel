@@ -326,7 +326,15 @@ function runAscensionPhase(payload = {}) {
 
   if (isWinner) {
     sessionDivineSpecialty = spec.id;
+    gameState.unlockDivineSkin(spec.id, true);
     rebuildLocalAvatar(gameState.skin);
+    mainMenu?.renderSkinUi?.();
+    network.saveAccount({
+      tpScores: gameState.profile.grades,
+      unlockedDivineSkins: gameState.unlockedDivineSkins,
+      selectedSkin: spec.id,
+      avatarCustomization: gameState.skin
+    });
     if (localAvatar?.group) {
       localAvatar.group.visible = true;
     }
@@ -662,6 +670,12 @@ async function openTp(tpId, stationItem = null) {
 
       const allCoreAt20 = TP_CATALOG.every((item) => Number(p.grades[item.id]) >= 20);
       network.submitScore(gameState.profile.name, doneId, score, durationSec, gameState.skin);
+      network.saveAccount({
+        tpScores: p.grades,
+        unlockedDivineSkins: gameState.unlockedDivineSkins,
+        selectedSkin: gameState.skin?.divineSpecialty || 'standard',
+        avatarCustomization: gameState.skin
+      });
       if (allCoreAt20 && !network.connected) {
         runWorldCelebration({
           playerName: gameState.profile.name,
@@ -774,8 +788,14 @@ hud = new HudManager(gameState, network, {
   onQuickNav: (id) => teleportNearTarget(id),
   onModalOpen: (isOpen) => setModalActive(isOpen, false, false),
   onSkinChange: (skin) => {
+    sessionDivineSpecialty = skin?.divineSpecialty || null;
     rebuildLocalAvatar(skin);
     network.sendSkinUpdate(skin);
+    network.saveAccount({
+      selectedSkin: skin?.divineSpecialty || 'standard',
+      avatarCustomization: skin,
+      unlockedDivineSkins: gameState.unlockedDivineSkins
+    });
   },
   onLocalChatSent: (text) => {
     showSpeechBubble(localBubble, text, { isEmote: false, color: gameState.skin.outfitColor });
@@ -893,12 +913,16 @@ hud = new HudManager(gameState, network, {
   },
   onDebugResetProgress: () => {
     sessionDivineSpecialty = null;
+    gameState.unlockedDivineSkins = [];
+    gameState.equipDivineSkin(null);
     endAscensionCinematic();
     hud?.hideAscensionDialogue?.();
     hud?.hideWorldCelebration?.();
     rebuildLocalAvatar(gameState.skin);
     const resetProfile = {
       ...gameState.profile,
+      unlockedDivineSkins: [],
+      selectedSkin: 'standard',
       grades: {},
       average: null,
       completedCount: 0,
@@ -942,7 +966,12 @@ hud = new HudManager(gameState, network, {
       hud?.toast?.(`📍 Téléporté vers ${zInfo.badgeText}`);
     }
   },
-  onReturnToMenu: () => returnToMainMenu()
+  onReturnToMenu: () => returnToMainMenu(false),
+  onLogout: () => {
+    returnToMainMenu(true);
+    mainMenu?.handleLogout?.();
+    hud?.toast?.('🚪 Vous êtes déconnecté de votre compte élève.', 'info');
+  }
 });
 
 function toggleCameraMode() {
@@ -984,11 +1013,15 @@ try {
   console.warn('Contrôles tactiles indisponibles:', err);
 }
 
-function returnToMainMenu() {
+function returnToMainMenu(isLogout = false) {
   if (vrManager?.isVrActive?.()) {
     vrManager.exitVr();
   }
-  sessionDivineSpecialty = null;
+  if (isLogout) {
+    sessionDivineSpecialty = null;
+  } else {
+    sessionDivineSpecialty = gameState.skin?.divineSpecialty || null;
+  }
   endAscensionCinematic();
   joined = false;
   modalOpen = false;
@@ -1051,17 +1084,21 @@ network.on('welcome', (msg) => {
 
 network.on('profile_updated', ({ profile }) => {
   gameState.setProfile(profile);
+  sessionDivineSpecialty = gameState.skin?.divineSpecialty || null;
+  rebuildLocalAvatar(gameState.skin);
   lab.updateStationBadges(profile.grades);
   syncWallLeaderboard();
 });
 
 network.on('profile_reset', ({ profile, message }) => {
   sessionDivineSpecialty = null;
+  gameState.unlockedDivineSkins = [];
+  gameState.equipDivineSkin(null);
   endAscensionCinematic();
   hud?.hideAscensionDialogue?.();
   hud?.hideWorldCelebration?.();
-  rebuildLocalAvatar(gameState.skin);
   gameState.setProfile(profile);
+  rebuildLocalAvatar(gameState.skin);
   lab.updateStationBadges(profile.grades);
   refreshWallLeaderboard();
   hud.toast(message || 'Votre progression a été réinitialisée par l’administrateur.', 'error');
@@ -1074,7 +1111,9 @@ network.on('map_updated', ({ map }) => {
 });
 
 network.on('account_deleted', ({ message }) => {
-  returnToMainMenu();
+  network.logoutAccount();
+  gameState.clearAccount();
+  returnToMainMenu(true);
   hud.toast(message || 'Votre compte a été supprimé par l’administrateur.', 'error');
 });
 
@@ -1560,7 +1599,17 @@ mainMenu = new MainMenu(gameState, network, {
   onOpenBattlePass: () => battlePassModal?.open?.(),
   onOpenLeaderboard: () => hud?.openLeaderboard?.(),
   onStartGame: (params) => startGameSession(params, false),
-  onStartVr: (params) => startGameSession(params, true)
+  onStartVr: (params) => startGameSession(params, true),
+  onAccountRestored: () => {
+    sessionDivineSpecialty = gameState.skin?.divineSpecialty || null;
+    rebuildLocalAvatar(gameState.skin);
+    lab.updateStationBadges(gameState.profile.grades);
+  },
+  onLogout: () => {
+    sessionDivineSpecialty = null;
+    rebuildLocalAvatar(gameState.skin);
+    lab.updateStationBadges({});
+  }
 });
 
 try {

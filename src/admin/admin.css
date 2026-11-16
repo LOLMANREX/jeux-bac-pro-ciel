@@ -1239,3 +1239,131 @@ button:active {
   filter: brightness(1.08);
   box-shadow: 0 8px 26px rgba(251, 191, 36, 0.5);
 }
+
+.btn-xs {
+  padding: 6px 10px;
+  font-size: 0.76rem;
+  border-radius: 7px;
+}
+
+.accounts-header-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 15px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.accounts-header-card h2 {
+  margin: 0 0 4px;
+  font-size: 1.18rem;
+  color: #f8fafc;
+}
+
+.acc-pw-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.acc-pw-code {
+  display: inline-block;
+  font-family: monospace;
+  font-size: 0.86rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(7, 13, 25, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  min-width: 105px;
+}
+
+.acc-pw-code.revealed {
+  color: #fde047;
+  border-color: rgba(251, 191, 36, 0.55);
+  background: rgba(120, 53, 15, 0.25);
+}
+
+.acc-pw-code.masked {
+  color: var(--muted);
+  letter-spacing: 0.14em;
+}
+
+.acc-pw-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.acc-prog-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.acc-prog-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tps20-pill {
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.15);
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  color: #67e8f9;
+}
+
+.tps20-pill.full {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.65);
+  color: #fde047;
+}
+
+.divine-badges-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.divine-admin-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(168, 85, 247, 0.18);
+  border: 1px solid rgba(168, 85, 247, 0.5);
+  color: #e9d5ff;
+}
+
+.divine-admin-badge.equipped {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: rgba(251, 191, 36, 0.65);
+  color: #fef08a;
+}
+
+.divine-admin-badge.empty {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.22);
+  color: var(--muted);
+}
+
+#admin-edit-pw-input {
+  width: 100%;
+  background: #070d19;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.92rem;
+}

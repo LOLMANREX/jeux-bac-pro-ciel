@@ -336,16 +336,183 @@ button:active {
 .aaa-lobby-view {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 12px;
 }
 
+.aaa-auth-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aaa-auth-guest {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aaa-auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  background: rgba(226, 232, 240, 0.72);
+  padding: 4px;
+  border-radius: 11px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.aaa-auth-tab {
+  background: transparent;
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: center;
+  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.aaa-auth-tab:hover {
+  color: #0f172a;
+}
+
+.aaa-auth-tab.active {
+  background: #ffffff;
+  color: #0284c7;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.aaa-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aaa-auth-field label,
 .aaa-pseudo-box label {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 800;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: #475569;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
+}
+
+.aaa-auth-submit {
+  width: 100%;
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 800;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(2, 132, 199, 0.45);
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.22);
+}
+
+.aaa-auth-submit:hover {
+  filter: brightness(1.06);
+}
+
+.aaa-auth-feedback {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 8px 11px;
+  border-radius: 9px;
+  line-height: 1.35;
+}
+
+.aaa-auth-feedback.error {
+  background: rgba(254, 226, 226, 0.92);
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  color: #be123c;
+}
+
+.aaa-auth-feedback.info {
+  background: rgba(224, 242, 254, 0.92);
+  border: 1px solid rgba(2, 132, 199, 0.4);
+  color: #0369a1;
+}
+
+.aaa-auth-feedback.success {
+  background: rgba(209, 250, 229, 0.92);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #047857;
+}
+
+.aaa-auth-session {
+  background: linear-gradient(135deg, rgba(240, 253, 244, 0.95), rgba(224, 242, 254, 0.92));
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: 12px;
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aaa-session-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aaa-session-tag {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #059669;
+}
+
+.aaa-session-name {
+  font-size: 1rem;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.aaa-session-meta {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.aaa-btn-logout {
+  background: rgba(254, 226, 226, 0.92);
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  color: #be123c;
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.aaa-btn-logout:hover {
+  background: rgba(254, 205, 211, 0.96);
+}
+
+.divine-skin-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.divine-chip-btn.unlocked {
+  border-color: rgba(245, 158, 11, 0.65);
+  background: linear-gradient(135deg, rgba(254, 243, 199, 0.95), rgba(224, 242, 254, 0.95));
+  color: #92400e;
+  font-weight: 800;
+}
+
+.divine-chip-btn.unlocked.active {
+  background: linear-gradient(135deg, #f59e0b, #0284c7) !important;
+  color: #ffffff !important;
+  border-color: #d97706 !important;
+}
+
+.divine-chip-btn.locked {
+  opacity: 0.52;
+  cursor: not-allowed;
 }
 
 .aaa-input-shell {

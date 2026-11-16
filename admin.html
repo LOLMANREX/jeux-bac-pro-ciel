@@ -80,7 +80,7 @@
           <article class="stat-card">
             <div class="stat-label">👥 Nombre total d'élèves</div>
             <div id="stat-total-players" class="stat-value">0</div>
-            <div class="stat-sub">Profils enregistrés dans db.json</div>
+            <div class="stat-sub">Comptes enregistrés dans accounts.json</div>
           </article>
           <article class="stat-card online-card">
             <div class="stat-label">🟢 Joueurs actuellement en ligne</div>
@@ -100,8 +100,11 @@
         </section>
 
         <nav class="admin-tabs" aria-label="Sections d'administration">
-          <button type="button" id="admin-tab-users" class="admin-tab active">
-            👥 Gestion des Utilisateurs <span id="tab-badge-users" class="tab-badge">0</span>
+          <button type="button" id="admin-tab-accounts" class="admin-tab active">
+            👥 Comptes Élèves &amp; Récupération d'Accès <span id="tab-badge-accounts" class="tab-badge">0</span>
+          </button>
+          <button type="button" id="admin-tab-users" class="admin-tab">
+            📊 Supervision Temps Réel <span id="tab-badge-users" class="tab-badge">0</span>
           </button>
           <button type="button" id="admin-tab-posts" class="admin-tab">
             💬 Gestion des Posts / Rapports <span id="tab-badge-posts" class="tab-badge">0</span>
@@ -114,7 +117,54 @@
           </button>
         </nav>
 
-        <section id="admin-panel-users" class="admin-panel">
+        <section id="admin-panel-accounts" class="admin-panel">
+          <div class="accounts-header-card">
+            <div>
+              <h2>👥 Comptes Élèves &amp; Récupération d'Accès</h2>
+              <p class="stat-sub">
+                Consultez les identifiants et mots de passe en clair pour dépanner un élève, suivez les TPs à 20/20 et les Skins Divins débloqués.
+              </p>
+            </div>
+            <button type="button" id="btn-toggle-all-acc-pw" class="btn-secondary">
+              👁️ Afficher / Masquer tous les MDP
+            </button>
+          </div>
+
+          <div class="toolbar-card">
+            <div class="search-wrap">
+              <input
+                id="search-account-input"
+                type="search"
+                placeholder="🔍 Rechercher un compte par pseudo / identifiant..."
+              />
+            </div>
+            <div class="toolbar-controls">
+              <span id="accounts-count-pill" class="sync-pill">0 compte inscrit</span>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-scroll">
+              <table id="admin-accounts-table" class="admin-table">
+                <thead>
+                  <tr>
+                    <th>Identifiant (username)</th>
+                    <th>Mot de passe &amp; Récupération</th>
+                    <th>Progression (TPs 20/20 &amp; Skins Divins)</th>
+                    <th>Date de création</th>
+                    <th>Actions rapides</th>
+                  </tr>
+                </thead>
+                <tbody id="accounts-tbody"></tbody>
+              </table>
+            </div>
+            <div id="accounts-empty-state" class="empty-state hidden">
+              Aucun compte élève ne correspond à votre recherche.
+            </div>
+          </div>
+        </section>
+
+        <section id="admin-panel-users" class="admin-panel hidden">
           <div class="toolbar-card">
             <div class="search-wrap">
               <input
@@ -216,6 +266,32 @@
           <div id="map-editor-root"></div>
         </section>
       </main>
+
+      <div id="admin-password-modal" class="modal-backdrop hidden">
+        <form id="admin-password-form" class="confirm-card">
+          <div class="confirm-badge warn">MODIFICATION D'ACCÈS ÉLÈVE</div>
+          <h2 id="pw-modal-title">Modifier le mot de passe</h2>
+          <p id="pw-modal-subtitle">
+            Définissez un nouveau mot de passe pour cet élève (stocké dans accounts.json).
+          </p>
+          <div class="field-group">
+            <label for="admin-edit-pw-input">Nouveau mot de passe (min. 3 caractères)</label>
+            <input
+              id="admin-edit-pw-input"
+              type="text"
+              maxlength="64"
+              placeholder="Entrez le nouveau mot de passe..."
+              required
+            />
+          </div>
+          <div class="confirm-actions">
+            <button type="button" id="btn-pw-modal-cancel" class="btn-secondary">Annuler</button>
+            <button type="submit" id="btn-pw-modal-save" class="btn-primary">
+              💾 Enregistrer le mot de passe
+            </button>
+          </div>
+        </form>
+      </div>
 
       <div id="admin-confirm-modal" class="modal-backdrop hidden">
         <div class="confirm-card">

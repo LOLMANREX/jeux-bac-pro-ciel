@@ -68,17 +68,136 @@
           <main class="aaa-main-stage">
             <section class="aaa-left-panel">
               <div id="menu-view-home" class="menu-view aaa-lobby-view">
-                <div class="aaa-pseudo-box">
-                  <label for="player-name-input">PSEUDO</label>
-                  <div class="aaa-input-shell">
-                    <span class="aaa-input-ico">⚡</span>
-                    <input
-                      id="player-name-input"
-                      type="text"
-                      maxlength="18"
-                      placeholder="Ex: Lucas_CIEL"
-                      required
-                    />
+                <div id="auth-box" class="aaa-auth-box">
+                  <input id="player-name-input" type="hidden" value="" />
+
+                  <div id="auth-guest-view" class="aaa-auth-guest">
+                    <div class="aaa-auth-tabs" role="tablist" aria-label="Authentification élève">
+                      <button
+                        type="button"
+                        id="auth-tab-login"
+                        class="aaa-auth-tab active"
+                        data-auth-tab="login"
+                        role="tab"
+                        aria-selected="true"
+                      >
+                        🔑 Connexion
+                      </button>
+                      <button
+                        type="button"
+                        id="auth-tab-register"
+                        class="aaa-auth-tab"
+                        data-auth-tab="register"
+                        role="tab"
+                        aria-selected="false"
+                      >
+                        ✨ Créer un compte
+                      </button>
+                    </div>
+
+                    <form id="auth-login-form" class="aaa-auth-form" novalidate>
+                      <div class="aaa-auth-field">
+                        <label for="auth-login-username">IDENTIFIANT</label>
+                        <div class="aaa-input-shell">
+                          <span class="aaa-input-ico">👤</span>
+                          <input
+                            id="auth-login-username"
+                            type="text"
+                            maxlength="22"
+                            autocomplete="username"
+                            placeholder="Ex: Lucas_CIEL"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div class="aaa-auth-field">
+                        <label for="auth-login-password">MOT DE PASSE</label>
+                        <div class="aaa-input-shell">
+                          <span class="aaa-input-ico">🔒</span>
+                          <input
+                            id="auth-login-password"
+                            type="password"
+                            maxlength="64"
+                            autocomplete="current-password"
+                            placeholder="Votre mot de passe"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <button type="submit" id="auth-login-submit" class="aaa-auth-submit">
+                        🔐 Se connecter
+                      </button>
+                    </form>
+
+                    <form id="auth-register-form" class="aaa-auth-form hidden" novalidate>
+                      <div class="aaa-auth-field">
+                        <label for="auth-register-username">IDENTIFIANT (PSEUDO UNIQUE)</label>
+                        <div class="aaa-input-shell">
+                          <span class="aaa-input-ico">⚡</span>
+                          <input
+                            id="auth-register-username"
+                            type="text"
+                            maxlength="22"
+                            autocomplete="username"
+                            placeholder="Ex: Lucas_CIEL"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div class="aaa-auth-field">
+                        <label for="auth-register-password">MOT DE PASSE</label>
+                        <div class="aaa-input-shell">
+                          <span class="aaa-input-ico">🔑</span>
+                          <input
+                            id="auth-register-password"
+                            type="password"
+                            maxlength="64"
+                            autocomplete="new-password"
+                            placeholder="Min. 3 caractères"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div class="aaa-auth-field">
+                        <label for="auth-register-confirm">CONFIRMATION</label>
+                        <div class="aaa-input-shell">
+                          <span class="aaa-input-ico">✅</span>
+                          <input
+                            id="auth-register-confirm"
+                            type="password"
+                            maxlength="64"
+                            autocomplete="new-password"
+                            placeholder="Confirmer le mot de passe"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <button type="submit" id="auth-register-submit" class="aaa-auth-submit">
+                        ✨ Créer un compte
+                      </button>
+                    </form>
+
+                    <div id="auth-feedback" class="aaa-auth-feedback hidden" role="alert"></div>
+                  </div>
+
+                  <div id="auth-session-card" class="aaa-auth-session hidden">
+                    <div class="aaa-session-top">
+                      <div>
+                        <div class="aaa-session-tag">🟢 COMPTE ÉLÈVE CONNECTÉ</div>
+                        <div id="auth-connected-username" class="aaa-session-name">Eleve_CIEL</div>
+                      </div>
+                      <button
+                        type="button"
+                        id="menu-btn-logout"
+                        class="aaa-btn-logout"
+                        title="Se déconnecter de ce compte élève"
+                      >
+                        🚪 Déconnexion
+                      </button>
+                    </div>
+                    <div id="auth-connected-meta" class="aaa-session-meta">
+                      0/5 TP validés • 0 Skin Divin débloqué
+                    </div>
                   </div>
                 </div>
 
@@ -120,6 +239,10 @@
                 <h2 class="aaa-skin-title">🎨 SKINS &amp; CASIER</h2>
 
                 <div class="skin-controls aaa-skin-controls">
+                  <div class="skin-group">
+                    <label>⚡ Skins Divins (Ascension 20/20)</label>
+                    <div id="skin-divine-list" class="btn-group divine-skin-group"></div>
+                  </div>
                   <div class="skin-group">
                     <label>Style de tenue</label>
                     <div id="skin-style-list" class="btn-group"></div>
@@ -241,8 +364,10 @@
             <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur (Touche T)">
               💬 Chat <span id="chat-unread-badge" class="unread-badge hidden">0</span>
             </button>
+            <button id="btn-skin-ingame" class="btn-hud" title="Modifier mon Skin 3D &amp; Skins Divins">🎨 Casier</button>
             <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris, Audio)">⚙️ Paramètres</button>
             <button id="btn-main-menu" class="btn-hud" title="Retour au menu principal">🏠 Menu principal</button>
+            <button id="btn-hud-logout" class="btn-hud btn-danger" title="Se déconnecter du compte élève">🚪 Déconnexion</button>
           </div>
         </header>
 
@@ -682,6 +807,10 @@
                 <button type="button" id="btn-hud-skin-random" class="btn-hud btn-sm">🎲 Aléatoire</button>
               </div>
               <div class="skin-controls">
+                <div class="skin-group">
+                  <label>⚡ Skins Divins (Ascension 20/20)</label>
+                  <div id="hud-skin-divine-list" class="btn-group divine-skin-group"></div>
+                </div>
                 <div class="skin-group">
                   <label>Style de tenue</label>
                   <div id="hud-skin-style-list" class="btn-group"></div>

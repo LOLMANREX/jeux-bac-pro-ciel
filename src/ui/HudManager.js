@@ -124,6 +124,7 @@ export class HudManager {
     this.skinModal = document.getElementById('skin-modal');
 
     this.skinIds = {
+      divine: 'hud-skin-divine-list',
       style: 'hud-skin-style-list',
       color: 'hud-skin-color-list',
       hat: 'hud-skin-hat-list',
@@ -320,6 +321,12 @@ export class HudManager {
       sfx.click();
       this.closeAllModals();
       this.handlers.onReturnToMenu?.();
+    });
+
+    document.getElementById('btn-hud-logout')?.addEventListener('click', () => {
+      sfx.click();
+      this.closeAllModals();
+      this.handlers.onLogout?.();
     });
 
     this.vrToggleBtn?.addEventListener('click', () => {

@@ -23,7 +23,9 @@ export class MainMenu {
       onOpenFaq,
       onOpenChangelog,
       onOpenBattlePass,
-      onOpenLeaderboard
+      onOpenLeaderboard,
+      onLogout,
+      onAccountRestored
     }
   ) {
     this.gameState = gameState;
@@ -36,6 +38,8 @@ export class MainMenu {
     this.onOpenChangelog = onOpenChangelog;
     this.onOpenBattlePass = onOpenBattlePass;
     this.onOpenLeaderboard = onOpenLeaderboard;
+    this.onLogout = onLogout;
+    this.onAccountRestored = onAccountRestored;
 
     this.root = document.getElementById('start-screen');
     this.views = {
@@ -44,6 +48,24 @@ export class MainMenu {
     };
 
     this.nameInput = document.getElementById('player-name-input');
+    this.authGuestView = document.getElementById('auth-guest-view');
+    this.authSessionCard = document.getElementById('auth-session-card');
+    this.authTabLogin = document.getElementById('auth-tab-login');
+    this.authTabRegister = document.getElementById('auth-tab-register');
+    this.authLoginForm = document.getElementById('auth-login-form');
+    this.authRegisterForm = document.getElementById('auth-register-form');
+    this.loginUserEl = document.getElementById('auth-login-username');
+    this.loginPassEl = document.getElementById('auth-login-password');
+    this.regUserEl = document.getElementById('auth-register-username');
+    this.regPassEl = document.getElementById('auth-register-password');
+    this.regConfirmEl = document.getElementById('auth-register-confirm');
+    this.authFeedbackEl = document.getElementById('auth-feedback');
+    this.connectedUsernameEl = document.getElementById('auth-connected-username');
+    this.connectedMetaEl = document.getElementById('auth-connected-meta');
+    this.logoutBtn = document.getElementById('menu-btn-logout');
+    this.activeAuthTab = 'login';
+    this.authBusy = false;
+
     this.previewTag = document.getElementById('preview-player-tag');
     this.badgeNameEl = document.getElementById('menu-badge-name');
     this.badgeLevelEl = document.getElementById('menu-badge-level');
@@ -59,6 +81,7 @@ export class MainMenu {
 
     this.visible = true;
     this.skinIds = {
+      divine: 'skin-divine-list',
       style: 'skin-style-list',
       color: 'skin-color-list',
       hat: 'skin-hat-list',
@@ -82,16 +105,46 @@ export class MainMenu {
 
     this._initName();
     this.renderSkinUi();
+    this.syncAuthUi();
     this.syncPlayerBadge();
     this._bindEvents();
     this.gameState.subscribe(() => {
-      if (this.visible) this.syncPlayerBadge();
+      if (this.visible) {
+        this.syncAuthUi();
+        this.syncPlayerBadge();
+      }
     });
 
     this.pollTimer = null;
     this.healthPending = false;
     this.roomsPending = false;
     this._startPolling();
+    this._restoreSessionOnStartup();
+  }
+
+  async _restoreSessionOnStartup() {
+    const token = this.network.getAuthToken();
+    if (!token) {
+      this.syncAuthUi();
+      return;
+    }
+    const res = await this.network.fetchCurrentAccount(token);
+    if (res.ok && res.account) {
+      this.gameState.setAccount(res.account, res.token || token, res.profile);
+      if (this.nameInput) this.nameInput.value = res.account.username;
+      this.preview?.rebuild?.();
+      this.renderSkinUi();
+      this.syncAuthUi();
+      this.syncPlayerBadge();
+      this.onAccountRestored?.(res.account, res.profile);
+    } else if (res.status === 401) {
+      this.gameState.clearAccount();
+      if (this.nameInput) this.nameInput.value = '';
+      this.preview?.rebuild?.();
+      this.renderSkinUi();
+      this.syncAuthUi();
+      this.syncPlayerBadge();
+    }
   }
 
   _startPolling() {
@@ -117,12 +170,69 @@ export class MainMenu {
   _initName() {
     const saved = localStorage.getItem('ciel_player_name') || '';
     if (this.nameInput) this.nameInput.value = saved;
+    if (this.loginUserEl && saved) this.loginUserEl.value = saved;
     this.syncPlayerBadge();
   }
 
+  switchAuthTab(tabName) {
+    this.activeAuthTab = tabName === 'register' ? 'register' : 'login';
+    this.authTabLogin?.classList.toggle('active', this.activeAuthTab === 'login');
+    this.authTabLogin?.setAttribute('aria-selected', String(this.activeAuthTab === 'login'));
+    this.authTabRegister?.classList.toggle('active', this.activeAuthTab === 'register');
+    this.authTabRegister?.setAttribute('aria-selected', String(this.activeAuthTab === 'register'));
+    this.authLoginForm?.classList.toggle('hidden', this.activeAuthTab !== 'login');
+    this.authRegisterForm?.classList.toggle('hidden', this.activeAuthTab !== 'register');
+    this.showAuthFeedback('', 'info');
+    this.syncPlayerBadge();
+  }
+
+  showAuthFeedback(message, type = 'error') {
+    if (!this.authFeedbackEl) return;
+    if (!message) {
+      this.authFeedbackEl.textContent = '';
+      this.authFeedbackEl.className = 'aaa-auth-feedback hidden';
+      return;
+    }
+    this.authFeedbackEl.textContent = message;
+    this.authFeedbackEl.className = `aaa-auth-feedback ${type}`;
+  }
+
+  syncAuthUi() {
+    const isAuth = this.gameState.isAuthenticated();
+    this.authGuestView?.classList.toggle('hidden', isAuth);
+    this.authSessionCard?.classList.toggle('hidden', !isAuth);
+
+    if (isAuth && this.gameState.account) {
+      const acc = this.gameState.account;
+      if (this.nameInput) this.nameInput.value = acc.username;
+      if (this.connectedUsernameEl) {
+        this.connectedUsernameEl.textContent = acc.username;
+      }
+      if (this.connectedMetaEl) {
+        const grades = this.gameState.profile?.grades || acc.tpScores || {};
+        const tps20 = ['oscilloscope', 'soldering', 'electronics', 'antivirus', 'vmvlan'].filter(
+          (id) => Number(grades[id]) >= 20
+        ).length;
+        const divines = (this.gameState.unlockedDivineSkins || []).length;
+        this.connectedMetaEl.textContent = `🏆 ${tps20}/5 TP à 20/20 • ⚡ ${divines} Skin(s) Divin(s)`;
+      }
+    }
+  }
+
   syncPlayerBadge() {
-    const typed = this.nameInput?.value?.trim() || '';
-    const displayName = typed || this.gameState.profile.name || 'Eleve_CIEL';
+    const activeTyped =
+      this.activeAuthTab === 'register'
+        ? this.regUserEl?.value?.trim()
+        : this.loginUserEl?.value?.trim();
+    const displayName =
+      (this.gameState.isAuthenticated() && this.gameState.account?.username) ||
+      activeTyped ||
+      this.nameInput?.value?.trim() ||
+      this.gameState.profile.name ||
+      'Eleve_CIEL';
+    if (this.nameInput) {
+      this.nameInput.value = displayName === 'Eleve_CIEL' ? '' : displayName;
+    }
     const lookupKey = displayName.toLowerCase();
     const lbMatch = (this.gameState.leaderboard || []).find(
       (row) => row.name?.toLowerCase() === lookupKey
@@ -141,8 +251,15 @@ export class MainMenu {
   }
 
   renderSkinUi() {
-    renderSkinControls(this.skinIds, this.gameState, () => {
+    renderSkinControls(this.skinIds, this.gameState, (updatedSkin) => {
       this.preview?.rebuild?.();
+      if (this.gameState.isAuthenticated()) {
+        this.network.saveAccount({
+          selectedSkin: updatedSkin?.divineSpecialty || 'standard',
+          avatarCustomization: updatedSkin,
+          unlockedDivineSkins: this.gameState.unlockedDivineSkins
+        });
+      }
     });
   }
 
@@ -174,9 +291,126 @@ export class MainMenu {
     return true;
   }
 
-  _bindEvents() {
-    this.nameInput?.addEventListener('input', () => {
+  async _submitLogin() {
+    if (this.authBusy) return false;
+    const username = this.loginUserEl?.value?.trim() || '';
+    const password = this.loginPassEl?.value?.trim() || '';
+    if (!username || !password) {
+      this.showAuthFeedback('Veuillez renseigner votre identifiant et votre mot de passe.', 'error');
+      return false;
+    }
+    this.authBusy = true;
+    this.showAuthFeedback('Connexion au compte élève...', 'info');
+    try {
+      const res = await this.network.loginAccount({ username, password });
+      if (!res.ok || !res.account) {
+        this.showAuthFeedback(res.error || 'Identifiant ou mot de passe incorrect.', 'error');
+        return false;
+      }
+      sfx.interact();
+      this.gameState.setAccount(res.account, res.token, res.profile);
+      if (this.loginPassEl) this.loginPassEl.value = '';
+      this.showAuthFeedback('', 'info');
+      this.preview?.rebuild?.();
+      this.renderSkinUi();
+      this.syncAuthUi();
       this.syncPlayerBadge();
+      this.onAccountRestored?.(res.account, res.profile);
+      return true;
+    } finally {
+      this.authBusy = false;
+    }
+  }
+
+  async _submitRegister() {
+    if (this.authBusy) return false;
+    const username = this.regUserEl?.value?.trim() || '';
+    const password = this.regPassEl?.value?.trim() || '';
+    const confirmPassword = this.regConfirmEl?.value?.trim() || '';
+    if (!username || username.length < 2) {
+      this.showAuthFeedback('Veuillez choisir un identifiant de 2 à 22 caractères.', 'error');
+      return false;
+    }
+    if (!password || password.length < 3) {
+      this.showAuthFeedback('Le mot de passe doit contenir au moins 3 caractères.', 'error');
+      return false;
+    }
+    if (password !== confirmPassword) {
+      this.showAuthFeedback('La confirmation du mot de passe ne correspond pas.', 'error');
+      return false;
+    }
+    this.authBusy = true;
+    this.showAuthFeedback('Création de votre compte élève...', 'info');
+    try {
+      const res = await this.network.registerAccount({
+        username,
+        password,
+        confirmPassword,
+        avatarCustomization: this.gameState.skin,
+        selectedSkin: this.gameState.skin?.divineSpecialty || 'standard'
+      });
+      if (!res.ok || !res.account) {
+        this.showAuthFeedback(res.error || 'Impossible de créer le compte.', 'error');
+        return false;
+      }
+      sfx.interact();
+      this.gameState.setAccount(res.account, res.token, res.profile);
+      if (this.regPassEl) this.regPassEl.value = '';
+      if (this.regConfirmEl) this.regConfirmEl.value = '';
+      this.showAuthFeedback('', 'info');
+      this.preview?.rebuild?.();
+      this.renderSkinUi();
+      this.syncAuthUi();
+      this.syncPlayerBadge();
+      this.onAccountRestored?.(res.account, res.profile);
+      return true;
+    } finally {
+      this.authBusy = false;
+    }
+  }
+
+  handleLogout() {
+    sfx.click();
+    this.network.logoutAccount();
+    this.gameState.clearAccount();
+    if (this.loginPassEl) this.loginPassEl.value = '';
+    if (this.regPassEl) this.regPassEl.value = '';
+    if (this.regConfirmEl) this.regConfirmEl.value = '';
+    this.showAuthFeedback('Vous êtes déconnecté de votre compte élève.', 'info');
+    this.preview?.rebuild?.();
+    this.renderSkinUi();
+    this.syncAuthUi();
+    this.syncPlayerBadge();
+    this.onLogout?.();
+  }
+
+  _bindEvents() {
+    this.authTabLogin?.addEventListener('click', () => {
+      sfx.click();
+      this.switchAuthTab('login');
+    });
+
+    this.authTabRegister?.addEventListener('click', () => {
+      sfx.click();
+      this.switchAuthTab('register');
+    });
+
+    this.loginUserEl?.addEventListener('input', () => this.syncPlayerBadge());
+    this.regUserEl?.addEventListener('input', () => this.syncPlayerBadge());
+    this.nameInput?.addEventListener('input', () => this.syncPlayerBadge());
+
+    this.authLoginForm?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await this._submitLogin();
+    });
+
+    this.authRegisterForm?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await this._submitRegister();
+    });
+
+    this.logoutBtn?.addEventListener('click', () => {
+      this.handleLogout();
     });
 
     document.getElementById('menu-btn-quickplay')?.addEventListener('click', () => {
@@ -266,14 +500,46 @@ export class MainMenu {
 
     document.getElementById('btn-skin-random')?.addEventListener('click', () => {
       sfx.click();
-      this.gameState.setSkin(pickRandomSkin());
+      const randomSkin = pickRandomSkin();
+      this.gameState.setSkin(randomSkin);
       this.preview?.rebuild?.();
       this.renderSkinUi();
+      if (this.gameState.isAuthenticated()) {
+        this.network.saveAccount({
+          selectedSkin: 'standard',
+          avatarCustomization: this.gameState.skin,
+          unlockedDivineSkins: this.gameState.unlockedDivineSkins
+        });
+      }
     });
   }
 
-  _launchWithRoom(room, startVr = false) {
-    const name = this.nameInput?.value?.trim() || 'Eleve_CIEL';
+  async _launchWithRoom(room, startVr = false) {
+    if (!this.gameState.isAuthenticated()) {
+      const hasInput =
+        this.activeAuthTab === 'register'
+          ? Boolean(this.regUserEl?.value?.trim() && this.regPassEl?.value?.trim())
+          : Boolean(this.loginUserEl?.value?.trim() && this.loginPassEl?.value?.trim());
+      if (hasInput) {
+        const ok =
+          this.activeAuthTab === 'register'
+            ? await this._submitRegister()
+            : await this._submitLogin();
+        if (!ok) return;
+      } else {
+        this.showView('home');
+        this.showAuthFeedback(
+          'Veuillez vous connecter ou créer un compte élève pour rejoindre le Plateau U300.',
+          'error'
+        );
+        return;
+      }
+    }
+
+    const name =
+      this.gameState.account?.username ||
+      this.nameInput?.value?.trim() ||
+      'Eleve_CIEL';
     const targetRoom = String(room || '').trim() || DEFAULT_ROOM;
     localStorage.setItem('ciel_player_name', name);
     sfx.interact();
@@ -372,6 +638,7 @@ export class MainMenu {
     this.visible = true;
     this.root?.classList.remove('hidden');
     this.renderSkinUi();
+    this.syncAuthUi();
     this.syncPlayerBadge();
     this.preview?.setActive?.(true);
     this.updatePlatformButton(this.gameState.touchMode);

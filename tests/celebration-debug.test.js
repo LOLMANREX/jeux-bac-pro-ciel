@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import * as THREE from 'three';
@@ -199,11 +200,14 @@ test('v4.8 : Cinématique d’Ascension Dieu du Bac Pro CIEL rassemble la classe
       '⚡ ASCENSION : Alice20 devient un DIEU DU BAC PRO CIEL (Cybersécurité & Pentest) ! ⚡'
     );
     assert.equal(asc2.skin.divineSpecialty, 'cyber');
-    assert.equal(asc2.sessionOnly, true);
+    assert.equal(asc2.persisted, true);
+    assert.equal(asc2.sessionOnly, false);
     assert.equal(asc2.applaudDurationMs, 8000);
 
     const storedProfile = store.getOrCreatePlayer('Alice20');
-    assert.equal(storedProfile.skin.divineSpecialty, undefined);
+    assert.equal(storedProfile.skin.divineSpecialty, 'cyber');
+    assert.equal(storedProfile.selectedSkin, 'cyber');
+    assert.ok(storedProfile.unlockedDivineSkins.includes('cyber'));
   } finally {
     ws1.close();
     ws2.close();
@@ -404,14 +408,247 @@ test('v4.8 : Serveur Privé Debug isolé des salons publics et outils de validat
   }
 });
 
-test('v4.8 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
-  assert.ok(APP_VERSION.startsWith('v4.8'));
-  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.8'));
+test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divins et Récupération Admin', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-v49-accounts-'));
+  const accountsPath = path.join(tmpDir, 'accounts.json');
+
+  const { server, wsHub, store } = createGameServer({ accountsPath });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const wsUrl = `ws://127.0.0.1:${port}/ws`;
+
+  let wsStudent = null;
+
+  try {
+    assert.equal(fs.existsSync(accountsPath), true);
+    const initialRaw = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+    assert.equal(initialRaw.version, '4.9');
+    assert.equal(initialRaw.resetDone, true);
+    assert.deepEqual(initialRaw.accounts, []);
+    assert.equal(store.getAllPlayers().length, 0);
+
+    const regMismatch = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Lucas_CIEL',
+        password: 'SecretPassword42',
+        confirmPassword: 'AutrePassword'
+      })
+    });
+    assert.equal(regMismatch.status, 400);
+
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Lucas_CIEL',
+        password: 'SecretPassword42',
+        confirmPassword: 'SecretPassword42',
+        avatarCustomization: {
+          outfitColor: '#10b981',
+          outfitStyle: 'hoodie',
+          hat: 'headset',
+          skinTone: '#f1c29b',
+          pantsColor: '#1d4ed8'
+        }
+      })
+    });
+    assert.equal(regRes.status, 201);
+    const regData = await regRes.json();
+    assert.equal(regData.ok, true);
+    assert.ok(regData.token);
+    assert.equal(regData.account.username, 'Lucas_CIEL');
+    assert.equal(regData.account.selectedSkin, 'standard');
+    assert.equal(regData.account.avatarCustomization.outfitStyle, 'hoodie');
+    assert.deepEqual(regData.account.unlockedDivineSkins, []);
+
+    const dupRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'lucas_ciel',
+        password: 'AutrePassword99',
+        confirmPassword: 'AutrePassword99'
+      })
+    });
+    assert.equal(dupRes.status, 409);
+
+    const badLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'Lucas_CIEL', password: 'WrongPassword' })
+    });
+    assert.equal(badLoginRes.status, 401);
+
+    const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'lUcAs_cIeL', password: 'SecretPassword42' })
+    });
+    assert.equal(loginRes.status, 200);
+    const loginData = await loginRes.json();
+    assert.equal(loginData.ok, true);
+    assert.ok(loginData.token);
+    assert.equal(loginData.account.username, 'Lucas_CIEL');
+
+    const meRes = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${loginData.token}` }
+    });
+    assert.equal(meRes.status, 200);
+    const meData = await meRes.json();
+    assert.equal(meData.account.username, 'Lucas_CIEL');
+
+    const saveRes = await fetch(`${baseUrl}/api/account/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${loginData.token}`
+      },
+      body: JSON.stringify({
+        tpScores: {
+          oscilloscope: 20,
+          soldering: 20,
+          electronics: 20,
+          antivirus: 20,
+          vmvlan: 20
+        },
+        unlockedDivineSkins: ['cyber', 'reseaux'],
+        selectedSkin: 'cyber',
+        avatarCustomization: {
+          outfitColor: '#f43f5e',
+          outfitStyle: 'cyber',
+          hat: 'headset',
+          skinTone: '#f1c29b',
+          pantsColor: '#1d4ed8',
+          divineSpecialty: 'cyber'
+        }
+      })
+    });
+    assert.equal(saveRes.status, 200);
+    const saveData = await saveRes.json();
+    assert.equal(saveData.account.tpsAt20Count, 5);
+    assert.deepEqual(saveData.account.unlockedDivineSkins, ['cyber', 'reseaux']);
+    assert.equal(saveData.account.selectedSkin, 'cyber');
+    assert.equal(saveData.account.avatarCustomization.divineSpecialty, 'cyber');
+
+    const diskAccounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+    assert.equal(diskAccounts.accounts.length, 1);
+    const savedOnDisk = diskAccounts.accounts[0];
+    assert.ok(savedOnDisk.id);
+    assert.equal(savedOnDisk.username, 'Lucas_CIEL');
+    assert.equal(savedOnDisk.password, 'SecretPassword42');
+    assert.ok(savedOnDisk.createdAt);
+    assert.equal(savedOnDisk.tpScores.oscilloscope, 20);
+    assert.deepEqual(savedOnDisk.unlockedDivineSkins, ['cyber', 'reseaux']);
+    assert.equal(savedOnDisk.selectedSkin, 'cyber');
+    assert.equal(savedOnDisk.avatarCustomization.divineSpecialty, 'cyber');
+
+    const adminLoginRes = await fetch(`${baseUrl}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: process.env.ADMIN_PASSWORD || 'Louisetjade1102' })
+    });
+    const { token: adminToken } = await adminLoginRes.json();
+
+    const adminAccountsRes = await fetch(`${baseUrl}/api/admin/accounts`, {
+      headers: { 'x-admin-token': adminToken }
+    });
+    assert.equal(adminAccountsRes.status, 200);
+    const adminAccountsData = await adminAccountsRes.json();
+    assert.equal(adminAccountsData.total, 1);
+    assert.equal(adminAccountsData.accounts[0].username, 'Lucas_CIEL');
+    assert.equal(adminAccountsData.accounts[0].password, 'SecretPassword42');
+    assert.equal(adminAccountsData.accounts[0].tpsAt20Count, 5);
+    assert.deepEqual(adminAccountsData.accounts[0].unlockedDivineSkins, ['cyber', 'reseaux']);
+
+    const pwChangeRes = await fetch(`${baseUrl}/api/admin/accounts/Lucas_CIEL/password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-token': adminToken
+      },
+      body: JSON.stringify({ password: 'NewRecoveredPass77' })
+    });
+    assert.equal(pwChangeRes.status, 200);
+    const pwChangeData = await pwChangeRes.json();
+    assert.equal(pwChangeData.account.password, 'NewRecoveredPass77');
+
+    const oldTokenMeRes = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${loginData.token}` }
+    });
+    assert.equal(oldTokenMeRes.status, 401);
+
+    const newLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'Lucas_CIEL', password: 'NewRecoveredPass77' })
+    });
+    assert.equal(newLoginRes.status, 200);
+
+    wsStudent = new WebSocket(wsUrl);
+    await new Promise((r) => wsStudent.once('open', r));
+    const welcomeP = waitForWsMsg(wsStudent, (m) => m.type === 'welcome');
+    wsStudent.send(JSON.stringify({ type: 'join', name: 'Lucas_CIEL', room: 'plateau-u300' }));
+    const wStudent = await welcomeP;
+    assert.equal(wStudent.profile.skin.divineSpecialty, 'cyber');
+
+    const resetAccRes = await fetch(`${baseUrl}/api/admin/accounts/Lucas_CIEL/reset`, {
+      method: 'POST',
+      headers: { 'x-admin-token': adminToken }
+    });
+    assert.equal(resetAccRes.status, 200);
+    const resetAccData = await resetAccRes.json();
+    assert.deepEqual(resetAccData.account.tpScores, {});
+    assert.deepEqual(resetAccData.account.unlockedDivineSkins, []);
+    assert.equal(resetAccData.account.selectedSkin, 'standard');
+    assert.equal(resetAccData.account.password, 'NewRecoveredPass77');
+
+    const delEventP = waitForWsMsg(wsStudent, (m) => m.type === 'account_deleted');
+    const delAccRes = await fetch(`${baseUrl}/api/admin/accounts/Lucas_CIEL`, {
+      method: 'DELETE',
+      headers: { 'x-admin-token': adminToken }
+    });
+    assert.equal(delAccRes.status, 200);
+    await delEventP;
+    await new Promise((r) => wsStudent.once('close', r));
+
+    const afterAccounts = await (
+      await fetch(`${baseUrl}/api/admin/accounts`, { headers: { 'x-admin-token': adminToken } })
+    ).json();
+    assert.equal(afterAccounts.total, 0);
+  } finally {
+    wsStudent?.close();
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('v4.9 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
+  assert.ok(APP_VERSION.startsWith('v4.9'));
+  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.9'));
   assert.equal(CHANGELOG_RELEASES[0].tag, 'DERNIÈRE MÀJ');
   assert.equal(CHANGELOG_RELEASES[1].tag, 'HISTORIQUE');
 
   const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
   for (const id of [
+    'auth-box',
+    'auth-tab-login',
+    'auth-tab-register',
+    'auth-login-form',
+    'auth-register-form',
+    'auth-login-username',
+    'auth-login-password',
+    'auth-register-username',
+    'auth-register-password',
+    'auth-register-confirm',
+    'auth-session-card',
+    'menu-btn-logout',
+    'btn-hud-logout',
+    'skin-divine-list',
+    'hud-skin-divine-list',
     'world-celebration-banner',
     'world-celebration-text',
     'btn-celebration-applaud',
@@ -440,8 +677,20 @@ test('v4.8 : DOM index.html, admin.html et ChangelogModal exposent tous les él�
     assert.ok(indexHtml.includes(`id="${id}"`), `ID manquant dans index.html: ${id}`);
   }
   assert.ok(indexHtml.includes('Quel a été ton TP préféré durant ton parcours ?'));
+  assert.ok(indexHtml.includes('🚪 Déconnexion'));
 
   const adminHtml = fs.readFileSync(path.resolve('admin.html'), 'utf8');
-  assert.ok(adminHtml.includes('id="btn-launch-private-debug"'));
-  assert.ok(adminHtml.includes('Lancer une partie sur Serveur Privé (Mode Debug)'));
+  for (const id of [
+    'btn-launch-private-debug',
+    'admin-tab-accounts',
+    'admin-panel-accounts',
+    'search-account-input',
+    'accounts-tbody',
+    'btn-toggle-all-acc-pw',
+    'admin-password-modal',
+    'admin-edit-pw-input'
+  ]) {
+    assert.ok(adminHtml.includes(`id="${id}"`), `ID manquant dans admin.html: ${id}`);
+  }
+  assert.ok(adminHtml.includes("Comptes Élèves &amp; Récupération d'Accès"));
 });

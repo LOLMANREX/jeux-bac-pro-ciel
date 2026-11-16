@@ -195,9 +195,35 @@ export function attachWsHub(httpServer, store) {
         active && active.lastPlaytimeFlushMs
           ? Math.max(0, Math.floor((now - active.lastPlaytimeFlushMs) / 1000))
           : 0;
+      const adminAcc = store.getAdminAccount?.(entry.name);
       return {
         ...entry,
+        accountId: adminAcc?.id || null,
+        password: adminAcc?.password ?? null,
+        unlockedDivineSkins: adminAcc?.unlockedDivineSkins || entry.unlockedDivineSkins || [],
+        selectedSkin: adminAcc?.selectedSkin || entry.selectedSkin || 'standard',
+        avatarCustomization: adminAcc?.avatarCustomization || entry.skin,
+        tpScores: adminAcc?.tpScores || entry.grades || {},
         playtimeSeconds: (entry.playtimeSeconds || 0) + liveExtraSec,
+        online: Boolean(active),
+        onlineRoom: active ? active.room : null,
+        onlineActivity: active ? active.activity : null
+      };
+    });
+  }
+
+  function getAllEnrichedAccounts() {
+    const onlineMap = buildOnlineMap();
+    const now = Date.now();
+    return (store.getAllAccounts?.() || []).map((acc) => {
+      const active = onlineMap.get(acc.username.toLowerCase());
+      const liveExtraSec =
+        active && active.lastPlaytimeFlushMs
+          ? Math.max(0, Math.floor((now - active.lastPlaytimeFlushMs) / 1000))
+          : 0;
+      return {
+        ...acc,
+        playtimeSeconds: (acc.playtimeSeconds || 0) + liveExtraSec,
         online: Boolean(active),
         onlineRoom: active ? active.room : null,
         onlineActivity: active ? active.activity : null
@@ -422,10 +448,21 @@ export function attachWsHub(httpServer, store) {
     const playerId = targetPeer?.state?.id || targetId || null;
     const baseSkin = targetPeer?.state?.skin || sanitizeSkin(opts.skin || null);
     const sessionSkin = applySessionDivineSkin(baseSkin, spec.id);
+    const persistedProfile = store.unlockDivineSkin
+      ? store.unlockDivineSkin(playerName, spec.id, true)
+      : null;
 
     if (targetPeer?.state) {
-      targetPeer.state.skin = sessionSkin;
+      targetPeer.state.skin = persistedProfile?.skin || sessionSkin;
       targetPeer.state.color = spec.primaryColor;
+      if (persistedProfile && targetPeer.sock?.readyState === 1) {
+        targetPeer.sock.send(
+          JSON.stringify({
+            type: 'profile_updated',
+            profile: persistedProfile
+          })
+        );
+      }
       broadcastToRoom(
         targetRoom,
         {
@@ -434,7 +471,9 @@ export function attachWsHub(httpServer, store) {
           name: targetPeer.state.name,
           skin: targetPeer.state.skin,
           color: targetPeer.state.color,
-          sessionOnly: true
+          unlockedDivineSkins: persistedProfile?.unlockedDivineSkins || [spec.id],
+          selectedSkin: spec.id,
+          persisted: true
         },
         null
       );
@@ -453,8 +492,11 @@ export function attachWsHub(httpServer, store) {
       icon: spec.icon,
       tpChosen: spec.label,
       bannerText,
-      skin: sessionSkin,
-      sessionOnly: true,
+      skin: persistedProfile?.skin || sessionSkin,
+      unlockedDivineSkins: persistedProfile?.unlockedDivineSkins || [spec.id],
+      selectedSkin: spec.id,
+      persisted: true,
+      sessionOnly: false,
       levitationDurationMs: 3800,
       applaudDurationMs: 8000,
       durationMs: 8000,
@@ -464,6 +506,7 @@ export function attachWsHub(httpServer, store) {
 
     roomCelebrations.delete(targetRoom);
     broadcastToRoom(targetRoom, ascensionPayload, null);
+    broadcastLeaderboard();
 
     const sysMsg = {
       id: crypto.randomUUID().slice(0, 8),
@@ -1132,6 +1175,7 @@ export function attachWsHub(httpServer, store) {
     },
     getEnrichedLeaderboard,
     getAllEnrichedPlayers,
+    getAllEnrichedAccounts,
     notifySkinUpdated: (profile) => {
       if (!profile?.name) return;
       const key = profile.name.toLowerCase();

@@ -11,6 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
 const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const STUDENT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function safePasswordEqual(input, expected) {
   const hashA = crypto.createHash('sha256').update(String(input || '')).digest();
@@ -19,22 +20,126 @@ function safePasswordEqual(input, expected) {
 }
 
 export function createGameServer(options = {}) {
+  const accountsPath =
+    options.accountsPath !== undefined
+      ? options.accountsPath
+      : options.dbPath === null
+        ? null
+        : options.dbPath !== undefined
+          ? path.join(path.dirname(options.dbPath), 'accounts.json')
+          : path.join(__dirname, 'data', 'accounts.json');
+
   const dbPath =
     options.dbPath === undefined
-      ? path.join(__dirname, 'data', 'db.json')
+      ? null
       : options.dbPath;
+
   const mapPath =
     options.mapPath !== undefined
       ? options.mapPath
-      : dbPath === null
+      : options.dbPath === null && options.accountsPath === undefined
         ? null
-        : path.join(path.dirname(dbPath), 'map.json');
+        : options.dbPath
+          ? path.join(path.dirname(options.dbPath), 'map.json')
+          : path.join(__dirname, 'data', 'map.json');
+
   const distDir = options.distDir || path.join(ROOT_DIR, 'dist');
 
-  const store = new GameStore(dbPath);
+  const store = new GameStore(dbPath, { accountsPath });
   const mapStore = new MapStore(mapPath);
   const adminPassword = options.adminPassword || process.env.ADMIN_PASSWORD || 'Louisetjade1102';
+  const studentTokenSecret =
+    options.studentTokenSecret ||
+    process.env.STUDENT_TOKEN_SECRET ||
+    `ciel-v49-secret-${adminPassword}`;
   const adminTokens = new Map();
+  const studentTokens = new Map();
+
+  const createStudentSessionToken = (account) => {
+    const adminAcc = store.getAdminAccount(account.username || account.id);
+    const pw = adminAcc?.password || '';
+    const payloadRaw = JSON.stringify({
+      id: account.id,
+      u: account.username,
+      iat: Date.now()
+    });
+    const payloadB64 = Buffer.from(payloadRaw, 'utf8').toString('base64url');
+    const sig = crypto
+      .createHmac('sha256', `${studentTokenSecret}:${pw}`)
+      .update(payloadB64)
+      .digest('base64url');
+    const token = `${payloadB64}.${sig}`;
+    studentTokens.set(token, {
+      id: account.id,
+      username: account.username,
+      expiresAt: Date.now() + STUDENT_SESSION_TTL_MS
+    });
+    return token;
+  };
+
+  const verifyStudentSessionToken = (rawToken) => {
+    const token = String(rawToken || '').trim();
+    if (!token) return null;
+    const parts = token.split('.');
+    if (parts.length === 2) {
+      try {
+        const parsed = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+        const adminAcc = store.getAdminAccount(parsed.id || parsed.u);
+        if (!adminAcc) {
+          studentTokens.delete(token);
+          return null;
+        }
+        const expectedSig = crypto
+          .createHmac('sha256', `${studentTokenSecret}:${adminAcc.password || ''}`)
+          .update(parts[0])
+          .digest('base64url');
+        if (safePasswordEqual(parts[1], expectedSig)) {
+          return adminAcc.username;
+        }
+        studentTokens.delete(token);
+        return null;
+      } catch {
+        studentTokens.delete(token);
+        return null;
+      }
+    }
+    const cached = studentTokens.get(token);
+    if (cached && cached.expiresAt > Date.now()) {
+      const adminAcc = store.getAdminAccount(cached.id || cached.username);
+      if (adminAcc) return adminAcc.username;
+    }
+    studentTokens.delete(token);
+    return null;
+  };
+
+  const extractStudentToken = (req) => {
+    const headerToken = req.headers['x-auth-token'] || req.headers['x-session-token'];
+    const authHeader = req.headers.authorization;
+    const bearer =
+      typeof authHeader === 'string' && authHeader.toLowerCase().startsWith('bearer ')
+        ? authHeader.slice(7).trim()
+        : '';
+    return String(
+      headerToken || bearer || req.body?.token || req.query?.token || ''
+    ).trim();
+  };
+
+  const resolveStudentFromRequest = (req) => {
+    const token = extractStudentToken(req);
+    if (token) {
+      const verifiedUser = verifyStudentSessionToken(token);
+      if (verifiedUser) return verifiedUser;
+    }
+    if (req.body?.username && req.body?.password !== undefined) {
+      const check = store.loginAccount({
+        username: req.body.username,
+        password: req.body.password
+      });
+      if (check.ok) return check.account.username;
+    }
+    return null;
+  };
+
   const app = express();
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '4mb' }));
@@ -55,6 +160,70 @@ export function createGameServer(options = {}) {
       tps: TP_IDS,
       allTps: ALL_TP_IDS,
       timestamp: new Date().toISOString()
+    });
+  });
+
+  app.post('/api/auth/register', (req, res) => {
+    const result = store.registerAccount(req.body || {});
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+    const token = createStudentSessionToken(result.account);
+    return res.status(201).json({
+      ok: true,
+      token,
+      account: result.account,
+      profile: result.profile
+    });
+  });
+
+  app.post('/api/auth/login', (req, res) => {
+    const result = store.loginAccount(req.body || {});
+    if (!result.ok) {
+      return res.status(result.status || 401).json({ error: result.error });
+    }
+    const token = createStudentSessionToken(result.account);
+    return res.json({
+      ok: true,
+      token,
+      account: result.account,
+      profile: result.profile
+    });
+  });
+
+  app.get('/api/auth/me', (req, res) => {
+    const username = resolveStudentFromRequest(req);
+    if (!username) {
+      return res.status(401).json({ error: 'Session élève invalide ou expirée' });
+    }
+    const account = store.getPublicAccount(username);
+    const profile = store.getPublicProfile(username.toLowerCase());
+    if (!account) {
+      return res.status(401).json({ error: 'Compte élève introuvable' });
+    }
+    return res.json({
+      ok: true,
+      account,
+      profile
+    });
+  });
+
+  app.post('/api/account/save', (req, res) => {
+    const username = resolveStudentFromRequest(req);
+    if (!username) {
+      return res.status(401).json({ error: 'Authentification élève requise' });
+    }
+    const result = store.saveAccountData(username, req.body || {});
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+    if (result.profile) {
+      wsHub.notifySkinUpdated(result.profile);
+    }
+    return res.json({
+      ok: true,
+      account: result.account,
+      profile: result.profile
     });
   });
 
@@ -139,7 +308,9 @@ export function createGameServer(options = {}) {
       specialty: specialty || 'cyber',
       celebrationId
     });
-    return res.json({ ok: true, ascension });
+    const profile = store.getPublicProfile(name.toLowerCase());
+    const account = store.getPublicAccount(name);
+    return res.json({ ok: true, ascension, profile, account });
   });
 
   app.post('/api/debug/validate-all', (req, res) => {
@@ -231,14 +402,70 @@ export function createGameServer(options = {}) {
     });
   });
 
+  app.get('/api/admin/accounts', requireAdmin, (_req, res) => {
+    const accounts = wsHub.getAllEnrichedAccounts();
+    return res.json({
+      ok: true,
+      accounts,
+      total: accounts.length,
+      tpIds: TP_IDS,
+      tpLabels: TP_LABELS
+    });
+  });
+
+  const handleAdminUpdatePassword = (req, res) => {
+    const target = req.params.target || req.params.name;
+    const newPassword = req.body?.password ?? req.body?.newPassword;
+    if (!newPassword || String(newPassword).trim().length < 3) {
+      return res.status(400).json({
+        error: 'Le nouveau mot de passe doit contenir au moins 3 caractères.'
+      });
+    }
+    try {
+      const account = store.updateAccountPassword(target, newPassword);
+      if (!account) {
+        return res.status(404).json({ error: 'Compte élève introuvable' });
+      }
+      return res.json({ ok: true, account });
+    } catch (err) {
+      return res.status(400).json({ error: err.message || 'Mot de passe invalide' });
+    }
+  };
+
+  app.post('/api/admin/accounts/:target/password', requireAdmin, handleAdminUpdatePassword);
+  app.put('/api/admin/accounts/:target/password', requireAdmin, handleAdminUpdatePassword);
+  app.patch('/api/admin/accounts/:target', requireAdmin, handleAdminUpdatePassword);
+  app.post('/api/admin/players/:name/password', requireAdmin, handleAdminUpdatePassword);
+
+  app.post('/api/admin/accounts/:target/reset', requireAdmin, (req, res) => {
+    const result = store.resetAccount(req.params.target);
+    if (!result || !result.profile) {
+      return res.status(404).json({ error: 'Compte élève introuvable' });
+    }
+    wsHub.notifyPlayerReset(result.profile);
+    return res.json({ ok: true, account: result.account, profile: result.profile });
+  });
+
+  app.delete('/api/admin/accounts/:target', requireAdmin, (req, res) => {
+    const deleted = store.deleteAccount(req.params.target);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Compte élève introuvable' });
+    }
+    wsHub.disconnectPlayer(deleted.username);
+    return res.json({ ok: true, name: deleted.username, username: deleted.username, id: deleted.id });
+  });
+
   app.get('/api/admin/players', requireAdmin, (_req, res) => {
     const players = wsHub.getAllEnrichedPlayers();
+    const accounts = wsHub.getAllEnrichedAccounts();
     const onlineCount = players.filter((p) => p.online).length;
     const totalPlaytimeSeconds = players.reduce((acc, p) => acc + (p.playtimeSeconds || 0), 0);
     res.json({
       players,
+      accounts,
       summary: {
         totalPlayers: players.length,
+        totalAccounts: accounts.length,
         onlineCount,
         totalPlaytimeSeconds
       },

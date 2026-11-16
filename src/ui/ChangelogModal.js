@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : "v4.8 - Cinématique d'Ascension Dieu du Bac Pro CIEL & Skins Dynamiques";
+    : 'v4.9 - Système de Comptes Élèves, Persistance des Skins Divins & Gestion Admin';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: "v4.8 — Cinématique d'Ascension Dieu du Bac Pro CIEL & Skins Dynamiques",
+    version: 'v4.9 — Système de Comptes Élèves, Persistance des Skins Divins & Gestion Admin',
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Stockage dédié des comptes dans server/data/accounts.json et remise à zéro initiale des anciens profils afin de repartir sur une base 100 % liée aux comptes élèves (id, username unique insensible à la casse, password récupérable, createdAt, tpScores, unlockedDivineSkins, selectedSkin, avatarCustomization).',
+      'Nouvelle interface d’authentification à deux onglets sur l’accueil (« Connexion » et « Créer un compte ») reliée aux routes sécurisées POST /api/auth/register, POST /api/auth/login, GET /api/auth/me et POST /api/account/save.',
+      'Reconnexion automatique par jeton de session léger en localStorage, bouton « 🚪 Déconnexion » dans le menu et le HUD, et synchronisation automatique des notes de TPs, de la personnalisation d’avatar et du déblocage permanent des Skins Divins 20/20 dans le casier.',
+      'Nouvelle section « 👥 Comptes Élèves & Récupération d’Accès » dans /admin : recherche par pseudo, affichage/masquage et copie en un clic du mot de passe pour dépanner un élève, suivi des TPs à 20/20 et Skins Divins, modification du mot de passe, réinitialisation et suppression de compte.'
+    ]
+  },
+  {
+    version: "v4.8 — Cinématique d'Ascension Dieu du Bac Pro CIEL & Skins Dynamiques",
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Cinématique 3D scénarisée et synchronisée en multijoueur autour du Professeur CIEL : déclenchée dès qu’un élève valide tous les TPs à 20/20 (ou via le Pouvoir Créateur Louis / Serveur Privé Debug), verrouillant temporairement les déplacements libres et téléportant l’élève lauréat à côté du Professeur CIEL avec tous les camarades rassemblés en demi-cercle.',
       'Dialogue interactif solennel du Professeur CIEL (« Quel a été ton TP préféré durant ton parcours ? ») avec 4 boutons de spécialités réservés à l’élève célébré (Cybersécurité & Pentest, Réseaux & Fibre Optique, Électronique & Soudure, Systèmes & Serveurs Linux), compte à rebours de secours de 15s et message d’attente temps réel pour les spectateurs.',

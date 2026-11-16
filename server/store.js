@@ -21,6 +21,58 @@ export const TP_LABELS = {
   studio: 'TP Studio Audio & DMX 3D'
 };
 
+export const DIVINE_SPECIALTY_IDS = ['cyber', 'reseaux', 'electronique', 'systemes'];
+
+const VALID_DIVINE_SPECIALTIES = new Set(DIVINE_SPECIALTY_IDS);
+
+const DIVINE_SPECIALTY_COLORS = {
+  cyber: '#f43f5e',
+  reseaux: '#38bdf8',
+  electronique: '#fbbf24',
+  systemes: '#a855f7'
+};
+
+const DIVINE_SPECIALTY_ALIASES = {
+  cyber: 'cyber',
+  antivirus: 'cyber',
+  soc: 'cyber',
+  pentest: 'cyber',
+  cybersecurite: 'cyber',
+  reseaux: 'reseaux',
+  reseau: 'reseaux',
+  vmvlan: 'reseaux',
+  patchrack: 'reseaux',
+  network: 'reseaux',
+  fibre: 'reseaux',
+  electronique: 'electronique',
+  soldering: 'electronique',
+  oscilloscope: 'electronique',
+  electronics: 'electronique',
+  soudure: 'electronique',
+  brasure: 'electronique',
+  systemes: 'systemes',
+  systeme: 'systemes',
+  hardware: 'systemes',
+  linux: 'systemes',
+  audiovisual: 'systemes',
+  studio: 'systemes',
+  serveurs: 'systemes'
+};
+
+export function resolveDivineSpecialtyId(raw) {
+  if (!raw) return null;
+  const clean = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^divine[_:-]/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!clean || clean === 'standard' || clean === 'default' || clean === 'none') return null;
+  if (VALID_DIVINE_SPECIALTIES.has(clean)) return clean;
+  if (DIVINE_SPECIALTY_ALIASES[clean]) return DIVINE_SPECIALTY_ALIASES[clean];
+  return null;
+}
+
 const AVATAR_COLORS = [
   '#22d3ee',
   '#34d399',
@@ -46,11 +98,15 @@ function isValidHex(val) {
   return /^#[0-9a-fA-F]{6}$/.test(String(val || ''));
 }
 
-export function sanitizeName(rawName) {
-  const cleaned = String(rawName || '')
+export function cleanUsernameInput(rawName) {
+  return String(rawName || '')
     .trim()
     .replace(/[^\p{L}\p{N}_\- #]/gu, '')
     .slice(0, 22);
+}
+
+export function sanitizeName(rawName) {
+  const cleaned = cleanUsernameInput(rawName);
   return cleaned || 'Eleve_CIEL';
 }
 
@@ -65,10 +121,19 @@ function sanitizeSuggestionText(raw, maxLen) {
 
 export function sanitizeSkin(raw, fallbackColor = DEFAULT_SKIN.outfitColor) {
   const s = raw && typeof raw === 'object' ? raw : {};
+  const divineSpec = resolveDivineSpecialtyId(s.divineSpecialty);
   const baseOutfit = isValidHex(fallbackColor) ? fallbackColor : DEFAULT_SKIN.outfitColor;
   const cleaned = {
-    outfitColor: isValidHex(s.outfitColor) ? s.outfitColor : baseOutfit,
-    outfitStyle: VALID_STYLES.has(s.outfitStyle) ? s.outfitStyle : DEFAULT_SKIN.outfitStyle,
+    outfitColor: isValidHex(s.outfitColor)
+      ? s.outfitColor
+      : divineSpec
+        ? DIVINE_SPECIALTY_COLORS[divineSpec]
+        : baseOutfit,
+    outfitStyle: VALID_STYLES.has(s.outfitStyle)
+      ? s.outfitStyle
+      : divineSpec
+        ? 'cyber'
+        : DEFAULT_SKIN.outfitStyle,
     hat: VALID_HATS.has(s.hat) ? s.hat : DEFAULT_SKIN.hat,
     skinTone: isValidHex(s.skinTone) ? s.skinTone : DEFAULT_SKIN.skinTone,
     pantsColor: isValidHex(s.pantsColor) ? s.pantsColor : DEFAULT_SKIN.pantsColor
@@ -76,7 +141,22 @@ export function sanitizeSkin(raw, fallbackColor = DEFAULT_SKIN.outfitColor) {
   if (s.creatorAura) {
     cleaned.creatorAura = true;
   }
+  if (divineSpec) {
+    cleaned.divineSpecialty = divineSpec;
+  }
   return cleaned;
+}
+
+export function normalizeDivineSkinList(rawList) {
+  if (!Array.isArray(rawList)) return [];
+  const out = [];
+  for (const item of rawList) {
+    const id = resolveDivineSpecialtyId(item);
+    if (id && !out.includes(id)) {
+      out.push(id);
+    }
+  }
+  return out;
 }
 
 export function computeAverage(grades = {}) {
@@ -139,28 +219,197 @@ function compareProfiles(a, b) {
 }
 
 export class GameStore {
-  constructor(dbFilePath) {
-    this.dbFilePath = dbFilePath;
+  constructor(dbFilePath, options = {}) {
+    const isAccountsTarget =
+      typeof dbFilePath === 'string' && path.basename(dbFilePath) === 'accounts.json';
+    this.accountsFilePath =
+      options.accountsPath !== undefined
+        ? options.accountsPath
+        : isAccountsTarget
+          ? dbFilePath
+          : null;
+    this.dbFilePath = isAccountsTarget ? null : dbFilePath || null;
     this.data = { players: {}, suggestions: [], pigeons: [] };
-    if (this.dbFilePath) {
+    this.accounts = new Map();
+    if (this.accountsFilePath || this.dbFilePath) {
       this._load();
     }
   }
 
-  _normalizePlayer(raw, fallbackKey = 'Eleve_CIEL') {
-    const base = raw && typeof raw === 'object' ? raw : {};
-    const name = sanitizeName(base.name || fallbackKey);
-    const fallbackColor = isValidHex(base.color) ? base.color : hashColor(name);
-    const skin = sanitizeSkin(base.skin, fallbackColor);
-    const color = skin.outfitColor || fallbackColor;
+  _normalizeGrades(rawGrades) {
     const grades = {};
-    if (base.grades && typeof base.grades === 'object') {
+    if (rawGrades && typeof rawGrades === 'object') {
       for (const id of ALL_TP_IDS) {
-        if (typeof base.grades[id] === 'number' && Number.isFinite(base.grades[id])) {
-          grades[id] = Math.max(0, Math.min(20, Math.round(base.grades[id] * 10) / 10));
+        if (typeof rawGrades[id] === 'number' && Number.isFinite(rawGrades[id])) {
+          grades[id] = Math.max(0, Math.min(20, Math.round(rawGrades[id] * 10) / 10));
         }
       }
     }
+    return grades;
+  }
+
+  _normalizeAccount(raw, fallbackKey = 'Eleve_CIEL') {
+    const base = raw && typeof raw === 'object' ? raw : {};
+    const username = sanitizeName(base.username || base.name || fallbackKey);
+    const id = String(base.id || '').trim() || `acc_${crypto.randomUUID().slice(0, 12)}`;
+    const password = String(base.password ?? '');
+    const nowIso = new Date().toISOString();
+    const createdAt = base.createdAt || nowIso;
+    const updatedAt = base.updatedAt || createdAt;
+    const lastLogin = base.lastLogin || updatedAt;
+    const lastSeen = base.lastSeen || updatedAt;
+    const tpScores = this._normalizeGrades(base.tpScores || base.grades || {});
+    const unlockedDivineSkins = normalizeDivineSkinList(base.unlockedDivineSkins);
+    const defColor = isValidHex(base.color) ? base.color : hashColor(username);
+    const avatarCustomization = sanitizeSkin(base.avatarCustomization || base.skin, defColor);
+
+    const rawSelected =
+      typeof base.selectedSkin === 'string' && base.selectedSkin.trim()
+        ? base.selectedSkin.trim()
+        : avatarCustomization.divineSpecialty || 'standard';
+    const selectedDivine = resolveDivineSpecialtyId(rawSelected);
+    let selectedSkin = 'standard';
+    if (selectedDivine) {
+      selectedSkin = selectedDivine;
+      avatarCustomization.divineSpecialty = selectedDivine;
+      avatarCustomization.outfitColor = DIVINE_SPECIALTY_COLORS[selectedDivine];
+      avatarCustomization.outfitStyle = 'cyber';
+      if (!unlockedDivineSkins.includes(selectedDivine)) {
+        unlockedDivineSkins.push(selectedDivine);
+      }
+    } else if (rawSelected && rawSelected !== 'standard' && rawSelected !== 'default') {
+      selectedSkin = rawSelected;
+      delete avatarCustomization.divineSpecialty;
+    } else {
+      selectedSkin = 'standard';
+      delete avatarCustomization.divineSpecialty;
+    }
+
+    const bestTimes = {};
+    if (base.bestTimes && typeof base.bestTimes === 'object') {
+      for (const tpId of ALL_TP_IDS) {
+        if (typeof base.bestTimes[tpId] === 'number' && base.bestTimes[tpId] > 0) {
+          bestTimes[tpId] = Math.round(base.bestTimes[tpId]);
+        }
+      }
+    }
+    const scoreVals = Object.values(tpScores);
+    const minXpFromScores = scoreVals.reduce((acc, sc) => acc + Math.round(sc * 15) + 50, 0);
+    const rawXp = Number.isFinite(Number(base.xp)) ? Math.max(0, Math.round(Number(base.xp))) : 0;
+    const xp = Math.max(rawXp, minXpFromScores);
+    const playtimeSeconds = Number.isFinite(Number(base.playtimeSeconds))
+      ? Math.max(0, Math.round(Number(base.playtimeSeconds)))
+      : 0;
+    const questAccepted = Boolean(base.questAccepted) || scoreVals.length > 0;
+
+    return {
+      id,
+      username,
+      password,
+      createdAt,
+      tpScores,
+      unlockedDivineSkins,
+      selectedSkin,
+      avatarCustomization,
+      xp,
+      bestTimes,
+      questAccepted,
+      playtimeSeconds,
+      lastLogin,
+      lastSeen,
+      updatedAt
+    };
+  }
+
+  _serializeAccount(acc) {
+    const norm = this._normalizeAccount(acc);
+    return {
+      id: norm.id,
+      username: norm.username,
+      password: norm.password,
+      createdAt: norm.createdAt,
+      tpScores: { ...norm.tpScores },
+      unlockedDivineSkins: [...norm.unlockedDivineSkins],
+      selectedSkin: norm.selectedSkin,
+      avatarCustomization: { ...norm.avatarCustomization },
+      xp: norm.xp,
+      bestTimes: { ...norm.bestTimes },
+      questAccepted: norm.questAccepted,
+      playtimeSeconds: norm.playtimeSeconds,
+      lastLogin: norm.lastLogin,
+      lastSeen: norm.lastSeen,
+      updatedAt: norm.updatedAt
+    };
+  }
+
+  _syncPlayerFromAccount(acc) {
+    const norm = this._normalizeAccount(acc);
+    const key = norm.username.toLowerCase();
+    this.accounts.set(key, norm);
+    this.data.players[key] = this._normalizePlayer(
+      {
+        name: norm.username,
+        color: norm.avatarCustomization.outfitColor,
+        skin: norm.avatarCustomization,
+        unlockedDivineSkins: norm.unlockedDivineSkins,
+        selectedSkin: norm.selectedSkin,
+        avatarCustomization: norm.avatarCustomization,
+        xp: norm.xp,
+        questAccepted: norm.questAccepted,
+        grades: norm.tpScores,
+        bestTimes: norm.bestTimes,
+        createdAt: norm.createdAt,
+        lastLogin: norm.lastLogin,
+        lastSeen: norm.lastSeen,
+        playtimeSeconds: norm.playtimeSeconds,
+        updatedAt: norm.updatedAt
+      },
+      norm.username
+    );
+  }
+
+  _syncAccountFromPlayer(player) {
+    if (!player?.name) return;
+    const key = player.name.toLowerCase();
+    const existing = this.accounts.get(key);
+    if (!existing) return;
+    const normPlayer = this._normalizePlayer(player, player.name);
+    const unlocked = normalizeDivineSkinList([
+      ...(existing.unlockedDivineSkins || []),
+      ...(normPlayer.unlockedDivineSkins || []),
+      ...(normPlayer.skin?.divineSpecialty ? [normPlayer.skin.divineSpecialty] : [])
+    ]);
+    const selectedSkin = normPlayer.skin?.divineSpecialty
+      ? normPlayer.skin.divineSpecialty
+      : 'standard';
+    existing.tpScores = { ...normPlayer.grades };
+    existing.unlockedDivineSkins = unlocked;
+    existing.selectedSkin = selectedSkin;
+    existing.avatarCustomization = { ...normPlayer.skin };
+    existing.xp = normPlayer.xp;
+    existing.bestTimes = { ...normPlayer.bestTimes };
+    existing.questAccepted = normPlayer.questAccepted;
+    existing.playtimeSeconds = normPlayer.playtimeSeconds;
+    existing.lastLogin = normPlayer.lastLogin;
+    existing.lastSeen = normPlayer.lastSeen;
+    existing.updatedAt = normPlayer.updatedAt;
+    this.accounts.set(key, existing);
+  }
+
+  _normalizePlayer(raw, fallbackKey = 'Eleve_CIEL') {
+    const base = raw && typeof raw === 'object' ? raw : {};
+    const name = sanitizeName(base.name || base.username || fallbackKey);
+    const fallbackColor = isValidHex(base.color) ? base.color : hashColor(name);
+    const skin = sanitizeSkin(base.skin || base.avatarCustomization, fallbackColor);
+    const color = skin.outfitColor || fallbackColor;
+    const grades = this._normalizeGrades(base.grades || base.tpScores);
+    const unlockedDivineSkins = normalizeDivineSkinList([
+      ...(Array.isArray(base.unlockedDivineSkins) ? base.unlockedDivineSkins : []),
+      ...(skin.divineSpecialty ? [skin.divineSpecialty] : [])
+    ]);
+    const selectedSkin = skin.divineSpecialty
+      ? skin.divineSpecialty
+      : String(base.selectedSkin || 'standard');
     const bestTimes = {};
     if (base.bestTimes && typeof base.bestTimes === 'object') {
       for (const id of ALL_TP_IDS) {
@@ -189,6 +438,10 @@ export class GameStore {
       name,
       color,
       skin,
+      unlockedDivineSkins,
+      selectedSkin,
+      avatarCustomization: { ...skin },
+      tpScores: { ...grades },
       xp,
       questAccepted: Boolean(base.questAccepted),
       grades,
@@ -225,8 +478,62 @@ export class GameStore {
   }
 
   _load() {
+    this.data = { players: {}, suggestions: [], pigeons: [] };
+    this.accounts = new Map();
+
+    if (this.accountsFilePath) {
+      let needsInitialResetSave = false;
+      try {
+        if (fs.existsSync(this.accountsFilePath)) {
+          const raw = fs.readFileSync(this.accountsFilePath, 'utf8');
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            const rawAccounts = Array.isArray(parsed.accounts)
+              ? parsed.accounts
+              : parsed.accounts && typeof parsed.accounts === 'object'
+                ? Object.values(parsed.accounts)
+                : Array.isArray(parsed)
+                  ? parsed
+                  : null;
+            if (rawAccounts && (parsed.version === '4.9' || parsed.resetDone === true || Array.isArray(parsed.accounts))) {
+              for (const item of rawAccounts) {
+                if (item && typeof item === 'object') {
+                  const normAcc = this._normalizeAccount(item);
+                  this._syncPlayerFromAccount(normAcc);
+                }
+              }
+              if (Array.isArray(parsed.suggestions)) {
+                this.data.suggestions = parsed.suggestions
+                  .map((s) => this._normalizeSuggestion(s))
+                  .filter(Boolean);
+              }
+              if (Array.isArray(parsed.pigeons)) {
+                this.data.pigeons = parsed.pigeons
+                  .map((p) => this._normalizePigeon(p))
+                  .filter(Boolean);
+              }
+            } else {
+              needsInitialResetSave = true;
+            }
+          } else {
+            needsInitialResetSave = true;
+          }
+        } else {
+          needsInitialResetSave = true;
+        }
+      } catch {
+        this.data = { players: {}, suggestions: [], pigeons: [] };
+        this.accounts = new Map();
+        needsInitialResetSave = true;
+      }
+      if (needsInitialResetSave) {
+        this._save();
+      }
+      return;
+    }
+
     try {
-      if (fs.existsSync(this.dbFilePath)) {
+      if (this.dbFilePath && fs.existsSync(this.dbFilePath)) {
         const raw = fs.readFileSync(this.dbFilePath, 'utf8');
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') {
@@ -256,6 +563,25 @@ export class GameStore {
   }
 
   _save() {
+    if (this.accountsFilePath) {
+      try {
+        fs.mkdirSync(path.dirname(this.accountsFilePath), { recursive: true });
+        const payload = {
+          version: '4.9',
+          resetDone: true,
+          accounts: [...this.accounts.values()].map((acc) => this._serializeAccount(acc)),
+          suggestions: this.data.suggestions,
+          pigeons: this.data.pigeons
+        };
+        const tmp = `${this.accountsFilePath}.tmp`;
+        fs.writeFileSync(tmp, JSON.stringify(payload, null, 2), 'utf8');
+        fs.renameSync(tmp, this.accountsFilePath);
+      } catch {
+        return;
+      }
+      return;
+    }
+
     if (!this.dbFilePath) return;
     try {
       fs.mkdirSync(path.dirname(this.dbFilePath), { recursive: true });
@@ -267,38 +593,405 @@ export class GameStore {
     }
   }
 
+  _findAccountKey(rawTarget) {
+    const clean = String(rawTarget || '').trim();
+    if (!clean) return null;
+    const lower = clean.toLowerCase();
+    if (this.accounts.has(lower)) return lower;
+    const sanitized = cleanUsernameInput(clean).toLowerCase();
+    if (sanitized && this.accounts.has(sanitized)) return sanitized;
+    for (const [k, acc] of this.accounts.entries()) {
+      if (acc.id === clean || acc.id.toLowerCase() === lower) {
+        return k;
+      }
+    }
+    return null;
+  }
+
+  _buildPublicAccountObject(acc) {
+    const norm = this._normalizeAccount(acc);
+    const key = norm.username.toLowerCase();
+    const profile = this.getPublicProfile(key);
+    const tpsAt20Count = TP_IDS.filter((id) => Number(norm.tpScores[id]) >= 20).length;
+    return {
+      id: norm.id,
+      username: norm.username,
+      createdAt: norm.createdAt,
+      tpScores: { ...norm.tpScores },
+      tpsAt20Count,
+      completedCount: profile?.completedCount ?? 0,
+      average: profile?.average ?? computeAverage(norm.tpScores),
+      xp: norm.xp,
+      unlockedDivineSkins: [...norm.unlockedDivineSkins],
+      selectedSkin: norm.selectedSkin,
+      avatarCustomization: { ...norm.avatarCustomization },
+      lastLogin: norm.lastLogin,
+      lastSeen: norm.lastSeen,
+      playtimeSeconds: norm.playtimeSeconds,
+      updatedAt: norm.updatedAt
+    };
+  }
+
+  _buildAdminAccountObject(acc) {
+    const pub = this._buildPublicAccountObject(acc);
+    return {
+      ...pub,
+      password: String(acc.password ?? '')
+    };
+  }
+
+  getPublicAccount(target) {
+    const key = this._findAccountKey(target);
+    if (!key) return null;
+    return this._buildPublicAccountObject(this.accounts.get(key));
+  }
+
+  getAdminAccount(target) {
+    const key = this._findAccountKey(target);
+    if (!key) return null;
+    return this._buildAdminAccountObject(this.accounts.get(key));
+  }
+
+  getAllAccounts() {
+    return [...this.accounts.values()]
+      .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))
+      .map((acc) => this._buildAdminAccountObject(acc));
+  }
+
+  registerAccount(rawInput = {}) {
+    const username = cleanUsernameInput(rawInput.username || rawInput.identifiant || rawInput.name);
+    if (!username || username.length < 2) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Veuillez choisir un identifiant valide (2 à 22 caractères).'
+      };
+    }
+    const key = username.toLowerCase();
+    if (this.accounts.has(key)) {
+      return {
+        ok: false,
+        status: 409,
+        error: 'Cet identifiant est déjà utilisé par un autre élève.'
+      };
+    }
+    const password = String(rawInput.password ?? '').trim();
+    if (password.length < 3) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Le mot de passe doit contenir au moins 3 caractères.'
+      };
+    }
+    const confirmVal =
+      rawInput.confirmPassword ?? rawInput.passwordConfirm ?? rawInput.confirm;
+    if (confirmVal !== undefined && String(confirmVal).trim() !== password) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'La confirmation du mot de passe ne correspond pas.'
+      };
+    }
+
+    const nowIso = new Date().toISOString();
+    const defColor = hashColor(username);
+    const customSkin = sanitizeSkin(
+      rawInput.avatarCustomization || rawInput.skin || DEFAULT_SKIN,
+      defColor
+    );
+    const account = this._normalizeAccount({
+      id: `acc_${crypto.randomUUID().slice(0, 12)}`,
+      username,
+      password,
+      createdAt: nowIso,
+      tpScores: {},
+      unlockedDivineSkins: normalizeDivineSkinList(rawInput.unlockedDivineSkins),
+      selectedSkin: rawInput.selectedSkin || customSkin.divineSpecialty || 'standard',
+      avatarCustomization: customSkin,
+      xp: 0,
+      bestTimes: {},
+      questAccepted: false,
+      playtimeSeconds: 0,
+      lastLogin: nowIso,
+      lastSeen: nowIso,
+      updatedAt: nowIso
+    });
+
+    this._syncPlayerFromAccount(account);
+    this._save();
+
+    return {
+      ok: true,
+      status: 201,
+      account: this._buildPublicAccountObject(account),
+      adminAccount: this._buildAdminAccountObject(account),
+      profile: this.getPublicProfile(key)
+    };
+  }
+
+  loginAccount(rawInput = {}) {
+    const rawUser = rawInput.username || rawInput.identifiant || rawInput.name || '';
+    const key = this._findAccountKey(rawUser);
+    const password = String(rawInput.password ?? '').trim();
+    if (!key) {
+      return {
+        ok: false,
+        status: 401,
+        error: 'Identifiant ou mot de passe incorrect.'
+      };
+    }
+    const account = this.accounts.get(key);
+    if (!account || account.password !== password) {
+      return {
+        ok: false,
+        status: 401,
+        error: 'Identifiant ou mot de passe incorrect.'
+      };
+    }
+
+    const nowIso = new Date().toISOString();
+    account.lastLogin = nowIso;
+    account.lastSeen = nowIso;
+    account.updatedAt = nowIso;
+    this._syncPlayerFromAccount(account);
+    this._save();
+
+    return {
+      ok: true,
+      status: 200,
+      account: this._buildPublicAccountObject(account),
+      profile: this.getPublicProfile(key)
+    };
+  }
+
+  saveAccountData(target, payload = {}) {
+    const key = this._findAccountKey(target);
+    if (!key) {
+      return {
+        ok: false,
+        status: 404,
+        error: 'Compte élève introuvable.'
+      };
+    }
+    const account = this._normalizeAccount(this.accounts.get(key));
+
+    const incomingScores = payload.tpScores || payload.grades;
+    if (incomingScores && typeof incomingScores === 'object') {
+      for (const tpId of ALL_TP_IDS) {
+        if (typeof incomingScores[tpId] === 'number' && Number.isFinite(incomingScores[tpId])) {
+          const val = Math.max(0, Math.min(20, Math.round(incomingScores[tpId] * 10) / 10));
+          const prev = typeof account.tpScores[tpId] === 'number' ? account.tpScores[tpId] : -1;
+          if (val > prev) {
+            account.tpScores[tpId] = val;
+          }
+        }
+      }
+    }
+
+    if (payload.tpId && ALL_TP_IDS.includes(payload.tpId) && payload.score !== undefined) {
+      const val = Math.max(0, Math.min(20, Math.round(Number(payload.score) * 10) / 10));
+      const prev = typeof account.tpScores[payload.tpId] === 'number' ? account.tpScores[payload.tpId] : -1;
+      if (val > prev) {
+        account.tpScores[payload.tpId] = val;
+      }
+    }
+
+    if (Array.isArray(payload.unlockedDivineSkins)) {
+      const merged = normalizeDivineSkinList([
+        ...account.unlockedDivineSkins,
+        ...payload.unlockedDivineSkins
+      ]);
+      account.unlockedDivineSkins = merged;
+    }
+    if (payload.unlockDivineSkin || payload.divineSpecialty) {
+      const unlockedSpec = resolveDivineSpecialtyId(
+        payload.unlockDivineSkin || payload.divineSpecialty
+      );
+      if (unlockedSpec && !account.unlockedDivineSkins.includes(unlockedSpec)) {
+        account.unlockedDivineSkins.push(unlockedSpec);
+      }
+    }
+
+    const incomingCustom = payload.avatarCustomization || payload.skin;
+    if (incomingCustom && typeof incomingCustom === 'object') {
+      account.avatarCustomization = sanitizeSkin(
+        { ...account.avatarCustomization, ...incomingCustom },
+        account.avatarCustomization.outfitColor
+      );
+      if (!incomingCustom.divineSpecialty && payload.selectedSkin === undefined) {
+        delete account.avatarCustomization.divineSpecialty;
+        account.selectedSkin = 'standard';
+      } else if (account.avatarCustomization.divineSpecialty) {
+        const specId = account.avatarCustomization.divineSpecialty;
+        account.selectedSkin = specId;
+        if (!account.unlockedDivineSkins.includes(specId)) {
+          account.unlockedDivineSkins.push(specId);
+        }
+      }
+    }
+
+    if (payload.selectedSkin !== undefined) {
+      if (
+        payload.selectedSkin === null ||
+        payload.selectedSkin === '' ||
+        payload.selectedSkin === 'standard' ||
+        payload.selectedSkin === 'default'
+      ) {
+        account.selectedSkin = 'standard';
+        delete account.avatarCustomization.divineSpecialty;
+      } else {
+        const specId = resolveDivineSpecialtyId(payload.selectedSkin);
+        if (specId) {
+          account.selectedSkin = specId;
+          account.avatarCustomization = sanitizeSkin(
+            {
+              ...account.avatarCustomization,
+              outfitColor: DIVINE_SPECIALTY_COLORS[specId],
+              outfitStyle: 'cyber',
+              divineSpecialty: specId
+            },
+            DIVINE_SPECIALTY_COLORS[specId]
+          );
+          if (!account.unlockedDivineSkins.includes(specId)) {
+            account.unlockedDivineSkins.push(specId);
+          }
+        } else if (typeof payload.selectedSkin === 'string') {
+          account.selectedSkin = payload.selectedSkin.trim().slice(0, 32) || 'standard';
+        }
+      }
+    }
+
+    account.updatedAt = new Date().toISOString();
+    account.lastSeen = account.updatedAt;
+    const normalized = this._normalizeAccount(account);
+    this._syncPlayerFromAccount(normalized);
+    this._save();
+
+    return {
+      ok: true,
+      status: 200,
+      account: this._buildPublicAccountObject(normalized),
+      profile: this.getPublicProfile(key)
+    };
+  }
+
+  unlockDivineSkin(rawName, rawSpecialty, equip = true) {
+    const specId = resolveDivineSpecialtyId(rawSpecialty) || 'cyber';
+    const name = sanitizeName(rawName);
+    const key = name.toLowerCase();
+    this.getOrCreatePlayer(name);
+    const player = this._normalizePlayer(this.data.players[key], name);
+
+    const unlocked = normalizeDivineSkinList([...(player.unlockedDivineSkins || []), specId]);
+    player.unlockedDivineSkins = unlocked;
+    if (equip) {
+      player.selectedSkin = specId;
+      player.skin = sanitizeSkin(
+        {
+          ...player.skin,
+          outfitColor: DIVINE_SPECIALTY_COLORS[specId],
+          outfitStyle: 'cyber',
+          divineSpecialty: specId
+        },
+        DIVINE_SPECIALTY_COLORS[specId]
+      );
+      player.color = player.skin.outfitColor;
+      player.avatarCustomization = { ...player.skin };
+    }
+    player.updatedAt = new Date().toISOString();
+    this.data.players[key] = player;
+    this._syncAccountFromPlayer(player);
+    this._save();
+    return this.getPublicProfile(key);
+  }
+
+  updateAccountPassword(target, newPassword) {
+    const key = this._findAccountKey(target);
+    if (!key) return null;
+    const cleanPw = String(newPassword ?? '').trim();
+    if (cleanPw.length < 3) {
+      throw new Error('Le nouveau mot de passe doit contenir au moins 3 caractères.');
+    }
+    const account = this.accounts.get(key);
+    account.password = cleanPw;
+    account.updatedAt = new Date().toISOString();
+    this.accounts.set(key, account);
+    this._save();
+    return this._buildAdminAccountObject(account);
+  }
+
+  resetAccount(target) {
+    const key = this._findAccountKey(target) || this._findPlayerKey(target);
+    if (!key) return null;
+    const acc = this.accounts.get(key);
+    const targetName = acc ? acc.username : key;
+    const profile = this.resetPlayer(targetName);
+    const updatedAcc = this.accounts.get(key);
+    return {
+      account: updatedAcc ? this._buildAdminAccountObject(updatedAcc) : null,
+      profile
+    };
+  }
+
+  deleteAccount(target) {
+    const key = this._findAccountKey(target) || this._findPlayerKey(target);
+    if (!key) return null;
+    const acc = this.accounts.get(key);
+    const player = this.data.players[key];
+    const username = acc?.username || player?.name || String(target);
+    const id = acc?.id || null;
+    this.accounts.delete(key);
+    delete this.data.players[key];
+    this._save();
+    return { deleted: true, username, id };
+  }
+
   getOrCreatePlayer(rawName, rawSkin = null) {
     const name = sanitizeName(rawName);
     const key = name.toLowerCase();
     let changed = false;
 
     if (!this.data.players[key]) {
-      const defColor = hashColor(name);
-      const skin = sanitizeSkin(rawSkin, defColor);
-      this.data.players[key] = this._normalizePlayer(
-        {
-          name,
-          color: skin.outfitColor,
-          skin,
-          xp: 0,
-          questAccepted: false,
-          grades: {},
-          bestTimes: {},
-          average: null,
-          diplomaEarned: false,
-          diplomas: [],
-          updatedAt: new Date().toISOString()
-        },
-        name
-      );
-      changed = true;
+      const existingAcc = this.accounts.get(key);
+      if (existingAcc) {
+        this._syncPlayerFromAccount(existingAcc);
+        changed = true;
+      } else {
+        const defColor = hashColor(name);
+        const skin = sanitizeSkin(rawSkin, defColor);
+        this.data.players[key] = this._normalizePlayer(
+          {
+            name,
+            color: skin.outfitColor,
+            skin,
+            unlockedDivineSkins: skin.divineSpecialty ? [skin.divineSpecialty] : [],
+            selectedSkin: skin.divineSpecialty || 'standard',
+            xp: 0,
+            questAccepted: false,
+            grades: {},
+            bestTimes: {},
+            average: null,
+            diplomaEarned: false,
+            diplomas: [],
+            updatedAt: new Date().toISOString()
+          },
+          name
+        );
+        changed = true;
+      }
     } else if (rawSkin && typeof rawSkin === 'object') {
       const current = this._normalizePlayer(this.data.players[key], name);
       const nextSkin = sanitizeSkin(rawSkin, current.color);
       current.skin = nextSkin;
       current.color = nextSkin.outfitColor;
+      current.selectedSkin = nextSkin.divineSpecialty || 'standard';
+      current.avatarCustomization = { ...nextSkin };
+      if (nextSkin.divineSpecialty && !current.unlockedDivineSkins.includes(nextSkin.divineSpecialty)) {
+        current.unlockedDivineSkins.push(nextSkin.divineSpecialty);
+      }
       current.updatedAt = new Date().toISOString();
       this.data.players[key] = current;
+      this._syncAccountFromPlayer(current);
       changed = true;
     }
 
@@ -314,8 +1007,14 @@ export class GameStore {
     const nextSkin = sanitizeSkin(rawSkin, player.color);
     player.skin = nextSkin;
     player.color = nextSkin.outfitColor;
+    player.selectedSkin = nextSkin.divineSpecialty || 'standard';
+    player.avatarCustomization = { ...nextSkin };
+    if (nextSkin.divineSpecialty && !player.unlockedDivineSkins.includes(nextSkin.divineSpecialty)) {
+      player.unlockedDivineSkins.push(nextSkin.divineSpecialty);
+    }
     player.updatedAt = new Date().toISOString();
     this.data.players[key] = player;
+    this._syncAccountFromPlayer(player);
     this._save();
     return this.getPublicProfile(key);
   }
@@ -328,6 +1027,7 @@ export class GameStore {
     player.questAccepted = true;
     player.updatedAt = new Date().toISOString();
     this.data.players[key] = player;
+    this._syncAccountFromPlayer(player);
     this._save();
     return this.getPublicProfile(key);
   }
@@ -371,6 +1071,7 @@ export class GameStore {
     player.diplomas = computeDiplomas(player.grades, player.average, player.diplomaEarned);
     player.updatedAt = new Date().toISOString();
     this.data.players[key] = player;
+    this._syncAccountFromPlayer(player);
     this._save();
 
     return {
@@ -400,6 +1101,7 @@ export class GameStore {
     player.diplomas = computeDiplomas(player.grades, player.average, true);
     player.updatedAt = new Date().toISOString();
     this.data.players[key] = player;
+    this._syncAccountFromPlayer(player);
     this._save();
     return {
       profile: this.getPublicProfile(key),
@@ -426,6 +1128,7 @@ export class GameStore {
     player.lastSeen = nowIso;
     player.updatedAt = nowIso;
     this.data.players[key] = player;
+    this._syncAccountFromPlayer(player);
     this._save();
     return this.getPublicProfile(key);
   }
@@ -440,20 +1143,28 @@ export class GameStore {
     player.lastSeen = nowIso;
     player.updatedAt = nowIso;
     this.data.players[key] = player;
+    this._syncAccountFromPlayer(player);
     this._save();
     return this.getPublicProfile(key);
   }
 
   resetPlayer(rawName) {
-    const key = this._findPlayerKey(rawName);
+    const key = this._findPlayerKey(rawName) || this._findAccountKey(rawName);
     if (!key) return null;
-    const current = this._normalizePlayer(this.data.players[key], key);
+    const existingAcc = this.accounts.get(key);
+    const current = this.data.players[key]
+      ? this._normalizePlayer(this.data.players[key], key)
+      : this._normalizePlayer({ name: existingAcc?.username || rawName }, rawName);
     const nowIso = new Date().toISOString();
+    const cleanSkin = { ...current.skin };
+    delete cleanSkin.divineSpecialty;
     this.data.players[key] = this._normalizePlayer(
       {
         name: current.name,
-        color: current.color,
-        skin: current.skin,
+        color: cleanSkin.outfitColor || current.color,
+        skin: cleanSkin,
+        unlockedDivineSkins: [],
+        selectedSkin: 'standard',
         xp: 0,
         questAccepted: false,
         grades: {},
@@ -469,14 +1180,30 @@ export class GameStore {
       },
       current.name
     );
+    if (existingAcc) {
+      existingAcc.tpScores = {};
+      existingAcc.unlockedDivineSkins = [];
+      existingAcc.selectedSkin = 'standard';
+      const custom = { ...existingAcc.avatarCustomization };
+      delete custom.divineSpecialty;
+      existingAcc.avatarCustomization = sanitizeSkin(custom);
+      existingAcc.xp = 0;
+      existingAcc.bestTimes = {};
+      existingAcc.questAccepted = false;
+      existingAcc.playtimeSeconds = 0;
+      existingAcc.lastSeen = nowIso;
+      existingAcc.updatedAt = nowIso;
+      this.accounts.set(key, existingAcc);
+    }
     this._save();
     return this.getPublicProfile(key);
   }
 
   deletePlayer(rawName) {
-    const key = this._findPlayerKey(rawName);
+    const key = this._findPlayerKey(rawName) || this._findAccountKey(rawName);
     if (!key) return false;
     delete this.data.players[key];
+    this.accounts.delete(key);
     this._save();
     return true;
   }
@@ -486,10 +1213,18 @@ export class GameStore {
     const completedCount = TP_IDS.filter(
       (id) => typeof norm.grades[id] === 'number' && norm.grades[id] >= 10
     ).length;
+    const tpsAt20Count = TP_IDS.filter(
+      (id) => typeof norm.grades[id] === 'number' && norm.grades[id] >= 20
+    ).length;
     return {
       name: norm.name,
       color: norm.color,
       skin: norm.skin,
+      unlockedDivineSkins: [...norm.unlockedDivineSkins],
+      selectedSkin: norm.selectedSkin,
+      avatarCustomization: { ...norm.skin },
+      tpScores: { ...norm.grades },
+      tpsAt20Count,
       xp: norm.xp,
       questAccepted: norm.questAccepted,
       grades: { ...norm.grades },

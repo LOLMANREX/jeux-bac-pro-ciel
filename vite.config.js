@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify("v4.8 - Cinématique d'Ascension Dieu du Bac Pro CIEL & Skins Dynamiques"),
+    __APP_VERSION__: JSON.stringify('v4.9 - Système de Comptes Élèves, Persistance des Skins Divins & Gestion Admin'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

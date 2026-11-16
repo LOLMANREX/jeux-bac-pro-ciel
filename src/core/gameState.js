@@ -1,4 +1,9 @@
-import { DEFAULT_SKIN } from '../world/AvatarBuilder.js';
+import {
+  applySessionDivineSkin,
+  DEFAULT_SKIN,
+  normalizeSkin,
+  resolveAscensionSpecialty
+} from '../world/AvatarBuilder.js';
 import {
   EXTRA_STATIONS,
   PLATEAU_TEACHER_POS,
@@ -119,6 +124,8 @@ export class GameState {
       name: 'Eleve_CIEL',
       color: '#22d3ee',
       skin: { ...DEFAULT_SKIN },
+      unlockedDivineSkins: [],
+      selectedSkin: 'standard',
       xp: 0,
       questAccepted: false,
       grades: {},
@@ -130,6 +137,10 @@ export class GameState {
       rank: null,
       rankLabel: 'Apprenti CIEL'
     };
+    this.account = null;
+    this.authToken = localStorage.getItem('ciel_auth_token') || '';
+    this.unlockedDivineSkins = [];
+    this.selectedSkin = 'standard';
     this.room = 'plateau-u300';
     this.roomRoster = [];
     this.leaderboard = [];
@@ -149,7 +160,7 @@ export class GameState {
       Number.isFinite(savedVoiceVol) && savedVoiceVol >= 0 && savedVoiceVol <= 1.5 ? savedVoiceVol : 1.0;
     try {
       const rawSkin = JSON.parse(localStorage.getItem('ciel_skin') || 'null');
-      this.skin = rawSkin ? { ...DEFAULT_SKIN, ...rawSkin } : { ...DEFAULT_SKIN };
+      this.skin = rawSkin ? normalizeSkin({ ...DEFAULT_SKIN, ...rawSkin }) : { ...DEFAULT_SKIN };
     } catch {
       this.skin = { ...DEFAULT_SKIN };
     }
@@ -165,9 +176,227 @@ export class GameState {
     for (const fn of this.listeners) fn(this);
   }
 
+  isAuthenticated() {
+    return Boolean(this.account && this.account.username && this.authToken);
+  }
+
+  setAccount(account, token = null, profile = null) {
+    if (!account) return;
+    this.account = { ...account };
+    if (token !== null && token !== undefined) {
+      this.authToken = String(token).trim();
+      if (this.authToken) {
+        localStorage.setItem('ciel_auth_token', this.authToken);
+      }
+    }
+    const unlocked = Array.isArray(account.unlockedDivineSkins)
+      ? [...new Set(account.unlockedDivineSkins.map((s) => resolveAscensionSpecialty(s).id))]
+      : [];
+    this.unlockedDivineSkins = unlocked;
+
+    const customSkin = normalizeSkin(
+      account.avatarCustomization || profile?.skin || this.skin || DEFAULT_SKIN
+    );
+    const rawSel = account.selectedSkin || customSkin.divineSpecialty || 'standard';
+    if (rawSel && rawSel !== 'standard' && rawSel !== 'default') {
+      const spec = resolveAscensionSpecialty(rawSel);
+      this.selectedSkin = spec.id;
+      this.skin = applySessionDivineSkin(customSkin, spec.id);
+      if (!this.unlockedDivineSkins.includes(spec.id)) {
+        this.unlockedDivineSkins.push(spec.id);
+      }
+    } else {
+      this.selectedSkin = 'standard';
+      const plainSkin = { ...customSkin };
+      delete plainSkin.divineSpecialty;
+      this.skin = plainSkin;
+    }
+
+    localStorage.setItem('ciel_skin', JSON.stringify(this.skin));
+    localStorage.setItem('ciel_player_name', account.username);
+
+    const nextGrades = {
+      ...(profile?.grades || {}),
+      ...(account.tpScores || {})
+    };
+    const coreVals = TP_CATALOG.map((item) => nextGrades[item.id]).filter(
+      (v) => typeof v === 'number'
+    );
+    const avg =
+      profile?.average ??
+      (coreVals.length
+        ? Math.round((coreVals.reduce((a, b) => a + b, 0) / coreVals.length) * 10) / 10
+        : null);
+    const completedCount =
+      profile?.completedCount ?? coreVals.filter((v) => v >= 10).length;
+    const diplomaEarned = Boolean(profile?.diplomaEarned || completedCount === TP_CATALOG.length);
+
+    this.profile = {
+      ...this.profile,
+      ...(profile || {}),
+      name: account.username,
+      skin: { ...this.skin },
+      unlockedDivineSkins: [...this.unlockedDivineSkins],
+      selectedSkin: this.selectedSkin,
+      grades: nextGrades,
+      average: avg,
+      completedCount,
+      diplomaEarned,
+      xp: profile?.xp ?? account.xp ?? this.profile.xp
+    };
+    this.emit();
+  }
+
+  clearAccount() {
+    this.account = null;
+    this.authToken = '';
+    this.unlockedDivineSkins = [];
+    this.selectedSkin = 'standard';
+    this.skin = { ...DEFAULT_SKIN };
+    localStorage.removeItem('ciel_auth_token');
+    localStorage.removeItem('ciel_player_name');
+    localStorage.removeItem('ciel_skin');
+    this.profile = {
+      name: 'Eleve_CIEL',
+      color: '#22d3ee',
+      skin: { ...DEFAULT_SKIN },
+      unlockedDivineSkins: [],
+      selectedSkin: 'standard',
+      xp: 0,
+      questAccepted: false,
+      grades: {},
+      bestTimes: {},
+      average: null,
+      completedCount: 0,
+      diplomaEarned: false,
+      diplomas: [],
+      rank: null,
+      rankLabel: 'Apprenti CIEL'
+    };
+    this.emit();
+  }
+
+  unlockDivineSkin(specialtyInput, equip = true) {
+    const spec = resolveAscensionSpecialty(specialtyInput);
+    if (!this.unlockedDivineSkins.includes(spec.id)) {
+      this.unlockedDivineSkins = [...this.unlockedDivineSkins, spec.id];
+    }
+    this.profile = {
+      ...this.profile,
+      unlockedDivineSkins: [...this.unlockedDivineSkins]
+    };
+    if (this.account) {
+      this.account = {
+        ...this.account,
+        unlockedDivineSkins: [...this.unlockedDivineSkins]
+      };
+    }
+    if (equip) {
+      this.equipDivineSkin(spec.id);
+    } else {
+      this.emit();
+    }
+    return spec;
+  }
+
+  equipDivineSkin(specialtyOrStandard) {
+    if (
+      !specialtyOrStandard ||
+      specialtyOrStandard === 'standard' ||
+      specialtyOrStandard === 'default' ||
+      specialtyOrStandard === 'none'
+    ) {
+      const nextSkin = { ...this.skin };
+      delete nextSkin.divineSpecialty;
+      this.skin = nextSkin;
+      this.selectedSkin = 'standard';
+    } else {
+      const spec = resolveAscensionSpecialty(specialtyOrStandard);
+      this.selectedSkin = spec.id;
+      this.skin = applySessionDivineSkin(this.skin, spec.id);
+      if (!this.unlockedDivineSkins.includes(spec.id)) {
+        this.unlockedDivineSkins = [...this.unlockedDivineSkins, spec.id];
+      }
+    }
+    localStorage.setItem('ciel_skin', JSON.stringify(this.skin));
+    this.profile = {
+      ...this.profile,
+      skin: { ...this.skin },
+      selectedSkin: this.selectedSkin,
+      unlockedDivineSkins: [...this.unlockedDivineSkins]
+    };
+    if (this.account) {
+      this.account = {
+        ...this.account,
+        selectedSkin: this.selectedSkin,
+        avatarCustomization: { ...this.skin },
+        unlockedDivineSkins: [...this.unlockedDivineSkins]
+      };
+    }
+    this.emit();
+  }
+
   setProfile(profile) {
     if (!profile) return;
-    this.profile = { ...this.profile, ...profile };
+    if (Array.isArray(profile.unlockedDivineSkins)) {
+      const merged = [
+        ...new Set([
+          ...this.unlockedDivineSkins,
+          ...profile.unlockedDivineSkins.map((s) => resolveAscensionSpecialty(s).id)
+        ])
+      ];
+      this.unlockedDivineSkins = merged;
+    }
+    if (profile.selectedSkin) {
+      this.selectedSkin = profile.selectedSkin;
+    }
+    if (profile.skin && typeof profile.skin === 'object') {
+      this.skin = normalizeSkin({ ...this.skin, ...profile.skin });
+      localStorage.setItem('ciel_skin', JSON.stringify(this.skin));
+    }
+    this.profile = {
+      ...this.profile,
+      ...profile,
+      unlockedDivineSkins: [...this.unlockedDivineSkins],
+      selectedSkin: this.selectedSkin
+    };
+    if (this.account && profile.grades) {
+      this.account = {
+        ...this.account,
+        tpScores: { ...(this.account.tpScores || {}), ...profile.grades },
+        unlockedDivineSkins: [...this.unlockedDivineSkins],
+        selectedSkin: this.selectedSkin,
+        avatarCustomization: { ...this.skin }
+      };
+    }
+    this.emit();
+  }
+
+  setSkin(skin) {
+    const merged = { ...DEFAULT_SKIN, ...this.skin, ...skin };
+    if (skin && !('divineSpecialty' in skin) && this.skin?.divineSpecialty) {
+      merged.divineSpecialty = this.skin.divineSpecialty;
+    }
+    if (skin && skin.divineSpecialty === null) {
+      delete merged.divineSpecialty;
+      this.selectedSkin = 'standard';
+    } else if (merged.divineSpecialty) {
+      this.selectedSkin = merged.divineSpecialty;
+    }
+    this.skin = normalizeSkin(merged);
+    localStorage.setItem('ciel_skin', JSON.stringify(this.skin));
+    this.profile = {
+      ...this.profile,
+      skin: { ...this.skin },
+      selectedSkin: this.selectedSkin
+    };
+    if (this.account) {
+      this.account = {
+        ...this.account,
+        selectedSkin: this.selectedSkin,
+        avatarCustomization: { ...this.skin }
+      };
+    }
     this.emit();
   }
 
@@ -200,12 +429,6 @@ export class GameState {
     const clamped = Math.max(0.4, Math.min(2.2, Math.round(Number(sens) * 10) / 10 || 1.0));
     this.mouseSens = clamped;
     localStorage.setItem('ciel_sens', String(clamped));
-    this.emit();
-  }
-
-  setSkin(skin) {
-    this.skin = { ...DEFAULT_SKIN, ...this.skin, ...skin };
-    localStorage.setItem('ciel_skin', JSON.stringify(this.skin));
     this.emit();
   }
 

@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { sfx } from '../core/audio.js';
-import { buildStudentAvatarMesh, disposeObject3D, SKIN_OPTIONS } from '../world/AvatarBuilder.js';
+import {
+  ASCENSION_SPECIALTIES,
+  buildStudentAvatarMesh,
+  disposeObject3D,
+  SKIN_OPTIONS
+} from '../world/AvatarBuilder.js';
 import { createStudioPedestalMaterials } from '../world/RealisticMaterials.js';
 
 export function pickRandomSkin() {
@@ -11,12 +16,46 @@ export function pickRandomSkin() {
     outfitColor: pick(SKIN_OPTIONS.outfitColors),
     hat: pick(SKIN_OPTIONS.hats),
     skinTone: pick(SKIN_OPTIONS.skinTones),
-    pantsColor: pick(SKIN_OPTIONS.pantsColors)
+    pantsColor: pick(SKIN_OPTIONS.pantsColors),
+    divineSpecialty: null
   };
 }
 
 export function renderSkinControls(ids, gameState, onChanged) {
   const skin = gameState.skin;
+  const unlockedSet = new Set([
+    ...(Array.isArray(gameState.unlockedDivineSkins) ? gameState.unlockedDivineSkins : []),
+    ...(Array.isArray(gameState.profile?.unlockedDivineSkins)
+      ? gameState.profile.unlockedDivineSkins
+      : []),
+    ...(skin?.divineSpecialty ? [skin.divineSpecialty] : [])
+  ]);
+
+  const divineElId = ids.divine || (ids.style === 'hud-skin-style-list' ? 'hud-skin-divine-list' : 'skin-divine-list');
+  const divineEl = document.getElementById(divineElId);
+  if (divineEl) {
+    const activeDivine = skin?.divineSpecialty || '';
+    const stdActive = !activeDivine;
+    const stdBtn = `<button type="button" class="btn-chip divine-chip-std ${stdActive ? 'active' : ''}" data-divine="standard">👕 Tenue Standard</button>`;
+    const specBtns = ASCENSION_SPECIALTIES.map((spec) => {
+      const unlocked = unlockedSet.has(spec.id);
+      const isAct = activeDivine === spec.id;
+      if (unlocked) {
+        return `<button type="button" class="btn-chip divine-chip-btn unlocked ${isAct ? 'active' : ''}" data-divine="${spec.id}" title="Skin Divin débloqué : ${spec.label}">${spec.icon} Dieu ${spec.shortLabel}</button>`;
+      }
+      return `<button type="button" class="btn-chip divine-chip-btn locked" data-divine="${spec.id}" disabled title="Débloqué en réussissant l'Ascension 20/20 (${spec.label})">🔒 ${spec.icon} ${spec.shortLabel}</button>`;
+    }).join('');
+    divineEl.innerHTML = stdBtn + specBtns;
+    divineEl.querySelectorAll('button:not([disabled])').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        sfx.click();
+        const choice = btn.dataset.divine;
+        gameState.equipDivineSkin(choice === 'standard' ? null : choice);
+        renderSkinControls(ids, gameState, onChanged);
+        onChanged?.(gameState.skin);
+      });
+    });
+  }
 
   const renderGroup = (elId, items, activeId, buildItemHtml, onPick) => {
     const el = document.getElementById(elId);
