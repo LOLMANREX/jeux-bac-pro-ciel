@@ -36,6 +36,7 @@ export class VRManager {
 
     this.vrRig = new THREE.Group();
     this.vrRig.name = 'vr-rig';
+    this.vrRig.userData.__isVrRig = true;
 
     this.simHeadGroup = new THREE.Group();
     this.simHandsGroup = new THREE.Group();
@@ -95,7 +96,11 @@ export class VRManager {
     this.frameCount = 0;
 
     this.tpPanel = null;
+    this.worldPanel = null;
     this.tpContext = null;
+    this.tpCamOffsetYaw = 0;
+    this.tpZoomScale = 1;
+    this.tpCurrentPose = null;
     this.savedExplorePose = null;
 
     this.snapAngleRad = THREE.MathUtils.degToRad(35);
@@ -177,8 +182,13 @@ export class VRManager {
       trackingMode: 'controller',
       prevTrigger: false,
       prevActionBtn: false,
+      xrSelectPressed: false,
+      xrSelectQueued: false,
       hoveredKey: null,
       dragState: null,
+      panelDrag: null,
+      tpPanelTouchPressed: false,
+      worldPanelTouchPressed: false,
       fingerPose: { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 }
     };
     this._applySlotHandOffset(slot, 'controller');
@@ -248,6 +258,21 @@ export class VRManager {
         }
       });
 
+      ctrl.addEventListener('selectstart', () => {
+        const side = this.ctrlAssignments[i];
+        const slot = side ? this.slots[side] : null;
+        if (!slot) return;
+        slot.xrSelectPressed = true;
+        slot.xrSelectQueued = true;
+      });
+
+      ctrl.addEventListener('selectend', () => {
+        const side = this.ctrlAssignments[i];
+        const slot = side ? this.slots[side] : null;
+        if (!slot) return;
+        slot.xrSelectPressed = false;
+      });
+
       ctrl.addEventListener('disconnected', () => {
         const side = this.ctrlAssignments[i];
         this.ctrlAssignments[i] = null;
@@ -256,6 +281,9 @@ export class VRManager {
           slot.inputSource = null;
           slot.trackingMode = 'controller';
           slot.hoveredKey = null;
+          slot.xrSelectPressed = false;
+          slot.xrSelectQueued = false;
+          slot.panelDrag = null;
           this._clearSlotDrag(slot);
         }
         ctrl.visible = false;
@@ -629,9 +657,17 @@ export class VRManager {
   _teardownSession() {
     this._clearSlotDrag(this.slots.left);
     this._clearSlotDrag(this.slots.right);
+    for (const s of [this.slots.left, this.slots.right]) {
+      s.xrSelectPressed = false;
+      s.xrSelectQueued = false;
+      s.panelDrag = null;
+      s.tpPanelTouchPressed = false;
+      s.worldPanelTouchPressed = false;
+    }
     if (this.tpContext) {
       this.detachTpContext();
     }
+    this.closeWorldSpatialPanel();
     this.options.onHoverInteractable?.(null);
     this.active = false;
     this.simMode = false;
@@ -728,15 +764,128 @@ export class VRManager {
     return delta;
   }
 
+  openWorldSpatialPanel(mode = 'dialogue', state = {}) {
+    if (!this.active || !this.sceneMgr?.scene) return null;
+    if (this.tpContext) {
+      this.detachTpContext();
+    }
+    if (this.worldPanel) {
+      this.worldPanel.group.parent?.remove(this.worldPanel.group);
+      this.worldPanel.dispose();
+      this.worldPanel = null;
+    }
+    this.worldPanel = createTpSpatialPanel();
+    this.sceneMgr.scene.add(this.worldPanel.group);
+    if (this.camera) {
+      this.camera.updateMatrixWorld(true);
+      this.worldPanel.placeRelativeToCamera(this.camera, 1.24, 0.04);
+    }
+    this.worldPanel.updateState({ mode, ...state }, { immediate: true });
+    return this.worldPanel;
+  }
+
+  updateWorldSpatialPanel(state = {}) {
+    if (!this.worldPanel) return;
+    this.worldPanel.updateState(state);
+  }
+
+  closeWorldSpatialPanel() {
+    this.slots.left.panelDrag = null;
+    this.slots.right.panelDrag = null;
+    this.slots.left.worldPanelTouchPressed = false;
+    this.slots.right.worldPanelTouchPressed = false;
+    if (this.worldPanel) {
+      this.worldPanel.group.parent?.remove(this.worldPanel.group);
+      this.worldPanel.dispose();
+      this.worldPanel = null;
+    }
+  }
+
+  applyTpCameraPose(pose) {
+    this._applyTpCameraPose(pose);
+  }
+
+  _applyTpCameraPose(pose) {
+    if (!this.tpContext || !this.vrRig || !this.camera) return;
+    const rawPos = Array.isArray(pose?.pos) ? pose.pos : [0, 1.35, 1.35];
+    const rawLook = Array.isArray(pose?.lookAt) ? pose.lookAt : [0, 0.14, 0];
+    this.tpCurrentPose = {
+      pos: [Number(rawPos[0]) || 0, Number(rawPos[1]) || 1.35, Number(rawPos[2]) || 1.35],
+      lookAt: [Number(rawLook[0]) || 0, Number(rawLook[1]) || 0.14, Number(rawLook[2]) || 0]
+    };
+
+    const lx = this.tpCurrentPose.lookAt[0];
+    const ly = this.tpCurrentPose.lookAt[1];
+    const lz = this.tpCurrentPose.lookAt[2];
+    const dx = this.tpCurrentPose.pos[0] - lx;
+    const dz = this.tpCurrentPose.pos[2] - lz;
+    const flatDist = Math.hypot(dx, dz) || 1.2;
+    const scaledDist = Math.max(0.68, Math.min(2.4, flatDist * 0.78 * this.tpZoomScale));
+    const baseYaw = Math.atan2(dx, dz) + this.tpCamOffsetYaw;
+    const eyeX = lx + Math.sin(baseYaw) * scaledDist;
+    const eyeZ = lz + Math.cos(baseYaw) * scaledDist;
+    const eyeY = Math.max(0.66, Math.min(1.52, this.tpCurrentPose.pos[1] * 0.58 + ly * 0.42));
+
+    const localHeadY = this.simMode
+      ? 1.65
+      : Number(this.camera.position?.y) > 0.25
+        ? Number(this.camera.position.y)
+        : 1.48;
+
+    this.vrRig.position.set(eyeX, eyeY - localHeadY, eyeZ);
+    this.vrRig.rotation.set(0, baseYaw, 0);
+
+    if (this.simMode) {
+      this.simLookYaw = 0;
+      this.simLookPitch = -0.22;
+      this.camera.position.set(0, 1.65, 0);
+      this.camera.rotation.set(this.simLookPitch, 0, 0, 'YXZ');
+      this.simHandsGroup.position.set(0, 1.65, 0);
+      this.simHandsGroup.rotation.set(this.simLookPitch * 0.65, 0, 0, 'YXZ');
+    }
+
+    if (this.tpPanel) {
+      const fwdX = -Math.sin(baseYaw);
+      const fwdZ = -Math.cos(baseYaw);
+      const panelDist = 1.24;
+      const panelX = eyeX + fwdX * panelDist;
+      const panelZ = eyeZ + fwdZ * panelDist;
+      const panelY = Math.max(ly + 0.72, eyeY + 0.24);
+      this.tpPanel.group.position.set(panelX, panelY, panelZ);
+      this.tpPanel.group.lookAt(eyeX, eyeY - 0.04, eyeZ);
+    }
+
+    this.vrRig.updateMatrixWorld(true);
+  }
+
+  adjustTpZoom(delta) {
+    if (!this.tpContext) return;
+    this.tpZoomScale = Math.max(0.56, Math.min(1.65, (this.tpZoomScale || 1) + Number(delta || 0)));
+    this._applyTpCameraPose(this.tpCurrentPose || this.tpContext.getSnapshot?.()?.cameraPose);
+  }
+
+  adjustTpOrbit(deltaRad) {
+    if (!this.tpContext) return;
+    this.tpCamOffsetYaw = (this.tpCamOffsetYaw || 0) + Number(deltaRad || 0);
+    this._applyTpCameraPose(this.tpCurrentPose || this.tpContext.getSnapshot?.()?.cameraPose);
+  }
+
   attachTpContext(ctx) {
     if (!this.active || !ctx?.scene) return;
+    this.closeWorldSpatialPanel();
     this.options.onHoverInteractable?.(null);
     this._lastTpHoverLabel = '';
-    this.slots.left.hoveredKey = null;
-    this.slots.right.hoveredKey = null;
-    this.slots.left.prevTrigger = false;
-    this.slots.right.prevTrigger = false;
+    for (const s of [this.slots.left, this.slots.right]) {
+      s.hoveredKey = null;
+      s.prevTrigger = false;
+      s.xrSelectQueued = false;
+      s.panelDrag = null;
+      s.tpPanelTouchPressed = false;
+      this._clearSlotDrag(s);
+    }
     this.tpContext = ctx;
+    this.tpCamOffsetYaw = 0;
+    this.tpZoomScale = 1;
     if (!this.savedExplorePose) {
       this.savedExplorePose = {
         pos: this.vrRig.position.clone(),
@@ -745,19 +894,15 @@ export class VRManager {
     }
 
     if (this.tpPanel) {
+      this.tpPanel.group.parent?.remove(this.tpPanel.group);
       this.tpPanel.dispose();
     }
     this.tpPanel = createTpSpatialPanel();
     ctx.scene.add(this.tpPanel.group);
     ctx.scene.add(this.vrRig);
 
-    this.vrRig.position.set(0, -0.82, 0.96);
-    this.vrRig.rotation.set(0, 0, 0);
-    if (this.simMode) {
-      this.simLookYaw = 0;
-      this.simLookPitch = -0.28;
-    }
-    this.vrRig.updateMatrixWorld(true);
+    const initPose = ctx.getSnapshot?.()?.cameraPose || { pos: [0, 1.35, 1.35], lookAt: [0, 0.14, 0] };
+    this._applyTpCameraPose(initPose);
     this.syncTpPanelFromContext();
   }
 
@@ -766,6 +911,8 @@ export class VRManager {
     const snap = this.tpContext.getSnapshot?.() || {};
     this.tpPanel.updateState({
       ...snap,
+      onAdjustZoom: (d) => this.adjustTpZoom(d),
+      onAdjustOrbit: (d) => this.adjustTpOrbit(d),
       onExitTp: () => this.tpContext?.requestExit?.()
     });
   }
@@ -776,19 +923,23 @@ export class VRManager {
       this.tpContext.resetInteractionState?.();
     }
     this._lastTpHoverLabel = '';
-    this.slots.left.hoveredKey = null;
-    this.slots.right.hoveredKey = null;
-    this.slots.left.prevTrigger = false;
-    this.slots.right.prevTrigger = false;
-    this.slots.left.prevActionBtn = false;
-    this.slots.right.prevActionBtn = false;
+    this.tpCurrentPose = null;
+    this.tpCamOffsetYaw = 0;
+    this.tpZoomScale = 1;
+    for (const s of [this.slots.left, this.slots.right]) {
+      s.hoveredKey = null;
+      s.prevTrigger = false;
+      s.prevActionBtn = false;
+      s.xrSelectQueued = false;
+      s.panelDrag = null;
+      s.tpPanelTouchPressed = false;
+      this._clearSlotDrag(s);
+    }
     if (this.tpPanel) {
       this.tpPanel.group.parent?.remove(this.tpPanel.group);
       this.tpPanel.dispose();
       this.tpPanel = null;
     }
-    this._clearSlotDrag(this.slots.left);
-    this._clearSlotDrag(this.slots.right);
     this.tpContext = null;
 
     if (this.active && this.sceneMgr?.scene) {
@@ -914,17 +1065,38 @@ export class VRManager {
     if (slot.inputSource?.hand) {
       const handData = this._readXrHandTracking(slot);
       if (handData) {
+        if (slot.xrSelectPressed || slot.xrSelectQueued) {
+          handData.triggerPressed = true;
+          handData.triggerVal = Math.max(handData.triggerVal || 0, 1);
+        }
+        slot.xrSelectQueued = false;
         slot.fingerPose = handData.fingers;
         return handData;
+      }
+      if (slot.xrSelectPressed || slot.xrSelectQueued) {
+        slot.xrSelectQueued = false;
+        slot.fingerPose = { thumb: 0.9, index: 0.9, middle: 0, ring: 0, pinky: 0 };
+        return {
+          triggerVal: 1,
+          triggerPressed: true,
+          gripVal: 0,
+          thumbVal: 0.9,
+          actionBtn: false,
+          sprintPressed: false,
+          axes: [0, 0, 0, 0],
+          fingers: slot.fingerPose
+        };
       }
     }
 
     const gp = slot.inputSource?.gamepad;
     if (!gp) {
-      slot.fingerPose = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
+      const selPressed = Boolean(slot.xrSelectPressed || slot.xrSelectQueued);
+      slot.xrSelectQueued = false;
+      slot.fingerPose = { thumb: selPressed ? 0.5 : 0, index: selPressed ? 1 : 0, middle: 0, ring: 0, pinky: 0 };
       return {
-        triggerVal: 0,
-        triggerPressed: false,
+        triggerVal: selPressed ? 1 : 0,
+        triggerPressed: selPressed,
         gripVal: 0,
         thumbVal: 0,
         actionBtn: false,
@@ -935,7 +1107,9 @@ export class VRManager {
     }
     const btns = gp.buttons || [];
     const rawTrigger = btns[0]?.value ?? (btns[0]?.pressed ? 1 : 0);
-    const triggerVal = rawTrigger > 0.02 ? rawTrigger : btns[0]?.touched ? 0.16 : 0;
+    const triggerVal = Math.max(rawTrigger > 0.02 ? rawTrigger : btns[0]?.touched ? 0.16 : 0, slot.xrSelectPressed ? 1 : 0);
+    const triggerPressed = Boolean(btns[0]?.pressed || rawTrigger > 0.68 || slot.xrSelectPressed || slot.xrSelectQueued);
+    slot.xrSelectQueued = false;
     const gripVal = btns[1]?.value ?? (btns[1]?.pressed ? 1 : 0);
     const thumbPressed = Boolean(btns[3]?.pressed || btns[4]?.pressed || btns[5]?.pressed);
     const thumbTouched = Boolean(
@@ -956,7 +1130,7 @@ export class VRManager {
 
     return {
       triggerVal,
-      triggerPressed: Boolean(btns[0]?.pressed || rawTrigger > 0.68),
+      triggerPressed,
       gripVal,
       thumbVal,
       actionBtn,
@@ -1032,21 +1206,40 @@ export class VRManager {
       }
     }
 
-    if (!hitKey && this.tpContext && this.tpPanel) {
-      const tpHits = this.raycaster.intersectObject(this.tpPanel.screenMesh, false);
+    const activePanel = this.tpContext && this.tpPanel ? this.tpPanel : !this.tpContext && this.worldPanel ? this.worldPanel : null;
+
+    if (activePanel && slot.panelDrag && state.triggerPressed) {
+      const dragHits = this.raycaster.intersectObject(activePanel.screenMesh, false);
+      if (dragHits.length > 0 && dragHits[0].uv) {
+        hitKey = `panel:${slot.panelDrag.id}`;
+        hitDist = dragHits[0].distance;
+        activePanel.setHovered(slot.panelDrag.id);
+        slot.panelDrag.onDragUv?.(dragHits[0].uv);
+        if (this.tpContext) this.syncTpPanelFromContext();
+      }
+    }
+
+    if (!hitKey && activePanel) {
+      const tpHits = this.raycaster.intersectObject(activePanel.screenMesh, false);
       if (tpHits.length > 0 && tpHits[0].uv) {
-        const btn = this.tpPanel.hitTestUv(tpHits[0].uv);
-        this.tpPanel.setHovered(btn ? btn.id : null);
+        const btn = activePanel.hitTestUv(tpHits[0].uv);
+        activePanel.setHovered(btn ? btn.id : null);
         if (btn) {
+          const hitUv = tpHits[0].uv;
           hitKey = `tpbtn:${btn.id}`;
           hitDist = tpHits[0].distance;
           hitAction = () => {
-            btn.onClick?.();
-            this.syncTpPanelFromContext();
+            if (btn.kind === 'slider') {
+              slot.panelDrag = btn;
+              btn.onDragUv?.(hitUv);
+            } else {
+              btn.onClick?.(hitUv);
+            }
+            if (this.tpContext) this.syncTpPanelFromContext();
           };
         }
-      } else {
-        this.tpPanel.setHovered(null);
+      } else if (!slot.panelDrag) {
+        activePanel.setHovered(null);
       }
     }
 
@@ -1111,7 +1304,7 @@ export class VRManager {
       slot.dotMesh.visible = false;
     }
 
-    if (this.tpContext && slot.handedness === 'right') {
+    if (this.tpContext && (slot.handedness === 'right' || Boolean(slot.dragState))) {
       const workPt = new THREE.Vector3();
       const workPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.18);
       if (this.raycaster.ray.intersectPlane(workPlane, workPt)) {
@@ -1125,6 +1318,10 @@ export class VRManager {
 
     slot.prevTrigger = state.triggerPressed;
     slot.prevActionBtn = state.actionBtn;
+
+    if (justReleased && slot.panelDrag) {
+      slot.panelDrag = null;
+    }
 
     if (justPressed) {
       if (hitAction) {
@@ -1244,9 +1441,29 @@ export class VRManager {
 
     if (this.tpContext) {
       if (this.simMode) {
+        const targetLeftPos = this.simWatchInspect
+          ? this.tempVecC.set(-0.14, -0.14, -0.34)
+          : this.tempVecC.set(-0.26, -0.32, -0.42);
+        const targetLeftRot = this.simWatchInspect
+          ? this.tempVecD.set(-0.052, -1.187, -0.808)
+          : this.tempVecD.set(0.22, -0.22, 0.18);
+        const sm = Math.min(1, dt * 14);
+        this.simLeftPivot.position.lerp(targetLeftPos, sm);
+        this.simLeftPivot.rotation.x += (targetLeftRot.x - this.simLeftPivot.rotation.x) * sm;
+        this.simLeftPivot.rotation.y += (targetLeftRot.y - this.simLeftPivot.rotation.y) * sm;
+        this.simLeftPivot.rotation.z += (targetLeftRot.z - this.simLeftPivot.rotation.z) * sm;
         this.camera.rotation.set(this.simLookPitch, this.simLookYaw, 0, 'YXZ');
         this.simHandsGroup.position.set(0, 1.65, 0);
         this.simHandsGroup.rotation.set(this.simLookPitch * 0.65, this.simLookYaw, 0, 'YXZ');
+      } else {
+        const lStick = this._readThumbstick(leftState.axes);
+        const rStick = this._readThumbstick(rightState.axes);
+        if (Math.abs(lStick.y) > 0.35) {
+          this.adjustTpZoom(lStick.y * dt * 0.7);
+        }
+        if (Math.abs(rStick.x) > 0.35) {
+          this.adjustTpOrbit(-rStick.x * dt * 1.15);
+        }
       }
       return;
     }
@@ -1447,6 +1664,45 @@ export class VRManager {
     );
   }
 
+  _updateSpatialPanelDirectTouch(panel, slot, pressKey) {
+    const indexTip = slot?.hand?.fingers?.index?.tip;
+    if (!panel?.group?.visible || !indexTip || !panel.screenMesh) {
+      if (slot) slot[pressKey] = false;
+      return;
+    }
+    panel.screenMesh.updateWorldMatrix(true, false);
+    indexTip.getWorldPosition(this.tempVecC);
+    panel.screenMesh.worldToLocal(this.tempVecC);
+    const w = panel.screenWidth || 1.38;
+    const h = panel.screenHeight || 0.86;
+    const u = this.tempVecC.x / w + 0.5;
+    const v = this.tempVecC.y / h + 0.5;
+    if (u >= 0 && u <= 1 && v >= 0 && v <= 1 && this.tempVecC.z >= -0.025 && this.tempVecC.z <= 0.055) {
+      const uv = { x: u, y: v };
+      const btn = panel.hitTestUv(uv);
+      if (btn) {
+        panel.setHovered(btn.id);
+        if (btn.kind === 'slider' && this.tempVecC.z <= 0.028) {
+          btn.onDragUv?.(uv);
+          if (this.tpContext && panel === this.tpPanel) this.syncTpPanelFromContext();
+          return;
+        }
+        if (this.tempVecC.z <= 0.022 && !slot[pressKey]) {
+          slot[pressKey] = true;
+          this._pulseHaptic(slot, 0.55, 35);
+          btn.onClick?.(uv);
+          if (this.tpContext && panel === this.tpPanel) this.syncTpPanelFromContext();
+        } else if (this.tempVecC.z > 0.032) {
+          slot[pressKey] = false;
+        }
+        return;
+      }
+    }
+    if (this.tempVecC.z > 0.032) {
+      slot[pressKey] = false;
+    }
+  }
+
   _updateWristDirectTouch() {
     this.wristDirectTouchHovered = false;
     const indexTip = this.slots.right?.hand?.fingers?.index?.tip;
@@ -1521,6 +1777,13 @@ export class VRManager {
     }
 
     this._updateWristDirectTouch();
+    if (this.tpContext && this.tpPanel) {
+      this._updateSpatialPanelDirectTouch(this.tpPanel, this.slots.right, 'tpPanelTouchPressed');
+      this._updateSpatialPanelDirectTouch(this.tpPanel, this.slots.left, 'tpPanelTouchPressed');
+    } else if (this.worldPanel) {
+      this._updateSpatialPanelDirectTouch(this.worldPanel, this.slots.right, 'worldPanelTouchPressed');
+      this._updateSpatialPanelDirectTouch(this.worldPanel, this.slots.left, 'worldPanelTouchPressed');
+    }
     this._updateSlotRayAndInteract(this.slots.left, leftState, dt, elapsed);
     this._updateSlotRayAndInteract(this.slots.right, rightState, dt, elapsed);
   }
@@ -1533,6 +1796,7 @@ export class VRManager {
     this.wristPanel?.dispose?.();
     this.debugPanel?.dispose?.();
     this.tpPanel?.dispose?.();
+    this.worldPanel?.dispose?.();
     for (const slot of [this.slots.left, this.slots.right]) {
       slot.hand?.dispose?.();
       slot.rayGeom?.dispose?.();

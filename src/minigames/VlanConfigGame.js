@@ -745,23 +745,23 @@ export function createVlanConfigGame(api) {
       <div style="display:flex;flex-direction:column;gap:7px;font-size:11px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;">
         <div style="font-weight:800;color:#38bdf8;font-size:12px;">1. SEGMENTATION VLAN (${ev.vlansCreated}/3)</div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;">
-          <button data-cmd="vlan 10" style="padding:5px 3px;border-radius:5px;border:1px solid #334155;background:${state.vlans[10].active ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">VLAN 10 ADMIN</button>
-          <button data-cmd="vlan 20" style="padding:5px 3px;border-radius:5px;border:1px solid #334155;background:${state.vlans[20].active ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">VLAN 20 ATELIER</button>
-          <button data-cmd="vlan 30" style="padding:5px 3px;border-radius:5px;border:1px solid #334155;background:${state.vlans[30].active ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">VLAN 30 INVITES</button>
+          <button data-cmd="vlan 10" data-active="${state.vlans[10].active ? '1' : '0'}" style="padding:5px 3px;border-radius:5px;border:1px solid #334155;background:${state.vlans[10].active ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">VLAN 10 ADMIN</button>
+          <button data-cmd="vlan 20" data-active="${state.vlans[20].active ? '1' : '0'}" style="padding:5px 3px;border-radius:5px;border:1px solid #334155;background:${state.vlans[20].active ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">VLAN 20 ATELIER</button>
+          <button data-cmd="vlan 30" data-active="${state.vlans[30].active ? '1' : '0'}" style="padding:5px 3px;border-radius:5px;border:1px solid #334155;background:${state.vlans[30].active ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">VLAN 30 INVITES</button>
         </div>
 
         <div style="font-weight:800;color:#22c55e;font-size:12px;">2. PORTS ACCESS (${ev.accessPortsOk}/3) & TRUNK 802.1Q</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
-          <button data-cmd="access gi0/1 10" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.acc1Ok ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/1 Access VLAN 10</button>
-          <button data-cmd="access gi0/2 20" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.acc2Ok ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/2 Access VLAN 20</button>
-          <button data-cmd="access gi0/3 30" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.acc3Ok ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/3 Access VLAN 30</button>
-          <button data-cmd="trunk gi0/24" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.trunkConfigured ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/24 Trunk 802.1Q</button>
+          <button data-cmd="access gi0/1 10" data-active="${ev.acc1Ok ? '1' : '0'}" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.acc1Ok ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/1 Access VLAN 10</button>
+          <button data-cmd="access gi0/2 20" data-active="${ev.acc2Ok ? '1' : '0'}" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.acc2Ok ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/2 Access VLAN 20</button>
+          <button data-cmd="access gi0/3 30" data-active="${ev.acc3Ok ? '1' : '0'}" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.acc3Ok ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/3 Access VLAN 30</button>
+          <button data-cmd="trunk gi0/24" data-active="${ev.trunkConfigured ? '1' : '0'}" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.trunkConfigured ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/24 Trunk 802.1Q</button>
         </div>
 
         <div style="font-weight:800;color:#f59e0b;font-size:12px;">3. PASSERELLES INTER-VLAN (/24)</div>
         <div style="display:flex;flex-direction:column;gap:4px;">
-          <button data-cmd="gw 20 192.168.20.254" style="padding:5px 7px;border-radius:5px;border:1px solid #334155;background:${ev.gw20Ok ? '#14532d' : '#1e293b'};color:#fff;text-align:left;cursor:pointer;">Vlan20: ${state.gateways[20].ip} (${state.gateways[20].mask}) → <strong>Fix .20.254/24</strong></button>
-          <button data-cmd="gw 30 192.168.30.254" style="padding:5px 7px;border-radius:5px;border:1px solid #334155;background:${ev.gw30Ok ? '#14532d' : '#1e293b'};color:#fff;text-align:left;cursor:pointer;">Vlan30: ${state.gateways[30].ip} → <strong>Activer .30.254/24</strong></button>
+          <button data-cmd="gw 20 192.168.20.254" data-active="${ev.gw20Ok ? '1' : '0'}" style="padding:5px 7px;border-radius:5px;border:1px solid #334155;background:${ev.gw20Ok ? '#14532d' : '#1e293b'};color:#fff;text-align:left;cursor:pointer;">Vlan20: ${state.gateways[20].ip} (${state.gateways[20].mask}) → <strong>Fix .20.254/24</strong></button>
+          <button data-cmd="gw 30 192.168.30.254" data-active="${ev.gw30Ok ? '1' : '0'}" style="padding:5px 7px;border-radius:5px;border:1px solid #334155;background:${ev.gw30Ok ? '#14532d' : '#1e293b'};color:#fff;text-align:left;cursor:pointer;">Vlan30: ${state.gateways[30].ip} → <strong>Activer .30.254/24</strong></button>
         </div>
 
         <div style="font-weight:800;color:#e2e8f0;font-size:12px;">TERMINAL CLI</div>
@@ -814,8 +814,8 @@ export function createVlanConfigGame(api) {
       stageIdx,
       (idx) => {
         if (idx === 0) setCameraById('console');
-        else if (idx === 1) setCameraById('stack');
-        else setCameraById('topology');
+        else if (idx === 1) setCameraById('overview');
+        else setCameraById('campus');
       }
     );
 
@@ -888,6 +888,19 @@ export function createVlanConfigGame(api) {
 
     drawLaptopScreen();
     updateSidebar();
+    bench.setVrExtras?.({
+      terminalLines: state.cliHistory.slice(-3),
+      cliPresets: [
+        { label: 'vlan 10 / 20 / 30', cmd: 'vlan ', submit: false },
+        { label: 'trunk gi0/24', cmd: 'trunk gi0/24', submit: true },
+        { label: 'gw 20 .20.254', cmd: 'gw 20 192.168.20.254', submit: true },
+        { label: 'gw 30 .30.254', cmd: 'gw 30 192.168.30.254', submit: true },
+        { label: 'ping / trace', cmd: 'ping', submit: true }
+      ],
+      statusLines: [
+        `VLANs: ${ev.vlansCreated}/3 | Access: ${ev.accessPortsOk}/3 | Trunk: ${ev.trunkConfigured ? 'OK' : 'Non'} | GW: ${ev.gatewaysOk}/3`
+      ]
+    });
   }
 
   bench.addFloatingTag([-0.56, 0.38, 0.18], 'PC Portable Console SSH', 'info');

@@ -23,6 +23,7 @@ export class MiniGameModal {
     this.vrManager = null;
     this.vrResultScene = null;
     this.vrResultActive = false;
+    this._isOpen = false;
     this.stageSnapshot = { stages: [], activeStageIdx: 0, onSelectStage: null };
 
     this.exitBtn.addEventListener('click', () => {
@@ -45,6 +46,7 @@ export class MiniGameModal {
       this.vrManager.sceneMgr?.setCustomRenderTarget?.(null, null);
     }
     this.cleanupActive();
+    this._isOpen = true;
 
     this.activeTpId = tpId;
     this.currentTp = tp;
@@ -68,8 +70,10 @@ export class MiniGameModal {
         this.vrManager?.detachTpContext?.();
         this.vrManager?.sceneMgr?.setCustomRenderTarget?.(null, null);
       },
+      onCameraPresetChange: (pose) => this.vrManager?.applyTpCameraPose?.(pose),
       syncPanel: () => this.vrManager?.syncTpPanelFromContext?.(),
       getModalSnapshot: () => ({
+        tpId: this.activeTpId || '',
         tpTitle: this.currentTp ? `${this.currentTp.icon} ${this.currentTp.title}` : 'TP Atelier 3D',
         timer: this.timerEl?.textContent || '00:00',
         stages: this.stageSnapshot.stages,
@@ -124,6 +128,7 @@ export class MiniGameModal {
         this.vrManager?.syncTpPanelFromContext?.();
       },
       finishTp: (scoreOutOf20, summaryHtml) => {
+        if (!this._isOpen) return;
         const durationSec = Math.max(1, Math.round((Date.now() - this.startTimeMs) / 1000));
         const rawNum = Number(scoreOutOf20);
         const safeRaw = Number.isFinite(rawNum) ? rawNum : 0;
@@ -137,6 +142,7 @@ export class MiniGameModal {
           durationSec
         });
 
+        if (!this._isOpen) return;
         this._showResultScreen(tp, finalScore, durationSec, summaryHtml);
       }
     };
@@ -192,6 +198,14 @@ export class MiniGameModal {
             : 'TP non validé (< 10/20) — Recommencez pour améliorer votre note.';
 
     if (this.vrManager?.isVrActive()) {
+      const summaryLines = String(summaryHtml || '')
+        .replace(/<\/(li|p|div|h\d|br)\s*>/gi, '\n')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .split('\n')
+        .map((ln) => ln.replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .slice(0, 7);
       const resultScene = this._createVrResultScene();
       this.vrResultActive = true;
       this.vrResultScene = resultScene;
@@ -200,6 +214,8 @@ export class MiniGameModal {
         interactiveMeshes: [],
         requestExit: () => this.close(),
         getSnapshot: () => ({
+          mode: 'result',
+          tpId: tp.id,
           tpTitle: `${tp.icon} ${tp.title}`,
           timer: this._formatSec(durationSec),
           accuracy: `${score.toFixed(1)} / 20`,
@@ -211,6 +227,7 @@ export class MiniGameModal {
             xp: estXp,
             duration: this._formatSec(durationSec),
             mention,
+            summaryLines,
             onReplay: () => {
               sfx.click();
               this.close({ replayTpId: tp.id });
@@ -283,6 +300,7 @@ export class MiniGameModal {
   }
 
   close(payload = {}) {
+    this._isOpen = false;
     this.vrResultActive = false;
     this.vrManager?.detachTpContext?.();
     this.vrManager?.sceneMgr?.setCustomRenderTarget?.(null, null);

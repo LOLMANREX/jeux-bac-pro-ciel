@@ -496,6 +496,12 @@ export function createPatchPanelGame(api) {
     rackGroup.add(pSock);
     panelSockets.push(pSock);
 
+    const pSockHit = new THREE.Mesh(
+      new THREE.BoxGeometry(0.048, 0.044, 0.048),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    pSock.add(pSockHit);
+
     const pLedMat = new THREE.MeshStandardMaterial({ color: 0x334155, emissive: 0x000000 });
     const pLed = new THREE.Mesh(new THREE.SphereGeometry(0.0048, 8, 8), pLedMat);
     pLed.position.set(px, 0.629 + pyOff, 0.108);
@@ -509,6 +515,12 @@ export function createPatchPanelGame(api) {
     sSock.position.set(px, 0.25 + pyOff, 0.132);
     rackGroup.add(sSock);
     switchSockets.push(sSock);
+
+    const sSockHit = new THREE.Mesh(
+      new THREE.BoxGeometry(0.048, 0.044, 0.048),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    sSock.add(sSockHit);
 
     const sLedMat = new THREE.MeshStandardMaterial({ color: 0x334155, emissive: 0x000000 });
     const sLed = new THREE.Mesh(new THREE.SphereGeometry(0.0048, 8, 8), sLedMat);
@@ -786,7 +798,7 @@ export function createPatchPanelGame(api) {
         const ok = w.id === expected.id;
         return `<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 7px;border-radius:6px;background:${
           state.selectedSlot === i ? 'rgba(56,189,248,0.22)' : 'rgba(15,23,42,0.55)'
-        };border:1px solid ${ok ? 'rgba(34,197,94,0.45)' : 'rgba(245,158,11,0.4)'};font-size:11px;cursor:pointer;" data-slot="${i}">
+        };border:1px solid ${ok ? 'rgba(34,197,94,0.45)' : 'rgba(245,158,11,0.4)'};font-size:11px;cursor:pointer;" data-slot="${i}" data-active="${state.selectedSlot === i ? '1' : '0'}" data-vr-label="B${i + 1}: ${w.name} ${ok ? '✔' : '→' + expected.name}">
           <span><strong style="color:#94a3b8;">B${i + 1}</strong> <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${w.css};margin:0 4px;"></span>${w.name}</span>
           <span style="color:${ok ? '#4ade80' : '#fbbf24'};">${ok ? 'OK' : '→ ' + expected.name}</span>
         </div>`;
@@ -958,6 +970,38 @@ export function createPatchPanelGame(api) {
     ]);
 
     updateSidebar();
+
+    bench.setVrExtras?.({
+      buttons: PATCH_SPECS.map((sp) => {
+        const link = state.links[sp.panelIdx];
+        const linkedOk = link && link.switchIdx === sp.switchIdx;
+        const colorOk = linkedOk && link.color === sp.color;
+        const pal = CORD_PALETTE.find((c) => c.id === sp.color);
+        const colTag = pal ? pal.label.split(' ')[0] : sp.color;
+        return {
+          id: `patch_spec_${sp.panelIdx}`,
+          label: `${colorOk ? '✅' : '🔌'} ${sp.panelLabel}→${sp.switchLabel} (${colTag})`,
+          active: colorOk,
+          onClick: () => {
+            if (link && colorOk) {
+              delete state.links[sp.panelIdx];
+              sfx.click();
+            } else {
+              for (const k of Object.keys(state.links)) {
+                if (state.links[k].switchIdx === sp.switchIdx) delete state.links[k];
+              }
+              state.links[sp.panelIdx] = { switchIdx: sp.switchIdx, color: state.activeCordColor };
+              sfx.snap();
+            }
+            rebuildCables();
+            refreshUi();
+          }
+        };
+      }),
+      statusLines: [
+        `T568B: ${matches}/8 (${state.crimped ? 'Serti' : 'À sertir'}) | Brassage: ${patchCorrect}/${PATCH_SPECS.length} | Couleurs exactes: ${colorCorrect}/${PATCH_SPECS.length}`
+      ]
+    });
   }
 
   bench.addFloatingTag([-0.58, 0.14, 0.14], 'Sertissage T568B & Pince', 'info');

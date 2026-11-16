@@ -313,6 +313,8 @@ export function createOscilloscopeBench3D(api, opts = {}) {
   screenMesh.position.set(-0.14, 0.29, 0.218);
   scopeGroup.add(screenMesh);
 
+  const knobDragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0.22);
+
   function createKnob3D(x, y, labelFn, colorHex, onDelta, onStepClick) {
     const g = new THREE.Group();
     g.position.set(x, y, 0.22);
@@ -334,6 +336,7 @@ export function createOscilloscopeBench3D(api, opts = {}) {
     wb.addInteractive(g, {
       label: labelFn,
       cursor: 'ew-resize',
+      dragPlane: knobDragPlane,
       onDragMove: (_pt, dx) => {
         accum += dx;
         if (Math.abs(accum) >= 18) {
@@ -483,6 +486,22 @@ export function createOscilloscopeBench3D(api, opts = {}) {
   pCtx.fillStyle = '#f8fafc';
   pCtx.font = 'bold 22px monospace';
   pCtx.fillText(isElecVariant ? 'CARTE ALIM / DIVISEUR EN PANNE' : 'CARTE FILTRE / PWM EN PANNE', 34, 48);
+  [
+    { id: 'GND', x: -0.34, z: 0.16 },
+    { id: 'TP1', x: -0.34, z: -0.14 },
+    { id: 'TP2', x: 0.02, z: -0.14 },
+    { id: 'TP3', x: 0.34, z: -0.02 }
+  ].forEach((lp) => {
+    const px = Math.round((lp.x / 1.02 + 0.5) * 768);
+    const py = Math.round((lp.z / 0.62 + 0.5) * 512);
+    pCtx.fillStyle = 'rgba(2, 6, 23, 0.78)';
+    pCtx.fillRect(px - 34, py + 24, 68, 24);
+    pCtx.fillStyle = '#fde68a';
+    pCtx.font = 'bold 17px monospace';
+    pCtx.textAlign = 'center';
+    pCtx.fillText(lp.id, px, py + 42);
+  });
+  pCtx.textAlign = 'left';
   const pcbTex = wb.track(new THREE.CanvasTexture(pcbTexCanvas));
   pcbTex.colorSpace = THREE.SRGBColorSpace;
   const pcbMesh = new THREE.Mesh(
@@ -672,6 +691,42 @@ export function createOscilloscopeBench3D(api, opts = {}) {
   syncCables();
 
   const pointTags = new Map();
+  const selectTestPoint = (pt) => {
+    const wx = pcbGroup.position.x + pt.x;
+    const wz = pcbGroup.position.z + pt.z;
+    const ftag = pointTags.get(pt.id);
+    if (pt.id === 'GND') {
+      gndAttached = true;
+      gndClipGroup.position.set(wx, 0.068, wz);
+      syncCables();
+      if (ftag) {
+        ftag.el.className = 'tp3d-float-tag ok';
+        ftag.setHtml('✅ GND relié');
+      }
+      wb.spawnPulseRing(new THREE.Vector3(wx, 0.05, wz), '#10b981', 0.08);
+      sfx.click();
+      wb.showToast('Pince crocodile noire reliée à GND !', 'success');
+    } else {
+      if (!gndAttached) {
+        mistakes += 1;
+        wb.showToast('⚠️ Signal bruité : branchez d’abord la pince noire sur GND !', 'error');
+        sfx.error();
+      } else {
+        sfx.interact();
+      }
+      activeProbePoint = pt.id;
+      probeMeshGroup.position.set(wx, 0.095, wz + 0.045);
+      syncCables();
+      wb.spawnPulseRing(new THREE.Vector3(wx, 0.05, wz), '#22d3ee', 0.08);
+      if (pt.id === 'TP2' && gndAttached) tp2Probed = true;
+      if (pt.id === 'TP3' && gndAttached) {
+        tp3Probed = true;
+        if (componentReplaced) tp3VerifiedAfterRepair = true;
+      }
+    }
+    checkOscilloProgress();
+  };
+
   tpPoints.forEach((pt) => {
     const turret = new THREE.Mesh(
       wb.track(new THREE.CylinderGeometry(0.018, 0.022, 0.045, 16)),
@@ -695,38 +750,7 @@ export function createOscilloscopeBench3D(api, opts = {}) {
         pt.id === 'GND'
           ? '⚫ Cliquer pour fixer la Pince Crocodile Noire sur GND'
           : `🔴 Cliquer pour mesurer ${pt.id} avec la Sonde Rouge`,
-      onClick: () => {
-        const wx = pcbGroup.position.x + pt.x;
-        const wz = pcbGroup.position.z + pt.z;
-        if (pt.id === 'GND') {
-          gndAttached = true;
-          gndClipGroup.position.set(wx, 0.068, wz);
-          syncCables();
-          ftag.el.className = 'tp3d-float-tag ok';
-          ftag.setHtml('✅ GND relié');
-          wb.spawnPulseRing(new THREE.Vector3(wx, 0.05, wz), '#10b981', 0.08);
-          sfx.click();
-          wb.showToast('Pince crocodile noire reliée à GND !', 'success');
-        } else {
-          if (!gndAttached) {
-            mistakes += 1;
-            wb.showToast('⚠️ Signal bruité : branchez d’abord la pince noire sur GND !', 'error');
-            sfx.error();
-          } else {
-            sfx.interact();
-          }
-          activeProbePoint = pt.id;
-          probeMeshGroup.position.set(wx, 0.095, wz + 0.045);
-          syncCables();
-          wb.spawnPulseRing(new THREE.Vector3(wx, 0.05, wz), '#22d3ee', 0.08);
-          if (pt.id === 'TP2' && gndAttached) tp2Probed = true;
-          if (pt.id === 'TP3' && gndAttached) {
-            tp3Probed = true;
-            if (componentReplaced) tp3VerifiedAfterRepair = true;
-          }
-        }
-        checkOscilloProgress();
-      }
+      onClick: () => selectTestPoint(pt)
     });
   });
 
@@ -881,6 +905,74 @@ export function createOscilloscopeBench3D(api, opts = {}) {
         }
       }
     ]);
+
+    wb.setVrExtras?.({
+      sliders: [
+        {
+          id: 'osc_trig',
+          label: '⚡ Trigger (V)',
+          min: -5,
+          max: 5,
+          step: 0.2,
+          value: triggerV,
+          formatVal: (v) => `${Number(v).toFixed(1)}V`,
+          onSetValue: (v) => {
+            triggerV = Number(v);
+            syncKnobAngles();
+            checkOscilloProgress();
+          }
+        },
+        {
+          id: 'osc_vdiv',
+          label: '🎛️ VOLTS/DIV',
+          min: 0,
+          max: voltsSteps.length - 1,
+          step: 1,
+          value: vDivIdx,
+          formatVal: (v) => `${voltsSteps[Math.round(v)]}V`,
+          onSetValue: (v) => {
+            vDivIdx = Math.max(0, Math.min(voltsSteps.length - 1, Math.round(v)));
+            syncKnobAngles();
+            checkOscilloProgress();
+          }
+        },
+        {
+          id: 'osc_tdiv',
+          label: '⏱️ TIME/DIV',
+          min: 0,
+          max: timeStepsMs.length - 1,
+          step: 1,
+          value: tDivIdx,
+          formatVal: (v) => `${timeStepsMs[Math.round(v)]}ms`,
+          onSetValue: (v) => {
+            tDivIdx = Math.max(0, Math.min(timeStepsMs.length - 1, Math.round(v)));
+            syncKnobAngles();
+            checkOscilloProgress();
+          }
+        }
+      ],
+      buttons: [
+        ...tpPoints.map((pt) => ({
+          id: `osc_pt_${pt.id}`,
+          label:
+            pt.id === 'GND'
+              ? `${gndAttached ? '✅' : '⚫'} GND`
+              : `${activeProbePoint === pt.id ? '🎯' : '🔴'} ${pt.id}`,
+          active: pt.id === 'GND' ? gndAttached : activeProbePoint === pt.id,
+          onClick: () => selectTestPoint(pt)
+        })),
+        {
+          id: 'osc_replace',
+          label: componentReplaced ? '✅ Pièce Neuve OK' : '🧰 Remplacer Pièce',
+          active: componentReplaced,
+          disabled: componentReplaced,
+          onClick: () => replaceFaultyComponent()
+        }
+      ],
+      statusLines: [
+        `GND: ${gndAttached ? 'OK' : 'Non'} | Sonde: ${activeProbePoint || 'Aucune'} | V/div: ${voltsSteps[vDivIdx]}V | T/div: ${timeStepsMs[tDivIdx]}ms | Trig: ${triggerV.toFixed(1)}V`
+      ]
+    });
   }
 
   let activeCam = 'global';

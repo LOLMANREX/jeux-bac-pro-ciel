@@ -851,3 +851,288 @@ test('v4.17 : Bras VR multijoueur jamais croisés quel que soit le yaw & orienta
     stubs.restore();
   }
 });
+
+test('v4.18 : SceneManager WebXR autorise customRenderScene + VRManager selectstart, slider, clavier VR, main tactile, dialogue & Ascension', () => {
+  const panel = createTpSpatialPanel();
+  try {
+    let curTemp = 280;
+    let submittedCmd = null;
+    let typedVal = '';
+    let zoomDelta = 0;
+    let orbitDelta = 0;
+    let exitCalled = false;
+
+    panel.updateState({
+      mode: 'workbench',
+      tpId: 'soldering',
+      tpTitle: '🔥 Fer à Souder PCB 3D',
+      tools: [
+        { id: 't1', icon: '1', label: 'Outil 1' },
+        { id: 't2', icon: '2', label: 'Outil 2' },
+        { id: 't3', icon: '3', label: 'Outil 3' },
+        { id: 't4', icon: '4', label: 'Outil 4' },
+        { id: 't5', icon: '5', label: 'Outil 5' },
+        { id: 't6', icon: '6', label: 'Outil 6' },
+        { id: 't7', icon: '7', label: 'Outil 7' }
+      ],
+      cameras: [
+        { id: 'global', label: 'Vue Globale' },
+        { id: 'pcb', label: 'Zoom PCB' }
+      ],
+      vrSliders: [
+        {
+          id: 'solder_temp',
+          label: 'Temp Fer',
+          min: 260,
+          max: 420,
+          step: 5,
+          value: curTemp,
+          onSetValue: (v) => {
+            curTemp = v;
+          }
+        }
+      ],
+      textInput: {
+        value: '',
+        placeholder: 'CLI...',
+        onInput: (v) => {
+          typedVal = v;
+        },
+        onSubmit: (v) => {
+          submittedCmd = v;
+        }
+      },
+      cliPresets: [{ label: 'ping', cmd: 'ping', submit: true }],
+      onAdjustZoom: (d) => {
+        zoomDelta = d;
+      },
+      onAdjustOrbit: (d) => {
+        orbitDelta = d;
+      },
+      onExitTp: () => {
+        exitCalled = true;
+      }
+    }, { immediate: true });
+
+    const boxes = panel.getHitBoxes();
+    assert.ok(boxes.some((b) => b.id === 'vr_tool_t7'));
+    assert.ok(boxes.some((b) => b.id === 'vr_tp_exit'));
+    assert.ok(boxes.some((b) => b.id === 'vr_zoom_in'));
+    assert.ok(boxes.some((b) => b.id === 'vr_orbit_cw'));
+
+    const sliderBox = boxes.find((b) => b.id === 'vr_sl_solder_temp_track');
+    assert.ok(sliderBox);
+    const midU = (sliderBox.x + sliderBox.w * 0.5) / panel.canvasW;
+    const midV = 1 - (sliderBox.y + sliderBox.h * 0.5) / panel.canvasH;
+    const hitSlider = panel.hitTestUv({ x: midU, y: midV });
+    assert.equal(hitSlider.id, 'vr_sl_solder_temp_track');
+    hitSlider.onDragUv({ x: midU, y: midV });
+    assert.equal(curTemp, 340);
+
+    const kbdTab = boxes.find((b) => b.id === 'vr_tab_keyboard');
+    assert.ok(kbdTab);
+    kbdTab.onClick();
+    const kbdBoxes = panel.getHitBoxes();
+    for (const ch of ['p', 'i', 'n', 'g']) {
+      const k = kbdBoxes.find((b) => b.id === `vr_kbd_${ch}`);
+      assert.ok(k, `Touche virtuelle ${ch} manquante`);
+      k.onClick();
+    }
+    assert.equal(typedVal, 'ping');
+    kbdBoxes.find((b) => b.id === 'vr_kbd_enter').onClick();
+    assert.equal(submittedCmd, 'ping');
+
+    const zoomBox = kbdBoxes.find((b) => b.id === 'vr_zoom_in');
+    zoomBox.onClick();
+    assert.ok(zoomDelta < 0);
+    kbdBoxes.find((b) => b.id === 'vr_orbit_cw').onClick();
+    assert.ok(orbitDelta > 0);
+    kbdBoxes.find((b) => b.id === 'vr_tp_exit').onClick();
+    assert.equal(exitCalled, true);
+
+    let chosenSpec = null;
+    panel.updateState({
+      mode: 'ascension',
+      ascension: {
+        phase: 'dialogue',
+        headline: 'CHOIX DIVIN',
+        speech: 'Bravo 20/20',
+        isWinner: true,
+        countdownSec: 15,
+        collection: [{ id: 'cyber', label: 'Cyber', unlocked: false }],
+        choices: [{ id: 'cyber', icon: '🛡️', label: 'Cyber' }],
+        onChooseSpecialty: (id) => {
+          chosenSpec = id;
+        }
+      }
+    }, { immediate: true });
+    panel.getHitBoxes().find((b) => b.id === 'vr_asc_choice_cyber').onClick();
+    assert.equal(chosenSpec, 'cyber');
+  } finally {
+    panel.dispose();
+  }
+
+  let loopFn = null;
+  let renderedScene = null;
+  const xrListeners = new Map();
+  const ctrlListeners = [new Map(), new Map()];
+  const mockControllers = [0, 1].map((idx) => {
+    const grp = new THREE.Group();
+    grp.addEventListener = (type, fn) => ctrlListeners[idx].set(type, fn);
+    return grp;
+  });
+  const mockGrips = [new THREE.Group(), new THREE.Group()];
+  const mockRenderer = {
+    xr: {
+      enabled: false,
+      isPresenting: false,
+      setReferenceSpaceType() {},
+      addEventListener(t, fn) {
+        xrListeners.set(t, fn);
+      },
+      removeEventListener(t) {
+        xrListeners.delete(t);
+      },
+      getController(i) {
+        return mockControllers[i];
+      },
+      getControllerGrip(i) {
+        return mockGrips[i];
+      }
+    },
+    autoClear: false,
+    toneMapping: null,
+    toneMappingExposure: 1,
+    shadowMap: { enabled: false, type: null },
+    setClearColor() {},
+    setPixelRatio() {},
+    setSize() {},
+    getRenderTarget() {
+      return null;
+    },
+    setRenderTarget() {},
+    setAnimationLoop(fn) {
+      loopFn = fn;
+    },
+    render(scene) {
+      renderedScene = scene;
+    }
+  };
+  const mockCanvas = {
+    addEventListener() {},
+    removeEventListener() {},
+    requestPointerLock() {}
+  };
+
+  const stubs = createFakeDomStubs();
+  const sm = new SceneManager(mockCanvas, { renderer: mockRenderer, skipEnvironment: true });
+  let vr = null;
+  try {
+    const player = new PlayerController(sm.camera, mockCanvas, []);
+    vr = new VRManager(sm, player, { playerName: 'TesterVR', mapData: createDefaultMap() });
+    sm.start();
+    mockRenderer.xr.isPresenting = true;
+    xrListeners.get('sessionstart')?.();
+    assert.equal(sm.vrPresenting, true);
+
+    vr.active = true;
+    vr.simMode = false;
+    ctrlListeners[0].get('connected')?.({ data: { handedness: 'left', gamepad: { buttons: [], axes: [] } } });
+    ctrlListeners[1].get('connected')?.({ data: { handedness: 'right', gamepad: { buttons: [], axes: [] } } });
+
+    const wbScene = new THREE.Scene();
+    let stepCount = 0;
+    sm.setCustomRenderTarget(wbScene, () => {
+      stepCount += 1;
+    });
+
+    let exitedByTrigger = false;
+    vr.attachTpContext({
+      scene: wbScene,
+      interactiveMeshes: [],
+      requestExit: () => {
+        exitedByTrigger = true;
+      },
+      getSnapshot: () => ({
+        tpId: 'soldering',
+        tpTitle: '🔥 TP Brasure PCB 3D',
+        timer: '00:12',
+        accuracy: '20.0 / 20',
+        briefTitle: 'Étape 1',
+        briefSub: 'Test XR',
+        tools: [{ id: 'iron', icon: '🔥', label: 'Fer' }],
+        actions: [],
+        drawerControls: []
+      })
+    });
+
+    loopFn();
+    assert.equal(renderedScene, wbScene);
+    assert.equal(stepCount, 1);
+
+    const exitBox = vr.tpPanel.getHitBoxes().find((b) => b.id === 'vr_tp_exit');
+    assert.ok(exitBox);
+    const exU = (exitBox.x + exitBox.w / 2) / vr.tpPanel.canvasW;
+    const exV = 1 - (exitBox.y + exitBox.h / 2) / vr.tpPanel.canvasH;
+    const localBtn = new THREE.Vector3(
+      (exU - 0.5) * vr.tpPanel.screenWidth,
+      (exV - 0.5) * vr.tpPanel.screenHeight,
+      0
+    );
+    vr.tpPanel.screenMesh.updateWorldMatrix(true, false);
+    const worldBtn = localBtn.clone().applyMatrix4(vr.tpPanel.screenMesh.matrixWorld);
+    mockControllers[1].position.copy(worldBtn).add(new THREE.Vector3(0, 0, 0.5));
+    mockControllers[1].rotation.set(0, 0, 0);
+    mockControllers[1].lookAt(worldBtn);
+    mockControllers[1].rotateY(Math.PI);
+    mockControllers[1].updateMatrixWorld(true);
+
+    ctrlListeners[1].get('selectstart')?.();
+    vr.update(0.016, 0.05, 50);
+    ctrlListeners[1].get('selectend')?.();
+    assert.equal(exitedByTrigger, true);
+
+    let dlgChoiceClicked = false;
+    vr.openWorldSpatialPanel('dialogue', {
+      title: 'Professeur CIEL',
+      dialogue: {
+        speaker: 'Professeur CIEL',
+        lines: ['Bienvenue en VR !'],
+        choices: [
+          {
+            id: 'go',
+            label: 'Démarrer',
+            primary: true,
+            onSelect: () => {
+              dlgChoiceClicked = true;
+            }
+          }
+        ]
+      }
+    });
+    const dlgBox = vr.worldPanel.getHitBoxes().find((b) => b.id === 'vr_dlg_choice_0');
+    assert.ok(dlgBox);
+    const dgU = (dlgBox.x + dlgBox.w / 2) / vr.worldPanel.canvasW;
+    const dgV = 1 - (dlgBox.y + dlgBox.h / 2) / vr.worldPanel.canvasH;
+    vr.worldPanel.screenMesh.updateWorldMatrix(true, false);
+    const dlgWorldPos = new THREE.Vector3(
+      (dgU - 0.5) * vr.worldPanel.screenWidth,
+      (dgV - 0.5) * vr.worldPanel.screenHeight,
+      0.012
+    ).applyMatrix4(vr.worldPanel.screenMesh.matrixWorld);
+
+    const tipObj = vr.slots.right.hand.fingers.index.tip;
+    vr.update(0.016, 0.08, 80);
+    const curTipWorld = new THREE.Vector3();
+    tipObj.getWorldPosition(curTipWorld);
+    mockGrips[1].position.add(dlgWorldPos.clone().sub(curTipWorld));
+    mockGrips[1].updateMatrixWorld(true);
+    vr.update(0.016, 0.1, 100);
+    assert.equal(dlgChoiceClicked, true);
+    vr.closeWorldSpatialPanel();
+  } finally {
+    vr?.dispose?.();
+    sm.dispose?.();
+    stubs.restore();
+  }
+});

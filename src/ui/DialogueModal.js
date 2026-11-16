@@ -43,6 +43,9 @@ export class DialogueModal {
     this.onCloseCb = null;
     this.gameState = null;
     this.handlers = null;
+    this.vrManager = null;
+    this.vrMode = false;
+    this.pendingVrGrades = null;
 
     this.lines = [];
     this.lineIdx = 0;
@@ -85,7 +88,24 @@ export class DialogueModal {
     this.gameState = gameState;
     this.handlers = handlers;
     this.onCloseCb = handlers.onClose;
-    this.overlay.classList.remove('hidden');
+    this.vrManager = handlers?.vrManager || null;
+    this.vrMode = Boolean(this.vrManager?.isVrActive?.());
+    if (this.vrMode) {
+      this.overlay.classList.add('hidden');
+      this.vrManager.openWorldSpatialPanel('dialogue', {
+        title: '👨‍🏫 PROFESSEUR CIEL — ENSEIGNANT RÉFÉRENT',
+        dialogue: {
+          title: '👨‍🏫 PROFESSEUR CIEL — ENSEIGNANT RÉFÉRENT',
+          speaker: 'Professeur CIEL',
+          lines: ['Connexion au dialogue spatial...'],
+          choices: [],
+          onClose: () => this.close()
+        },
+        onExitTp: () => this.close()
+      });
+    } else {
+      this.overlay.classList.remove('hidden');
+    }
     this._startMainConversation();
   }
 
@@ -335,12 +355,23 @@ export class DialogueModal {
       </div>
     `;
 
+    const vrGrades = TP_CATALOG.map((tp) => {
+      const grade = p.grades?.[tp.id];
+      const ok = typeof grade === 'number' && grade >= 10;
+      return {
+        title: `${tp.icon} ${tp.shortTitle}`,
+        hasGrade: ok,
+        scoreText: typeof grade === 'number' ? `${grade.toFixed(1)}/20` : 'À faire'
+      };
+    });
+
     this._playNode({
       lines: [
         `« Voyons ton carnet de notes… Tu as validé ${p.completedCount || 0} TP(s) sur 5, avec une moyenne actuelle de ${avgTxt}. »`,
         '« N’oublie pas que tu peux refaire n’importe quel TP pour monter ta moyenne et viser la Mention Très Bien ! »'
       ],
       extraHtml,
+      vrGrades,
       choices: [
         {
           label: '↩️ Continuer à discuter avec le Professeur CIEL',
@@ -355,15 +386,55 @@ export class DialogueModal {
     });
   }
 
-  _playNode({ lines, choices = [], extraHtml = '' }) {
+  _syncVrPanel() {
+    if (!this.vrMode || !this.vrManager) return;
+    const idx = Math.max(0, Math.min(this.lineIdx, Math.max(0, this.lines.length - 1)));
+    const isLast = idx >= this.lines.length - 1;
+    const activeText = this.lines[idx] || '';
+    const vrChoices = isLast
+      ? this.pendingChoices.map((ch) => ({
+          label: ch.label,
+          primary: Boolean(ch.primary),
+          onSelect: () => {
+            sfx.click();
+            ch.action?.();
+          }
+        }))
+      : [];
+    this.vrManager.updateWorldSpatialPanel({
+      mode: 'dialogue',
+      onExitTp: () => this.close(),
+      dialogue: {
+        title: '👨‍🏫 PROFESSEUR CIEL — ENSEIGNANT RÉFÉRENT',
+        speaker: 'Professeur CIEL',
+        stepBadge: `${idx + 1} / ${Math.max(1, this.lines.length)}`,
+        lines: [activeText],
+        grades: isLast ? this.pendingVrGrades : null,
+        choices: vrChoices,
+        nextLabel: isLast ? null : 'Suivant',
+        onNext: () => {
+          sfx.click();
+          this._advanceOrFinishLine();
+        },
+        onClose: () => this.close()
+      }
+    });
+  }
+
+  _playNode({ lines, choices = [], extraHtml = '', vrGrades = null }) {
     this._stopTyping();
     this.lines = lines;
     this.lineIdx = 0;
     this.pendingChoices = choices;
     this.pendingExtraHtml = extraHtml;
+    this.pendingVrGrades = vrGrades;
     this.extraEl.innerHTML = '';
     this.extraEl.classList.add('hidden');
     this.choicesEl.innerHTML = '';
+    if (this.vrMode) {
+      this._finishCurrentLine();
+      return;
+    }
     this._typeLine(0);
   }
 
@@ -371,6 +442,10 @@ export class DialogueModal {
     this._stopTyping();
     this.lineIdx = idx;
     this.fullLineText = this.lines[idx] || '';
+    if (this.vrMode) {
+      this._finishCurrentLine();
+      return;
+    }
     this.textEl.textContent = '';
     this.isTyping = true;
     this.choicesEl.innerHTML = '';
@@ -395,6 +470,11 @@ export class DialogueModal {
     this._stopTyping();
     this.isTyping = false;
     this.textEl.textContent = this.fullLineText;
+
+    if (this.vrMode) {
+      this._syncVrPanel();
+      return;
+    }
 
     const isLast = this.lineIdx === this.lines.length - 1;
     if (!isLast) {
@@ -444,7 +524,14 @@ export class DialogueModal {
 
   close() {
     this._stopTyping();
+    if (this.vrMode) {
+      this.vrManager?.closeWorldSpatialPanel?.();
+    }
+    this.vrMode = false;
+    this.vrManager = null;
     this.overlay.classList.add('hidden');
-    this.onCloseCb?.();
+    const cb = this.onCloseCb;
+    this.onCloseCb = null;
+    cb?.();
   }
 }

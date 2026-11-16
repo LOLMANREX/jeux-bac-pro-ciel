@@ -914,6 +914,63 @@ export function createPcHardwareGame(api) {
       });
     }
     bench.setActions(actions);
+
+    bench.setVrExtras?.({
+      buttons: [
+        {
+          id: 'hw_esd',
+          label: state.esdWorn ? '✅ ESD Relié' : '🦺 Mettre ESD',
+          active: state.esdWorn,
+          disabled: state.esdWorn,
+          onClick: () => wearEsdStrap()
+        },
+        {
+          id: 'hw_socket',
+          label: !state.cpuInstalled
+            ? state.socketOpen
+              ? '🔲 Poser CPU'
+              : '🔓 Ouvrir Socket'
+            : !state.socketClosed
+              ? '🔒 Fermer Socket'
+              : !state.pasteApplied
+                ? '💉 Appliquer Pâte'
+                : !state.coolerInstalled
+                  ? '❄️ Monter Ventirad'
+                  : '✅ Bloc CPU OK',
+          active: state.coolerInstalled,
+          onClick: () => handleSocketClick()
+        },
+        ...dimmSlots
+          .filter((ds) => ds.id === 'A2' || ds.id === 'B2')
+          .map((ds) => ({
+            id: `hw_ram_${ds.id}`,
+            label: ds.populated ? `✅ RAM ${ds.id}` : `📊 Slot ${ds.id}`,
+            active: ds.populated,
+            onClick: () => ds.body.userData?.__tpInteract?.onClick?.()
+          })),
+        {
+          id: 'hw_m2',
+          label: state.nvmeInstalled ? '✅ M.2 NVMe OK' : '💾 Port M.2',
+          active: state.nvmeInstalled,
+          onClick: () => m2SlotMesh.userData?.__tpInteract?.onClick?.()
+        },
+        {
+          id: 'hw_pcie',
+          label: state.gpuInstalled ? '✅ PCIe GPU OK' : '🎮 Port PCIe',
+          active: state.gpuInstalled,
+          onClick: () => pcieSlotMesh.userData?.__tpInteract?.onClick?.()
+        },
+        {
+          id: 'hw_atx',
+          label: state.cablesConnected ? '✅ Câbles ATX OK' : '🔌 Brancher ATX',
+          active: state.cablesConnected,
+          onClick: () => installPowerCables()
+        }
+      ],
+      statusLines: [
+        `ESD: ${state.esdWorn ? 'OK' : 'Non'} | CPU: ${state.cpuInstalled ? 'OK' : 'Non'} | RAM: ${state.ramPlacedSlots.join('+') || '-'} | NVMe: ${state.nvmeInstalled ? 'OK' : 'Non'} | GPU: ${state.gpuInstalled ? 'OK' : 'Non'}`
+      ]
+    });
   }
 
   function finishWorkshop() {
@@ -952,6 +1009,22 @@ export function createPcHardwareGame(api) {
     );
   }
 
+  const postTimers = new Set();
+  let destroyed = false;
+
+  function clearPostTimers() {
+    for (const tid of postTimers) clearTimeout(tid);
+    postTimers.clear();
+  }
+
+  function schedulePostTimer(fn, delayMs) {
+    const tid = setTimeout(() => {
+      postTimers.delete(tid);
+      if (!destroyed) fn();
+    }, delayMs);
+    postTimers.add(tid);
+  }
+
   function clearPostLeds() {
     for (const k of Object.keys(postLeds)) {
       postLeds[k].mat.emissiveIntensity = 0;
@@ -959,7 +1032,8 @@ export function createPcHardwareGame(api) {
   }
 
   function runPowerPost() {
-    if (state.postAnimating) return;
+    if (destroyed || state.postAnimating) return;
+    clearPostTimers();
     state.pcPowered = true;
     state.postAnimating = true;
     clearPostLeds();
@@ -989,7 +1063,7 @@ export function createPcHardwareGame(api) {
       { text: '> Test CPU & Microcode LGA1700...', color: '#e2e8f0' }
     ], 'ANALYSE DES PÉRIPHÉRIQUES...', false);
 
-    setTimeout(() => {
+    schedulePostTimer(() => {
       postLeds.CPU.mat.emissiveIntensity = 2.4;
       if (!state.cpuInstalled || !state.socketClosed) {
         state.failedPosts += 1;
@@ -1020,7 +1094,7 @@ export function createPcHardwareGame(api) {
         return;
       }
 
-      setTimeout(() => {
+      schedulePostTimer(() => {
         postLeds.DRAM.mat.emissiveIntensity = 0.2;
         postLeds.VGA.mat.emissiveIntensity = 2.4;
         if (!state.gpuInstalled) {
@@ -1035,7 +1109,7 @@ export function createPcHardwareGame(api) {
           return;
         }
 
-        setTimeout(() => {
+        schedulePostTimer(() => {
           postLeds.VGA.mat.emissiveIntensity = 0.2;
           postLeds.BOOT.mat.emissiveIntensity = 2.6;
           if (!state.nvmeInstalled) {
@@ -1087,6 +1161,7 @@ export function createPcHardwareGame(api) {
   }
 
   function resetWorkshop() {
+    clearPostTimers();
     state.esdWorn = false;
     state.esdMistakes = 0;
     state.socketOpen = false;
@@ -1409,6 +1484,10 @@ export function createPcHardwareGame(api) {
   refreshHud();
 
   return {
-    destroy: () => bench.destroy()
+    destroy: () => {
+      destroyed = true;
+      clearPostTimers();
+      bench.destroy();
+    }
   };
 }

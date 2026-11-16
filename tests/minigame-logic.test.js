@@ -1,5 +1,9 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createGameServer } from '../server/index.js';
 import { OSCILLO_STAGES, evaluateOscilloscopeStage, computeOscilloBenchScore } from '../src/minigames/OscilloscopeGame.js';
 import { SOLDER_STAGES, evaluateSolderStage, computeSolderingScore3D } from '../src/minigames/SolderingGame.js';
 import {
@@ -468,4 +472,103 @@ test('v4.16 Brasure : 20/20 atteignable après nettoyage pont initial U2/U3 et t
   });
   assert.equal(Number.isFinite(safeNan), true);
   assert.ok(safeNan >= 0 && safeNan <= 20);
+});
+
+test('v4.18 : Suppression des blocages VR, validation 20/20 de tous les TPs et sauvegarde/Ascension/Prestige sur compte', async () => {
+  const mainJs = fs.readFileSync(path.resolve('src/main.js'), 'utf8');
+  assert.equal(mainJs.includes('Interactions TP en VR en cours de refonte'), false);
+  assert.equal(mainJs.includes('TPs en VR temporairement en pause'), false);
+  assert.equal(mainJs.includes('openWorldSpatialPanel'), true);
+  assert.equal(mainJs.includes('completedCount: gameState.profile.completedCount || 0'), true);
+
+  const hw20 = computeHardwareScore3D({
+    esdWorn: true,
+    cpuInstalled: true,
+    socketClosed: true,
+    pasteApplied: true,
+    coolerInstalled: true,
+    ramDualChannel: true,
+    ramCount: 2,
+    nvmeInstalled: true,
+    gpuInstalled: true,
+    cablesConnected: true,
+    postPassed: true,
+    esdMistakes: 0,
+    failedPosts: 0,
+    elapsedSec: 65
+  });
+  assert.equal(hw20.score, 20);
+
+  const patch20 = computePatchPanelScore3D({
+    t568bMatches: 8,
+    crimped: true,
+    patchCorrect: 4,
+    colorCorrect: 4,
+    totalLinks: 4,
+    guidesUsed: true,
+    testerRun: true,
+    continuityPassed: true,
+    elapsedSec: 60
+  });
+  assert.equal(patch20, 20);
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-v418-'));
+  const accountsPath = path.join(tmpDir, 'accounts.json');
+  const { server, wsHub } = createGameServer({ dbPath: null, accountsPath });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address();
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+  try {
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'EleveVR20', password: 'password1234' })
+    });
+    const regData = await regRes.json();
+    assert.equal(regData.ok, true);
+    const token = regData.token;
+
+    const saveRes = await fetch(`${baseUrl}/api/account/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        tpScores: {
+          oscilloscope: 20,
+          soldering: 20,
+          electronics: 20,
+          antivirus: 20,
+          vmvlan: 20,
+          patchrack: 20,
+          hardware: 20,
+          audiovisual: 20,
+          studio: 20
+        },
+        selectedSkin: 'cyber',
+        unlockDivineSkin: 'cyber'
+      })
+    });
+    const saveData = await saveRes.json();
+    assert.equal(saveData.ok, true);
+    assert.equal(saveData.profile.average, 20);
+    assert.equal(saveData.profile.completedCount, 5);
+    assert.ok(saveData.account.unlockedDivineSkins.includes('cyber'));
+
+    const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'EleveVR20', password: 'password1234' })
+    });
+    const loginData = await loginRes.json();
+    assert.equal(loginData.profile.grades.soldering, 20);
+    assert.equal(loginData.profile.grades.audiovisual, 20);
+    assert.ok(loginData.account.unlockedDivineSkins.includes('cyber'));
+  } finally {
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });

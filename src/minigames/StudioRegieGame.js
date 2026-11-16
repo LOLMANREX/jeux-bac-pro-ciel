@@ -1438,6 +1438,13 @@ export function createStudioRegieGame(api) {
         inp.value = String(state[key]);
       }
     }
+    const curCue = CUE_LIST[state.cueIdx];
+    bench.setVrExtras?.({
+      statusLines: [
+        `Audio: ${ev.xlrMicOk ? `${ev.peakDb.toFixed(1)} dBFS` : 'XLR?'} | ${curCue ? curCue.label : 'Tous les Tops ATEM validés ✔'}`
+      ]
+    });
+    bench.refreshDrawerControls?.();
   }
 
   function updateSidebar() {
@@ -1465,22 +1472,22 @@ export function createStudioRegieGame(api) {
         </div>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Focus (72%)</span>
-          <input type="range" min="0" max="100" value="${state.focus}" data-cam="focus" />
+          <input type="range" min="0" max="100" value="${state.focus}" data-cam="focus" data-vr-label="Focus (72%)" data-vr-unit="%" />
           <span data-cam-val="focus" class="av-slider-val" style="color:${ev.focusOk ? '#4ade80' : '#fbbf24'};">${state.focus}%</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Iris (56%)</span>
-          <input type="range" min="0" max="100" value="${state.iris}" data-cam="iris" />
+          <input type="range" min="0" max="100" value="${state.iris}" data-cam="iris" data-vr-label="Iris (56%)" data-vr-unit="%" />
           <span data-cam-val="iris" class="av-slider-val" style="color:${ev.irisOk ? '#4ade80' : '#fbbf24'};">${state.iris}%</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">WB (5600K)</span>
-          <input type="range" min="2800" max="7200" step="50" value="${state.kelvin}" data-cam="kelvin" />
+          <input type="range" min="2800" max="7200" step="50" value="${state.kelvin}" data-cam="kelvin" data-vr-label="WB (5600K)" data-vr-unit="K" />
           <span data-cam-val="kelvin" class="av-slider-val" style="color:${ev.wbOk ? '#4ade80' : '#fbbf24'};">${state.kelvin}K</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Chroma (84%)</span>
-          <input type="range" min="0" max="100" value="${state.chromaKey}" data-cam="chromaKey" />
+          <input type="range" min="0" max="100" value="${state.chromaKey}" data-cam="chromaKey" data-vr-label="Chroma (84%)" data-vr-unit="%" />
           <span data-cam-val="chromaKey" class="av-slider-val" style="color:${ev.chromaOk ? '#4ade80' : '#fbbf24'};">${state.chromaKey}%</span>
         </label>
 
@@ -1494,22 +1501,22 @@ export function createStudioRegieGame(api) {
         </div>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Cravate (78%)</span>
-          <input type="range" min="0" max="100" value="${state.micCravate}" data-cam="micCravate" />
+          <input type="range" min="0" max="100" value="${state.micCravate}" data-cam="micCravate" data-vr-label="Cravate (78%)" data-vr-unit="%" />
           <span data-cam-val="micCravate" class="av-slider-val">${state.micCravate}%</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Ambiance (25%)</span>
-          <input type="range" min="0" max="100" value="${state.micAmbiance}" data-cam="micAmbiance" />
+          <input type="range" min="0" max="100" value="${state.micAmbiance}" data-cam="micAmbiance" data-vr-label="Ambiance (25%)" data-vr-unit="%" />
           <span data-cam-val="micAmbiance" class="av-slider-val">${state.micAmbiance}%</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Musique (25%)</span>
-          <input type="range" min="0" max="100" value="${state.music}" data-cam="music" />
+          <input type="range" min="0" max="100" value="${state.music}" data-cam="music" data-vr-label="Musique (25%)" data-vr-unit="%" />
           <span data-cam-val="music" class="av-slider-val">${state.music}%</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Master (80%)</span>
-          <input type="range" min="0" max="100" value="${state.masterAudio}" data-cam="masterAudio" />
+          <input type="range" min="0" max="100" value="${state.masterAudio}" data-cam="masterAudio" data-vr-label="Master (80%)" data-vr-unit="%" />
           <span data-cam-val="masterAudio" class="av-slider-val">${state.masterAudio}%</span>
         </label>
 

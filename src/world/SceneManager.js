@@ -877,13 +877,27 @@ export class SceneManager {
       } catch (err) {
         this.recordXrError('celebration', err);
       }
-      if (this.customRenderScene && !isXr) {
+      if (this.customRenderScene) {
         try {
           if (this.customStepFn) {
             this.customStepFn(dt, elapsed);
           }
-          for (const fn of this.alwaysUpdaters) {
-            fn(dt, elapsed);
+          for (let i = 0; i < this.alwaysUpdaters.length; i++) {
+            try {
+              this.alwaysUpdaters[i](dt, elapsed);
+            } catch (err) {
+              this.recordXrError(`alwaysUpdater:${i}`, err);
+            }
+          }
+          if (isXr) {
+            this.renderer.autoClear = true;
+            if (!this.customRenderScene.background) {
+              this.renderer.setClearColor?.('#071326', 1);
+            }
+            const activeRt = this.renderer.getRenderTarget?.();
+            if (activeRt && !activeRt.isXRRenderTarget) {
+              this.renderer.setRenderTarget?.(null);
+            }
           }
           this.renderer.render(this.customRenderScene, this.camera);
         } catch (err) {

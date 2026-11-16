@@ -138,6 +138,17 @@ export function createSolderingGame(api) {
   pCtx.fillText('ATELIER CIEL — CARTE STM32 / PWM v4.0', 44, 68);
   pCtx.font = 'bold 20px monospace';
   pCtx.fillText('J1 PWR    R1 470Ω      C1 100µF      U1 ATmega     LEDs', 92, 610);
+  allPads.forEach((pad) => {
+    const px = Math.round((pad.x / 1.42 + 0.5) * 1024);
+    const py = Math.round((pad.z / 0.86 + 0.5) * 680);
+    pCtx.fillStyle = 'rgba(2, 6, 23, 0.72)';
+    pCtx.fillRect(px - 44, py + 30, 88, 22);
+    pCtx.fillStyle = '#fde68a';
+    pCtx.font = 'bold 16px monospace';
+    pCtx.textAlign = 'center';
+    pCtx.fillText(pad.label, px, py + 46);
+  });
+  pCtx.textAlign = 'left';
   const pcbTex = wb.track(new THREE.CanvasTexture(pcbCanvas));
   pcbTex.colorSpace = THREE.SRGBColorSpace;
   pcbTex.needsUpdate = true;
@@ -222,6 +233,7 @@ export function createSolderingGame(api) {
 
   const padMeshes = new Map();
   const solderWorkPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.155);
+  let holdHudAccum = 0;
 
   allPads.forEach((pad) => {
     const grp = new THREE.Group();
@@ -368,7 +380,11 @@ export function createSolderingGame(api) {
           wb.showToast(`🔥 Surchauffe sur ${pad.label} ! Retirez le fer plus vite !`, 'error');
         }
         updatePadVisual(pad);
-        refreshHud();
+        holdHudAccum += dt;
+        if (holdHudAccum >= 0.08) {
+          holdHudAccum = 0;
+          refreshHud();
+        }
       },
       onDragEnd: () => {
         if (activePad === pad && tool !== 'wick') {
@@ -839,6 +855,54 @@ export function createSolderingGame(api) {
         onClick: () => triggerPowerTest()
       }
     ]);
+
+    wb.setVrExtras?.({
+      sliders: [
+        {
+          id: 'solder_temp',
+          label: '🌡️ Potentiomètre Fer',
+          min: 260,
+          max: 420,
+          step: 5,
+          value: Math.round(tempC),
+          formatVal: (v) => `${Math.round(v)}°C`,
+          onSetValue: (v) => {
+            tempC = Math.round(v);
+            tempDialRaw = tempC;
+            syncKnobAngle();
+            refreshHud();
+          }
+        }
+      ],
+      buttons: [
+        {
+          id: 'solder_preset_350',
+          label: '🎯 Cible 350°C',
+          active: tempC >= 340 && tempC <= 365,
+          onClick: () => {
+            tempC = 350;
+            tempDialRaw = 350;
+            syncKnobAngle();
+            sfx.click();
+            refreshHud();
+          }
+        },
+        ...allPads.slice(0, 6).map((p) => ({
+          id: `pad_st_${p.id}`,
+          label: `${p.state === 'good' ? '✅' : p.state === 'bridge' ? '⚠️' : '🔥'} ${p.label}`,
+          active: p.state === 'good',
+          onClick: () => {
+            wb.showToast(
+              `${p.label} : ${p.state === 'good' ? 'Brasure OK' : p.state === 'bridge' ? 'Pont — Utiliser Tresse cuivre' : 'Pointez la pastille au laser et maintenez la gâchette'}`,
+              'info'
+            );
+          }
+        }))
+      ],
+      statusLines: [
+        `Station : ${Math.round(tempC)}°C (Optimal 340-365°C) | Extracteur : ${fumeExtractorOn ? 'ON' : 'OFF'} | Pastilles OK : ${goodCount}/${allPads.length}`
+      ]
+    });
   }
 
   let activeCam = 'global';

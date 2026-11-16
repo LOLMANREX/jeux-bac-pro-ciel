@@ -1277,6 +1277,7 @@ export function createDmxLightingGame(api) {
         inp.value = String(curFx[fd.key]);
       }
     }
+    bench.refreshDrawerControls?.();
   }
 
   function updateSidebar() {
@@ -1294,7 +1295,7 @@ export function createDmxLightingGame(api) {
       const res = ev.fixtureResults[i];
       const f = state.fixtures[i];
       const active = i === state.selectedFixture;
-      return `<div data-fix-card="${i}" data-sel="${i}" class="av-fix-card ${active ? 'active' : ''} ${res.ok ? 'ok' : ''}" style="border-color:${
+      return `<div data-fix-card="${i}" data-sel="${i}" data-active="${active ? '1' : '0'}" data-vr-label="${sp.code} A${String(f.addr).padStart(3, '0')}" class="av-fix-card ${active ? 'active' : ''} ${res.ok ? 'ok' : ''}" style="border-color:${
         res.ok ? 'rgba(34,197,94,0.75)' : res.addrExact ? 'rgba(56,189,248,0.55)' : 'rgba(239,68,68,0.65)'
       };">
         <div class="av-fix-head">

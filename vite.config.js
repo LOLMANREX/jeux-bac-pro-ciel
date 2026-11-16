@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.17 - Ergonomie CIEL Watch VR, Masquage Panneau Debug, Fix Bras Croisés Multi & Sélecteur Audio'),
+    __APP_VERSION__: JSON.stringify('v4.18 - Adaptation Complète de Tous les TPs en VR WebXR & Panneaux Spatiaux Interactifs'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

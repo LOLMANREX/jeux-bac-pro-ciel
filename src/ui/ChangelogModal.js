@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.17 - Ergonomie CIEL Watch VR, Masquage Panneau Debug, Fix Bras Croisés Multi & Sélecteur Audio';
+    : 'v4.18 - Adaptation Complète de Tous les TPs en VR WebXR & Panneaux Spatiaux Interactifs';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,36 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.17 — Ergonomie CIEL Watch VR, Masquage Panneau Debug, Fix Bras Croisés Multi & Sélecteur Audio',
+    version: 'v4.18 — Adaptation Complète de Tous les TPs en VR WebXR & Panneaux Spatiaux Interactifs',
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'TPS 100 % VR WEBXR',
+        title: 'Déblocage Intégral de Tous les TPs & Dialogue Professeur CIEL en VR',
+        desc: 'Suppression des blocages VR dans main.js et autorisation du rendu customRenderScene en WebXR : Cybersécurité SOC, Réseaux VLAN/CLI, Brassage Baie 19", Assemblage PC, Électronique, Oscilloscope, Brasure PCB 3D, DMX & Régie Studio sont désormais 100 % jouables et validables jusqu’à 20/20 dans le casque.'
+      },
+      {
+        badge: 'PANNEAU SPATIAL 3D',
+        title: 'Interface Haute Lisibilité 1280x800, Sliders, Clavier Virtuel & Caméra VR',
+        desc: 'Nouveau panneau spatial flottant devant l’élève (~1.2m) pilotable au laser (gâchette / selectstart) et au toucher direct par mains articulées (hand-tracking), incluant sliders interactifs (Température fer, DMX, Studio), clavier virtuel AZERTY 3D + presets CLI, zoom/pivot/vues caméra et bouton permanent Quitter le TP.'
+      },
+      {
+        badge: 'BRASURE & PAILLASSES 3D',
+        title: 'Sérigraphie 3D sur PCB, Molette Thermique & Hitboxes RJ45 Élargies',
+        desc: 'Pastilles Brasure/Oscillo sérigraphiées en 3D directement sur les cartes, maintien de gâchette optimisé sans lag, potentiomètre 260-420°C tactile et hitboxes Switch/Panneau 24 ports adaptées au pointage laser VR.'
+      },
+      {
+        badge: 'COMPTES, WATCH & ASCENSION',
+        title: 'Sauvegarde 20/20, Progression CIEL Watch & Cérémonie Divine en VR',
+        desc: 'Synchronisation immédiate des notes /20 via POST /api/account/save, affichage des TPs validés sur la CIEL Watch au poignet gauche, entretien complet avec le Professeur CIEL et déclenchement interactif de l’Ascension « Dieu du Bac Pro CIEL », Prestige et Skin Suprême Glitch directement en VR.'
+      }
+    ]
+  },
+  {
+    version: 'v4.17 — Ergonomie CIEL Watch VR, Masquage Panneau Debug, Fix Bras Croisés Multi & Sélecteur Audio',
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'AUDIO MICRO/CASQUE',

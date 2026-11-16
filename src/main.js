@@ -32,6 +32,7 @@ import {
 } from './world/RemotePlayers.js';
 import {
   applySessionDivineSkin,
+  ASCENSION_SPECIALTIES,
   buildStudentAvatarMesh,
   createVoiceIndicatorSprite,
   disposeObject3D,
@@ -239,6 +240,9 @@ vrManager = new VRManager(sceneMgr, player, {
 });
 sceneMgr.addAlwaysUpdater((dt, elapsed) => {
   if (!joined || sceneMgr.paused) {
+    if (joined && sceneMgr.paused) {
+      syncVrWatchHud();
+    }
     vrManager?.update(dt, elapsed);
   }
 });
@@ -331,6 +335,44 @@ let nearestTarget = null;
 let wallLeaderboardPending = false;
 let privateDebugMode = false;
 let lastCelebrationAt = 0;
+let vrAscCountdownTimer = null;
+
+function buildVrAscCollection(unlockedList = gameState.unlockedDivineSkins) {
+  const unlockedSet = new Set(Array.isArray(unlockedList) ? unlockedList : []);
+  return ASCENSION_SPECIALTIES.map((s) => ({
+    id: s.id,
+    label: s.shortLabel || s.label,
+    unlocked: unlockedSet.has(s.id)
+  }));
+}
+
+function clearVrAscCountdown() {
+  if (vrAscCountdownTimer) {
+    clearInterval(vrAscCountdownTimer);
+    vrAscCountdownTimer = null;
+  }
+}
+
+function syncVrWatchHud(extra = {}) {
+  if (!vrManager?.isVrActive?.()) return;
+  const zone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z);
+  vrManager.updateHudInfo({
+    name: gameState.profile.name,
+    zoneLabel: zone.badgeText,
+    zoneColor: zone.color || '#22d3ee',
+    average: gameState.profile.average,
+    completedCount: gameState.profile.completedCount || 0,
+    totalTps: TP_CATALOG.length,
+    xp: gameState.profile.xp,
+    micEnabled: Boolean(latestVoiceState.micEnabled),
+    isSpeaking: Boolean(latestVoiceState.isSpeaking),
+    nearbySpeakers: latestVoiceState.nearbySpeakers || [],
+    connectionState: hud?.lastConnectionState || (network.connected ? 'connected' : 'solo'),
+    onlineCount: hud?.lastOnlineCount || 1,
+    pingMs: network.lastPingMs,
+    ...extra
+  });
+}
 
 const DEBUG_ZONE_SPOTS = {
   U300: { x: -3.95, z: 0.65 },
@@ -356,6 +398,7 @@ function getTeacherPosFromMap(mapData = currentMapData) {
 }
 
 function endAscensionCinematic() {
+  clearVrAscCountdown();
   if (activeCinematic?.endTimer) {
     clearTimeout(activeCinematic.endTimer);
   }
@@ -367,6 +410,9 @@ function endAscensionCinematic() {
   }
   activeCinematic = null;
   const vrOn = Boolean(vrManager?.isVrActive?.());
+  if (vrOn) {
+    vrManager.closeWorldSpatialPanel?.();
+  }
   player._syncAvatarVisibility?.();
   player.setEnabled(joined && !modalOpen && !vrOn);
   touchControls?.setVisible(joined && !modalOpen && !vrOn && gameState.touchMode);
@@ -449,6 +495,7 @@ function startIntroCinematic(manualReplay = false) {
 }
 
 function runAscensionPhase(payload = {}) {
+  clearVrAscCountdown();
   hud?.hideAscensionDialogue?.();
   hud?.hideIntroCinematic?.();
   const playerName = payload.playerName || activeCinematic?.playerName || gameState.profile.name || 'Eleve_CIEL';
@@ -483,6 +530,7 @@ function runAscensionPhase(payload = {}) {
   };
 
   sfx.playAscensionFanfare(spec.id);
+  let secretUnlockedNow = false;
 
   if (isWinner) {
     const allTps = getDynamicAllTps();
@@ -505,12 +553,20 @@ function runAscensionPhase(payload = {}) {
         }
         const hasAllNow = hasAllDivineSpecialties(gameState.unlockedDivineSkins);
         if (!hadSecretBefore && hasAllNow) {
+          secretUnlockedNow = true;
           sfx.playSecretUnlockFanfare?.();
           hud?.showSecretSkinAnnouncement?.({
             playerName,
             bannerText: formatSecretSkinAnnouncement(playerName)
           });
         }
+        network.saveAccount({
+          tpScores: gameState.profile.grades,
+          unlockedDivineSkins: gameState.unlockedDivineSkins,
+          unlockDivineSkin: spec.id,
+          selectedSkin: getSelectedSkinIdFromSkin(gameState.skin),
+          avatarCustomization: gameState.skin
+        });
       }
       rebuildLocalAvatar(gameState.skin);
       lab.updateStationBadges(gameState.profile.grades);
@@ -532,6 +588,7 @@ function runAscensionPhase(payload = {}) {
       isEmote: true,
       color: spec.primaryColor
     });
+    syncVrWatchHud({ targetHint: `👑 DIEU CIEL (${spec.shortLabel})` });
   } else if (payload.playerId) {
     remotePlayers.setDivineSkin(payload.playerId, spec.id);
     remotePlayers.showBubble(payload.playerId, `⚡ DIEU CIEL (${spec.shortLabel}) !`, {
@@ -550,6 +607,32 @@ function runAscensionPhase(payload = {}) {
     center: winnerSpot,
     targetAvatar: isWinner ? localAvatar : null
   });
+
+  if (vrManager?.isVrActive?.()) {
+    const colList = buildVrAscCollection(gameState.unlockedDivineSkins);
+    vrManager.openWorldSpatialPanel('ascension', {
+      title: '👑 ASCENSION DU BAC PRO CIEL',
+      onExitTp: () => endAscensionCinematic(),
+      ascension: {
+        phase: 'ascension',
+        title: '👑 ASCENSION DU BAC PRO CIEL',
+        headline: bannerText,
+        speech: isWinner
+          ? `Félicitations ! La tenue divine ${spec.label} et le Cycle de Prestige ont été activés sur votre compte.`
+          : `Félicitations à ${playerName} qui devient Dieu du Bac Pro CIEL (${spec.label}) !`,
+        isWinner,
+        chosenSpecialty: spec.id,
+        collection: colList,
+        secretSkinUnlocked: Boolean(secretUnlockedNow || payload.secretSkinUnlocked || gameState.secretSkinUnlocked),
+        canApplaud: !isWinner,
+        onApplaud: () => {
+          sfx.click();
+          network.sendApplaud?.(activeCinematic?.id);
+        },
+        onClose: () => endAscensionCinematic()
+      }
+    });
+  }
 
   hud?.showWorldCelebration?.({
     ...payload,
@@ -591,8 +674,9 @@ function runWorldCelebration(payload = {}) {
   const now = Date.now();
   if (now - lastCelebrationAt < 1200) return;
   lastCelebrationAt = now;
+  clearVrAscCountdown();
 
-  if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
+  if (miniGameModal?._isOpen || (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden'))) {
     miniGameModal.close();
   }
   dialogueModal?.close?.();
@@ -685,13 +769,64 @@ function runWorldCelebration(payload = {}) {
   }
 
   sfx.interact();
+  const choiceTimeoutMs = payload.choiceTimeoutMs || 15000;
+  if (vrManager?.isVrActive?.()) {
+    const unlockedList = Array.isArray(payload.unlockedDivineSkins)
+      ? payload.unlockedDivineSkins
+      : isWinner
+        ? gameState.unlockedDivineSkins
+        : [];
+    const colList = buildVrAscCollection(unlockedList);
+    let secLeft = Math.ceil(choiceTimeoutMs / 1000);
+    const speechText =
+      payload.dialogueText ||
+      `Félicitations solennelles à ${playerName} pour son 20/20 intégral au Bac Pro CIEL ! Choisissez votre Voie Divine ci-dessous :`;
+    const vrAscState = {
+      phase: 'dialogue',
+      title: '👑 L’ASCENSION DU BAC PRO CIEL',
+      headline: isWinner ? '🌟 CHOISISSEZ VOTRE VOIE DIVINE !' : `👀 ${playerName} choisit sa Voie Divine...`,
+      speech: speechText,
+      winnerName: playerName,
+      isWinner,
+      chosenSpecialty: null,
+      countdownSec: secLeft,
+      collection: colList,
+      choices: ASCENSION_SPECIALTIES.map((s) => ({
+        id: s.id,
+        icon: s.icon,
+        label: s.shortLabel || s.label
+      })),
+      secretSkinUnlocked: Boolean(gameState.secretSkinUnlocked),
+      onChooseSpecialty: (specId) => {
+        clearVrAscCountdown();
+        handleLocalSpecialtyChoice(specId);
+      },
+      onClose: () => endAscensionCinematic()
+    };
+    vrManager.openWorldSpatialPanel('ascension', {
+      title: '👑 L’ASCENSION DU BAC PRO CIEL',
+      onExitTp: () => endAscensionCinematic(),
+      ascension: vrAscState
+    });
+    vrAscCountdownTimer = setInterval(() => {
+      secLeft = Math.max(0, secLeft - 1);
+      if (activeCinematic?.phase === 'dialogue') {
+        vrAscState.countdownSec = secLeft;
+        vrManager.updateWorldSpatialPanel({ ascension: { ...vrAscState } });
+      } else {
+        clearVrAscCountdown();
+      }
+    }, 1000);
+  }
+
   hud?.showAscensionDialogue?.({
     ...payload,
     playerName,
     isWinner,
-    choiceTimeoutMs: payload.choiceTimeoutMs || 15000,
+    choiceTimeoutMs,
     defaultSpecialty: payload.tpId || 'cyber',
     onTimeout: (fallbackSpec) => {
+      clearVrAscCountdown();
       if (isWinner) {
         handleLocalSpecialtyChoice(fallbackSpec);
       } else {
@@ -826,16 +961,6 @@ async function openTp(tpId, stationItem = null) {
   const tp = getStationById(tpId);
   const factory = MINIGAME_FACTORIES[tpId];
   if (!tp || !factory) return;
-  if (vrManager?.isVrActive?.()) {
-    const grade = gameState.profile.grades?.[tpId];
-    const scoreTxt = typeof grade === 'number' ? ` (${grade.toFixed(1)}/20)` : '';
-    hud?.toast?.(
-      `🔧 ${tp.shortTitle}${scoreTxt} : Interactions TP en VR en cours de refonte pour la prochaine MÀJ.`,
-      'info'
-    );
-    vrManager.updateHudInfo({ targetHint: `⏸️ ${tp.shortTitle}${scoreTxt} (TP VR en pause)` });
-    return;
-  }
 
   const openSeq = ++tpOpenSeqId;
   lab.setHoveredInteractable?.(null);
@@ -885,6 +1010,7 @@ async function openTp(tpId, stationItem = null) {
       p.diplomaEarned = p.completedCount === TP_CATALOG.length;
       gameState.setProfile(p);
       lab.updateStationBadges(p.grades);
+      syncVrWatchHud();
 
       const allTpsAt20 = hasAllTpsAt20(p.grades, allTps);
       const firstTimeAllAt20 = !wasAllAt20 && allTpsAt20;
@@ -933,11 +1059,13 @@ function openTeacherDialogue(customDialogue = '') {
   network.sendActivity('Parle au Professeur CIEL');
   setModalActive(true, false, true);
   dialogueModal.open(gameState, {
+    vrManager,
     customDialogue,
     onAcceptQuest: () => {
       gameState.setProfile({ ...gameState.profile, questAccepted: true });
       network.acceptQuest(gameState.profile.name);
       hud.toast('Programme des TP démarré ! Choisissez un poste de TP.');
+      syncVrWatchHud();
     },
     onTeleportTp: (tpId) => {
       teleportNearTarget(tpId);
@@ -1414,6 +1542,7 @@ network.on('profile_updated', ({ profile }) => {
   hud?._refreshInGameSkinUi?.();
   hud?.refresh?.();
   syncWallLeaderboard();
+  syncVrWatchHud();
 });
 
 network.on('profile_reset', ({ profile, message }) => {
@@ -1435,6 +1564,7 @@ network.on('profile_reset', ({ profile, message }) => {
   hud?._refreshInGameSkinUi?.();
   lab.updateStationBadges(profile.grades);
   refreshWallLeaderboard();
+  syncVrWatchHud();
   hud.toast(message || 'Votre progression a été réinitialisée par l’administrateur.', 'error');
 });
 
@@ -1455,6 +1585,7 @@ network.on('score_recorded', (res) => {
   gameState.setProfile(res.profile);
   lab.updateStationBadges(res.profile.grades);
   refreshWallLeaderboard();
+  syncVrWatchHud();
   hud.toast(`+${res.xpGain} XP enregistrés sur le serveur !`, 'success');
 });
 
@@ -1512,6 +1643,15 @@ network.on('secret_skin_unlocked', (payload) => {
       gameState.account = { ...gameState.account, secretSkinUnlocked: true };
     }
     mainMenu?.renderSkinUi?.();
+    if (vrManager?.isVrActive?.()) {
+      vrManager.setSkin(getEffectiveSessionSkin(gameState.skin));
+      vrManager.updateWorldSpatialPanel?.({
+        ascension: vrManager.worldPanel?.getState?.()?.ascension
+          ? { ...vrManager.worldPanel.getState().ascension, secretSkinUnlocked: true }
+          : undefined
+      });
+      syncVrWatchHud({ targetHint: '🌌 SKIN SECRET ULTIME DÉBLOQUÉ !' });
+    }
     hud?.toast?.('🌌 SKIN SECRET ULTIME débloqué dans votre casier !', 'success');
     showSpeechBubble(localBubble, '🌌 SKIN SECRET ULTIME ! 🌌', {
       isEmote: true,
@@ -1604,26 +1744,6 @@ network.on('chat_message', ({ message }) => {
 
 function interactWith(target) {
   if (!target) return;
-  if (vrManager?.isVrActive?.()) {
-    sfx.interact();
-    if (target.id === 'teacher') {
-      const msg = '👨‍🏫 Professeur CIEL : Bienvenue sur le Plateau U300 en VR ! Déplacez-vous aux joysticks et échangez au micro.';
-      hud?.toast?.(msg, 'info');
-      vrManager.updateHudInfo({ targetHint: '👨‍🏫 Professeur CIEL — Exploration VR' });
-      return;
-    }
-    const tpId = target.tpId || target.id;
-    const st = getStationById(tpId);
-    const grade = gameState.profile.grades?.[tpId];
-    const scoreTxt = typeof grade === 'number' ? ` (${grade.toFixed(1)}/20)` : '';
-    const title = st?.shortTitle || target.label || tpId;
-    hud?.toast?.(
-      `🔧 ${title}${scoreTxt} : TPs en VR temporairement en pause pour cette MÀJ — explorez U300 et utilisez le Voice Chat !`,
-      'info'
-    );
-    vrManager.updateHudInfo({ targetHint: `⏸️ ${title}${scoreTxt} (TP VR en pause)` });
-    return;
-  }
   if (target.id === 'teacher') openTeacherDialogue(target.dialogue || '');
   else openTp(target.tpId || target.id, target);
 }
@@ -1933,19 +2053,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
   }
 
   if (vrOn) {
-    vrManager.updateHudInfo({
-      name: gameState.profile.name,
-      zoneLabel: currentZone.badgeText,
-      zoneColor: currentZone.color || '#22d3ee',
-      average: gameState.profile.average,
-      xp: gameState.profile.xp,
-      micEnabled: Boolean(latestVoiceState.micEnabled),
-      isSpeaking: Boolean(latestVoiceState.isSpeaking),
-      nearbySpeakers: latestVoiceState.nearbySpeakers || [],
-      connectionState: hud?.lastConnectionState || (network.connected ? 'connected' : 'solo'),
-      onlineCount: hud?.lastOnlineCount || 1,
-      pingMs: network.lastPingMs
-    });
+    syncVrWatchHud();
   }
 
   if (elapsed - lastMiniMapDrawAt >= 0.05) {

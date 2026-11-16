@@ -761,8 +761,23 @@ export function createWorkbench3D(container, options = {}) {
     activeToolId: null,
     onSelectTool: null,
     actions: [],
-    drawerControls: []
+    cameras: [],
+    activeCamIdx: 0,
+    onSelectCamera: null,
+    cameraPose: {
+      pos: baseCamPos.toArray(),
+      lookAt: baseLookAt.toArray(),
+      fov: options.fov || 42
+    },
+    drawerControls: [],
+    vrSliders: [],
+    vrButtons: [],
+    cliPresets: [],
+    terminalLines: [],
+    statusLines: [],
+    textInput: null
   };
+  let vrInputBuffer = '';
 
   const syncVrPanel = () => {
     if (vrActive) vrBridge?.syncPanel?.();
@@ -771,15 +786,86 @@ export function createWorkbench3D(container, options = {}) {
   const extractDrawerControls = () => {
     const list = [];
     let idx = 0;
-    const elements = sideDrawerEl.querySelectorAll('button, input[type="range"]');
+    let foundTextInput = null;
+    const seenEls = new Set();
+    const elements = sideDrawerEl.querySelectorAll(
+      'button, input[type="range"], input[type="text"], [data-slot], [data-sel], [data-fix-card], [data-cmd]'
+    );
     elements.forEach((el) => {
-      if (el.hidden || el.style.display === 'none') return;
-      if (el.tagName === 'BUTTON') {
-        const lbl = (el.textContent || 'Action').replace(/\s+/g, ' ').trim().slice(0, 26);
+      if (seenEls.has(el) || el.hidden || el.style.display === 'none') return;
+      seenEls.add(el);
+      if (el.tagName === 'INPUT' && el.type === 'text') {
+        const form = el.closest('form');
+        if (el.value) vrInputBuffer = el.value;
+        else if (vrInputBuffer) el.value = vrInputBuffer;
+        foundTextInput = {
+          value: vrInputBuffer,
+          placeholder: el.placeholder || 'Commande...',
+          onInput: (val) => {
+            vrInputBuffer = String(val || '');
+            el.value = vrInputBuffer;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          },
+          onSubmit: (val) => {
+            const cmd = val !== undefined ? String(val) : vrInputBuffer;
+            el.value = cmd;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            if (form) {
+              form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+            } else {
+              el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            }
+            vrInputBuffer = '';
+            el.value = '';
+            extractDrawerControls();
+            syncVrPanel();
+          }
+        };
+      } else if (el.tagName === 'INPUT' && el.type === 'range') {
+        const row = el.closest('div, label');
+        const rawLbl =
+          el.dataset.vrLabel ||
+          row?.querySelector('label, span, strong')?.textContent ||
+          el.title ||
+          el.id ||
+          'Réglage';
+        const shortLbl = rawLbl.replace(/\s+/g, ' ').trim().slice(0, 18);
+        const step = parseFloat(el.step || '1') || 1;
+        const min = el.min !== '' ? parseFloat(el.min) : 0;
+        const max = el.max !== '' ? parseFloat(el.max) : 100;
+        const curVal = parseFloat(el.value || String(min)) || 0;
+        list.push({
+          kind: 'slider',
+          id: `rng_${el.id || idx++}`,
+          label: shortLbl,
+          min,
+          max,
+          step,
+          value: curVal,
+          formatVal: (v) => {
+            if (el.dataset.vrUnit) return `${v}${el.dataset.vrUnit}`;
+            return `${Math.round(v * 10) / 10}`;
+          },
+          onSetValue: (nextVal) => {
+            el.value = String(nextVal);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            extractDrawerControls();
+            syncVrPanel();
+          }
+        });
+      } else {
+        const lbl = (el.dataset.vrLabel || el.textContent || 'Option').replace(/\s+/g, ' ').trim().slice(0, 26);
+        if (!lbl) return;
+        const isActive =
+          el.classList.contains('active') ||
+          el.classList.contains('selected') ||
+          el.getAttribute('aria-pressed') === 'true' ||
+          el.dataset.active === '1';
         list.push({
           id: `btn_${idx++}`,
           label: lbl,
-          active: el.classList.contains('active') || el.getAttribute('aria-pressed') === 'true',
+          active: isActive,
           disabled: Boolean(el.disabled),
           onClick: () => {
             el.click();
@@ -787,45 +873,23 @@ export function createWorkbench3D(container, options = {}) {
             syncVrPanel();
           }
         });
-      } else if (el.tagName === 'INPUT' && el.type === 'range') {
-        const row = el.closest('div, label');
-        const rawLbl =
-          row?.querySelector('label, span, strong')?.textContent ||
-          el.title ||
-          el.id ||
-          'Réglage';
-        const shortLbl = rawLbl.replace(/\s+/g, ' ').trim().slice(0, 12);
-        const step = parseFloat(el.step || '1') || 1;
-        const min = el.min !== '' ? parseFloat(el.min) : 0;
-        const max = el.max !== '' ? parseFloat(el.max) : 100;
-        const span = max - min;
-        const delta = span > 30 && step === 1 ? Math.round(span / 10) : step;
-        const curVal = parseFloat(el.value || '0') || 0;
-        const nudge = (dir) => {
-          const cur = parseFloat(el.value || '0') || 0;
-          const next = Math.max(min, Math.min(max, cur + dir * delta));
-          el.value = String(next);
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          extractDrawerControls();
-          syncVrPanel();
-        };
-        list.push({
-          id: `rng_m_${idx}`,
-          label: `➖ ${shortLbl}`,
-          active: false,
-          onClick: () => nudge(-1)
-        });
-        list.push({
-          id: `rng_p_${idx}`,
-          label: `➕ ${shortLbl}:${Math.round(curVal * 10) / 10}`,
-          active: false,
-          onClick: () => nudge(1)
-        });
-        idx++;
       }
     });
     vrState.drawerControls = list;
+    vrState.textInput = foundTextInput;
+
+    const autoTerm = [];
+    const termBox = sideDrawerEl.querySelector('#cli-history, #cli-output, .cli-history, .terminal-log');
+    if (termBox) {
+      const lines = (termBox.innerText || termBox.textContent || '')
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      autoTerm.push(...lines.slice(-4));
+    }
+    if (autoTerm.length > 0 && vrState.terminalLines.length === 0) {
+      vrState.terminalLines = autoTerm;
+    }
   };
 
   const stepEffects = (dt) => {
@@ -959,6 +1023,14 @@ export function createWorkbench3D(container, options = {}) {
         orbitPitch = 0;
         zoomFactor = 1.0;
       }
+      vrState.cameraPose = {
+        pos: [pos[0], pos[1], pos[2]],
+        lookAt: [lookAt[0], lookAt[1], lookAt[2]],
+        fov
+      };
+      if (vrActive) {
+        vrBridge?.onCameraPresetChange?.(vrState.cameraPose);
+      }
     },
     resetCameraView: () => {
       targetCamPos.copy(baseCamPos);
@@ -967,6 +1039,14 @@ export function createWorkbench3D(container, options = {}) {
       orbitYaw = 0;
       orbitPitch = 0;
       zoomFactor = 1.0;
+      vrState.cameraPose = {
+        pos: baseCamPos.toArray(),
+        lookAt: baseLookAt.toArray(),
+        fov: targetFov
+      };
+      if (vrActive) {
+        vrBridge?.onCameraPresetChange?.(vrState.cameraPose);
+      }
     },
     setInstruction: (badge, title, subtext = '') => {
       briefBadgeEl.textContent = badge;
@@ -979,8 +1059,10 @@ export function createWorkbench3D(container, options = {}) {
     },
     setAccuracy: (text) => {
       accValEl.textContent = text;
-      vrState.accuracy = text;
-      syncVrPanel();
+      if (vrState.accuracy !== text) {
+        vrState.accuracy = text;
+        syncVrPanel();
+      }
     },
     setCameras: (views, activeId, onSelect) => {
       camerasEl.innerHTML = '';
@@ -995,6 +1077,15 @@ export function createWorkbench3D(container, options = {}) {
         });
         camerasEl.appendChild(b);
       });
+      vrState.cameras = views.map((v) => ({ id: v.id, label: v.label }));
+      vrState.activeCamIdx = Math.max(0, views.findIndex((v) => v.id === activeId));
+      vrState.onSelectCamera = (idx) => {
+        const view = views[idx];
+        if (!view) return;
+        sfx.click();
+        onSelect?.(view.id);
+      };
+      syncVrPanel();
     },
     setTools: (tools, activeId, onSelect) => {
       toolsEl.innerHTML = '';
@@ -1060,6 +1151,14 @@ export function createWorkbench3D(container, options = {}) {
       extractDrawerControls();
       syncVrPanel();
     },
+    setVrExtras: (extras = {}) => {
+      if (extras.sliders !== undefined) vrState.vrSliders = extras.sliders || [];
+      if (extras.buttons !== undefined) vrState.vrButtons = extras.buttons || [];
+      if (extras.cliPresets !== undefined) vrState.cliPresets = extras.cliPresets || [];
+      if (extras.terminalLines !== undefined) vrState.terminalLines = extras.terminalLines || [];
+      if (extras.statusLines !== undefined) vrState.statusLines = extras.statusLines || [];
+      syncVrPanel();
+    },
     resetInteractionState,
     showToast: (msg, kind = 'info') => {
       if (toastTimer) clearTimeout(toastTimer);
@@ -1105,6 +1204,11 @@ export function createWorkbench3D(container, options = {}) {
       for (const pr of pulseRings) pr.mat.dispose();
       envTarget?.dispose?.();
       scene.traverse((obj) => {
+        let cur = obj;
+        while (cur) {
+          if (cur.name === 'vr-rig' || cur.userData?.__isVrRig) return;
+          cur = cur.parent;
+        }
         if (obj.geometry) obj.geometry.dispose();
         if (obj.material) {
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
