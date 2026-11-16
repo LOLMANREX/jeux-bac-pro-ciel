@@ -1,5 +1,65 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { resolveAscensionSpecialty } from './AvatarBuilder.js';
+
+export function computeAscensionGatheringLayout(
+  teacherPos = { x: -3.35, z: -1.35 },
+  winnerId = null,
+  peerIds = []
+) {
+  const tx = Number.isFinite(Number(teacherPos?.x)) ? Number(teacherPos.x) : -3.35;
+  const tz = Number.isFinite(Number(teacherPos?.z)) ? Number(teacherPos.z) : -1.35;
+  const stageCenter = {
+    x: Number((tx - 0.4).toFixed(2)),
+    z: Number((tz + 0.05).toFixed(2))
+  };
+  const winnerSpot = {
+    id: winnerId,
+    role: 'winner',
+    x: Number((tx - 0.8).toFixed(2)),
+    y: 0,
+    z: Number((tz + 0.1).toFixed(2)),
+    yaw: Math.PI,
+    lookAt: { x: stageCenter.x, z: Number((stageCenter.z + 2.0).toFixed(2)) }
+  };
+
+  const spectators = (Array.isArray(peerIds) ? peerIds : []).filter(
+    (id) => id && id !== winnerId
+  );
+  const count = spectators.length;
+  const spectatorSpots = spectators.map((id, idx) => {
+    const row = Math.floor(idx / 6);
+    const idxInRow = idx % 6;
+    const countInRow = Math.min(6, count - row * 6);
+    const angle =
+      countInRow <= 1 ? 0 : -0.72 + (idxInRow / (countInRow - 1)) * 1.44;
+    const radius = 1.85 + row * 0.6;
+    const rawX = stageCenter.x + Math.sin(angle) * radius;
+    const rawZ = stageCenter.z + Math.cos(angle) * radius;
+    const sx = Number(Math.max(-5.2, Math.min(-2.72, rawX)).toFixed(2));
+    const sz = Number(Math.max(-0.35, Math.min(1.6, rawZ)).toFixed(2));
+    const dx = stageCenter.x - sx;
+    const dz = stageCenter.z - sz;
+    const yaw = Number(Math.atan2(-dx, -dz).toFixed(3));
+    return {
+      id,
+      role: 'spectator',
+      x: sx,
+      y: 0,
+      z: sz,
+      yaw,
+      lookAt: { ...stageCenter }
+    };
+  });
+
+  return {
+    teacherPos: { x: tx, y: 0, z: tz },
+    stageCenter,
+    winnerSpot,
+    spectatorSpots,
+    placements: [winnerSpot, ...spectatorSpots]
+  };
+}
 
 export function createWorldCelebrationRig(scene) {
   const root = new THREE.Group();
@@ -78,6 +138,65 @@ export function createWorldCelebrationRig(scene) {
     });
   });
 
+  const beamGroup = new THREE.Group();
+  beamGroup.name = 'ascension-vertical-beam';
+  beamGroup.position.set(-4.15, 0, -1.25);
+  root.add(beamGroup);
+
+  const innerBeamMat = new THREE.MeshBasicMaterial({
+    color: '#fde047',
+    transparent: true,
+    opacity: 0.52,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const outerBeamMat = new THREE.MeshBasicMaterial({
+    color: '#22d3ee',
+    transparent: true,
+    opacity: 0.28,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const innerBeam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.45, 0.55, 4.6, 24, 1, true),
+    innerBeamMat
+  );
+  innerBeam.position.y = 2.3;
+  beamGroup.add(innerBeam);
+
+  const outerBeam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.82, 0.95, 4.6, 24, 1, true),
+    outerBeamMat
+  );
+  outerBeam.position.y = 2.3;
+  beamGroup.add(outerBeam);
+
+  const groundCircleMat = new THREE.MeshBasicMaterial({
+    color: '#fde047',
+    transparent: true,
+    opacity: 0.78,
+    side: THREE.DoubleSide
+  });
+  const groundCircle = new THREE.Mesh(
+    new THREE.RingGeometry(0.55, 0.96, 32),
+    groundCircleMat
+  );
+  groundCircle.rotation.x = -Math.PI / 2;
+  groundCircle.position.y = 0.03;
+  beamGroup.add(groundCircle);
+
+  const ascendingRings = [];
+  for (let r = 0; r < 3; r++) {
+    const rMesh = new THREE.Mesh(
+      new THREE.TorusGeometry(0.68 - r * 0.08, 0.024, 10, 32),
+      r % 2 === 0 ? innerBeamMat : outerBeamMat
+    );
+    rMesh.rotation.x = Math.PI / 2;
+    rMesh.position.y = 0.3 + r * 1.1;
+    beamGroup.add(rMesh);
+    ascendingRings.push({ mesh: rMesh, offset: r * 1.25 });
+  }
+
   const goldLightA = new THREE.PointLight('#fbbf24', 0, 18);
   goldLightA.position.set(-3.5, 3.4, 0.5);
   root.add(goldLightA);
@@ -96,26 +215,56 @@ export function createWorldCelebrationRig(scene) {
   let remaining = 0;
   let duration = 8;
   let localElapsed = 0;
+  let levitationOffset = 0;
+  let levitationDuration = 3.8;
+  let currentSpecialty = resolveAscensionSpecialty('cyber');
+  let targetAvatar = null;
 
   const trigger = (opts = {}) => {
     duration = Math.max(1, Number(opts.duration) || 8);
+    levitationDuration = Math.min(duration, Math.max(1.5, Number(opts.levitationDuration) || 3.8));
     remaining = duration;
     localElapsed = 0;
+    levitationOffset = 0;
     active = true;
     root.visible = true;
+    beamGroup.visible = true;
+    currentSpecialty = resolveAscensionSpecialty(opts.specialty || 'cyber');
+    targetAvatar = opts.targetAvatar || null;
+
+    innerBeamMat.color.set('#fde047');
+    outerBeamMat.color.set(currentSpecialty.primaryColor);
+    groundCircleMat.color.set(currentSpecialty.secondaryColor);
+    cyanLight.color.set(currentSpecialty.primaryColor);
+
     if (opts.center && Number.isFinite(Number(opts.center.x)) && Number.isFinite(Number(opts.center.z))) {
-      root.position.set(Number(opts.center.x) * 0.15, 0, Number(opts.center.z) * 0.15);
+      const cx = Number(opts.center.x);
+      const cz = Number(opts.center.z);
+      root.position.set(cx * 0.15, 0, cz * 0.15);
+      beamGroup.position.set(cx - root.position.x, 0, cz - root.position.z);
     } else {
       root.position.set(0, 0, 0);
+      beamGroup.position.set(-4.15, 0, -1.25);
     }
     return {
       active: true,
       duration,
+      specialty: currentSpecialty.id,
+      hasLightBeam: true,
       particleCount: rainItems.length,
       fireworkCount: bursts.length,
       lightCount: dynamicLights.length
     };
   };
+
+  const triggerAscension = (opts = {}) =>
+    trigger({
+      duration: opts.duration || 8,
+      levitationDuration: opts.levitationDuration || 3.8,
+      specialty: opts.specialty || 'cyber',
+      center: opts.center || { x: -4.15, z: -1.25 },
+      targetAvatar: opts.targetAvatar || null
+    });
 
   const update = (dt = 0.016, _elapsed = 0) => {
     if (!active) return false;
@@ -124,12 +273,47 @@ export function createWorldCelebrationRig(scene) {
     if (remaining <= 0) {
       active = false;
       remaining = 0;
+      levitationOffset = 0;
       root.visible = false;
+      beamGroup.visible = false;
+      if (targetAvatar?.group) {
+        targetAvatar.group.position.y = 0;
+      }
+      targetAvatar = null;
       for (const l of dynamicLights) l.intensity = 0;
       return false;
     }
 
     const fade = remaining < 1.2 ? Math.max(0, remaining / 1.2) : 1;
+
+    if (localElapsed < levitationDuration) {
+      const p = localElapsed / levitationDuration;
+      const env = Math.sin(p * Math.PI);
+      levitationOffset = env * 1.25 + Math.sin(localElapsed * 6.0) * 0.06 * env;
+    } else {
+      levitationOffset = 0;
+    }
+    if (targetAvatar?.group) {
+      targetAvatar.group.position.y = levitationOffset;
+    }
+
+    const beamAlpha = localElapsed < levitationDuration + 1.2
+      ? fade
+      : Math.max(0, 1 - (localElapsed - (levitationDuration + 1.2)) / 2.0) * fade;
+    beamGroup.visible = beamAlpha > 0.02;
+    if (beamGroup.visible) {
+      const pulse = 0.92 + Math.sin(localElapsed * 8.0) * 0.12;
+      innerBeam.scale.set(pulse, 1, pulse);
+      outerBeam.scale.set(1.05 - (pulse - 0.92), 1, 1.05 - (pulse - 0.92));
+      innerBeamMat.opacity = 0.52 * beamAlpha;
+      outerBeamMat.opacity = 0.28 * beamAlpha;
+      groundCircle.rotation.z = localElapsed * 2.2;
+      groundCircleMat.opacity = 0.78 * beamAlpha;
+      for (const ar of ascendingRings) {
+        ar.mesh.position.y = 0.15 + ((ar.offset + localElapsed * 1.85) % 4.1);
+        ar.mesh.rotation.z = -localElapsed * 2.5;
+      }
+    }
 
     for (const item of rainItems) {
       const y = 4.6 - ((item.yOffset + localElapsed * item.speedY) % 4.4);
@@ -157,9 +341,9 @@ export function createWorldCelebrationRig(scene) {
       }
     }
 
-    goldLightA.intensity = (2.2 + Math.sin(localElapsed * 7.5) * 1.1) * fade;
-    cyanLight.intensity = (2.0 + Math.cos(localElapsed * 6.8) * 1.0) * fade;
-    goldLightB.intensity = (2.1 + Math.sin(localElapsed * 8.4 + 1.2) * 1.1) * fade;
+    goldLightA.intensity = (2.4 + Math.sin(localElapsed * 7.5) * 1.1) * fade;
+    cyanLight.intensity = (2.2 + Math.cos(localElapsed * 6.8) * 1.0) * fade;
+    goldLightB.intensity = (2.3 + Math.sin(localElapsed * 8.4 + 1.2) * 1.1) * fade;
     goldLightA.position.x = -3.5 + Math.sin(localElapsed * 2.1) * 3.0;
     cyanLight.position.x = 3.2 + Math.cos(localElapsed * 2.3) * 3.0;
     goldLightB.position.z = 2.0 + Math.sin(localElapsed * 1.9) * 3.2;
@@ -169,13 +353,20 @@ export function createWorldCelebrationRig(scene) {
 
   return {
     root,
+    beamGroup,
+    innerBeam,
+    outerBeam,
+    groundCircle,
+    ascendingRings,
     rainItems,
     bursts,
     dynamicLights,
     trigger,
+    triggerAscension,
     update,
     isActive: () => active,
-    getRemaining: () => remaining
+    getRemaining: () => remaining,
+    getLevitationOffset: () => levitationOffset
   };
 }
 
@@ -357,6 +548,41 @@ export class SceneManager {
 
   triggerWorldCelebration(options = {}) {
     return this.celebrationRig?.trigger(options);
+  }
+
+  triggerAscension(options = {}) {
+    return this.celebrationRig?.triggerAscension(options);
+  }
+
+  getAscensionLevitation() {
+    return this.celebrationRig?.getLevitationOffset() || 0;
+  }
+
+  applyCinematicShot(phase = 'dialogue', elapsed = 0, teacherPos = { x: -3.35, z: -1.35 }, winnerPos = { x: -4.15, z: -1.25 }) {
+    const tx = Number.isFinite(Number(teacherPos?.x)) ? Number(teacherPos.x) : -3.35;
+    const tz = Number.isFinite(Number(teacherPos?.z)) ? Number(teacherPos.z) : -1.35;
+    const wx = Number.isFinite(Number(winnerPos?.x)) ? Number(winnerPos.x) : tx - 0.8;
+    const wz = Number.isFinite(Number(winnerPos?.z)) ? Number(winnerPos.z) : tz + 0.1;
+    const midX = (tx + wx) * 0.5;
+    const midZ = (tz + wz) * 0.5;
+
+    if (phase === 'ascension') {
+      const lev = this.getAscensionLevitation();
+      const orbitAngle = Math.sin(elapsed * 0.9) * 0.52;
+      const camX = wx + Math.sin(orbitAngle) * 1.95;
+      const camZ = wz + Math.cos(orbitAngle) * 1.95;
+      const camY = 1.42 + lev * 0.35;
+      this.camera.position.set(camX, camY, camZ);
+      this.camera.lookAt(wx, 1.35 + lev * 0.85, wz);
+      return;
+    }
+
+    const sway = Math.sin(elapsed * 0.55) * 0.42;
+    const camX = midX + sway;
+    const camY = 1.68 + Math.cos(elapsed * 0.45) * 0.06;
+    const camZ = midZ + 2.15;
+    this.camera.position.set(camX, camY, camZ);
+    this.camera.lookAt(midX, 1.38, midZ);
   }
 
   updateCelebration(dt, elapsed = 0) {

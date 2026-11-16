@@ -110,7 +110,7 @@ export function createGameServer(options = {}) {
   app.post('/api/tp', handleRecordTpScore);
 
   app.post('/api/celebration', (req, res) => {
-    const { name, room, tpId, tpLabel, debug } = req.body || {};
+    const { name, room, tpId, tpLabel, specialty, debug } = req.body || {};
     if (!name) {
       return res.status(400).json({ error: 'Pseudo requis' });
     }
@@ -122,18 +122,35 @@ export function createGameServer(options = {}) {
       room: room || 'plateau-u300',
       tpId: tpId || 'oscilloscope',
       tpLabel,
+      specialty,
       reason: isPrivateDebugRoom(room) ? 'debug' : 'creator'
     });
     return res.json({ ok: true, celebration });
   });
 
+  app.post('/api/celebration/ascend', (req, res) => {
+    const { name, room, specialty, celebrationId } = req.body || {};
+    if (!name) {
+      return res.status(400).json({ error: 'Pseudo requis' });
+    }
+    const ascension = wsHub.triggerAscension({
+      playerName: name,
+      room: room || 'plateau-u300',
+      specialty: specialty || 'cyber',
+      celebrationId
+    });
+    return res.json({ ok: true, ascension });
+  });
+
   app.post('/api/debug/validate-all', (req, res) => {
-    const { name, skin } = req.body || {};
+    const { name, skin, room, triggerCelebration } = req.body || {};
     if (!name) {
       return res.status(400).json({ error: 'Pseudo requis' });
     }
     const result = store.validateAllTps(name, skin);
-    return res.json({ ok: true, ...result });
+    const celebration =
+      triggerCelebration === false ? null : wsHub.notifyValidateAll(name, result, room);
+    return res.json({ ok: true, ...result, celebration });
   });
 
   app.post('/api/debug/reset', (req, res) => {

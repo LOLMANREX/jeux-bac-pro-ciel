@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.7 - Cinématique Mondiale 20/20, Pouvoirs Exclusifs & Serveur Privé Debug';
+    : "v4.8 - Cinématique d'Ascension Dieu du Bac Pro CIEL & Skins Dynamiques";
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.7 — Cinématique Mondiale 20/20, Pouvoirs Exclusifs & Serveur Privé Debug',
+    version: "v4.8 — Cinématique d'Ascension Dieu du Bac Pro CIEL & Skins Dynamiques",
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Cinématique 3D scénarisée et synchronisée en multijoueur autour du Professeur CIEL : déclenchée dès qu’un élève valide tous les TPs à 20/20 (ou via le Pouvoir Créateur Louis / Serveur Privé Debug), verrouillant temporairement les déplacements libres et téléportant l’élève lauréat à côté du Professeur CIEL avec tous les camarades rassemblés en demi-cercle.',
+      'Dialogue interactif solennel du Professeur CIEL (« Quel a été ton TP préféré durant ton parcours ? ») avec 4 boutons de spécialités réservés à l’élève célébré (Cybersécurité & Pentest, Réseaux & Fibre Optique, Électronique & Soudure, Systèmes & Serveurs Linux), compte à rebours de secours de 15s et message d’attente temps réel pour les spectateurs.',
+      'Ascension « Dieu du Bac Pro CIEL » : faisceau de lumière vertical 3D, lévitation temporaire de l’élève au centre, explosion de particules dorées/cyan, annonce HUD (« ⚡ ASCENSION : [Pseudo] devient un DIEU DU BAC PRO CIEL ([TP choisi]) ! ⚡ »), fanfare Web Audio API et bouton « 👏 Applaudir » actif pendant 8 secondes à la reprise du contrôle.',
+      'Skins Divins 3D exclusifs par spécialité (Cyber, Réseaux, Électronique, Systèmes) : armure holographique/néon, couronne énergétique, ailes et aura divine + accessoires 3D orbitaux thématiques synchronisés en temps réel (AvatarBuilder & RemotePlayers) uniquement en mémoire pour la session multijoueur en cours (sans persistance casier/localStorage).'
+    ]
+  },
+  {
+    version: 'v4.7 — Cinématique Mondiale 20/20, Pouvoirs Exclusifs & Serveur Privé Debug',
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Cinématique Mondiale 20/20 : lorsqu’un élève décroche 20/20 à un TP 3D, diffusion réseau à toute la salle avec bannière HUD dorée animée (« 🏆 EXPLOIT CIEL : [Pseudo] a décroché 20/20 au TP [Nom du TP] ! »), feux d’artifice 3D, pluie de particules dorées/cyan, éclairages dynamiques et applaudissements synthétisés en Web Audio API.',
       'Action rapide « 👏 Applaudir » affichée pendant 8 secondes dans le HUD lors d’un 20/20 pour permettre aux camarades d’envoyer des émojis festifs au-dessus de leur avatar 3D.',

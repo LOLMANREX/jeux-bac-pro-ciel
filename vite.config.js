@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.7 - Cinématique Mondiale 20/20, Pouvoirs Exclusifs & Serveur Privé Debug'),
+    __APP_VERSION__: JSON.stringify("v4.8 - Cinématique d'Ascension Dieu du Bac Pro CIEL & Skins Dynamiques"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

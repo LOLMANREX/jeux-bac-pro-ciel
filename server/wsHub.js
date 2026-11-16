@@ -1,9 +1,16 @@
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
+import {
+  ASCENSION_SPECIALTIES,
+  applySessionDivineSkin,
+  resolveAscensionSpecialty
+} from '../src/world/AvatarBuilder.js';
+import { computeAscensionGatheringLayout } from '../src/world/SceneManager.js';
 import { sanitizeName, sanitizeSkin, ALL_TP_IDS, TP_IDS, TP_LABELS } from './store.js';
 
 const DEFAULT_ROOMS = ['plateau-u300', 'salle-reseau'];
 export const PRIVATE_DEBUG_PREFIX = 'priv-debug';
+export { ASCENSION_SPECIALTIES, resolveAscensionSpecialty };
 
 export function isPrivateDebugRoom(rawRoom) {
   return String(rawRoom || '')
@@ -21,11 +28,27 @@ export function isCreatorPseudo(rawName) {
   );
 }
 
+export function hasAllTpsAt20(profile) {
+  if (!profile || !profile.grades || typeof profile.grades !== 'object') return false;
+  return TP_IDS.every((id) => Number(profile.grades[id]) >= 20);
+}
+
 export function formatCelebrationBanner(playerName, rawTpLabel) {
   const cleanName = sanitizeName(playerName || 'Eleve_CIEL');
   const rawTp = String(rawTpLabel || 'Oscilloscope & Diagnostic 3D').trim();
   const cleanTp = rawTp.replace(/^TP\s+/i, '').trim() || 'Oscilloscope & Diagnostic 3D';
   return `🏆 EXPLOIT CIEL : ${cleanName} a décroché 20/20 au TP ${cleanTp} !`;
+}
+
+export function formatSpectatorWaitText(playerName) {
+  const cleanName = sanitizeName(playerName || 'Eleve_CIEL');
+  return `⏳ ${cleanName} choisit sa spécialité auprès du Professeur CIEL...`;
+}
+
+export function formatAscensionBanner(playerName, rawSpecialty) {
+  const cleanName = sanitizeName(playerName || 'Eleve_CIEL');
+  const spec = resolveAscensionSpecialty(rawSpecialty);
+  return `⚡ ASCENSION : ${cleanName} devient un DIEU DU BAC PRO CIEL (${spec.label}) ! ⚡`;
 }
 
 function sanitizeRoom(raw) {
@@ -52,6 +75,7 @@ export function attachWsHub(httpServer, store) {
   });
   const clients = new Map();
   const roomChats = new Map();
+  const roomCelebrations = new Map();
 
   function resolveUniqueSessionName(rawName, currentWs) {
     const clean = sanitizeName(rawName);
@@ -283,25 +307,175 @@ export function attachWsHub(httpServer, store) {
     const tpId = opts.tpId && ALL_TP_IDS.includes(opts.tpId) ? opts.tpId : 'oscilloscope';
     const tpLabel = opts.tpLabel || TP_LABELS[tpId] || 'TP Oscilloscope & Diagnostic 3D';
     const cleanTpName = String(tpLabel).replace(/^TP\s+/i, '').trim() || 'Oscilloscope & Diagnostic 3D';
-    const playerName = sanitizeName(opts.playerName || 'Eleve_CIEL');
+    const roomPeers = getRoomPeers(targetRoom, null);
+    let winnerPeer = null;
+    if (opts.playerId) {
+      winnerPeer = roomPeers.find((p) => p.state.id === opts.playerId) || null;
+    }
+    if (!winnerPeer && opts.playerName) {
+      const targetKey = sanitizeName(opts.playerName).toLowerCase();
+      winnerPeer = roomPeers.find((p) => p.state.name?.toLowerCase() === targetKey) || null;
+    }
+    if (!winnerPeer && roomPeers.length > 0) {
+      winnerPeer = roomPeers[0];
+    }
+
+    const winnerId = winnerPeer ? winnerPeer.state.id : opts.playerId || null;
+    const playerName = sanitizeName(winnerPeer?.state?.name || opts.playerName || 'Eleve_CIEL');
     const bannerText = formatCelebrationBanner(playerName, cleanTpName);
+    const peerIds = roomPeers.map((p) => p.state.id);
+    const layout = computeAscensionGatheringLayout(
+      opts.teacherPos || { x: -3.35, z: -1.35 },
+      winnerId,
+      peerIds
+    );
+
+    const placementById = new Map(layout.placements.map((pl) => [pl.id, pl]));
+    for (const { state: pState } of roomPeers) {
+      const pl = placementById.get(pState.id);
+      if (!pl) continue;
+      pState.x = pl.x;
+      pState.y = pl.y;
+      pState.z = pl.z;
+      pState.yaw = pl.yaw;
+      broadcastToRoom(
+        targetRoom,
+        {
+          type: 'player_moved',
+          id: pState.id,
+          x: pState.x,
+          y: pState.y,
+          z: pState.z,
+          yaw: pState.yaw,
+          vrData: pState.vrData
+        },
+        null
+      );
+    }
+
+    const celebrationId = crypto.randomUUID().slice(0, 8);
     const payload = {
       type: 'world_celebration',
-      id: crypto.randomUUID().slice(0, 8),
+      cinematic: 'ascension_20',
+      phase: 'dialogue',
+      id: celebrationId,
       room: targetRoom,
-      playerId: opts.playerId || null,
+      playerId: winnerId,
       playerName,
       tpId,
       tpLabel,
       tpName: cleanTpName,
       score: 20,
       durationMs: 8000,
-      reason: opts.reason || 'tp_20',
+      choiceTimeoutMs: 15000,
+      applaudDurationMs: 8000,
+      reason: opts.reason || 'all_tps_20',
       bannerText,
+      dialogueText: `Silence dans l'atelier ! Félicitations solennelles à ${playerName} devant toute la classe pour son 20/20 intégral au Bac Pro CIEL !`,
+      questionText: 'Quel a été ton TP préféré durant ton parcours ?',
+      spectatorWaitText: formatSpectatorWaitText(playerName),
+      teacherPos: layout.teacherPos,
+      stageCenter: layout.stageCenter,
+      winnerSpot: layout.winnerSpot,
+      spectatorSpots: layout.spectatorSpots,
+      placements: layout.placements,
+      specialties: ASCENSION_SPECIALTIES.map((s) => ({
+        id: s.id,
+        label: s.label,
+        shortLabel: s.shortLabel,
+        icon: s.icon
+      })),
       at: new Date().toISOString()
     };
+
+    roomCelebrations.set(targetRoom, {
+      id: celebrationId,
+      room: targetRoom,
+      playerId: winnerId,
+      playerName,
+      winnerSpot: layout.winnerSpot
+    });
+
     broadcastToRoom(targetRoom, payload, null);
     return payload;
+  }
+
+  function broadcastAscensionInRoom(roomId, opts = {}) {
+    const targetRoom = sanitizeRoom(roomId || 'plateau-u300');
+    const activeCeleb = roomCelebrations.get(targetRoom) || null;
+    const roomPeers = getRoomPeers(targetRoom, null);
+    const spec = resolveAscensionSpecialty(opts.specialty || opts.tpId || 'cyber');
+
+    let targetPeer = null;
+    const targetId = opts.playerId || activeCeleb?.playerId || null;
+    if (targetId) {
+      targetPeer = roomPeers.find((p) => p.state.id === targetId) || null;
+    }
+    if (!targetPeer && (opts.playerName || activeCeleb?.playerName)) {
+      const targetKey = sanitizeName(opts.playerName || activeCeleb.playerName).toLowerCase();
+      targetPeer = roomPeers.find((p) => p.state.name?.toLowerCase() === targetKey) || null;
+    }
+
+    const playerName = sanitizeName(
+      targetPeer?.state?.name || opts.playerName || activeCeleb?.playerName || 'Eleve_CIEL'
+    );
+    const playerId = targetPeer?.state?.id || targetId || null;
+    const baseSkin = targetPeer?.state?.skin || sanitizeSkin(opts.skin || null);
+    const sessionSkin = applySessionDivineSkin(baseSkin, spec.id);
+
+    if (targetPeer?.state) {
+      targetPeer.state.skin = sessionSkin;
+      targetPeer.state.color = spec.primaryColor;
+      broadcastToRoom(
+        targetRoom,
+        {
+          type: 'player_skin_updated',
+          id: targetPeer.state.id,
+          name: targetPeer.state.name,
+          skin: targetPeer.state.skin,
+          color: targetPeer.state.color,
+          sessionOnly: true
+        },
+        null
+      );
+    }
+
+    const bannerText = formatAscensionBanner(playerName, spec.id);
+    const ascensionPayload = {
+      type: 'world_ascension',
+      id: opts.celebrationId || activeCeleb?.id || crypto.randomUUID().slice(0, 8),
+      room: targetRoom,
+      playerId,
+      playerName,
+      specialty: spec.id,
+      specialtyLabel: spec.label,
+      shortLabel: spec.shortLabel,
+      icon: spec.icon,
+      tpChosen: spec.label,
+      bannerText,
+      skin: sessionSkin,
+      sessionOnly: true,
+      levitationDurationMs: 3800,
+      applaudDurationMs: 8000,
+      durationMs: 8000,
+      center: activeCeleb?.winnerSpot || { x: -4.15, y: 0, z: -1.25 },
+      at: new Date().toISOString()
+    };
+
+    roomCelebrations.delete(targetRoom);
+    broadcastToRoom(targetRoom, ascensionPayload, null);
+
+    const sysMsg = {
+      id: crypto.randomUUID().slice(0, 8),
+      system: true,
+      author: 'Professeur CIEL',
+      text: bannerText,
+      at: new Date().toISOString()
+    };
+    pushChat(targetRoom, sysMsg);
+    broadcastToRoom(targetRoom, { type: 'chat_message', message: sysMsg });
+
+    return ascensionPayload;
   }
 
   function announceScoreInRoom(state, tpId, result, excludeWs = null) {
@@ -346,13 +520,14 @@ export function attachWsHub(httpServer, store) {
       excludeWs
     );
 
-    if (Number(result.score) >= 20) {
+    const allTps20 = hasAllTpsAt20(result.profile);
+    if (allTps20 || Number(result.score) >= 20) {
       broadcastCelebrationInRoom(state.room, {
         playerId: state.id,
         playerName: state.name,
         tpId,
         tpLabel,
-        reason: 'tp_20'
+        reason: allTps20 ? 'all_tps_20' : 'tp_20'
       });
     }
 
@@ -362,11 +537,13 @@ export function attachWsHub(httpServer, store) {
         system: true,
         author: 'Professeur CIEL',
         text:
-          Number(result.score) >= 20
-            ? `🏆 EXPLOIT PARFAIT ! ${state.name} vient de décrocher 20/20 au ${tpLabel} !`
-            : result.profile.diplomaEarned
-              ? `Félicitations à ${state.name} qui décroche le BAC PRO CIEL (${result.profile.average}/20) !`
-              : `Bravo ${state.name} pour son ${result.score}/20 au ${tpLabel} !`,
+          allTps20
+            ? `🏆 20/20 INTÉGRAL ! ${state.name} a validé tous les TPs à 20/20 et accède à la Cérémonie d'Ascension !`
+            : Number(result.score) >= 20
+              ? `🏆 EXPLOIT PARFAIT ! ${state.name} vient de décrocher 20/20 au ${tpLabel} !`
+              : result.profile.diplomaEarned
+                ? `Félicitations à ${state.name} qui décroche le BAC PRO CIEL (${result.profile.average}/20) !`
+                : `Bravo ${state.name} pour son ${result.score}/20 au ${tpLabel} !`,
         at: new Date().toISOString()
       };
       pushChat(state.room, sysMsg);
@@ -645,6 +822,30 @@ export function attachWsHub(httpServer, store) {
           break;
         }
 
+        case 'ascension_choice':
+        case 'choose_specialty':
+        case 'celebration_choice': {
+          if (!state.name) return;
+          const activeCeleb = roomCelebrations.get(state.room);
+          const isWinner =
+            !activeCeleb ||
+            activeCeleb.playerId === state.id ||
+            activeCeleb.playerName?.toLowerCase() === state.name.toLowerCase();
+          const allowed =
+            isWinner ||
+            isCreatorPseudo(state.name) ||
+            isPrivateDebugRoom(state.room) ||
+            Boolean(msg.debug);
+          if (!allowed) return;
+          broadcastAscensionInRoom(state.room, {
+            celebrationId: msg.celebrationId || activeCeleb?.id,
+            playerId: activeCeleb?.playerId || state.id,
+            playerName: activeCeleb?.playerName || state.name,
+            specialty: msg.specialty || msg.tpId || 'cyber'
+          });
+          break;
+        }
+
         case 'creator_aura': {
           if (!state.name) return;
           if (!isCreatorPseudo(state.name) && !isPrivateDebugRoom(state.room)) return;
@@ -706,10 +907,20 @@ export function attachWsHub(httpServer, store) {
               },
               ws
             );
+            if (msg.triggerCelebration !== false) {
+              broadcastCelebrationInRoom(state.room, {
+                playerId: state.id,
+                playerName: state.name,
+                tpId: 'oscilloscope',
+                reason: 'all_tps_20'
+              });
+            }
             broadcastLeaderboard();
           } else if (msg.action === 'reset_progress') {
             const profile = store.resetPlayer(state.name);
             if (profile) {
+              state.skin = sanitizeSkin(profile.skin, profile.color);
+              state.color = profile.color;
               ws.send(JSON.stringify({ type: 'profile_updated', profile }));
               broadcastToRoom(
                 state.room,
@@ -724,6 +935,17 @@ export function attachWsHub(httpServer, store) {
                     rank: profile.rank,
                     rankLabel: profile.rankLabel
                   }
+                },
+                ws
+              );
+              broadcastToRoom(
+                state.room,
+                {
+                  type: 'player_skin_updated',
+                  id: state.id,
+                  name: state.name,
+                  skin: state.skin,
+                  color: state.color
                 },
                 ws
               );
@@ -862,6 +1084,51 @@ export function attachWsHub(httpServer, store) {
     triggerCelebration: (opts = {}) => {
       const room = sanitizeRoom(opts.room || 'plateau-u300');
       return broadcastCelebrationInRoom(room, opts);
+    },
+    triggerAscension: (opts = {}) => {
+      const room = sanitizeRoom(opts.room || 'plateau-u300');
+      return broadcastAscensionInRoom(room, opts);
+    },
+    notifyValidateAll: (name, result, room = '') => {
+      const key = String(name || '').toLowerCase();
+      let celebrated = null;
+      for (const [sock, s] of clients.entries()) {
+        if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
+          broadcastToRoom(
+            s.room,
+            {
+              type: 'player_stats_updated',
+              id: s.id,
+              profile: {
+                xp: result.profile.xp,
+                average: result.profile.average,
+                completedCount: result.profile.completedCount,
+                diplomaEarned: result.profile.diplomaEarned,
+                rank: result.profile.rank,
+                rankLabel: result.profile.rankLabel
+              }
+            },
+            sock
+          );
+          if (!celebrated) {
+            celebrated = broadcastCelebrationInRoom(s.room, {
+              playerId: s.id,
+              playerName: s.name,
+              tpId: 'oscilloscope',
+              reason: 'all_tps_20'
+            });
+          }
+        }
+      }
+      if (!celebrated && room) {
+        celebrated = broadcastCelebrationInRoom(room, {
+          playerName: name,
+          tpId: 'oscilloscope',
+          reason: 'all_tps_20'
+        });
+      }
+      broadcastLeaderboard();
+      return celebrated;
     },
     getEnrichedLeaderboard,
     getAllEnrichedPlayers,

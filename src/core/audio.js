@@ -137,14 +137,27 @@ class SoundEngine {
   }
 
   celebrate20() {
+    this.playAscensionFanfare('cyber');
+  }
+
+  playAscensionFanfare(specialty = 'cyber') {
+    const baseShift =
+      specialty === 'reseaux'
+        ? 1.05
+        : specialty === 'electronique'
+          ? 1.12
+          : specialty === 'systemes'
+            ? 0.96
+            : 1.0;
     const fanfare = [
-      { f: 523.25, t: 0, d: 0.16 },
-      { f: 659.25, t: 95, d: 0.16 },
-      { f: 783.99, t: 190, d: 0.18 },
-      { f: 1046.5, t: 300, d: 0.28 },
-      { f: 783.99, t: 460, d: 0.14 },
-      { f: 1046.5, t: 580, d: 0.36 },
-      { f: 1318.5, t: 760, d: 0.42 }
+      { f: 523.25 * baseShift, t: 0, d: 0.16 },
+      { f: 659.25 * baseShift, t: 95, d: 0.16 },
+      { f: 783.99 * baseShift, t: 190, d: 0.18 },
+      { f: 1046.5 * baseShift, t: 300, d: 0.28 },
+      { f: 783.99 * baseShift, t: 460, d: 0.14 },
+      { f: 1046.5 * baseShift, t: 580, d: 0.36 },
+      { f: 1318.5 * baseShift, t: 760, d: 0.42 },
+      { f: 1567.98 * baseShift, t: 960, d: 0.55 }
     ];
     fanfare.forEach((n) => {
       setTimeout(() => {

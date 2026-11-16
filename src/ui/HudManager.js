@@ -1,7 +1,11 @@
 import { sfx } from '../core/audio.js';
 import { getMention, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import { getStationTeleportInMap, getZoneAtPositionInMap } from '../world/mapSchema.js';
-import { isCreatorLouis, renderSkinPreviewSvg } from '../world/AvatarBuilder.js';
+import {
+  isCreatorLouis,
+  renderSkinPreviewSvg,
+  resolveAscensionSpecialty
+} from '../world/AvatarBuilder.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 import { PlateauMiniMap } from './PlateauMiniMap.js';
 
@@ -9,6 +13,17 @@ export function formatWorldCelebrationBanner(playerName, tpLabel = 'Oscilloscope
   const cleanName = String(playerName || 'Élève').trim() || 'Élève';
   const cleanTp = String(tpLabel || 'Oscilloscope & Diagnostic 3D').replace(/^TP\s+/i, '').trim() || 'Oscilloscope & Diagnostic 3D';
   return `🏆 EXPLOIT CIEL : ${cleanName} a décroché 20/20 au TP ${cleanTp} !`;
+}
+
+export function formatAscensionBanner(playerName, specialtyInput = 'cyber') {
+  const cleanName = String(playerName || 'Élève').trim() || 'Élève';
+  const spec = resolveAscensionSpecialty(specialtyInput);
+  return `⚡ ASCENSION : ${cleanName} devient un DIEU DU BAC PRO CIEL (${spec.label}) ! ⚡`;
+}
+
+export function formatSpectatorWaitMessage(playerName) {
+  const cleanName = String(playerName || 'Élève').trim() || 'Élève';
+  return `⏳ ${cleanName} choisit sa spécialité auprès du Professeur CIEL...`;
 }
 
 export class HudManager {
@@ -72,6 +87,15 @@ export class HudManager {
     this.celebrationApplaudBtn = document.getElementById('btn-celebration-applaud');
     this.celebrationProgressEl = document.getElementById('world-celebration-progress');
     this.celebrationTimer = null;
+
+    this.ascensionDialogueEl = document.getElementById('ascension-cinematic-dialogue');
+    this.ascensionSpeechEl = document.getElementById('ascension-dialogue-speech');
+    this.ascensionQuestionEl = document.getElementById('ascension-dialogue-question');
+    this.ascensionChoicesEl = document.getElementById('ascension-choices-grid');
+    this.ascensionCountdownEl = document.getElementById('ascension-countdown-pill');
+    this.ascensionSpectatorWaitEl = document.getElementById('ascension-spectator-wait');
+    this.ascensionCountdownInterval = null;
+    this.ascensionFallbackTimer = null;
 
     this.privateDebugBadgeEl = document.getElementById('hud-private-debug-badge');
     this.debugPanelEl = document.getElementById('debug-tools-panel');
@@ -333,6 +357,15 @@ export class HudManager {
       this.celebrationApplaudBtn.classList.add('applauded');
       setTimeout(() => this.celebrationApplaudBtn?.classList.remove('applauded'), 350);
       this.handlers.onApplaud?.();
+    });
+
+    this.ascensionChoicesEl?.querySelectorAll('[data-specialty]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        sfx.click();
+        const spec = btn.dataset.specialty || 'cyber';
+        this.hideAscensionDialogue();
+        this.handlers.onSelectAscensionSpecialty?.(spec);
+      });
     });
 
     this.debugCollapseBtn?.addEventListener('click', () => {
@@ -810,12 +843,75 @@ export class HudManager {
   hide() {
     this.closeAllModals();
     this.creatorPowerPopover?.classList.add('hidden');
+    this.hideAscensionDialogue();
     this.hideWorldCelebration();
     this.netErrorBanner?.classList.add('hidden');
     this.orientationHintEl?.classList.add('hidden');
     this.hudEl.classList.add('hidden');
     this.chatDrawer.classList.add('hidden');
     this.interactPromptEl.classList.add('hidden');
+  }
+
+  showAscensionDialogue(payload = {}) {
+    if (!this.ascensionDialogueEl) return;
+    this.hideAscensionDialogue();
+
+    const cleanName = String(payload.playerName || this.gameState.profile?.name || 'Élève').trim() || 'Élève';
+    const isWinner = Boolean(payload.isWinner);
+    const timeoutMs = Math.max(2000, Number(payload.choiceTimeoutMs) || 15000);
+    const defaultSpecialty = payload.defaultSpecialty || payload.tpId || 'cyber';
+    let secLeft = Math.ceil(timeoutMs / 1000);
+
+    if (this.ascensionSpeechEl) {
+      this.ascensionSpeechEl.textContent =
+        payload.dialogueText ||
+        `Silence dans l'atelier ! Félicitations solennelles à ${cleanName} devant toute la classe pour son 20/20 intégral au Bac Pro CIEL !`;
+    }
+    if (this.ascensionQuestionEl) {
+      this.ascensionQuestionEl.textContent =
+        payload.questionText || 'Quel a été ton TP préféré durant ton parcours ?';
+    }
+    if (this.ascensionCountdownEl) {
+      this.ascensionCountdownEl.textContent = `⏱️ ${secLeft}s`;
+    }
+    if (this.ascensionChoicesEl) {
+      this.ascensionChoicesEl.classList.toggle('hidden', !isWinner);
+    }
+    if (this.ascensionSpectatorWaitEl) {
+      this.ascensionSpectatorWaitEl.classList.toggle('hidden', isWinner);
+      this.ascensionSpectatorWaitEl.textContent =
+        payload.spectatorWaitText || formatSpectatorWaitMessage(cleanName);
+    }
+
+    this.ascensionDialogueEl.classList.remove('hidden');
+
+    this.ascensionCountdownInterval = setInterval(() => {
+      secLeft = Math.max(0, secLeft - 1);
+      if (this.ascensionCountdownEl) {
+        this.ascensionCountdownEl.textContent = `⏱️ ${secLeft}s`;
+      }
+    }, 1000);
+
+    this.ascensionFallbackTimer = setTimeout(() => {
+      this.hideAscensionDialogue();
+      if (typeof payload.onTimeout === 'function') {
+        payload.onTimeout(defaultSpecialty);
+      } else if (isWinner) {
+        this.handlers.onSelectAscensionSpecialty?.(defaultSpecialty);
+      }
+    }, timeoutMs);
+  }
+
+  hideAscensionDialogue() {
+    if (this.ascensionCountdownInterval) {
+      clearInterval(this.ascensionCountdownInterval);
+      this.ascensionCountdownInterval = null;
+    }
+    if (this.ascensionFallbackTimer) {
+      clearTimeout(this.ascensionFallbackTimer);
+      this.ascensionFallbackTimer = null;
+    }
+    this.ascensionDialogueEl?.classList.add('hidden');
   }
 
   syncCreatorUi() {

@@ -385,6 +385,14 @@ export class NetworkClient {
     });
   }
 
+  sendAscensionChoice(specialty = 'cyber', celebrationId = '') {
+    return this.send({
+      type: 'ascension_choice',
+      specialty,
+      celebrationId
+    });
+  }
+
   sendCreatorAura(enabled) {
     return this.send({
       type: 'creator_aura',

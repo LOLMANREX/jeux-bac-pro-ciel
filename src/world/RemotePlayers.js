@@ -1,22 +1,33 @@
 import * as THREE from 'three';
 import {
   animateAvatarLimbs,
+  applySessionDivineSkin,
   attachRemoteVrVisuals,
   buildStudentAvatarMesh,
   createVoiceIndicatorSprite,
   disposeObject3D,
   normalizeSkin,
+  resolveAscensionSpecialty,
   updateVoiceIndicatorSprite
 } from './AvatarBuilder.js';
 
 function makeStudentBadge(peer) {
+  if (typeof document === 'undefined') return null;
   const canvas = document.createElement('canvas');
   canvas.width = 540;
   canvas.height = 152;
   const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
 
-  const accent = peer.color || '#22d3ee';
-  const borderCol = peer.diplomaEarned || peer.rank === 1 ? '#fbbf24' : accent;
+  const divineSpec = peer.skin?.divineSpecialty
+    ? resolveAscensionSpecialty(peer.skin.divineSpecialty)
+    : null;
+  const accent = divineSpec ? divineSpec.primaryColor : peer.color || '#22d3ee';
+  const borderCol = divineSpec
+    ? '#fde047'
+    : peer.diplomaEarned || peer.rank === 1
+      ? '#fbbf24'
+      : accent;
 
   ctx.fillStyle = 'rgba(9, 15, 30, 0.9)';
   ctx.strokeStyle = borderCol;
@@ -26,9 +37,10 @@ function makeStudentBadge(peer) {
   ctx.fill();
   ctx.stroke();
 
-  const rankText = peer.rank ? `#${peer.rank}` : 'CIEL';
-  ctx.fillStyle =
-    peer.rank === 1
+  const rankText = divineSpec ? '⚡DIEU' : peer.rank ? `#${peer.rank}` : 'CIEL';
+  ctx.fillStyle = divineSpec
+    ? '#fde047'
+    : peer.rank === 1
       ? '#fbbf24'
       : peer.rank === 2
         ? '#cbd5e1'
@@ -40,7 +52,7 @@ function makeStudentBadge(peer) {
   ctx.fill();
 
   ctx.fillStyle = '#0f172a';
-  ctx.font = '800 22px system-ui, sans-serif';
+  ctx.font = '800 20px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(rankText, 60, 44);
@@ -65,13 +77,16 @@ function makeStudentBadge(peer) {
   ctx.font = 'bold 21px system-ui, sans-serif';
   ctx.fillText(avgText, 463, 44);
 
-  ctx.fillStyle = '#f8fafc';
+  ctx.fillStyle = divineSpec ? '#fef08a' : '#f8fafc';
   ctx.font = 'bold 28px system-ui, sans-serif';
   ctx.textAlign = 'center';
-  const nameLabel = `${peer.name}${peer.diplomaEarned ? ' 🎓' : ''}`;
+  const suffix = divineSpec ? ` ⚡${divineSpec.icon}` : peer.diplomaEarned ? ' 🎓' : '';
+  const nameLabel = `${peer.name}${suffix}`;
   ctx.fillText(nameLabel.slice(0, 20), 253, 46, 300);
 
-  const subRank = peer.rankLabel || 'Apprenti CIEL';
+  const subRank = divineSpec
+    ? `Dieu CIEL (${divineSpec.shortLabel})`
+    : peer.rankLabel || 'Apprenti CIEL';
   const subTp = `${peer.completedCount || 0}/5 TPs`;
   const locText = peer.zoneLabel || 'U300';
   const actPart =
@@ -89,10 +104,12 @@ function makeStudentBadge(peer) {
 }
 
 function makeBubbleTexture(text, { isEmote = false, color = '#22d3ee' } = {}) {
+  if (typeof document === 'undefined') return null;
   const canvas = document.createElement('canvas');
   canvas.width = 520;
   canvas.height = 140;
   const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
 
   ctx.fillStyle = isEmote ? 'rgba(15, 23, 42, 0.95)' : 'rgba(248, 250, 252, 0.96)';
   ctx.strokeStyle = color;
@@ -229,6 +246,8 @@ export class RemotePlayersManager {
       torsoMat: meshData.torsoMat,
       updateEffects: meshData.updateEffects,
       setCreatorAura: meshData.setCreatorAura,
+      setDivineSpecialty: meshData.setDivineSpecialty,
+      hasDivineSkin: meshData.hasDivineSkin,
       _walkPhase: 0,
       badge: null,
       bubble: null,
@@ -239,6 +258,7 @@ export class RemotePlayersManager {
       vrData: p.vrData || null,
       targetPos: new THREE.Vector3(p.x ?? -3.95, Math.max(0, p.y || 0), p.z ?? 0.65),
       targetYaw: p.yaw || 0,
+      levitationOffset: 0,
       horizSpeed: 0
     };
 
@@ -311,11 +331,41 @@ export class RemotePlayersManager {
     peer.torsoMat = meshData.torsoMat;
     peer.updateEffects = meshData.updateEffects;
     peer.setCreatorAura = meshData.setCreatorAura;
+    peer.setDivineSpecialty = meshData.setDivineSpecialty;
+    peer.hasDivineSkin = meshData.hasDivineSkin;
     peer.vrTracker = attachRemoteVrVisuals(peer, nextSkin);
     peer._walkPhase = 0;
 
     this.scene.add(peer.group);
     this._refreshBadge(peer);
+  }
+
+  setDivineSkin(id, specialtyInput) {
+    const peer = this.peers.get(id);
+    if (!peer) return null;
+    const spec = resolveAscensionSpecialty(specialtyInput);
+    const nextSkin = applySessionDivineSkin(peer.skin, spec.id);
+    this.setSkin(id, nextSkin);
+    peer.rankLabel = `Dieu CIEL (${spec.shortLabel})`;
+    this._refreshBadge(peer);
+    return spec;
+  }
+
+  teleportPeer(id, x, y, z, yaw = 0) {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    const ny = Math.max(0, Number(y) || 0);
+    peer.targetPos.set(x, ny, z);
+    peer.targetYaw = Number.isFinite(Number(yaw)) ? Number(yaw) : 0;
+    peer.group.position.set(x, ny + (peer.levitationOffset || 0), z);
+    peer.group.rotation.y = peer.targetYaw + Math.PI;
+    peer.horizSpeed = 0;
+  }
+
+  setLevitation(id, yOffset = 0) {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    peer.levitationOffset = Math.max(0, Number(yOffset) || 0);
   }
 
   setCreatorAura(id, enabled) {
@@ -472,7 +522,8 @@ export class RemotePlayersManager {
 
       peer.group.position.x += dx * smoothXZ;
       peer.group.position.z += dz * smoothXZ;
-      peer.group.position.y += (peer.targetPos.y - peer.group.position.y) * smoothY;
+      const desiredY = peer.targetPos.y + (peer.levitationOffset || 0);
+      peer.group.position.y += (desiredY - peer.group.position.y) * smoothY;
 
       let diff = (peer.targetYaw + Math.PI) - peer.group.rotation.y;
       while (diff > Math.PI) diff -= Math.PI * 2;

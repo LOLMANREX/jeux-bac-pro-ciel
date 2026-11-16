@@ -42,6 +42,101 @@ export const DEFAULT_SKIN = {
   pantsColor: '#1e293b'
 };
 
+export const ASCENSION_SPECIALTIES = [
+  {
+    id: 'cyber',
+    label: 'Cybersécurité & Pentest',
+    shortLabel: 'Cyber',
+    icon: '🛡️',
+    primaryColor: '#f43f5e',
+    secondaryColor: '#22d3ee',
+    armorColor: '#090d16',
+    pantsColor: '#050811',
+    emissiveColor: '#f43f5e',
+    crownColor: '#22d3ee',
+    auraColor: '#f43f5e',
+    aliases: ['cyber', 'antivirus', 'soc', 'pentest', 'cybersecurite']
+  },
+  {
+    id: 'reseaux',
+    label: 'Réseaux & Fibre Optique',
+    shortLabel: 'Réseaux',
+    icon: '🌐',
+    primaryColor: '#38bdf8',
+    secondaryColor: '#34d399',
+    armorColor: '#082f49',
+    pantsColor: '#041e30',
+    emissiveColor: '#38bdf8',
+    crownColor: '#34d399',
+    auraColor: '#38bdf8',
+    aliases: ['reseaux', 'reseau', 'vmvlan', 'patchrack', 'network', 'fibre']
+  },
+  {
+    id: 'electronique',
+    label: 'Électronique & Soudure',
+    shortLabel: 'Électronique',
+    icon: '⚡',
+    primaryColor: '#fbbf24',
+    secondaryColor: '#f97316',
+    armorColor: '#1c1917',
+    pantsColor: '#0f0d0c',
+    emissiveColor: '#f59e0b',
+    crownColor: '#fde047',
+    auraColor: '#fbbf24',
+    aliases: ['electronique', 'soldering', 'oscilloscope', 'electronics', 'soudure', 'brasure']
+  },
+  {
+    id: 'systemes',
+    label: 'Systèmes & Serveurs Linux',
+    shortLabel: 'Systèmes',
+    icon: '🖥️',
+    primaryColor: '#a855f7',
+    secondaryColor: '#10b981',
+    armorColor: '#1e1b4b',
+    pantsColor: '#0f0d26',
+    emissiveColor: '#a855f7',
+    crownColor: '#10b981',
+    auraColor: '#a855f7',
+    aliases: ['systemes', 'systeme', 'hardware', 'linux', 'audiovisual', 'studio', 'serveurs']
+  }
+];
+
+export function resolveAscensionSpecialty(rawInput) {
+  if (!rawInput) return ASCENSION_SPECIALTIES[0];
+  if (typeof rawInput === 'object' && rawInput.id) {
+    return resolveAscensionSpecialty(rawInput.id);
+  }
+  const clean = String(rawInput || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  for (const spec of ASCENSION_SPECIALTIES) {
+    if (spec.id === clean || spec.aliases.includes(clean)) {
+      return spec;
+    }
+    const normLabel = spec.label
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (clean && (normLabel.includes(clean) || clean.includes(spec.id))) {
+      return spec;
+    }
+  }
+  return ASCENSION_SPECIALTIES[0];
+}
+
+export function applySessionDivineSkin(baseSkin = {}, specialtyInput = 'cyber') {
+  const normalized = normalizeSkin(baseSkin);
+  const spec = resolveAscensionSpecialty(specialtyInput);
+  return {
+    ...normalized,
+    outfitColor: spec.primaryColor,
+    outfitStyle: 'cyber',
+    divineSpecialty: spec.id
+  };
+}
+
 export function isCreatorLouis(rawName) {
   return (
     String(rawName || '')
@@ -65,6 +160,9 @@ export function normalizeSkin(rawSkin = {}) {
   };
   if (s.creatorAura) {
     out.creatorAura = true;
+  }
+  if (s.divineSpecialty) {
+    out.divineSpecialty = resolveAscensionSpecialty(s.divineSpecialty).id;
   }
   return out;
 }
@@ -177,6 +275,49 @@ function createThemeMaterials(skin, showcase = null) {
       hairMat: new THREE.MeshStandardMaterial({ color: '#1e1b4b', roughness: 0.75 }),
       trimMat: new THREE.MeshStandardMaterial({ color: '#fbbf24', metalness: 0.9, roughness: 0.15, emissive: '#f59e0b', emissiveIntensity: 1.55 }),
       trimColor: '#fbbf24'
+    };
+  }
+  if (skin.divineSpecialty) {
+    const spec = resolveAscensionSpecialty(skin.divineSpecialty);
+    return {
+      torsoMat: new THREE.MeshStandardMaterial({
+        color: spec.armorColor,
+        metalness: 0.86,
+        roughness: 0.18,
+        emissive: spec.primaryColor,
+        emissiveIntensity: 0.38
+      }),
+      pantsMat: new THREE.MeshStandardMaterial({
+        color: spec.pantsColor || '#090d16',
+        metalness: 0.72,
+        roughness: 0.25,
+        emissive: spec.secondaryColor,
+        emissiveIntensity: 0.22
+      }),
+      shoeMat: new THREE.MeshStandardMaterial({
+        color: spec.primaryColor,
+        metalness: 0.88,
+        roughness: 0.15,
+        emissive: spec.secondaryColor,
+        emissiveIntensity: 0.55
+      }),
+      skinMat: new THREE.MeshStandardMaterial({ color: skin.skinTone, roughness: 0.68 }),
+      hairMat: new THREE.MeshStandardMaterial({
+        color: '#f8fafc',
+        metalness: 0.75,
+        roughness: 0.2,
+        emissive: spec.crownColor,
+        emissiveIntensity: 0.45
+      }),
+      trimMat: new THREE.MeshStandardMaterial({
+        color: spec.primaryColor,
+        metalness: 0.9,
+        roughness: 0.12,
+        emissive: spec.emissiveColor,
+        emissiveIntensity: 2.1
+      }),
+      trimColor: spec.primaryColor,
+      divineSpec: spec
     };
   }
   return {
@@ -755,6 +896,430 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
   };
   const hasCreatorAura = () => Boolean(creatorAuraGroup.visible);
 
+  let currentDivineSpec = skin.divineSpecialty
+    ? resolveAscensionSpecialty(skin.divineSpecialty)
+    : null;
+
+  const divineSkinGroup = new THREE.Group();
+  divineSkinGroup.name = 'divine-ascension-skin';
+  group.add(divineSkinGroup);
+
+  const divineArmorGroup = new THREE.Group();
+  divineArmorGroup.name = 'divine-holographic-armor';
+  divineSkinGroup.add(divineArmorGroup);
+
+  const divineAuraGroup = new THREE.Group();
+  divineAuraGroup.name = 'divine-ascension-aura';
+  divineSkinGroup.add(divineAuraGroup);
+
+  const specialtyAccessoryGroup = new THREE.Group();
+  specialtyAccessoryGroup.name = 'divine-specialty-accessories';
+  divineSkinGroup.add(specialtyAccessoryGroup);
+
+  const energyCrownGroup = new THREE.Group();
+  energyCrownGroup.name = 'divine-energy-crown';
+  energyCrownGroup.position.set(0, 0.42, 0);
+  headGroup.add(energyCrownGroup);
+
+  const divineVisorGroup = new THREE.Group();
+  divineVisorGroup.name = 'divine-holo-visor';
+  headGroup.add(divineVisorGroup);
+
+  let divineDynamicState = null;
+
+  const clearSubGroup = (grp) => {
+    while (grp.children.length > 0) {
+      const child = grp.children[0];
+      grp.remove(child);
+      disposeObject3D(child);
+    }
+  };
+
+  const buildDivineVisuals = (spec) => {
+    clearSubGroup(divineArmorGroup);
+    clearSubGroup(divineAuraGroup);
+    clearSubGroup(specialtyAccessoryGroup);
+    clearSubGroup(energyCrownGroup);
+    clearSubGroup(divineVisorGroup);
+    divineDynamicState = null;
+
+    if (!spec) {
+      divineSkinGroup.visible = false;
+      energyCrownGroup.visible = false;
+      divineVisorGroup.visible = false;
+      return;
+    }
+
+    divineSkinGroup.visible = true;
+    energyCrownGroup.visible = true;
+    divineVisorGroup.visible = true;
+
+    torsoMat.color.set(spec.armorColor);
+    torsoMat.metalness = 0.86;
+    torsoMat.roughness = 0.18;
+    torsoMat.emissive.set(spec.primaryColor);
+    torsoMat.emissiveIntensity = 0.38;
+
+    pantsMat.color.set(spec.pantsColor || '#090d16');
+    pantsMat.metalness = 0.72;
+    pantsMat.roughness = 0.24;
+    pantsMat.emissive.set(spec.secondaryColor);
+    pantsMat.emissiveIntensity = 0.22;
+
+    shoeMat.color.set(spec.primaryColor);
+    shoeMat.metalness = 0.88;
+    shoeMat.roughness = 0.15;
+
+    const primaryNeonMat = new THREE.MeshStandardMaterial({
+      color: spec.primaryColor,
+      emissive: spec.primaryColor,
+      emissiveIntensity: 2.2,
+      metalness: 0.88,
+      roughness: 0.12
+    });
+    const secondaryNeonMat = new THREE.MeshStandardMaterial({
+      color: spec.secondaryColor,
+      emissive: spec.secondaryColor,
+      emissiveIntensity: 2.1,
+      metalness: 0.85,
+      roughness: 0.14
+    });
+    const holoMat = new THREE.MeshBasicMaterial({
+      color: spec.secondaryColor,
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide
+    });
+    const goldDivineMat = new THREE.MeshStandardMaterial({
+      color: '#fde047',
+      emissive: '#fbbf24',
+      emissiveIntensity: 2.0,
+      metalness: 0.92,
+      roughness: 0.1
+    });
+
+    const chestPlate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.51, 0.44, 0.31),
+      new THREE.MeshStandardMaterial({
+        color: spec.armorColor,
+        metalness: 0.9,
+        roughness: 0.15,
+        emissive: spec.primaryColor,
+        emissiveIntensity: 0.45
+      })
+    );
+    chestPlate.position.set(0, 1.14, 0);
+    divineArmorGroup.add(chestPlate);
+
+    const chestCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.095, 0), secondaryNeonMat);
+    chestCore.position.set(0, 1.15, 0.175);
+    divineArmorGroup.add(chestCore);
+
+    const coreRing = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.016, 8, 24), primaryNeonMat);
+    coreRing.position.set(0, 1.15, 0.165);
+    divineArmorGroup.add(coreRing);
+
+    const pauldrons = [];
+    [-0.32, 0.32].forEach((px, idx) => {
+      const pGrp = new THREE.Group();
+      pGrp.position.set(px, 1.38, 0);
+      const mainPlate = new THREE.Mesh(new THREE.OctahedronGeometry(0.15, 0), primaryNeonMat);
+      mainPlate.scale.set(1.2, 0.65, 1.3);
+      pGrp.add(mainPlate);
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.26), secondaryNeonMat);
+      fin.position.set(idx === 0 ? -0.09 : 0.09, 0.08, -0.02);
+      fin.rotation.z = idx === 0 ? 0.38 : -0.38;
+      pGrp.add(fin);
+      divineArmorGroup.add(pGrp);
+      pauldrons.push(pGrp);
+    });
+
+    const wings = [];
+    [-1, 1].forEach((side) => {
+      const wingGrp = new THREE.Group();
+      wingGrp.position.set(side * 0.18, 1.24, -0.17);
+      for (let w = 0; w < 3; w++) {
+        const blade = new THREE.Mesh(
+          new THREE.BoxGeometry(0.46 - w * 0.08, 0.075, 0.022),
+          w % 2 === 0 ? primaryNeonMat : secondaryNeonMat
+        );
+        blade.position.set(side * (0.24 - w * 0.03), 0.12 - w * 0.13, -0.02 * w);
+        blade.rotation.z = side * (0.36 - w * 0.18);
+        wingGrp.add(blade);
+      }
+      divineArmorGroup.add(wingGrp);
+      wings.push({ grp: wingGrp, side });
+    });
+
+    const visorShield = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.1, 0.14), secondaryNeonMat);
+    visorShield.position.set(0, 0.04, 0.165);
+    divineVisorGroup.add(visorShield);
+
+    const crownRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.022, 10, 28), goldDivineMat);
+    crownRing.rotation.x = Math.PI / 2;
+    energyCrownGroup.add(crownRing);
+
+    const innerCrownRing = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.015, 8, 24), secondaryNeonMat);
+    innerCrownRing.rotation.x = Math.PI / 2;
+    innerCrownRing.position.y = 0.05;
+    energyCrownGroup.add(innerCrownRing);
+
+    const crownShards = [];
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const shard = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.045, 0),
+        i % 2 === 0 ? primaryNeonMat : secondaryNeonMat
+      );
+      shard.scale.set(0.75, 1.85, 0.75);
+      shard.position.set(Math.cos(a) * 0.24, 0.08, Math.sin(a) * 0.24);
+      energyCrownGroup.add(shard);
+      crownShards.push({ mesh: shard, baseAngle: a, idx: i });
+    }
+
+    const outerFloorRing = new THREE.Mesh(new THREE.TorusGeometry(0.74, 0.026, 10, 40), primaryNeonMat);
+    outerFloorRing.rotation.x = Math.PI / 2;
+    outerFloorRing.position.y = 0.035;
+    divineAuraGroup.add(outerFloorRing);
+
+    const innerHexRing = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.62, 6), holoMat);
+    innerHexRing.rotation.x = -Math.PI / 2;
+    innerHexRing.position.y = 0.025;
+    divineAuraGroup.add(innerHexRing);
+
+    const orbitRingA = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.016, 8, 32), secondaryNeonMat);
+    orbitRingA.position.y = 1.05;
+    orbitRingA.rotation.x = 1.1;
+    divineAuraGroup.add(orbitRingA);
+
+    const orbitRingB = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.016, 8, 32), goldDivineMat);
+    orbitRingB.position.y = 1.05;
+    orbitRingB.rotation.y = 1.1;
+    divineAuraGroup.add(orbitRingB);
+
+    const divineMotes = [];
+    const moteGeo = new THREE.OctahedronGeometry(0.042, 0);
+    for (let i = 0; i < 20; i++) {
+      const mMesh = new THREE.Mesh(
+        moteGeo,
+        i % 3 === 0 ? goldDivineMat : i % 2 === 0 ? primaryNeonMat : secondaryNeonMat
+      );
+      divineAuraGroup.add(mMesh);
+      divineMotes.push({
+        mesh: mMesh,
+        angle: (i / 20) * Math.PI * 2,
+        radius: 0.52 + (i % 4) * 0.1,
+        speed: 1.7 + (i % 4) * 0.35,
+        yBase: (i / 20) * 2.1
+      });
+    }
+
+    const divineLight = new THREE.PointLight(spec.primaryColor, 1.9, 5.5);
+    divineLight.position.set(0, 1.25, 0);
+    divineAuraGroup.add(divineLight);
+
+    const specialtyOrbiters = [];
+
+    if (spec.id === 'cyber') {
+      const shieldGrp = new THREE.Group();
+      const hexShield = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.025, 6), holoMat);
+      hexShield.rotation.x = Math.PI / 2;
+      shieldGrp.add(hexShield);
+      const shieldBorder = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.022, 8, 6), primaryNeonMat);
+      shieldGrp.add(shieldBorder);
+      const lockCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.065, 0), goldDivineMat);
+      shieldGrp.add(lockCore);
+      specialtyAccessoryGroup.add(shieldGrp);
+      specialtyOrbiters.push({ grp: shieldGrp, radius: 0.68, y: 1.22, speed: 1.6, phase: 0 });
+
+      const pentestDrone = new THREE.Group();
+      const droneCore = new THREE.Mesh(new THREE.IcosahedronGeometry(0.11, 0), secondaryNeonMat);
+      pentestDrone.add(droneCore);
+      const scanCone = new THREE.Mesh(
+        new THREE.ConeGeometry(0.14, 0.28, 8),
+        new THREE.MeshBasicMaterial({ color: spec.primaryColor, transparent: true, opacity: 0.45 })
+      );
+      scanCone.position.y = -0.18;
+      pentestDrone.add(scanCone);
+      specialtyAccessoryGroup.add(pentestDrone);
+      specialtyOrbiters.push({ grp: pentestDrone, radius: 0.68, y: 1.55, speed: 1.6, phase: Math.PI });
+    } else if (spec.id === 'reseaux') {
+      const switchDrone = new THREE.Group();
+      const chassis = new THREE.Mesh(
+        new THREE.BoxGeometry(0.34, 0.11, 0.22),
+        new THREE.MeshStandardMaterial({ color: '#082f49', metalness: 0.85, roughness: 0.2 })
+      );
+      switchDrone.add(chassis);
+      for (let p = 0; p < 5; p++) {
+        const portLed = new THREE.Mesh(
+          new THREE.BoxGeometry(0.035, 0.028, 0.02),
+          p % 2 === 0 ? secondaryNeonMat : goldDivineMat
+        );
+        portLed.position.set(-0.1 + p * 0.05, 0.015, 0.115);
+        switchDrone.add(portLed);
+      }
+      specialtyAccessoryGroup.add(switchDrone);
+      specialtyOrbiters.push({ grp: switchDrone, radius: 0.66, y: 1.48, speed: 1.45, phase: 0 });
+
+      const fiberNode = new THREE.Group();
+      const fiberRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.02, 8, 24), primaryNeonMat);
+      fiberNode.add(fiberRing);
+      const packetSphere = new THREE.Mesh(new THREE.SphereGeometry(0.065, 12, 12), secondaryNeonMat);
+      fiberNode.add(packetSphere);
+      specialtyAccessoryGroup.add(fiberNode);
+      specialtyOrbiters.push({ grp: fiberNode, radius: 0.66, y: 1.15, speed: 1.45, phase: Math.PI });
+    } else if (spec.id === 'electronique') {
+      [-0.22, 0.22].forEach((tx) => {
+        const coilGrp = new THREE.Group();
+        coilGrp.position.set(tx, 1.38, -0.22);
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.048, 0.42, 12), goldDivineMat);
+        coilGrp.add(shaft);
+        for (let r = 0; r < 3; r++) {
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(0.075 - r * 0.01, 0.014, 8, 18), primaryNeonMat);
+          ring.rotation.x = Math.PI / 2;
+          ring.position.y = -0.08 + r * 0.11;
+          coilGrp.add(ring);
+        }
+        const spark = new THREE.Mesh(new THREE.OctahedronGeometry(0.06, 0), secondaryNeonMat);
+        spark.position.y = 0.26;
+        coilGrp.add(spark);
+        specialtyAccessoryGroup.add(coilGrp);
+      });
+
+      const solderRelic = new THREE.Group();
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.24, 10), goldDivineMat);
+      solderRelic.add(handle);
+      const hotTip = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.14, 10), secondaryNeonMat);
+      hotTip.position.y = 0.19;
+      solderRelic.add(hotTip);
+      specialtyAccessoryGroup.add(solderRelic);
+      specialtyOrbiters.push({ grp: solderRelic, radius: 0.66, y: 1.36, speed: 1.7, phase: 0 });
+    } else {
+      const rackPack = new THREE.Group();
+      rackPack.position.set(0, 1.16, -0.21);
+      for (let b = 0; b < 3; b++) {
+        const blade = new THREE.Mesh(
+          new THREE.BoxGeometry(0.38, 0.11, 0.12),
+          new THREE.MeshStandardMaterial({ color: '#1e1b4b', metalness: 0.85, roughness: 0.2 })
+        );
+        blade.position.y = -0.14 + b * 0.14;
+        rackPack.add(blade);
+        const strip = new THREE.Mesh(
+          new THREE.BoxGeometry(0.34, 0.025, 0.02),
+          b % 2 === 0 ? secondaryNeonMat : primaryNeonMat
+        );
+        strip.position.set(0, -0.14 + b * 0.14, -0.065);
+        rackPack.add(strip);
+      }
+      specialtyAccessoryGroup.add(rackPack);
+
+      const kernelCube = new THREE.Group();
+      const outerCube = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.18, 0.18),
+        new THREE.MeshBasicMaterial({ color: spec.secondaryColor, wireframe: true })
+      );
+      kernelCube.add(outerCube);
+      const innerCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.085, 0), primaryNeonMat);
+      kernelCube.add(innerCore);
+      specialtyAccessoryGroup.add(kernelCube);
+      specialtyOrbiters.push({ grp: kernelCube, radius: 0.68, y: 1.42, speed: 1.55, phase: 0 });
+    }
+
+    divineDynamicState = {
+      chestCore,
+      coreRing,
+      pauldrons,
+      wings,
+      crownRing,
+      innerCrownRing,
+      crownShards,
+      outerFloorRing,
+      innerHexRing,
+      orbitRingA,
+      orbitRingB,
+      divineMotes,
+      divineLight,
+      specialtyOrbiters
+    };
+  };
+
+  buildDivineVisuals(currentDivineSpec);
+
+  updaters.push((t) => {
+    if (!divineDynamicState || !divineSkinGroup.visible) return;
+    const st = divineDynamicState;
+    st.chestCore.rotation.y = t * 2.4;
+    st.chestCore.rotation.x = t * 1.5;
+    st.coreRing.rotation.z = -t * 1.8;
+
+    st.pauldrons.forEach((p, idx) => {
+      p.position.y = 1.38 + Math.sin(t * 3.2 + idx) * 0.025;
+    });
+
+    st.wings.forEach((w) => {
+      w.grp.rotation.y = w.side * (0.22 + Math.sin(t * 3.0) * 0.14);
+    });
+
+    energyCrownGroup.position.y = 0.42 + Math.sin(t * 2.8) * 0.035;
+    st.crownRing.rotation.z = t * 1.3;
+    st.innerCrownRing.rotation.z = -t * 2.1;
+    for (const sh of st.crownShards) {
+      const a = sh.baseAngle + t * 1.5;
+      sh.mesh.position.set(
+        Math.cos(a) * 0.24,
+        0.08 + Math.sin(t * 4.0 + sh.idx) * 0.028,
+        Math.sin(a) * 0.24
+      );
+      sh.mesh.rotation.y = -a;
+    }
+
+    st.outerFloorRing.rotation.z = t * 1.4;
+    const floorPulse = 1 + Math.sin(t * 4.0) * 0.08;
+    st.outerFloorRing.scale.set(floorPulse, floorPulse, 1);
+    st.innerHexRing.rotation.z = -t * 1.1;
+
+    st.orbitRingA.rotation.x = 1.1 + Math.sin(t * 1.6) * 0.35;
+    st.orbitRingA.rotation.y = t * 1.4;
+    st.orbitRingB.rotation.y = 1.1 + Math.cos(t * 1.5) * 0.35;
+    st.orbitRingB.rotation.z = -t * 1.3;
+
+    st.divineLight.intensity = 1.75 + Math.sin(t * 5.0) * 0.45;
+
+    for (const m of st.divineMotes) {
+      const a = m.angle + t * m.speed;
+      const y = 0.15 + ((m.yBase + t * 0.65) % 2.05);
+      m.mesh.position.set(Math.cos(a) * m.radius, y, Math.sin(a) * m.radius);
+      m.mesh.rotation.y = t * 2.8;
+      m.mesh.rotation.x = t * 2.1;
+    }
+
+    for (const orb of st.specialtyOrbiters) {
+      const a = orb.phase + t * orb.speed;
+      orb.grp.position.set(
+        Math.cos(a) * orb.radius,
+        orb.y + Math.sin(t * 3.2 + orb.phase) * 0.07,
+        Math.sin(a) * orb.radius
+      );
+      orb.grp.rotation.y = t * 2.0;
+    }
+  });
+
+  const setDivineSpecialty = (specialtyInput) => {
+    if (!specialtyInput) {
+      currentDivineSpec = null;
+      delete skin.divineSpecialty;
+      buildDivineVisuals(null);
+      return null;
+    }
+    currentDivineSpec = resolveAscensionSpecialty(specialtyInput);
+    skin.divineSpecialty = currentDivineSpec.id;
+    buildDivineVisuals(currentDivineSpec);
+    updateEffects(0);
+    return currentDivineSpec;
+  };
+  const hasDivineSkin = () => Boolean(currentDivineSpec && divineSkinGroup.visible);
+  const getDivineSpecialty = () => (currentDivineSpec ? currentDivineSpec.id : null);
+
   const updateEffects = (elapsed = 0) => {
     for (const fn of updaters) fn(elapsed);
   };
@@ -778,6 +1343,14 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     creatorAuraGroup,
     setCreatorAura,
     hasCreatorAura,
+    divineSkinGroup,
+    divineArmorGroup,
+    divineAuraGroup,
+    energyCrownGroup,
+    specialtyAccessoryGroup,
+    setDivineSpecialty,
+    hasDivineSkin,
+    getDivineSpecialty,
     setFirstPersonVrHidden,
     updateEffects
   };
