@@ -1,6 +1,7 @@
 import { sfx } from '../core/audio.js';
 import { getAllTps } from '../core/gameState.js';
 import { DEFAULT_ROOM } from '../core/network.js';
+import { ASCENSION_SPECIALTIES, ULTIMATE_SECRET_SKIN_ID } from '../world/AvatarBuilder.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 
 function escapeHtml(text) {
@@ -214,7 +215,8 @@ export class MainMenu {
         const grades = this.gameState.profile?.grades || acc.tpScores || {};
         const tps20 = allTps.filter((tp) => Number(grades[tp.id]) === 20).length;
         const divines = (this.gameState.unlockedDivineSkins || []).length;
-        this.connectedMetaEl.textContent = `🏆 ${tps20}/${allTps.length} TP à 20/20 • ⚡ ${divines} Skin(s) Divin(s)`;
+        const secretTag = this.gameState.secretSkinUnlocked ? ' • 🌌 Skin Secret' : '';
+        this.connectedMetaEl.textContent = `🏆 ${tps20}/${allTps.length} TP à 20/20 • ⚡ ${divines}/${ASCENSION_SPECIALTIES.length} Skins Divins${secretTag}`;
       }
     }
   }
@@ -254,8 +256,11 @@ export class MainMenu {
     renderSkinControls(this.skinIds, this.gameState, (updatedSkin) => {
       this.preview?.rebuild?.();
       if (this.gameState.isAuthenticated()) {
+        const nextSel = updatedSkin?.secretSkin
+          ? ULTIMATE_SECRET_SKIN_ID
+          : updatedSkin?.divineSpecialty || 'standard';
         this.network.saveAccount({
-          selectedSkin: updatedSkin?.divineSpecialty || 'standard',
+          selectedSkin: nextSel,
           avatarCustomization: updatedSkin,
           unlockedDivineSkins: this.gameState.unlockedDivineSkins
         });
@@ -457,6 +462,10 @@ export class MainMenu {
       this.onOpenLeaderboard?.();
     });
 
+    document.getElementById('menu-btn-replay-intro')?.addEventListener('click', () => {
+      this._launchWithRoom(this.roomSelect?.value || DEFAULT_ROOM, false, true);
+    });
+
     document.getElementById('menu-btn-rooms')?.addEventListener('click', () => {
       sfx.click();
       this.openRoomsModal();
@@ -516,7 +525,7 @@ export class MainMenu {
     });
   }
 
-  async _launchWithRoom(room, startVr = false) {
+  async _launchWithRoom(room, startVr = false, forceIntro = false) {
     if (!this.gameState.isAuthenticated()) {
       const hasInput =
         this.activeAuthTab === 'register'
@@ -548,9 +557,9 @@ export class MainMenu {
     this.closeRoomsModal();
     this.hide();
     if (startVr && this.onStartVr) {
-      this.onStartVr({ name, room: targetRoom, skin: this.gameState.skin });
+      this.onStartVr({ name, room: targetRoom, skin: this.gameState.skin, forceIntro: Boolean(forceIntro) });
     } else {
-      this.onStartGame?.({ name, room: targetRoom, skin: this.gameState.skin });
+      this.onStartGame?.({ name, room: targetRoom, skin: this.gameState.skin, forceIntro: Boolean(forceIntro) });
     }
   }
 

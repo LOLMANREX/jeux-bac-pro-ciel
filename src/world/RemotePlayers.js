@@ -6,8 +6,11 @@ import {
   buildStudentAvatarMesh,
   createVoiceIndicatorSprite,
   disposeObject3D,
+  isUltimateSecretSkinId,
   normalizeSkin,
   resolveAscensionSpecialty,
+  ULTIMATE_SECRET_SKIN,
+  ULTIMATE_SECRET_SKIN_ID,
   updateVoiceIndicatorSprite
 } from './AvatarBuilder.js';
 
@@ -19,43 +22,61 @@ function makeStudentBadge(peer) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  const divineSpec = peer.skin?.divineSpecialty
-    ? resolveAscensionSpecialty(peer.skin.divineSpecialty)
-    : null;
-  const accent = divineSpec ? divineSpec.primaryColor : peer.color || '#22d3ee';
-  const borderCol = divineSpec
-    ? '#fde047'
-    : peer.diplomaEarned || peer.rank === 1
-      ? '#fbbf24'
-      : accent;
+  const isSecret = Boolean(
+    peer.skin?.secretSkin || isUltimateSecretSkinId(peer.skin?.divineSpecialty)
+  );
+  const divineSpec =
+    !isSecret && peer.skin?.divineSpecialty
+      ? resolveAscensionSpecialty(peer.skin.divineSpecialty)
+      : null;
+  const accent = isSecret
+    ? ULTIMATE_SECRET_SKIN.primaryColor
+    : divineSpec
+      ? divineSpec.primaryColor
+      : peer.color || '#22d3ee';
+  const borderCol = isSecret
+    ? '#e879f9'
+    : divineSpec
+      ? '#fde047'
+      : peer.diplomaEarned || peer.rank === 1
+        ? '#fbbf24'
+        : accent;
 
-  ctx.fillStyle = 'rgba(9, 15, 30, 0.9)';
+  ctx.fillStyle = isSecret ? 'rgba(18, 8, 42, 0.94)' : 'rgba(9, 15, 30, 0.9)';
   ctx.strokeStyle = borderCol;
-  ctx.lineWidth = 4;
+  ctx.lineWidth = isSecret ? 5 : 4;
   ctx.beginPath();
   ctx.roundRect(10, 10, 520, 132, 22);
   ctx.fill();
   ctx.stroke();
 
-  const rankText = divineSpec ? '⚡DIEU' : peer.rank ? `#${peer.rank}` : 'CIEL';
-  ctx.fillStyle = divineSpec
-    ? '#fde047'
-    : peer.rank === 1
-      ? '#fbbf24'
-      : peer.rank === 2
-        ? '#cbd5e1'
-        : peer.rank === 3
-          ? '#fb923c'
-          : accent;
+  const rankText = isSecret
+    ? '🌌ULTIME'
+    : divineSpec
+      ? '⚡DIEU'
+      : peer.rank
+        ? `#${peer.rank}`
+        : 'CIEL';
+  ctx.fillStyle = isSecret
+    ? '#e879f9'
+    : divineSpec
+      ? '#fde047'
+      : peer.rank === 1
+        ? '#fbbf24'
+        : peer.rank === 2
+          ? '#cbd5e1'
+          : peer.rank === 3
+            ? '#fb923c'
+            : accent;
   ctx.beginPath();
-  ctx.roundRect(24, 24, 72, 40, 10);
+  ctx.roundRect(24, 24, isSecret ? 86 : 72, 40, 10);
   ctx.fill();
 
   ctx.fillStyle = '#0f172a';
-  ctx.font = '800 20px system-ui, sans-serif';
+  ctx.font = isSecret ? '900 17px system-ui, sans-serif' : '800 20px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(rankText, 60, 44);
+  ctx.fillText(rankText, isSecret ? 67 : 60, 44);
 
   const avgText = typeof peer.average === 'number' ? `${peer.average.toFixed(1)}/20` : '--/20';
   const avgColor =
@@ -77,16 +98,24 @@ function makeStudentBadge(peer) {
   ctx.font = 'bold 21px system-ui, sans-serif';
   ctx.fillText(avgText, 463, 44);
 
-  ctx.fillStyle = divineSpec ? '#fef08a' : '#f8fafc';
+  ctx.fillStyle = isSecret ? '#f5d0fe' : divineSpec ? '#fef08a' : '#f8fafc';
   ctx.font = 'bold 28px system-ui, sans-serif';
   ctx.textAlign = 'center';
-  const suffix = divineSpec ? ` ⚡${divineSpec.icon}` : peer.diplomaEarned ? ' 🎓' : '';
+  const suffix = isSecret
+    ? ' 🌌👑'
+    : divineSpec
+      ? ` ⚡${divineSpec.icon}`
+      : peer.diplomaEarned
+        ? ' 🎓'
+        : '';
   const nameLabel = `${peer.name}${suffix}`;
-  ctx.fillText(nameLabel.slice(0, 20), 253, 46, 300);
+  ctx.fillText(nameLabel.slice(0, 20), isSecret ? 260 : 253, 46, 290);
 
-  const subRank = divineSpec
-    ? `Dieu CIEL (${divineSpec.shortLabel})`
-    : peer.rankLabel || 'Apprenti CIEL';
+  const subRank = isSecret
+    ? 'Entité Quantique CIEL'
+    : divineSpec
+      ? `Dieu CIEL (${divineSpec.shortLabel})`
+      : peer.rankLabel || 'Apprenti CIEL';
   const subTp = `${peer.completedCount || 0}/5 TPs`;
   const locText = peer.zoneLabel || 'U300';
   const actPart =
@@ -247,6 +276,8 @@ export class RemotePlayersManager {
       updateEffects: meshData.updateEffects,
       setCreatorAura: meshData.setCreatorAura,
       setDivineSpecialty: meshData.setDivineSpecialty,
+      setSecretSkin: meshData.setSecretSkin,
+      hasSecretSkin: meshData.hasSecretSkin,
       hasDivineSkin: meshData.hasDivineSkin,
       _walkPhase: 0,
       badge: null,
@@ -332,6 +363,8 @@ export class RemotePlayersManager {
     peer.updateEffects = meshData.updateEffects;
     peer.setCreatorAura = meshData.setCreatorAura;
     peer.setDivineSpecialty = meshData.setDivineSpecialty;
+    peer.setSecretSkin = meshData.setSecretSkin;
+    peer.hasSecretSkin = meshData.hasSecretSkin;
     peer.hasDivineSkin = meshData.hasDivineSkin;
     peer.vrTracker = attachRemoteVrVisuals(peer, nextSkin);
     peer._walkPhase = 0;
@@ -343,12 +376,25 @@ export class RemotePlayersManager {
   setDivineSkin(id, specialtyInput) {
     const peer = this.peers.get(id);
     if (!peer) return null;
+    if (isUltimateSecretSkinId(specialtyInput)) {
+      return this.setSecretSkin(id);
+    }
     const spec = resolveAscensionSpecialty(specialtyInput);
     const nextSkin = applySessionDivineSkin(peer.skin, spec.id);
     this.setSkin(id, nextSkin);
     peer.rankLabel = `Dieu CIEL (${spec.shortLabel})`;
     this._refreshBadge(peer);
     return spec;
+  }
+
+  setSecretSkin(id) {
+    const peer = this.peers.get(id);
+    if (!peer) return null;
+    const nextSkin = applySessionDivineSkin(peer.skin, ULTIMATE_SECRET_SKIN_ID);
+    this.setSkin(id, nextSkin);
+    peer.rankLabel = 'Entité Quantique CIEL';
+    this._refreshBadge(peer);
+    return ULTIMATE_SECRET_SKIN;
   }
 
   teleportPeer(id, x, y, z, yaw = 0) {

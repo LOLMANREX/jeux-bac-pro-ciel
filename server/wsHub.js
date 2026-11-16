@@ -3,7 +3,8 @@ import { WebSocketServer } from 'ws';
 import {
   ASCENSION_SPECIALTIES,
   applySessionDivineSkin,
-  resolveAscensionSpecialty
+  resolveAscensionSpecialty,
+  ULTIMATE_SECRET_SKIN_ID
 } from '../src/world/AvatarBuilder.js';
 import { computeAscensionGatheringLayout } from '../src/world/SceneManager.js';
 import { sanitizeName, sanitizeSkin, ALL_TP_IDS, TP_IDS, TP_LABELS } from './store.js';
@@ -54,6 +55,11 @@ export function formatAscensionBanner(playerName, rawSpecialty) {
   const cleanName = sanitizeName(playerName || 'Eleve_CIEL');
   const spec = resolveAscensionSpecialty(rawSpecialty);
   return `⚡ ASCENSION : ${cleanName} devient un DIEU DU BAC PRO CIEL (${spec.label}) ! ⚡`;
+}
+
+export function formatSecretSkinBanner(playerName) {
+  const cleanName = sanitizeName(playerName || 'Eleve_CIEL');
+  return `🌌 MYSTÈRE RÉVÉLÉ : ${cleanName} a réuni tous les pouvoirs divins et débloqué le SKIN SECRET ULTIME ! 🌌`;
 }
 
 function sanitizeRoom(raw) {
@@ -353,6 +359,7 @@ export function attachWsHub(httpServer, store) {
 
     const winnerId = winnerPeer ? winnerPeer.state.id : opts.playerId || null;
     const playerName = sanitizeName(winnerPeer?.state?.name || opts.playerName || 'Eleve_CIEL');
+    const winnerProfile = store.getPublicProfile(playerName.toLowerCase());
     const bannerText = formatCelebrationBanner(playerName, cleanTpName);
     const peerIds = roomPeers.map((p) => p.state.id);
     const layout = computeAscensionGatheringLayout(
@@ -405,6 +412,9 @@ export function attachWsHub(httpServer, store) {
       dialogueText: `Silence dans l'atelier ! Félicitations solennelles à ${playerName} devant toute la classe pour son 20/20 intégral au Bac Pro CIEL !`,
       questionText: 'Quel a été ton TP préféré durant ton parcours ?',
       spectatorWaitText: formatSpectatorWaitText(playerName),
+      unlockedDivineSkins: winnerProfile?.unlockedDivineSkins || [],
+      secretSkinUnlocked: Boolean(winnerProfile?.secretSkinUnlocked),
+      prestigeCount: Number(winnerProfile?.prestigeCount) || 0,
       teacherPos: layout.teacherPos,
       stageCenter: layout.stageCenter,
       winnerSpot: layout.winnerSpot,
@@ -455,6 +465,7 @@ export function attachWsHub(httpServer, store) {
     const baseSkin = targetPeer?.state?.skin || sanitizeSkin(opts.skin || null);
     const sessionSkin = applySessionDivineSkin(baseSkin, spec.id);
     const currentProfile = store.getPublicProfile(playerName.toLowerCase());
+    const hadSecretBefore = Boolean(currentProfile?.secretSkinUnlocked);
     const canUnlockCreator =
       activeCeleb?.reason === 'creator' && isCreatorPseudo(playerName);
     const hasAll20 = hasAllTpsAt20(currentProfile);
@@ -468,6 +479,11 @@ export function attachWsHub(httpServer, store) {
         Array.isArray(persistedProfile.unlockedDivineSkins) &&
         persistedProfile.unlockedDivineSkins.includes(spec.id)
     );
+    const prestigeReset = Boolean(isPersisted && hasAll20);
+    const secretSkinUnlocked = isPersisted
+      ? Boolean(persistedProfile.secretSkinUnlocked)
+      : hadSecretBefore;
+    const justUnlockedSecretSkin = Boolean(isPersisted && !hadSecretBefore && secretSkinUnlocked);
     const activeSkin = isPersisted ? persistedProfile.skin : sessionSkin;
 
     if (targetPeer?.state) {
@@ -481,6 +497,24 @@ export function attachWsHub(httpServer, store) {
           })
         );
       }
+      if (prestigeReset && persistedProfile) {
+        broadcastToRoom(
+          targetRoom,
+          {
+            type: 'player_stats_updated',
+            id: targetPeer.state.id,
+            profile: {
+              xp: persistedProfile.xp,
+              average: persistedProfile.average,
+              completedCount: persistedProfile.completedCount,
+              diplomaEarned: persistedProfile.diplomaEarned,
+              rank: persistedProfile.rank,
+              rankLabel: persistedProfile.rankLabel
+            }
+          },
+          null
+        );
+      }
       broadcastToRoom(
         targetRoom,
         {
@@ -492,6 +526,7 @@ export function attachWsHub(httpServer, store) {
           unlockedDivineSkins: isPersisted
             ? persistedProfile.unlockedDivineSkins
             : currentProfile?.unlockedDivineSkins || [],
+          secretSkinUnlocked,
           selectedSkin: isPersisted ? spec.id : currentProfile?.selectedSkin || 'standard',
           persisted: isPersisted
         },
@@ -516,6 +551,14 @@ export function attachWsHub(httpServer, store) {
       unlockedDivineSkins: isPersisted
         ? persistedProfile.unlockedDivineSkins
         : currentProfile?.unlockedDivineSkins || [],
+      secretSkinUnlocked,
+      justUnlockedSecretSkin,
+      prestigeReset,
+      prestigeCount: isPersisted
+        ? Number(persistedProfile.prestigeCount) || 0
+        : Number(currentProfile?.prestigeCount) || 0,
+      grades: isPersisted ? persistedProfile.grades || {} : currentProfile?.grades || {},
+      tpScores: isPersisted ? persistedProfile.tpScores || {} : currentProfile?.tpScores || {},
       selectedSkin: isPersisted ? spec.id : currentProfile?.selectedSkin || 'standard',
       persisted: isPersisted,
       sessionOnly: !isPersisted,
@@ -539,6 +582,34 @@ export function attachWsHub(httpServer, store) {
     };
     pushChat(targetRoom, sysMsg);
     broadcastToRoom(targetRoom, { type: 'chat_message', message: sysMsg });
+
+    if (justUnlockedSecretSkin) {
+      const secretBannerText = formatSecretSkinBanner(playerName);
+      broadcastToRoom(
+        targetRoom,
+        {
+          type: 'secret_skin_unlocked',
+          id: crypto.randomUUID().slice(0, 8),
+          room: targetRoom,
+          playerId,
+          playerName,
+          skinId: ULTIMATE_SECRET_SKIN_ID,
+          bannerText: secretBannerText,
+          durationMs: 9500,
+          at: new Date().toISOString()
+        },
+        null
+      );
+      const secretChatMsg = {
+        id: crypto.randomUUID().slice(0, 8),
+        system: true,
+        author: 'Professeur CIEL',
+        text: secretBannerText,
+        at: new Date().toISOString()
+      };
+      pushChat(targetRoom, secretChatMsg);
+      broadcastToRoom(targetRoom, { type: 'chat_message', message: secretChatMsg });
+    }
 
     return ascensionPayload;
   }

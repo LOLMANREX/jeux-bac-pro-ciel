@@ -225,9 +225,14 @@
                     <span class="dot dot-pulse"></span>
                     <span>Connexion...</span>
                   </div>
-                  <button type="button" id="menu-btn-leaderboard" class="aaa-leaderboard-link">
-                    🏆 Classement
-                  </button>
+                  <div class="aaa-lobby-links">
+                    <button type="button" id="menu-btn-replay-intro" class="aaa-leaderboard-link" title="Revoir la visite guidée du Professeur CIEL">
+                      🎬 Revoir l'intro
+                    </button>
+                    <button type="button" id="menu-btn-leaderboard" class="aaa-leaderboard-link">
+                      🏆 Classement
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -365,6 +370,7 @@
               💬 Chat <span id="chat-unread-badge" class="unread-badge hidden">0</span>
             </button>
             <button id="btn-skin-ingame" class="btn-hud" title="Modifier mon Skin 3D &amp; Skins Divins">🎨 Casier</button>
+            <button type="button" id="btn-replay-intro" class="btn-hud" title="Revoir la cinématique d'introduction du Professeur CIEL">🎬 Revoir l'intro</button>
             <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris, Audio)">⚙️ Paramètres</button>
             <button id="btn-main-menu" class="btn-hud" title="Retour au menu principal">🏠 Menu principal</button>
             <button id="btn-hud-logout" class="btn-hud btn-danger" title="Se déconnecter du compte élève">🚪 Déconnexion</button>
@@ -387,6 +393,64 @@
           </div>
           <div class="wc-progress-track">
             <div id="world-celebration-progress" class="wc-progress-bar"></div>
+          </div>
+        </div>
+
+        <div id="secret-skin-banner" class="secret-skin-banner hidden" role="status" aria-live="assertive">
+          <div class="ssb-content">
+            <span class="ssb-ico" aria-hidden="true">🌌</span>
+            <div class="ssb-text-wrap">
+              <div class="ssb-tag">ACCOMPLISSEMENT LÉGENDAIRE • SKIN SECRET ULTIME DÉBLOQUÉ</div>
+              <div id="secret-skin-banner-text" class="ssb-main-text">
+                🌌 MYSTÈRE RÉVÉLÉ : Élève a réuni tous les pouvoirs divins et débloqué le SKIN SECRET ULTIME ! 🌌
+              </div>
+            </div>
+          </div>
+          <div class="wc-progress-track">
+            <div id="secret-skin-banner-progress" class="ssb-progress-bar"></div>
+          </div>
+        </div>
+
+        <div
+          id="intro-cinematic-overlay"
+          class="intro-cinematic-overlay hidden"
+          role="dialog"
+          aria-live="polite"
+          aria-label="Visite guidée du Professeur CIEL"
+        >
+          <div class="intro-topbar">
+            <div class="intro-top-pill">
+              <span class="intro-live-dot" aria-hidden="true"></span>
+              <span>🎬 VISITE GUIDÉE • PLATEAU U300</span>
+              <span id="intro-step-pill" class="intro-step-pill">1 / 5</span>
+            </div>
+            <button type="button" id="btn-intro-skip" class="intro-skip-btn">
+              ⏭️ Passer l'intro
+            </button>
+          </div>
+
+          <div class="intro-dialogue-card">
+            <div class="intro-dialogue-head">
+              <div class="asc-prof-badge">
+                <span class="asc-prof-avatar" aria-hidden="true">👨‍🏫</span>
+                <div>
+                  <div class="asc-prof-role">VISITE D'ACCUEIL • BAC PRO CIEL</div>
+                  <div class="asc-prof-name">Professeur CIEL</div>
+                </div>
+              </div>
+              <div id="intro-zone-pill" class="intro-zone-pill">📍 Hall U300</div>
+            </div>
+
+            <h3 id="intro-step-title" class="intro-step-title">Bienvenue dans l'Atelier CIEL 3D !</h3>
+            <p id="intro-dialogue-text" class="intro-dialogue-text"></p>
+
+            <div class="intro-dialogue-foot">
+              <div id="intro-step-dots" class="intro-step-dots" aria-hidden="true"></div>
+              <div class="intro-nav-actions">
+                <button type="button" id="btn-intro-prev" class="btn-hud btn-sm">◀ Précédent</button>
+                <button type="button" id="btn-intro-next" class="intro-next-btn">Suivant ▶</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -416,22 +480,33 @@
               Quel a été ton TP préféré durant ton parcours ?
             </p>
 
+            <div id="ascension-collection-status" class="asc-collection-status"></div>
+
             <div id="ascension-choices-grid" class="asc-choices-grid">
               <button type="button" id="btn-ascension-cyber" class="asc-choice-btn" data-specialty="cyber">
                 <span class="asc-choice-ico">🛡️</span>
                 <span class="asc-choice-lbl">Cybersécurité &amp; Pentest</span>
+                <span class="asc-choice-state"></span>
               </button>
               <button type="button" id="btn-ascension-reseaux" class="asc-choice-btn" data-specialty="reseaux">
                 <span class="asc-choice-ico">🌐</span>
                 <span class="asc-choice-lbl">Réseaux &amp; Fibre Optique</span>
+                <span class="asc-choice-state"></span>
               </button>
               <button type="button" id="btn-ascension-electronique" class="asc-choice-btn" data-specialty="electronique">
                 <span class="asc-choice-ico">⚡</span>
                 <span class="asc-choice-lbl">Électronique &amp; Soudure</span>
+                <span class="asc-choice-state"></span>
               </button>
               <button type="button" id="btn-ascension-systemes" class="asc-choice-btn" data-specialty="systemes">
                 <span class="asc-choice-ico">🖥️</span>
                 <span class="asc-choice-lbl">Systèmes &amp; Serveurs Linux</span>
+                <span class="asc-choice-state"></span>
+              </button>
+              <button type="button" id="btn-ascension-audiovisuel" class="asc-choice-btn asc-choice-wide" data-specialty="audiovisuel">
+                <span class="asc-choice-ico">🎬</span>
+                <span class="asc-choice-lbl">Audiovisuel &amp; Régie DMX</span>
+                <span class="asc-choice-state"></span>
               </button>
             </div>
 

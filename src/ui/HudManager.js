@@ -2,6 +2,7 @@ import { sfx } from '../core/audio.js';
 import { getMention, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import { getStationTeleportInMap, getZoneAtPositionInMap } from '../world/mapSchema.js';
 import {
+  ASCENSION_SPECIALTIES,
   isCreatorLouis,
   renderSkinPreviewSvg,
   resolveAscensionSpecialty
@@ -21,9 +22,45 @@ export function formatAscensionBanner(playerName, specialtyInput = 'cyber') {
   return `⚡ ASCENSION : ${cleanName} devient un DIEU DU BAC PRO CIEL (${spec.label}) ! ⚡`;
 }
 
+export function formatSecretSkinAnnouncement(playerName) {
+  const cleanName = String(playerName || 'Élève').trim() || 'Élève';
+  return `🌌 MYSTÈRE RÉVÉLÉ : ${cleanName} a réuni tous les pouvoirs divins et débloqué le SKIN SECRET ULTIME ! 🌌`;
+}
+
 export function formatSpectatorWaitMessage(playerName) {
   const cleanName = String(playerName || 'Élève').trim() || 'Élève';
   return `⏳ ${cleanName} choisit sa spécialité auprès du Professeur CIEL...`;
+}
+
+export function buildIntroCinematicSteps(playerName = 'Élève') {
+  const cleanName = String(playerName || 'Élève').trim() || 'Élève';
+  return [
+    {
+      title: `Bienvenue dans l'Atelier CIEL 3D, ${cleanName} !`,
+      zoneLabel: '📍 Hall U300 • Accueil du Professeur CIEL',
+      text: `« Bonjour ${cleanName} et bienvenue sur le Plateau U300 ! Je suis le Professeur CIEL. Tu évolues ici dans ton atelier grandeur nature du BAC PRO CIEL pour t'entraîner sur du matériel technique interactif en 3D et progresser avec ta classe. »`
+    },
+    {
+      title: 'Explorer les 5 Pôles & Viser 20/20',
+      zoneLabel: '📍 Salles U301, U302 & U303 • Électronique & Audiovisuel',
+      text: '« Déplace-toi librement avec ZQSD (ou le joystick tactile) et appuie sur E devant chaque établi — ou clique sur un raccourci à gauche — pour réaliser les TPs d’Électronique & Brasure, d’Audiovisuel & DMX, de Systèmes, de Réseaux et de Cybersécurité. Chaque TP est noté sur /20 : donne le meilleur pour viser 20/20 ! »'
+    },
+    {
+      title: 'Du Diplôme jusqu’à l’Excellence Intégrale',
+      zoneLabel: '📍 Salles U305, U306 & U307 • Cyber, Systèmes & Réseaux',
+      text: '« Valider les 5 TPs principaux à 10/20 débloque ton diplôme BAC PRO CIEL. Mais pour atteindre l’élite du classement et accéder au rituel suprême du plateau, il te faudra décrocher 20/20 sur 100 % des TPs de l’atelier (Cyber, Réseaux, Électronique, Systèmes et Audiovisuel) ! »'
+    },
+    {
+      title: 'Skins Divins « Dieu du Bac Pro CIEL » & Cycle de Prestige',
+      zoneLabel: '📍 Parvis U300 • Cérémonie d’Ascension',
+      text: '« En obtenant 20/20 sur 100 % des TPs, tu déclenches la Cérémonie d’Ascension devant toute la classe : tu choisis ta spécialité préférée pour débloquer son Skin Divin exclusif dans ton casier, puis ton avancement des TPs est remis à zéro (Cycle de Prestige) pour te permettre de refaire tous les TPs à 20/20 et collectionner les autres Skins Divins ! »'
+    },
+    {
+      title: 'Un Dernier Murmure de l’Atelier…',
+      zoneLabel: '📍 Hall U300 • Mystère du Plateau',
+      text: '« Et entre nous… Un vieux secret circule dans le laboratoire : une tenue légendaire secrète attend ceux qui auront la persévérance de réunir l’intégralité des Skins Divins du Bac Pro CIEL. Nul ne connaît son nom, son apparence ni ses pouvoirs… À toi de percer ce mystère ! »'
+    }
+  ];
 }
 
 export class HudManager {
@@ -88,9 +125,27 @@ export class HudManager {
     this.celebrationProgressEl = document.getElementById('world-celebration-progress');
     this.celebrationTimer = null;
 
+    this.secretSkinBannerEl = document.getElementById('secret-skin-banner');
+    this.secretSkinBannerTextEl = document.getElementById('secret-skin-banner-text');
+    this.secretSkinBannerProgressEl = document.getElementById('secret-skin-banner-progress');
+    this.secretBannerTimer = null;
+
+    this.replayIntroBtn = document.getElementById('btn-replay-intro');
+    this.introOverlayEl = document.getElementById('intro-cinematic-overlay');
+    this.introStepPillEl = document.getElementById('intro-step-pill');
+    this.introZonePillEl = document.getElementById('intro-zone-pill');
+    this.introStepTitleEl = document.getElementById('intro-step-title');
+    this.introTextEl = document.getElementById('intro-dialogue-text');
+    this.introDotsEl = document.getElementById('intro-step-dots');
+    this.introPrevBtn = document.getElementById('btn-intro-prev');
+    this.introNextBtn = document.getElementById('btn-intro-next');
+    this.introSkipBtn = document.getElementById('btn-intro-skip');
+    this.introState = null;
+
     this.ascensionDialogueEl = document.getElementById('ascension-cinematic-dialogue');
     this.ascensionSpeechEl = document.getElementById('ascension-dialogue-speech');
     this.ascensionQuestionEl = document.getElementById('ascension-dialogue-question');
+    this.ascensionCollectionEl = document.getElementById('ascension-collection-status');
     this.ascensionChoicesEl = document.getElementById('ascension-choices-grid');
     this.ascensionCountdownEl = document.getElementById('ascension-countdown-pill');
     this.ascensionSpectatorWaitEl = document.getElementById('ascension-spectator-wait');
@@ -327,6 +382,27 @@ export class HudManager {
       sfx.click();
       this.closeAllModals();
       this.handlers.onLogout?.();
+    });
+
+    this.replayIntroBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.closeAllModals();
+      this.handlers.onReplayIntro?.();
+    });
+
+    this.introPrevBtn?.addEventListener('click', () => {
+      sfx.click();
+      this._stepIntro(-1);
+    });
+
+    this.introNextBtn?.addEventListener('click', () => {
+      sfx.click();
+      this._stepIntro(1);
+    });
+
+    this.introSkipBtn?.addEventListener('click', () => {
+      sfx.click();
+      this._finishIntro(true);
     });
 
     this.vrToggleBtn?.addEventListener('click', () => {
@@ -877,11 +953,90 @@ export class HudManager {
     this.creatorPowerPopover?.classList.add('hidden');
     this.hideAscensionDialogue();
     this.hideWorldCelebration();
+    this.hideSecretSkinAnnouncement();
+    this.hideIntroCinematic();
     this.netErrorBanner?.classList.add('hidden');
     this.orientationHintEl?.classList.add('hidden');
     this.hudEl.classList.add('hidden');
     this.chatDrawer.classList.add('hidden');
     this.interactPromptEl.classList.add('hidden');
+  }
+
+  isIntroOpen() {
+    return Boolean(this.introOverlayEl && !this.introOverlayEl.classList.contains('hidden'));
+  }
+
+  showIntroCinematic(options = {}) {
+    if (!this.introOverlayEl) return;
+    const playerName = options.playerName || this.gameState.profile?.name || 'Élève';
+    const steps = Array.isArray(options.steps) && options.steps.length > 0
+      ? options.steps
+      : buildIntroCinematicSteps(playerName);
+    this.introState = {
+      steps,
+      idx: 0,
+      onStepChange: options.onStepChange || null,
+      onFinish: options.onFinish || null
+    };
+    this.introOverlayEl.classList.remove('hidden');
+    this._renderIntroStep();
+  }
+
+  _renderIntroStep() {
+    if (!this.introState) return;
+    const { steps, idx } = this.introState;
+    const step = steps[idx] || steps[0];
+    const isFirst = idx <= 0;
+    const isLast = idx >= steps.length - 1;
+
+    if (this.introStepPillEl) {
+      this.introStepPillEl.textContent = `${idx + 1} / ${steps.length}`;
+    }
+    if (this.introZonePillEl) {
+      this.introZonePillEl.textContent = step.zoneLabel || '📍 Plateau U300';
+    }
+    if (this.introStepTitleEl) {
+      this.introStepTitleEl.textContent = step.title || '';
+    }
+    if (this.introTextEl) {
+      this.introTextEl.textContent = step.text || '';
+    }
+    if (this.introPrevBtn) {
+      this.introPrevBtn.disabled = isFirst;
+      this.introPrevBtn.classList.toggle('hidden', isFirst);
+    }
+    if (this.introNextBtn) {
+      this.introNextBtn.textContent = isLast ? '🚀 Commencer !' : 'Suivant ▶';
+    }
+    if (this.introDotsEl) {
+      this.introDotsEl.innerHTML = steps
+        .map((_, i) => `<span class="intro-dot ${i === idx ? 'active' : i < idx ? 'done' : ''}"></span>`)
+        .join('');
+    }
+    this.introState.onStepChange?.(idx, step);
+  }
+
+  _stepIntro(delta) {
+    if (!this.introState) return;
+    const nextIdx = this.introState.idx + delta;
+    if (nextIdx < 0) return;
+    if (nextIdx >= this.introState.steps.length) {
+      this._finishIntro(false);
+      return;
+    }
+    this.introState.idx = nextIdx;
+    this._renderIntroStep();
+  }
+
+  _finishIntro(skipped = false) {
+    const finishCb = this.introState?.onFinish;
+    this.hideIntroCinematic();
+    finishCb?.({ skipped: Boolean(skipped) });
+  }
+
+  hideIntroCinematic() {
+    this.introState = null;
+    this.introOverlayEl?.classList.add('hidden');
   }
 
   showAscensionDialogue(payload = {}) {
@@ -891,23 +1046,50 @@ export class HudManager {
     const cleanName = String(payload.playerName || this.gameState.profile?.name || 'Élève').trim() || 'Élève';
     const isWinner = Boolean(payload.isWinner);
     const timeoutMs = Math.max(2000, Number(payload.choiceTimeoutMs) || 15000);
-    const defaultSpecialty = payload.defaultSpecialty || payload.tpId || 'cyber';
+    const unlockedList = Array.isArray(payload.unlockedDivineSkins)
+      ? payload.unlockedDivineSkins
+      : isWinner && Array.isArray(this.gameState.unlockedDivineSkins)
+        ? this.gameState.unlockedDivineSkins
+        : [];
+    const unlockedSet = new Set(unlockedList);
+    const firstMissingSpec = ASCENSION_SPECIALTIES.find((s) => !unlockedSet.has(s.id));
+    const defaultSpecialty = firstMissingSpec?.id || payload.defaultSpecialty || payload.tpId || 'cyber';
     let secLeft = Math.ceil(timeoutMs / 1000);
 
     if (this.ascensionSpeechEl) {
+      const cycleNum = unlockedSet.size + 1;
+      const prestigeHint =
+        unlockedSet.size > 0
+          ? ` (Cycle de Prestige #${cycleNum} — ${unlockedSet.size}/${ASCENSION_SPECIALTIES.length} Skins Divins déjà acquis)`
+          : '';
       this.ascensionSpeechEl.textContent =
         payload.dialogueText ||
-        `Silence dans l'atelier ! Félicitations solennelles à ${cleanName} devant toute la classe pour son 20/20 intégral au Bac Pro CIEL !`;
+        `Silence dans l'atelier ! Félicitations solennelles à ${cleanName} devant toute la classe pour son 20/20 intégral au Bac Pro CIEL${prestigeHint} !`;
     }
     if (this.ascensionQuestionEl) {
       this.ascensionQuestionEl.textContent =
         payload.questionText || 'Quel a été ton TP préféré durant ton parcours ?';
+    }
+    if (this.ascensionCollectionEl) {
+      this.ascensionCollectionEl.innerHTML = ASCENSION_SPECIALTIES.map((spec) => {
+        const has = unlockedSet.has(spec.id);
+        return `<span class="asc-col-chip ${has ? 'unlocked' : 'locked'}">${has ? '✅' : '🔒'} ${spec.icon} ${spec.shortLabel} (${has ? 'Débloqué' : 'À obtenir'})</span>`;
+      }).join('');
     }
     if (this.ascensionCountdownEl) {
       this.ascensionCountdownEl.textContent = `⏱️ ${secLeft}s`;
     }
     if (this.ascensionChoicesEl) {
       this.ascensionChoicesEl.classList.toggle('hidden', !isWinner);
+      this.ascensionChoicesEl.querySelectorAll('[data-specialty]').forEach((btn) => {
+        const specId = btn.dataset.specialty;
+        const has = unlockedSet.has(specId);
+        btn.classList.toggle('already-unlocked', has);
+        const stateEl = btn.querySelector('.asc-choice-state');
+        if (stateEl) {
+          stateEl.textContent = has ? '✅ Déjà débloqué' : '✨ À obtenir';
+        }
+      });
     }
     if (this.ascensionSpectatorWaitEl) {
       this.ascensionSpectatorWaitEl.classList.toggle('hidden', isWinner);
@@ -944,6 +1126,40 @@ export class HudManager {
       this.ascensionFallbackTimer = null;
     }
     this.ascensionDialogueEl?.classList.add('hidden');
+  }
+
+  showSecretSkinAnnouncement(payload = {}) {
+    if (!this.secretSkinBannerEl) return;
+    const bannerText =
+      payload.bannerText ||
+      formatSecretSkinAnnouncement(payload.playerName || this.gameState.profile?.name || 'Élève');
+    if (this.secretSkinBannerTextEl) {
+      this.secretSkinBannerTextEl.textContent = bannerText;
+    }
+    const durationMs = Math.max(2500, Number(payload.durationMs) || 9500);
+    this.secretSkinBannerEl.classList.remove('hidden');
+    if (this.secretSkinBannerProgressEl) {
+      this.secretSkinBannerProgressEl.style.transition = 'none';
+      this.secretSkinBannerProgressEl.style.width = '100%';
+      void this.secretSkinBannerProgressEl.offsetWidth;
+      this.secretSkinBannerProgressEl.style.transition = `width ${durationMs}ms linear`;
+      this.secretSkinBannerProgressEl.style.width = '0%';
+    }
+    if (this.secretBannerTimer) {
+      clearTimeout(this.secretBannerTimer);
+    }
+    this.secretBannerTimer = setTimeout(() => {
+      this.secretBannerTimer = null;
+      this.hideSecretSkinAnnouncement();
+    }, durationMs);
+  }
+
+  hideSecretSkinAnnouncement() {
+    if (this.secretBannerTimer) {
+      clearTimeout(this.secretBannerTimer);
+      this.secretBannerTimer = null;
+    }
+    this.secretSkinBannerEl?.classList.add('hidden');
   }
 
   syncCreatorUi() {

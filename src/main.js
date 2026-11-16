@@ -8,6 +8,7 @@ import {
   getAllTps,
   getTpById,
   getStationById,
+  hasAllDivineSpecialties,
   hasAllTpsAt20,
   QUICK_EMOTES,
   TP_CATALOG
@@ -35,6 +36,7 @@ import {
   disposeObject3D,
   isCreatorLouis,
   resolveAscensionSpecialty,
+  ULTIMATE_SECRET_SKIN_ID,
   updateVoiceIndicatorSprite
 } from './world/AvatarBuilder.js';
 import { ProximityVoiceChat } from './network/ProximityVoiceChat.js';
@@ -42,6 +44,7 @@ import { VRManager } from './vr/VRManager.js';
 import {
   HudManager,
   formatAscensionBanner,
+  formatSecretSkinAnnouncement,
   formatWorldCelebrationBanner
 } from './ui/HudManager.js';
 import { MainMenu } from './ui/MainMenu.js';
@@ -304,8 +307,82 @@ function endAscensionCinematic() {
   }
 }
 
+function endIntroCinematic(skipped = false) {
+  hud?.hideIntroCinematic?.();
+  if (activeCinematic?.phase === 'intro') {
+    activeCinematic = null;
+  }
+  const vrOn = Boolean(vrManager?.isVrActive?.());
+  player._syncAvatarVisibility?.();
+  player.setEnabled(joined && !modalOpen && !vrOn);
+  touchControls?.setVisible(joined && !modalOpen && !vrOn && gameState.touchMode);
+  if (!vrOn) {
+    player._applyCamera?.();
+  }
+  if (gameState.isAuthenticated() && !gameState.introSeen) {
+    gameState.setIntroSeen(true);
+    network.saveAccount({ introSeen: true });
+  }
+  if (joined) {
+    hud?.toast?.(
+      skipped
+        ? '🎬 Visite guidée terminée — Parlez au Professeur CIEL (touche E) ou choisissez un TP !'
+        : '🎓 Visite terminée ! Visez 20/20 sur tous les TPs pour commencer votre Ascension.',
+      'success'
+    );
+  }
+}
+
+function startIntroCinematic(manualReplay = false) {
+  if (!joined) return;
+  if (activeCinematic && activeCinematic.phase !== 'intro') return;
+  if (vrManager?.isVrActive?.()) {
+    if (manualReplay) {
+      hud?.toast?.('🎬 Quittez le mode VR (F9) pour lancer la visite guidée cinématique.', 'info');
+    }
+    return;
+  }
+  if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
+    miniGameModal.close();
+  }
+  dialogueModal?.close?.();
+  hud?.closeAllModals?.();
+  modalOpen = false;
+  subModalActive = false;
+  sceneMgr.setPaused(false);
+  if (document.pointerLockElement === canvas) {
+    document.exitPointerLock?.();
+  }
+
+  const teacherPos = getTeacherPosFromMap(currentMapData);
+  activeCinematic = {
+    phase: 'intro',
+    stepIndex: 0,
+    stepStartedAt: performance.now(),
+    teacherPos
+  };
+  player.clearKeys?.();
+  player.setEnabled(false);
+  touchControls?.setVisible(false);
+  sceneMgr.applyIntroCinematicShot(0, 0, sceneMgr.clock.elapsedTime, teacherPos);
+  sfx.playIntroChime?.();
+  hud?.showIntroCinematic?.({
+    playerName: gameState.profile.name,
+    onStepChange: (idx) => {
+      if (activeCinematic?.phase === 'intro') {
+        activeCinematic.stepIndex = idx;
+        activeCinematic.stepStartedAt = performance.now();
+      }
+    },
+    onFinish: ({ skipped }) => {
+      endIntroCinematic(skipped);
+    }
+  });
+}
+
 function runAscensionPhase(payload = {}) {
   hud?.hideAscensionDialogue?.();
+  hud?.hideIntroCinematic?.();
   const playerName = payload.playerName || activeCinematic?.playerName || gameState.profile.name || 'Eleve_CIEL';
   const spec = resolveAscensionSpecialty(payload.specialty || payload.tpId || 'cyber');
   const isWinner = Boolean(
@@ -346,17 +423,31 @@ function runAscensionPhase(payload = {}) {
       allTpsAt20 || (Boolean(payload.persisted) && isCreatorLouis(gameState.profile.name));
     sessionDivineSpecialty = spec.id;
     if (canUnlock) {
+      const hadSecretBefore = Boolean(gameState.secretSkinUnlocked);
       gameState.unlockDivineSkin(spec.id, true);
-      rebuildLocalAvatar(gameState.skin);
-      mainMenu?.renderSkinUi?.();
-      if (allTpsAt20) {
-        network.saveAccount({
-          tpScores: gameState.profile.grades,
-          unlockedDivineSkins: gameState.unlockedDivineSkins,
-          selectedSkin: spec.id,
-          avatarCustomization: gameState.skin
-        });
+      if (payload.persisted) {
+        if (payload.prestigeReset) {
+          gameState.resetPrestigeProgress();
+          hud?.toast?.('🔄 Cycle de Prestige activé : vos TPs repartent à zéro pour débloquer les autres Skins Divins !', 'info');
+        }
+      } else {
+        if (allTpsAt20) {
+          gameState.resetPrestigeProgress();
+          hud?.toast?.('🔄 Cycle de Prestige activé : vos TPs repartent à zéro pour débloquer les autres Skins Divins !', 'info');
+        }
+        const hasAllNow = hasAllDivineSpecialties(gameState.unlockedDivineSkins);
+        if (!hadSecretBefore && hasAllNow) {
+          sfx.playSecretUnlockFanfare?.();
+          hud?.showSecretSkinAnnouncement?.({
+            playerName,
+            bannerText: formatSecretSkinAnnouncement(playerName)
+          });
+        }
       }
+      rebuildLocalAvatar(gameState.skin);
+      lab.updateStationBadges(gameState.profile.grades);
+      mainMenu?.renderSkinUi?.();
+      hud?.refresh?.();
     } else {
       rebuildLocalAvatar(gameState.skin);
     }
@@ -715,13 +806,14 @@ async function openTp(tpId, stationItem = null) {
       lab.updateStationBadges(p.grades);
 
       const allTpsAt20 = hasAllTpsAt20(p.grades, allTps);
-      const firstTimeAllAt20 =
-        !wasAllAt20 && allTpsAt20 && gameState.unlockedDivineSkins.length === 0;
+      const firstTimeAllAt20 = !wasAllAt20 && allTpsAt20;
       network.submitScore(gameState.profile.name, doneId, safeScore, durationSec, gameState.skin);
       network.saveAccount({
         tpScores: p.grades,
         unlockedDivineSkins: gameState.unlockedDivineSkins,
-        selectedSkin: gameState.skin?.divineSpecialty || 'standard',
+        selectedSkin: gameState.skin?.secretSkin
+          ? ULTIMATE_SECRET_SKIN_ID
+          : gameState.skin?.divineSpecialty || 'standard',
         avatarCustomization: gameState.skin
       });
       if (firstTimeAllAt20 && !network.connected) {
@@ -841,14 +933,20 @@ hud = new HudManager(gameState, network, {
   onQuickNav: (id) => teleportNearTarget(id),
   onModalOpen: (isOpen) => setModalActive(isOpen, false, false),
   onSkinChange: (skin) => {
-    sessionDivineSpecialty = skin?.divineSpecialty || null;
+    const selectedId = skin?.secretSkin
+      ? ULTIMATE_SECRET_SKIN_ID
+      : skin?.divineSpecialty || 'standard';
+    sessionDivineSpecialty = selectedId === 'standard' ? null : selectedId;
     rebuildLocalAvatar(skin);
     network.sendSkinUpdate(skin);
     network.saveAccount({
-      selectedSkin: skin?.divineSpecialty || 'standard',
+      selectedSkin: selectedId,
       avatarCustomization: skin,
       unlockedDivineSkins: gameState.unlockedDivineSkins
     });
+  },
+  onReplayIntro: () => {
+    startIntroCinematic(true);
   },
   onLocalChatSent: (text) => {
     showSpeechBubble(localBubble, text, { isEmote: false, color: gameState.skin.outfitColor });
@@ -963,7 +1061,9 @@ hud = new HudManager(gameState, network, {
       network.saveAccount({
         tpScores: nextGrades,
         unlockedDivineSkins: gameState.unlockedDivineSkins,
-        selectedSkin: gameState.skin?.divineSpecialty || 'standard',
+        selectedSkin: gameState.skin?.secretSkin
+          ? ULTIMATE_SECRET_SKIN_ID
+          : gameState.skin?.divineSpecialty || 'standard',
         avatarCustomization: gameState.skin
       });
     }
@@ -972,14 +1072,20 @@ hud = new HudManager(gameState, network, {
   onDebugResetProgress: () => {
     sessionDivineSpecialty = null;
     gameState.unlockedDivineSkins = [];
+    gameState.secretSkinUnlocked = false;
+    gameState.prestigeCount = 0;
     gameState.equipDivineSkin(null);
     endAscensionCinematic();
+    hud?.hideIntroCinematic?.();
     hud?.hideAscensionDialogue?.();
     hud?.hideWorldCelebration?.();
+    hud?.hideSecretSkinAnnouncement?.();
     rebuildLocalAvatar(gameState.skin);
     const resetProfile = {
       ...gameState.profile,
       unlockedDivineSkins: [],
+      secretSkinUnlocked: false,
+      prestigeCount: 0,
       selectedSkin: 'standard',
       grades: {},
       average: null,
@@ -1084,8 +1190,12 @@ function returnToMainMenu(isLogout = false) {
   if (isLogout) {
     sessionDivineSpecialty = null;
   } else {
-    sessionDivineSpecialty = gameState.skin?.divineSpecialty || null;
+    sessionDivineSpecialty = gameState.skin?.secretSkin
+      ? ULTIMATE_SECRET_SKIN_ID
+      : gameState.skin?.divineSpecialty || null;
   }
+  hud?.hideIntroCinematic?.();
+  hud?.hideSecretSkinAnnouncement?.();
   endAscensionCinematic();
   joined = false;
   modalOpen = false;
@@ -1151,19 +1261,27 @@ network.on('welcome', (msg) => {
 
 network.on('profile_updated', ({ profile }) => {
   gameState.setProfile(profile);
-  sessionDivineSpecialty = gameState.skin?.divineSpecialty || null;
+  sessionDivineSpecialty = gameState.skin?.secretSkin
+    ? ULTIMATE_SECRET_SKIN_ID
+    : gameState.skin?.divineSpecialty || null;
   rebuildLocalAvatar(gameState.skin);
   lab.updateStationBadges(profile.grades);
+  mainMenu?.renderSkinUi?.();
+  hud?.refresh?.();
   syncWallLeaderboard();
 });
 
 network.on('profile_reset', ({ profile, message }) => {
   sessionDivineSpecialty = null;
   gameState.unlockedDivineSkins = [];
+  gameState.secretSkinUnlocked = false;
+  gameState.prestigeCount = 0;
   gameState.equipDivineSkin(null);
   endAscensionCinematic();
+  hud?.hideIntroCinematic?.();
   hud?.hideAscensionDialogue?.();
   hud?.hideWorldCelebration?.();
+  hud?.hideSecretSkinAnnouncement?.();
   gameState.setProfile(profile);
   rebuildLocalAvatar(gameState.skin);
   lab.updateStationBadges(profile.grades);
@@ -1228,6 +1346,34 @@ network.on('world_celebration', (payload) => {
 
 network.on('world_ascension', (payload) => {
   runAscensionPhase(payload);
+});
+
+network.on('secret_skin_unlocked', (payload) => {
+  sfx.playSecretUnlockFanfare?.();
+  hud?.showSecretSkinAnnouncement?.(payload);
+  const isMe = Boolean(
+    (payload?.playerId && network.clientId && payload.playerId === network.clientId) ||
+      (payload?.playerName &&
+        payload.playerName.toLowerCase() === gameState.profile.name?.toLowerCase())
+  );
+  if (isMe) {
+    gameState.secretSkinUnlocked = true;
+    gameState.profile = { ...gameState.profile, secretSkinUnlocked: true };
+    if (gameState.account) {
+      gameState.account = { ...gameState.account, secretSkinUnlocked: true };
+    }
+    mainMenu?.renderSkinUi?.();
+    hud?.toast?.('🌌 SKIN SECRET ULTIME débloqué dans votre casier !', 'success');
+    showSpeechBubble(localBubble, '🌌 SKIN SECRET ULTIME ! 🌌', {
+      isEmote: true,
+      color: '#e879f9'
+    });
+  } else if (payload?.playerId) {
+    remotePlayers.showBubble(payload.playerId, '🌌 SKIN SECRET ULTIME ! 🌌', {
+      isEmote: true,
+      color: '#e879f9'
+    });
+  }
 });
 
 network.on('player_activity', ({ id, activity, roomRoster }) => {
@@ -1336,6 +1482,27 @@ window.addEventListener('keydown', (e) => {
     }
     if (e.code === 'KeyG') {
       vrManager.setSimInput({ thumb: 1 });
+    }
+  }
+
+  if (activeCinematic?.phase === 'intro' && !subModalActive) {
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      endIntroCinematic(true);
+      return;
+    }
+    const onIntroBtn = Boolean(e.target?.closest?.('#intro-cinematic-overlay button'));
+    if (!onIntroBtn && (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowRight')) {
+      e.preventDefault();
+      sfx.click();
+      hud?._stepIntro?.(1);
+      return;
+    }
+    if (!onIntroBtn && e.code === 'ArrowLeft') {
+      e.preventDefault();
+      sfx.click();
+      hud?._stepIntro?.(-1);
+      return;
     }
   }
 
@@ -1554,18 +1721,31 @@ sceneMgr.addUpdater((dt, elapsed) => {
   const vrOn = Boolean(vrManager?.isVrActive?.());
   const step = vrOn || activeCinematic ? null : player.update(dt);
   if (activeCinematic && !vrOn) {
-    sceneMgr.applyCinematicShot(
-      activeCinematic.phase,
-      elapsed,
-      activeCinematic.teacherPos,
-      activeCinematic.winnerSpot
-    );
-    if (
-      activeCinematic.phase === 'ascension' &&
-      !activeCinematic.isWinner &&
-      activeCinematic.playerId
-    ) {
-      remotePlayers.setLevitation(activeCinematic.playerId, sceneMgr.getAscensionLevitation());
+    if (activeCinematic.phase === 'intro') {
+      const stepProgress = Math.min(
+        1,
+        Math.max(0, (performance.now() - activeCinematic.stepStartedAt) / 9500)
+      );
+      sceneMgr.applyIntroCinematicShot(
+        activeCinematic.stepIndex,
+        stepProgress,
+        elapsed,
+        activeCinematic.teacherPos
+      );
+    } else {
+      sceneMgr.applyCinematicShot(
+        activeCinematic.phase,
+        elapsed,
+        activeCinematic.teacherPos,
+        activeCinematic.winnerSpot
+      );
+      if (
+        activeCinematic.phase === 'ascension' &&
+        !activeCinematic.isWinner &&
+        activeCinematic.playerId
+      ) {
+        remotePlayers.setLevitation(activeCinematic.playerId, sceneMgr.getAscensionLevitation());
+      }
     }
   }
   updateVoiceIndicatorSprite(localVoiceIndicator, dt, voiceChat.isSpeaking);
@@ -1653,12 +1833,14 @@ sceneMgr.addUpdater((dt, elapsed) => {
       canvas.style.cursor = '';
     }
 
-    const promptTarget = (!vrOn && document.pointerLockElement === canvas && hoveredInteractable)
-      ? hoveredInteractable
-      : best;
+    const promptTarget = activeCinematic
+      ? null
+      : (!vrOn && document.pointerLockElement === canvas && hoveredInteractable)
+        ? hoveredInteractable
+        : best;
     hud?.setInteractPrompt?.(promptTarget);
-    crosshairEl?.classList.toggle('interact-ready', Boolean(hoveredInteractable || best));
-    touchControls?.setInteractTarget?.(best);
+    crosshairEl?.classList.toggle('interact-ready', Boolean(!activeCinematic && (hoveredInteractable || best)));
+    touchControls?.setInteractTarget?.(activeCinematic ? null : best);
   }
 });
 
@@ -1678,7 +1860,10 @@ setInterval(() => {
   }
 }, 180);
 
-function startGameSession({ name, room, skin, privateDebug = false }, startVr = false) {
+function startGameSession(
+  { name, room, skin, privateDebug = false, forceIntro = false },
+  startVr = false
+) {
   const cleanRoom = room || 'plateau-u300';
   const isDebugRoom = Boolean(
     privateDebug || String(cleanRoom).toLowerCase().startsWith('priv-debug')
@@ -1717,8 +1902,15 @@ function startGameSession({ name, room, skin, privateDebug = false }, startVr = 
   });
   refreshWallLeaderboard();
 
+  const shouldRunIntro =
+    !startVr &&
+    !isDebugRoom &&
+    (Boolean(forceIntro) || (gameState.isAuthenticated() && gameState.account?.introSeen === false));
+
   if (startVr) {
     vrManager?.enterVr?.();
+  } else if (shouldRunIntro) {
+    startIntroCinematic(Boolean(forceIntro));
   } else {
     setTimeout(() => {
       hud?.toast?.(
@@ -1740,7 +1932,9 @@ mainMenu = new MainMenu(gameState, network, {
   onStartGame: (params) => startGameSession(params, false),
   onStartVr: (params) => startGameSession(params, true),
   onAccountRestored: () => {
-    sessionDivineSpecialty = gameState.skin?.divineSpecialty || null;
+    sessionDivineSpecialty = gameState.skin?.secretSkin
+      ? ULTIMATE_SECRET_SKIN_ID
+      : gameState.skin?.divineSpecialty || null;
     rebuildLocalAvatar(gameState.skin);
     lab.updateStationBadges(gameState.profile.grades);
   },

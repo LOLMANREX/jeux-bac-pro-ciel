@@ -6,11 +6,12 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { WebSocket } from 'ws';
 import { createGameServer } from '../server/index.js';
-import { ALL_TP_IDS } from '../server/store.js';
+import { ALL_TP_IDS, ULTIMATE_SECRET_SKIN_ID } from '../server/store.js';
 import {
   ASCENSION_SPECIALTIES,
   formatAscensionBanner,
   formatCelebrationBanner,
+  formatSecretSkinBanner,
   formatSpectatorWaitText,
   hasAllTpsAt20,
   isCreatorPseudo,
@@ -21,22 +22,32 @@ import { buildPrivateDebugUrl, requestPrivateDebugSession } from '../src/admin.j
 import {
   GameState,
   getAllTps,
+  hasAllDivineSpecialties,
   hasAllTpsAt20 as clientHasAllTpsAt20
 } from '../src/core/gameState.js';
 import { APP_VERSION, CHANGELOG_RELEASES } from '../src/ui/ChangelogModal.js';
 import {
+  buildIntroCinematicSteps,
   formatAscensionBanner as formatHudAscensionBanner,
+  formatSecretSkinAnnouncement,
   formatSpectatorWaitMessage,
   formatWorldCelebrationBanner
 } from '../src/ui/HudManager.js';
 import {
+  LOCKED_SECRET_SKIN_LABEL,
+  getCasierDivineEntries
+} from '../src/ui/SkinCustomizer.js';
+import {
+  ULTIMATE_SECRET_SKIN,
   applySessionDivineSkin,
   buildStudentAvatarMesh,
   isCreatorLouis,
+  isUltimateSecretSkinId,
   normalizeSkin
 } from '../src/world/AvatarBuilder.js';
 import { RemotePlayersManager } from '../src/world/RemotePlayers.js';
 import {
+  INTRO_CINEMATIC_SHOTS,
   computeAscensionGatheringLayout,
   createWorldCelebrationRig
 } from '../src/world/SceneManager.js';
@@ -190,7 +201,7 @@ test('v4.8 : Cinématique d’Ascension Dieu du Bac Pro CIEL rassemble la classe
       '⏳ Alice20 choisit sa spécialité auprès du Professeur CIEL...'
     );
     assert.equal(celeb2.choiceTimeoutMs, 15000);
-    assert.equal(celeb2.specialties.length, 4);
+    assert.equal(celeb2.specialties.length, 5);
     assert.equal(celeb2.placements.length, 2);
 
     const asc1P = waitForWsMsg(ws1, (m) => m.type === 'world_ascension');
@@ -227,9 +238,9 @@ test('v4.8 : Cinématique d’Ascension Dieu du Bac Pro CIEL rassemble la classe
   }
 });
 
-test('v4.8 : Les 4 Skins Divins de spécialités (Cyber, Réseaux, Électronique, Systèmes) génèrent armure holographique, couronne énergétique, aura divine et accessoires 3D', () => {
-  assert.equal(ASCENSION_SPECIALTIES.length, 4);
-  const expectedIds = ['cyber', 'reseaux', 'electronique', 'systemes'];
+test('v4.8 / v4.12 : Les 5 Skins Divins de spécialités (Cyber, Réseaux, Électronique, Systèmes, Audiovisuel) génèrent armure holographique, couronne énergétique, aura divine et accessoires 3D', () => {
+  assert.equal(ASCENSION_SPECIALTIES.length, 5);
+  const expectedIds = ['cyber', 'reseaux', 'electronique', 'systemes', 'audiovisuel'];
   assert.deepEqual(
     ASCENSION_SPECIALTIES.map((s) => s.id),
     expectedIds
@@ -239,6 +250,7 @@ test('v4.8 : Les 4 Skins Divins de spécialités (Cyber, Réseaux, Électronique
   assert.equal(resolveAscensionSpecialty('vmvlan').id, 'reseaux');
   assert.equal(resolveAscensionSpecialty('soldering').id, 'electronique');
   assert.equal(resolveAscensionSpecialty('hardware').id, 'systemes');
+  assert.equal(resolveAscensionSpecialty('audiovisual').id, 'audiovisuel');
 
   const scene = new THREE.Scene();
   const remoteMgr = new RemotePlayersManager(scene);
@@ -475,6 +487,9 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
     assert.equal(regData.account.selectedSkin, 'standard');
     assert.equal(regData.account.avatarCustomization.outfitStyle, 'hoodie');
     assert.deepEqual(regData.account.unlockedDivineSkins, []);
+    assert.equal(regData.account.introSeen, false);
+    assert.equal(regData.account.secretSkinUnlocked, false);
+    assert.equal(regData.account.prestigeCount, 0);
 
     const dupRes = await fetch(`${baseUrl}/api/auth/register`, {
       method: 'POST',
@@ -642,11 +657,11 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
   }
 });
 
-test('v4.11 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
-  assert.ok(APP_VERSION.startsWith('v4.11'));
-  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.11'));
+test('v4.12 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
+  assert.ok(APP_VERSION.startsWith('v4.12'));
+  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.12'));
   assert.equal(CHANGELOG_RELEASES[0].tag, 'DERNIÈRE MÀJ');
-  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.10'));
+  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.11'));
   assert.equal(CHANGELOG_RELEASES[1].tag, 'HISTORIQUE');
 
   const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
@@ -663,15 +678,29 @@ test('v4.11 : DOM index.html, admin.html et ChangelogModal exposent tous les él
     'auth-register-confirm',
     'auth-session-card',
     'menu-btn-logout',
+    'menu-btn-replay-intro',
     'btn-hud-logout',
+    'btn-replay-intro',
     'skin-divine-list',
     'hud-skin-divine-list',
     'world-celebration-banner',
     'world-celebration-text',
+    'secret-skin-banner',
+    'secret-skin-banner-text',
+    'intro-cinematic-overlay',
+    'intro-step-pill',
+    'intro-zone-pill',
+    'intro-step-title',
+    'intro-dialogue-text',
+    'intro-step-dots',
+    'btn-intro-prev',
+    'btn-intro-next',
+    'btn-intro-skip',
     'btn-celebration-applaud',
     'ascension-cinematic-dialogue',
     'ascension-dialogue-speech',
     'ascension-dialogue-question',
+    'ascension-collection-status',
     'ascension-choices-grid',
     'ascension-countdown-pill',
     'ascension-spectator-wait',
@@ -679,6 +708,7 @@ test('v4.11 : DOM index.html, admin.html et ChangelogModal exposent tous les él
     'btn-ascension-reseaux',
     'btn-ascension-electronique',
     'btn-ascension-systemes',
+    'btn-ascension-audiovisuel',
     'btn-creator-power',
     'creator-power-popover',
     'btn-creator-celebrate',
@@ -694,6 +724,7 @@ test('v4.11 : DOM index.html, admin.html et ChangelogModal exposent tous les él
     assert.ok(indexHtml.includes(`id="${id}"`), `ID manquant dans index.html: ${id}`);
   }
   assert.ok(indexHtml.includes('Quel a été ton TP préféré durant ton parcours ?'));
+  assert.ok(indexHtml.includes("🎬 Revoir l'intro"));
   assert.ok(indexHtml.includes('🚪 Déconnexion'));
 
   const adminHtml = fs.readFileSync(path.resolve('admin.html'), 'utf8');
@@ -1091,4 +1122,350 @@ test('v4.11 : Reset global unique au démarrage de accounts.json hérité sans e
     await new Promise((resolve) => srv2.server.close(resolve));
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+test('v4.12 : Création de compte initialise introSeen=false, cinématique Professeur CIEL et persistance introSeen=true via POST /api/account/save', async () => {
+  assert.equal(INTRO_CINEMATIC_SHOTS.length, 5);
+  const steps = buildIntroCinematicSteps('EleveIntro');
+  assert.equal(steps.length, 5);
+  const fullNarrative = steps.map((s) => `${s.title} ${s.text}`).join(' ');
+  assert.ok(fullNarrative.includes('Professeur CIEL'));
+  assert.ok(fullNarrative.includes('Cyber'));
+  assert.ok(fullNarrative.includes('Réseaux'));
+  assert.ok(fullNarrative.includes('Électronique'));
+  assert.ok(fullNarrative.includes('Systèmes'));
+  assert.ok(fullNarrative.includes('Audiovisuel'));
+  assert.ok(fullNarrative.includes('20/20'));
+  assert.ok(fullNarrative.includes('Cycle de Prestige'));
+  assert.ok(!fullNarrative.toLowerCase().includes('architecte suprême'));
+  assert.ok(!fullNarrative.toLowerCase().includes('entité quantique'));
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atelier-v412-intro-'));
+  const accountsPath = path.join(tmpDir, 'accounts.json');
+  const srv1 = createGameServer({ dbPath: null, accountsPath });
+  await new Promise((resolve) => srv1.server.listen(0, resolve));
+  const port1 = srv1.server.address().port;
+  const baseUrl1 = `http://127.0.0.1:${port1}`;
+
+  let token = '';
+  try {
+    const regRes = await fetch(`${baseUrl1}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'EleveIntro412',
+        password: 'PasswordIntro412',
+        confirmPassword: 'PasswordIntro412'
+      })
+    });
+    assert.equal(regRes.status, 201);
+    const regData = await regRes.json();
+    token = regData.token;
+    assert.equal(regData.account.introSeen, false);
+    assert.equal(regData.account.secretSkinUnlocked, false);
+    assert.equal(regData.account.prestigeCount, 0);
+
+    const diskBefore = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+    assert.equal(diskBefore.accounts[0].introSeen, false);
+
+    const saveRes = await fetch(`${baseUrl1}/api/account/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ introSeen: true })
+    });
+    assert.equal(saveRes.status, 200);
+    const saveData = await saveRes.json();
+    assert.equal(saveData.account.introSeen, true);
+
+    const meRes = await fetch(`${baseUrl1}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(meRes.status, 200);
+    const meData = await meRes.json();
+    assert.equal(meData.account.introSeen, true);
+  } finally {
+    srv1.wsHub.close();
+    await new Promise((resolve) => srv1.server.close(resolve));
+  }
+
+  const srv2 = createGameServer({ dbPath: null, accountsPath });
+  await new Promise((resolve) => srv2.server.listen(0, resolve));
+  const port2 = srv2.server.address().port;
+  const baseUrl2 = `http://127.0.0.1:${port2}`;
+  try {
+    const loginRes = await fetch(`${baseUrl2}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'EleveIntro412',
+        password: 'PasswordIntro412'
+      })
+    });
+    assert.equal(loginRes.status, 200);
+    const loginData = await loginRes.json();
+    assert.equal(loginData.account.introSeen, true);
+  } finally {
+    srv2.wsHub.close();
+    await new Promise((resolve) => srv2.server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('v4.12 : Cycle de Prestige après 20/20 intégral, protection serveur /api/account/save et déblocage automatique du Skin Secret Ultime aux 5 spécialités', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atelier-v412-prestige-'));
+  const accountsPath = path.join(tmpDir, 'accounts.json');
+  const { server, wsHub, store } = createGameServer({ dbPath: null, accountsPath });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const wsUrl = `ws://127.0.0.1:${port}/ws`;
+
+  const wsHero = new WebSocket(wsUrl);
+  const wsSpec = new WebSocket(wsUrl);
+
+  try {
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'PrestigeHero',
+        password: 'PrestigePassword412',
+        confirmPassword: 'PrestigePassword412'
+      })
+    });
+    assert.equal(regRes.status, 201);
+    const regData = await regRes.json();
+    const token = regData.token;
+
+    const blockedSaveRes = await fetch(`${baseUrl}/api/account/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        unlockedDivineSkins: ['cyber', ULTIMATE_SECRET_SKIN_ID],
+        secretSkinUnlocked: true,
+        selectedSkin: ULTIMATE_SECRET_SKIN_ID,
+        avatarCustomization: { secretSkin: true }
+      })
+    });
+    assert.equal(blockedSaveRes.status, 200);
+    const blockedSaveData = await blockedSaveRes.json();
+    assert.equal(blockedSaveData.account.secretSkinUnlocked, false);
+    assert.ok(!blockedSaveData.account.unlockedDivineSkins.includes(ULTIMATE_SECRET_SKIN_ID));
+    assert.notEqual(blockedSaveData.account.selectedSkin, ULTIMATE_SECRET_SKIN_ID);
+    assert.equal(Boolean(blockedSaveData.account.avatarCustomization.secretSkin), false);
+
+    const partialSaveRes = await fetch(`${baseUrl}/api/account/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        unlockedDivineSkins: ['cyber', 'reseaux', 'electronique', 'systemes'],
+        secretSkinUnlocked: true,
+        selectedSkin: ULTIMATE_SECRET_SKIN_ID,
+        avatarCustomization: { secretSkin: true }
+      })
+    });
+    assert.equal(partialSaveRes.status, 200);
+    const partialData = await partialSaveRes.json();
+    assert.equal(partialData.account.secretSkinUnlocked, false);
+    assert.notEqual(partialData.account.selectedSkin, ULTIMATE_SECRET_SKIN_ID);
+
+    store.saveAccountData('PrestigeHero', { unlockedDivineSkins: [] });
+
+    await Promise.all([
+      new Promise((r) => wsHero.once('open', r)),
+      new Promise((r) => wsSpec.once('open', r))
+    ]);
+
+    const wHeroP = waitForWsMsg(wsHero, (m) => m.type === 'welcome');
+    wsHero.send(JSON.stringify({ type: 'join', name: 'PrestigeHero', room: 'plateau-u300' }));
+    await wHeroP;
+
+    const wSpecP = waitForWsMsg(wsSpec, (m) => m.type === 'welcome');
+    wsSpec.send(JSON.stringify({ type: 'join', name: 'Spectateur412', room: 'plateau-u300' }));
+    await wSpecP;
+
+    const cycleOrder = ['cyber', 'reseaux', 'electronique', 'systemes', 'audiovisuel'];
+    let xpBeforeAscension = 0;
+
+    for (let i = 0; i < cycleOrder.length; i++) {
+      const targetSpec = cycleOrder[i];
+      for (const tpId of ALL_TP_IDS.filter((id) => id !== 'oscilloscope')) {
+        store.recordTpScore('PrestigeHero', tpId, 20, 45);
+      }
+
+      const celebHeroP = waitForWsMsg(wsHero, (m) => m.type === 'world_celebration');
+      const celebSpecP = waitForWsMsg(wsSpec, (m) => m.type === 'world_celebration');
+      wsHero.send(
+        JSON.stringify({
+          type: 'submit_score',
+          tpId: 'oscilloscope',
+          score: 20,
+          durationSec: 40
+        })
+      );
+      const [celebHero, celebSpec] = await Promise.all([celebHeroP, celebSpecP]);
+      assert.equal(celebHero.reason, 'all_tps_20');
+      assert.equal(celebSpec.unlockedDivineSkins.length, i);
+      assert.equal(celebHero.secretSkinUnlocked, false);
+
+      const accMid = store.getAccountByUsername('PrestigeHero');
+      assert.ok(accMid.xp > xpBeforeAscension);
+      xpBeforeAscension = accMid.xp;
+
+      const ascHeroP = waitForWsMsg(wsHero, (m) => m.type === 'world_ascension');
+      const ascSpecP = waitForWsMsg(wsSpec, (m) => m.type === 'world_ascension');
+      const statsResetP = waitForWsMsg(
+        wsHero,
+        (m) =>
+          m.type === 'player_stats_updated' &&
+          m.profile &&
+          m.profile.completedCount === 0
+      );
+
+      let secretHeroP = null;
+      let secretSpecP = null;
+      if (i === cycleOrder.length - 1) {
+        secretHeroP = waitForWsMsg(wsHero, (m) => m.type === 'secret_skin_unlocked');
+        secretSpecP = waitForWsMsg(wsSpec, (m) => m.type === 'secret_skin_unlocked');
+      }
+
+      wsHero.send(JSON.stringify({ type: 'ascension_choice', specialty: targetSpec }));
+      const [ascHero, ascSpec, statsReset] = await Promise.all([ascHeroP, ascSpecP, statsResetP]);
+
+      assert.equal(ascHero.specialty, targetSpec);
+      assert.equal(ascHero.prestigeReset, true);
+      assert.equal(ascSpec.prestigeReset, true);
+      assert.deepEqual(ascHero.grades, {});
+      assert.deepEqual(ascHero.tpScores, {});
+      assert.equal(statsReset.profile.completedCount, 0);
+      assert.equal(statsReset.profile.average, null);
+
+      const accAfter = store.getAccountByUsername('PrestigeHero');
+      assert.equal(accAfter.prestigeCount, i + 1);
+      assert.deepEqual(accAfter.tpScores, {});
+      assert.deepEqual(accAfter.grades, {});
+      assert.equal(accAfter.xp, xpBeforeAscension);
+      assert.equal(accAfter.unlockedDivineSkins.includes(targetSpec), true);
+
+      if (i < cycleOrder.length - 1) {
+        assert.equal(ascHero.secretSkinUnlocked, false);
+        assert.equal(ascHero.justUnlockedSecretSkin, false);
+        assert.equal(accAfter.secretSkinUnlocked, false);
+      } else {
+        assert.equal(ascHero.secretSkinUnlocked, true);
+        assert.equal(ascHero.justUnlockedSecretSkin, true);
+        assert.equal(accAfter.secretSkinUnlocked, true);
+        const [secHero, secSpec] = await Promise.all([secretHeroP, secretSpecP]);
+        assert.equal(secHero.secretSkinId, ULTIMATE_SECRET_SKIN_ID);
+        assert.equal(
+          secSpec.bannerText,
+          '🌌 MYSTÈRE RÉVÉLÉ : PrestigeHero a réuni tous les pouvoirs divins et débloqué le SKIN SECRET ULTIME ! 🌌'
+        );
+      }
+    }
+
+    const equipSecretRes = await fetch(`${baseUrl}/api/account/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        selectedSkin: ULTIMATE_SECRET_SKIN_ID,
+        avatarCustomization: { secretSkin: true, outfitColor: '#22d3ee' }
+      })
+    });
+    assert.equal(equipSecretRes.status, 200);
+    const equipSecretData = await equipSecretRes.json();
+    assert.equal(equipSecretData.account.secretSkinUnlocked, true);
+    assert.equal(equipSecretData.account.selectedSkin, ULTIMATE_SECRET_SKIN_ID);
+    assert.equal(equipSecretData.account.avatarCustomization.secretSkin, true);
+  } finally {
+    wsHero.close();
+    wsSpec.close();
+    wsHub.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('v4.12 : Casier masqué/verrouillé, annonce HUD et rendu 3D cosmique multijoueur du Skin Secret Ultime', () => {
+  assert.equal(isUltimateSecretSkinId(ULTIMATE_SECRET_SKIN_ID), true);
+  assert.equal(hasAllDivineSpecialties(['cyber', 'reseaux']), false);
+  assert.equal(
+    hasAllDivineSpecialties(['cyber', 'reseaux', 'electronique', 'systemes', 'audiovisuel']),
+    true
+  );
+
+  assert.equal(
+    formatSecretSkinBanner('LouisDev'),
+    '🌌 MYSTÈRE RÉVÉLÉ : LouisDev a réuni tous les pouvoirs divins et débloqué le SKIN SECRET ULTIME ! 🌌'
+  );
+  assert.equal(
+    formatSecretSkinAnnouncement('LouisDev'),
+    '🌌 MYSTÈRE RÉVÉLÉ : LouisDev a réuni tous les pouvoirs divins et débloqué le SKIN SECRET ULTIME ! 🌌'
+  );
+
+  const gs = new GameState();
+  gs.unlockDivineSkin('cyber');
+  gs.unlockDivineSkin('reseaux');
+  gs.unlockDivineSkin('electronique');
+  gs.unlockDivineSkin('systemes');
+  assert.equal(gs.secretSkinUnlocked, false);
+
+  gs.setSkin({ ...gs.skin, secretSkin: true, divineSpecialty: ULTIMATE_SECRET_SKIN_ID });
+  assert.equal(Boolean(gs.skin.secretSkin), false);
+
+  const lockedCasier = getCasierDivineEntries(gs);
+  assert.equal(lockedCasier.specialties.length, 5);
+  assert.equal(lockedCasier.secretUnlocked, false);
+  assert.equal(lockedCasier.secretEntry.unlocked, false);
+  assert.equal(lockedCasier.secretEntry.masked, true);
+  assert.equal(lockedCasier.secretEntry.label, LOCKED_SECRET_SKIN_LABEL);
+  assert.ok(!lockedCasier.secretEntry.label.includes(ULTIMATE_SECRET_SKIN.name));
+
+  gs.unlockDivineSkin('audiovisuel');
+  assert.equal(gs.secretSkinUnlocked, true);
+  const unlockedCasier = getCasierDivineEntries(gs);
+  assert.equal(unlockedCasier.secretUnlocked, true);
+  assert.equal(unlockedCasier.secretEntry.unlocked, true);
+  assert.equal(unlockedCasier.secretEntry.masked, false);
+  assert.equal(unlockedCasier.secretEntry.id, ULTIMATE_SECRET_SKIN_ID);
+
+  const appliedSecret = applySessionDivineSkin({ outfitColor: '#22d3ee' }, ULTIMATE_SECRET_SKIN_ID);
+  assert.equal(appliedSecret.secretSkin, true);
+  assert.equal(appliedSecret.divineSpecialty, null);
+
+  const avatar = buildStudentAvatarMesh(appliedSecret);
+  assert.equal(avatar.hasSecretSkin(), true);
+  assert.equal(avatar.secretSkinGroup.visible, true);
+  assert.equal(avatar.cosmicWingsGroup.children.length, 2);
+  assert.equal(avatar.quantumRingsGroup.children.length, 4);
+  assert.ok(avatar.cosmicHaloGroup.children.length > 0);
+  assert.equal(avatar.particleTrailGroup.children.length, 36);
+  avatar.updateEffects(2.4);
+
+  avatar.setSecretSkin(false);
+  assert.equal(avatar.hasSecretSkin(), false);
+  assert.equal(avatar.secretSkinGroup.visible, false);
+
+  const scene = new THREE.Scene();
+  const remoteMgr = new RemotePlayersManager(scene);
+  remoteMgr.upsertPeer({ id: 'peer-secret', name: 'ArchitecteTest', x: 0, y: 0, z: 0 });
+  const peerSpec = remoteMgr.setSecretSkin('peer-secret', ULTIMATE_SECRET_SKIN_ID);
+  assert.equal(peerSpec.id, ULTIMATE_SECRET_SKIN_ID);
+  const peer = remoteMgr.peers.get('peer-secret');
+  assert.equal(peer.avatar.hasSecretSkin(), true);
+  assert.equal(peer.avatar.secretSkinGroup.visible, true);
+  remoteMgr.update(0.016);
 });

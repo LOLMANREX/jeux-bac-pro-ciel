@@ -97,9 +97,58 @@ export const ASCENSION_SPECIALTIES = [
     emissiveColor: '#a855f7',
     crownColor: '#10b981',
     auraColor: '#a855f7',
-    aliases: ['systemes', 'systeme', 'hardware', 'linux', 'audiovisual', 'studio', 'serveurs']
+    aliases: ['systemes', 'systeme', 'hardware', 'linux', 'serveurs']
+  },
+  {
+    id: 'audiovisuel',
+    label: 'Audiovisuel & Régie DMX',
+    shortLabel: 'Audiovisuel',
+    icon: '🎬',
+    primaryColor: '#ec4899',
+    secondaryColor: '#fde047',
+    armorColor: '#2e0824',
+    pantsColor: '#190414',
+    emissiveColor: '#ec4899',
+    crownColor: '#fde047',
+    auraColor: '#ec4899',
+    aliases: ['audiovisuel', 'audiovisual', 'studio', 'dmx', 'regie', 'son', 'video']
   }
 ];
+
+export const ULTIMATE_SECRET_SKIN_ID = 'architecte_supreme';
+
+export const ULTIMATE_SECRET_SKIN = {
+  id: ULTIMATE_SECRET_SKIN_ID,
+  label: 'Entité Quantique CIEL — Architecte Suprême',
+  shortLabel: 'Entité Quantique',
+  icon: '🌌',
+  primaryColor: '#c084fc',
+  secondaryColor: '#38bdf8',
+  tertiaryColor: '#fde047',
+  armorColor: '#050816',
+  pantsColor: '#030612',
+  emissiveColor: '#a855f7',
+  crownColor: '#fde047',
+  auraColor: '#38bdf8',
+  isSecretUltimate: true,
+  aliases: ['architecte_supreme', 'secret', 'secret_ultime', 'ultimate', 'entite_quantique']
+};
+
+export function isUltimateSecretSkinId(rawInput) {
+  if (!rawInput) return false;
+  const clean = String(rawInput || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^divine[_:-]/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return ULTIMATE_SECRET_SKIN.aliases.includes(clean);
+}
+
+export function resolveDivineOrSecretSkin(rawInput) {
+  if (isUltimateSecretSkinId(rawInput)) return ULTIMATE_SECRET_SKIN;
+  return resolveAscensionSpecialty(rawInput);
+}
 
 export function resolveAscensionSpecialty(rawInput) {
   if (!rawInput) return ASCENSION_SPECIALTIES[0];
@@ -128,13 +177,24 @@ export function resolveAscensionSpecialty(rawInput) {
 
 export function applySessionDivineSkin(baseSkin = {}, specialtyInput = 'cyber') {
   const normalized = normalizeSkin(baseSkin);
+  if (isUltimateSecretSkinId(specialtyInput)) {
+    return {
+      ...normalized,
+      outfitColor: ULTIMATE_SECRET_SKIN.primaryColor,
+      outfitStyle: 'cyber',
+      divineSpecialty: ULTIMATE_SECRET_SKIN_ID,
+      secretSkin: true
+    };
+  }
   const spec = resolveAscensionSpecialty(specialtyInput);
-  return {
+  const out = {
     ...normalized,
     outfitColor: spec.primaryColor,
     outfitStyle: 'cyber',
     divineSpecialty: spec.id
   };
+  delete out.secretSkin;
+  return out;
 }
 
 export function isCreatorLouis(rawName) {
@@ -161,7 +221,10 @@ export function normalizeSkin(rawSkin = {}) {
   if (s.creatorAura) {
     out.creatorAura = true;
   }
-  if (s.divineSpecialty) {
+  if (s.secretSkin || isUltimateSecretSkinId(s.divineSpecialty)) {
+    out.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
+    out.secretSkin = true;
+  } else if (s.divineSpecialty) {
     out.divineSpecialty = resolveAscensionSpecialty(s.divineSpecialty).id;
   }
   return out;
@@ -275,6 +338,54 @@ function createThemeMaterials(skin, showcase = null) {
       hairMat: new THREE.MeshStandardMaterial({ color: '#1e1b4b', roughness: 0.75 }),
       trimMat: new THREE.MeshStandardMaterial({ color: '#fbbf24', metalness: 0.9, roughness: 0.15, emissive: '#f59e0b', emissiveIntensity: 1.55 }),
       trimColor: '#fbbf24'
+    };
+  }
+  if (skin.secretSkin || isUltimateSecretSkinId(skin.divineSpecialty)) {
+    const uSpec = ULTIMATE_SECRET_SKIN;
+    return {
+      torsoMat: new THREE.MeshStandardMaterial({
+        color: uSpec.armorColor,
+        metalness: 0.94,
+        roughness: 0.1,
+        emissive: '#4c1d95',
+        emissiveIntensity: 0.55
+      }),
+      pantsMat: new THREE.MeshStandardMaterial({
+        color: uSpec.pantsColor,
+        metalness: 0.85,
+        roughness: 0.18,
+        emissive: '#0e7490',
+        emissiveIntensity: 0.35
+      }),
+      shoeMat: new THREE.MeshStandardMaterial({
+        color: uSpec.secondaryColor,
+        metalness: 0.92,
+        roughness: 0.12,
+        emissive: uSpec.primaryColor,
+        emissiveIntensity: 0.75
+      }),
+      skinMat: new THREE.MeshStandardMaterial({
+        color: skin.skinTone,
+        roughness: 0.58,
+        metalness: 0.15
+      }),
+      hairMat: new THREE.MeshStandardMaterial({
+        color: '#f8fafc',
+        metalness: 0.88,
+        roughness: 0.12,
+        emissive: uSpec.crownColor,
+        emissiveIntensity: 0.65
+      }),
+      trimMat: new THREE.MeshStandardMaterial({
+        color: uSpec.primaryColor,
+        metalness: 0.95,
+        roughness: 0.08,
+        emissive: uSpec.secondaryColor,
+        emissiveIntensity: 2.35
+      }),
+      trimColor: uSpec.primaryColor,
+      rgbCycle: true,
+      isSecretUltimate: true
     };
   }
   if (skin.divineSpecialty) {
@@ -896,9 +1007,13 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
   };
   const hasCreatorAura = () => Boolean(creatorAuraGroup.visible);
 
-  let currentDivineSpec = skin.divineSpecialty
-    ? resolveAscensionSpecialty(skin.divineSpecialty)
-    : null;
+  let currentSecretActive = Boolean(
+    skin.secretSkin || isUltimateSecretSkinId(skin.divineSpecialty)
+  );
+  let currentDivineSpec =
+    !currentSecretActive && skin.divineSpecialty
+      ? resolveAscensionSpecialty(skin.divineSpecialty)
+      : null;
 
   const divineSkinGroup = new THREE.Group();
   divineSkinGroup.name = 'divine-ascension-skin';
@@ -1194,6 +1309,58 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
       solderRelic.add(hotTip);
       specialtyAccessoryGroup.add(solderRelic);
       specialtyOrbiters.push({ grp: solderRelic, radius: 0.66, y: 1.36, speed: 1.7, phase: 0 });
+    } else if (spec.id === 'audiovisuel') {
+      const eqPack = new THREE.Group();
+      eqPack.position.set(0, 1.16, -0.21);
+      const eqFrame = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 0.36, 0.1),
+        new THREE.MeshStandardMaterial({ color: '#2e0824', metalness: 0.85, roughness: 0.2 })
+      );
+      eqPack.add(eqFrame);
+      for (let b = 0; b < 5; b++) {
+        const bar = new THREE.Mesh(
+          new THREE.BoxGeometry(0.042, 0.16 + (b % 3) * 0.06, 0.03),
+          b % 2 === 0 ? primaryNeonMat : secondaryNeonMat
+        );
+        bar.position.set(-0.13 + b * 0.065, 0, -0.06);
+        eqPack.add(bar);
+      }
+      specialtyAccessoryGroup.add(eqPack);
+
+      [-1, 1].forEach((side, idx) => {
+        const spotDrone = new THREE.Group();
+        const yoke = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.016, 8, 20), goldDivineMat);
+        spotDrone.add(yoke);
+        const lamp = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.065, 0.08, 0.16, 12),
+          new THREE.MeshStandardMaterial({ color: '#1f0718', metalness: 0.88, roughness: 0.18 })
+        );
+        lamp.rotation.x = Math.PI / 2;
+        spotDrone.add(lamp);
+        const lens = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 10), idx === 0 ? primaryNeonMat : secondaryNeonMat);
+        lens.position.z = 0.08;
+        spotDrone.add(lens);
+        const beamCone = new THREE.Mesh(
+          new THREE.ConeGeometry(0.16, 0.36, 12, 1, true),
+          new THREE.MeshBasicMaterial({
+            color: idx === 0 ? spec.primaryColor : spec.secondaryColor,
+            transparent: true,
+            opacity: 0.32,
+            side: THREE.DoubleSide
+          })
+        );
+        beamCone.rotation.x = -Math.PI / 2;
+        beamCone.position.z = 0.26;
+        spotDrone.add(beamCone);
+        specialtyAccessoryGroup.add(spotDrone);
+        specialtyOrbiters.push({
+          grp: spotDrone,
+          radius: 0.68,
+          y: 1.48 - idx * 0.14,
+          speed: 1.5,
+          phase: side < 0 ? 0 : Math.PI
+        });
+      });
     } else {
       const rackPack = new THREE.Group();
       rackPack.position.set(0, 1.16, -0.21);
@@ -1244,6 +1411,303 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
   };
 
   buildDivineVisuals(currentDivineSpec);
+
+  const secretSkinGroup = new THREE.Group();
+  secretSkinGroup.name = 'secret-ultimate-skin';
+  group.add(secretSkinGroup);
+
+  const cosmicArmorGroup = new THREE.Group();
+  cosmicArmorGroup.name = 'secret-cosmic-armor';
+  secretSkinGroup.add(cosmicArmorGroup);
+
+  const cosmicWingsGroup = new THREE.Group();
+  cosmicWingsGroup.name = 'secret-holographic-wings';
+  secretSkinGroup.add(cosmicWingsGroup);
+
+  const quantumRingsGroup = new THREE.Group();
+  quantumRingsGroup.name = 'secret-quantum-orbital-rings';
+  secretSkinGroup.add(quantumRingsGroup);
+
+  const particleTrailGroup = new THREE.Group();
+  particleTrailGroup.name = 'secret-cosmic-particle-trail';
+  secretSkinGroup.add(particleTrailGroup);
+
+  const cosmicHaloGroup = new THREE.Group();
+  cosmicHaloGroup.name = 'secret-celestial-halo';
+  cosmicHaloGroup.position.set(0, 0.44, 0);
+  headGroup.add(cosmicHaloGroup);
+
+  const cosmicVisorGroup = new THREE.Group();
+  cosmicVisorGroup.name = 'secret-quantum-visor';
+  headGroup.add(cosmicVisorGroup);
+
+  let secretDynamicState = null;
+
+  const buildSecretUltimateVisuals = (enabled) => {
+    clearSubGroup(cosmicArmorGroup);
+    clearSubGroup(cosmicWingsGroup);
+    clearSubGroup(quantumRingsGroup);
+    clearSubGroup(particleTrailGroup);
+    clearSubGroup(cosmicHaloGroup);
+    clearSubGroup(cosmicVisorGroup);
+    secretDynamicState = null;
+
+    if (!enabled) {
+      secretSkinGroup.visible = false;
+      cosmicHaloGroup.visible = false;
+      cosmicVisorGroup.visible = false;
+      return;
+    }
+
+    secretSkinGroup.visible = true;
+    cosmicHaloGroup.visible = true;
+    cosmicVisorGroup.visible = true;
+
+    const uSpec = ULTIMATE_SECRET_SKIN;
+    torsoMat.color.set(uSpec.armorColor);
+    torsoMat.metalness = 0.94;
+    torsoMat.roughness = 0.1;
+    torsoMat.emissive.set('#4c1d95');
+    torsoMat.emissiveIntensity = 0.55;
+
+    pantsMat.color.set(uSpec.pantsColor);
+    pantsMat.metalness = 0.85;
+    pantsMat.roughness = 0.18;
+    pantsMat.emissive.set('#0e7490');
+    pantsMat.emissiveIntensity = 0.35;
+
+    shoeMat.color.set(uSpec.secondaryColor);
+    shoeMat.metalness = 0.92;
+    shoeMat.roughness = 0.12;
+
+    const prismMatA = new THREE.MeshStandardMaterial({
+      color: '#c084fc',
+      emissive: '#a855f7',
+      emissiveIntensity: 2.3,
+      metalness: 0.92,
+      roughness: 0.08
+    });
+    const prismMatB = new THREE.MeshStandardMaterial({
+      color: '#38bdf8',
+      emissive: '#22d3ee',
+      emissiveIntensity: 2.3,
+      metalness: 0.92,
+      roughness: 0.08
+    });
+    const celestialGoldMat = new THREE.MeshStandardMaterial({
+      color: '#fde047',
+      emissive: '#fbbf24',
+      emissiveIntensity: 2.1,
+      metalness: 0.95,
+      roughness: 0.08
+    });
+    const holoWingMat = new THREE.MeshBasicMaterial({
+      color: '#e879f9',
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide
+    });
+    const holoWingInnerMat = new THREE.MeshBasicMaterial({
+      color: '#38bdf8',
+      transparent: true,
+      opacity: 0.62,
+      side: THREE.DoubleSide
+    });
+
+    const cosmicChest = new THREE.Mesh(
+      new THREE.BoxGeometry(0.53, 0.46, 0.32),
+      new THREE.MeshStandardMaterial({
+        color: '#070b1e',
+        metalness: 0.95,
+        roughness: 0.08,
+        emissive: '#6d28d9',
+        emissiveIntensity: 0.55
+      })
+    );
+    cosmicChest.position.set(0, 1.13, 0);
+    cosmicArmorGroup.add(cosmicChest);
+
+    const starCoreOuter = new THREE.Mesh(new THREE.IcosahedronGeometry(0.105, 0), prismMatB);
+    starCoreOuter.position.set(0, 1.15, 0.185);
+    cosmicArmorGroup.add(starCoreOuter);
+
+    const starCoreInner = new THREE.Mesh(new THREE.OctahedronGeometry(0.068, 0), celestialGoldMat);
+    starCoreInner.position.set(0, 1.15, 0.185);
+    cosmicArmorGroup.add(starCoreInner);
+
+    const chestOrbitRing = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.015, 8, 28), prismMatA);
+    chestOrbitRing.position.set(0, 1.15, 0.175);
+    cosmicArmorGroup.add(chestOrbitRing);
+
+    const cosmicPauldrons = [];
+    [-0.34, 0.34].forEach((px, idx) => {
+      const pGrp = new THREE.Group();
+      pGrp.position.set(px, 1.4, 0);
+      const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), idx === 0 ? prismMatA : prismMatB);
+      crystal.scale.set(1.25, 0.72, 1.32);
+      pGrp.add(crystal);
+      const wingSpire = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.28, 4), celestialGoldMat);
+      wingSpire.position.set(idx === 0 ? -0.1 : 0.1, 0.14, 0);
+      wingSpire.rotation.z = idx === 0 ? 0.55 : -0.55;
+      pGrp.add(wingSpire);
+      cosmicArmorGroup.add(pGrp);
+      cosmicPauldrons.push(pGrp);
+    });
+
+    const cosmicWings = [];
+    [-1, 1].forEach((side) => {
+      const wingGrp = new THREE.Group();
+      wingGrp.position.set(side * 0.17, 1.26, -0.18);
+      for (let w = 0; w < 5; w++) {
+        const bladeLen = 0.64 - w * 0.085;
+        const blade = new THREE.Mesh(
+          new THREE.BoxGeometry(bladeLen, 0.085, 0.022),
+          w % 2 === 0 ? holoWingMat : holoWingInnerMat
+        );
+        blade.position.set(side * (0.28 + w * 0.01), 0.24 - w * 0.14, -0.025 * w);
+        blade.rotation.z = side * (0.52 - w * 0.22);
+        wingGrp.add(blade);
+
+        const edgeTip = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.036, 0),
+          w % 2 === 0 ? celestialGoldMat : prismMatB
+        );
+        edgeTip.position.set(
+          side * (0.28 + bladeLen * 0.48),
+          0.24 - w * 0.14 + Math.sin(0.52 - w * 0.22) * bladeLen * 0.4,
+          -0.025 * w
+        );
+        wingGrp.add(edgeTip);
+      }
+      cosmicWingsGroup.add(wingGrp);
+      cosmicWings.push({ grp: wingGrp, side });
+    });
+
+    const quantumVisor = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.105, 0.15), prismMatB);
+    quantumVisor.position.set(0, 0.04, 0.165);
+    cosmicVisorGroup.add(quantumVisor);
+
+    const visorAccent = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.026, 0.16), celestialGoldMat);
+    visorAccent.position.set(0, 0.095, 0.16);
+    cosmicVisorGroup.add(visorAccent);
+
+    const haloOuter = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.022, 10, 36), prismMatA);
+    haloOuter.rotation.x = Math.PI / 2;
+    cosmicHaloGroup.add(haloOuter);
+
+    const haloInner = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.016, 8, 28), celestialGoldMat);
+    haloInner.rotation.x = Math.PI / 2;
+    haloInner.position.y = 0.06;
+    cosmicHaloGroup.add(haloInner);
+
+    const haloShards = [];
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      const shard = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.046, 0),
+        i % 3 === 0 ? celestialGoldMat : i % 2 === 0 ? prismMatA : prismMatB
+      );
+      shard.scale.set(0.7, 1.9, 0.7);
+      shard.position.set(Math.cos(a) * 0.29, 0.09, Math.sin(a) * 0.29);
+      cosmicHaloGroup.add(shard);
+      haloShards.push({ mesh: shard, baseAngle: a, idx: i });
+    }
+
+    const floorAstrolabe = new THREE.Mesh(new THREE.TorusGeometry(0.84, 0.026, 10, 48), prismMatA);
+    floorAstrolabe.rotation.x = Math.PI / 2;
+    floorAstrolabe.position.y = 0.035;
+    quantumRingsGroup.add(floorAstrolabe);
+
+    const floorRuneHex = new THREE.Mesh(
+      new THREE.RingGeometry(0.48, 0.7, 6),
+      new THREE.MeshBasicMaterial({
+        color: '#38bdf8',
+        transparent: true,
+        opacity: 0.72,
+        side: THREE.DoubleSide
+      })
+    );
+    floorRuneHex.rotation.x = -Math.PI / 2;
+    floorRuneHex.position.y = 0.024;
+    quantumRingsGroup.add(floorRuneHex);
+
+    const gyroRing1 = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.018, 10, 40), prismMatB);
+    gyroRing1.position.y = 1.12;
+    quantumRingsGroup.add(gyroRing1);
+
+    const gyroRing2 = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.018, 10, 40), prismMatA);
+    gyroRing2.position.y = 1.12;
+    quantumRingsGroup.add(gyroRing2);
+
+    const gyroRing3 = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.015, 8, 36), celestialGoldMat);
+    gyroRing3.position.y = 1.12;
+    quantumRingsGroup.add(gyroRing3);
+
+    const quantumSatellites = [];
+    for (let s = 0; s < 6; s++) {
+      const sat = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.065, 0),
+        s % 3 === 0 ? celestialGoldMat : s % 2 === 0 ? prismMatA : prismMatB
+      );
+      quantumRingsGroup.add(sat);
+      quantumSatellites.push({
+        mesh: sat,
+        phase: (s / 6) * Math.PI * 2,
+        radius: 0.74 + (s % 2) * 0.1,
+        speed: 1.85 + (s % 3) * 0.35,
+        yBase: 0.85 + (s % 3) * 0.32
+      });
+    }
+
+    const trailParticles = [];
+    const trailGeom = new THREE.OctahedronGeometry(0.038, 0);
+    for (let p = 0; p < 36; p++) {
+      const pMat = new THREE.MeshBasicMaterial({
+        color: p % 3 === 0 ? '#fde047' : p % 2 === 0 ? '#e879f9' : '#38bdf8',
+        transparent: true,
+        opacity: 0.85
+      });
+      const pMesh = new THREE.Mesh(trailGeom, pMat);
+      particleTrailGroup.add(pMesh);
+      trailParticles.push({
+        mesh: pMesh,
+        idx: p,
+        phase: (p / 36) * Math.PI * 2,
+        radius: 0.35 + (p % 5) * 0.11,
+        speed: 2.1 + (p % 4) * 0.45,
+        yOffset: (p / 36) * 2.15
+      });
+    }
+
+    const cosmicLight = new THREE.PointLight('#c084fc', 2.4, 7.0);
+    cosmicLight.position.set(0, 1.35, 0);
+    secretSkinGroup.add(cosmicLight);
+
+    secretDynamicState = {
+      prismMatA,
+      prismMatB,
+      holoWingMat,
+      holoWingInnerMat,
+      starCoreOuter,
+      starCoreInner,
+      chestOrbitRing,
+      cosmicPauldrons,
+      cosmicWings,
+      haloOuter,
+      haloInner,
+      haloShards,
+      floorAstrolabe,
+      floorRuneHex,
+      gyroRing1,
+      gyroRing2,
+      gyroRing3,
+      quantumSatellites,
+      trailParticles,
+      cosmicLight
+    };
+  };
+
+  buildSecretUltimateVisuals(currentSecretActive);
 
   updaters.push((t) => {
     if (!divineDynamicState || !divineSkinGroup.visible) return;
@@ -1304,21 +1768,129 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     }
   });
 
+  updaters.push((t) => {
+    if (!secretDynamicState || !secretSkinGroup.visible) return;
+    const st = secretDynamicState;
+    const hueA = (t * 0.18) % 1;
+    const hueB = (hueA + 0.36) % 1;
+    st.prismMatA.color.setHSL(hueA, 0.92, 0.66);
+    st.prismMatA.emissive.setHSL(hueA, 0.92, 0.54);
+    st.prismMatB.color.setHSL(hueB, 0.95, 0.62);
+    st.prismMatB.emissive.setHSL(hueB, 0.95, 0.52);
+    st.holoWingMat.color.setHSL((hueA + 0.12) % 1, 0.92, 0.68);
+    st.holoWingInnerMat.color.setHSL((hueB + 0.08) % 1, 0.95, 0.66);
+    st.cosmicLight.color.setHSL(hueA, 0.88, 0.65);
+    st.cosmicLight.intensity = 2.15 + Math.sin(t * 4.5) * 0.55;
+
+    st.starCoreOuter.rotation.y = t * 2.8;
+    st.starCoreOuter.rotation.x = t * 1.9;
+    st.starCoreInner.rotation.y = -t * 3.4;
+    st.chestOrbitRing.rotation.z = t * 2.2;
+
+    st.cosmicPauldrons.forEach((p, idx) => {
+      p.position.y = 1.4 + Math.sin(t * 3.4 + idx * 1.2) * 0.03;
+    });
+
+    st.cosmicWings.forEach((w) => {
+      w.grp.rotation.y = w.side * (0.28 + Math.sin(t * 3.2) * 0.18);
+      w.grp.rotation.z = w.side * Math.sin(t * 2.1) * 0.06;
+    });
+
+    cosmicHaloGroup.position.y = 0.44 + Math.sin(t * 3.0) * 0.04;
+    st.haloOuter.rotation.z = t * 1.6;
+    st.haloInner.rotation.z = -t * 2.4;
+    for (const sh of st.haloShards) {
+      const a = sh.baseAngle + t * 1.8;
+      sh.mesh.position.set(
+        Math.cos(a) * 0.29,
+        0.09 + Math.sin(t * 4.4 + sh.idx) * 0.032,
+        Math.sin(a) * 0.29
+      );
+      sh.mesh.rotation.y = -a;
+    }
+
+    st.floorAstrolabe.rotation.z = t * 1.7;
+    const pulse = 1 + Math.sin(t * 4.2) * 0.08;
+    st.floorAstrolabe.scale.set(pulse, pulse, 1);
+    st.floorRuneHex.rotation.z = -t * 1.3;
+
+    st.gyroRing1.rotation.x = 0.9 + Math.sin(t * 1.4) * 0.45;
+    st.gyroRing1.rotation.y = t * 1.7;
+    st.gyroRing2.rotation.y = 0.8 + Math.cos(t * 1.3) * 0.45;
+    st.gyroRing2.rotation.z = -t * 1.5;
+    st.gyroRing3.rotation.x = -0.6 + t * 1.1;
+    st.gyroRing3.rotation.z = t * 1.9;
+
+    for (const sat of st.quantumSatellites) {
+      const a = sat.phase + t * sat.speed;
+      sat.mesh.position.set(
+        Math.cos(a) * sat.radius,
+        sat.yBase + Math.sin(t * 3.1 + sat.phase) * 0.18,
+        Math.sin(a) * sat.radius
+      );
+      sat.mesh.rotation.y = t * 3.0;
+      sat.mesh.rotation.x = t * 2.2;
+    }
+
+    for (const tp of st.trailParticles) {
+      const life = (tp.yOffset + t * 0.85) % 2.15;
+      const norm = life / 2.15;
+      const a = tp.phase + t * tp.speed;
+      const trailBack = -0.2 - norm * 0.48;
+      tp.mesh.position.set(
+        Math.cos(a) * tp.radius * (1 - norm * 0.25),
+        0.18 + life,
+        Math.sin(a) * tp.radius * 0.65 + trailBack * Math.abs(Math.sin(tp.phase))
+      );
+      tp.mesh.scale.setScalar(Math.max(0.3, 1.15 - norm * 0.75));
+      tp.mesh.material.opacity = Math.max(0.15, (1 - norm) * 0.92);
+      tp.mesh.rotation.y = t * 3.4;
+      tp.mesh.rotation.x = t * 2.5;
+    }
+  });
+
   const setDivineSpecialty = (specialtyInput) => {
     if (!specialtyInput) {
       currentDivineSpec = null;
+      currentSecretActive = false;
       delete skin.divineSpecialty;
+      delete skin.secretSkin;
       buildDivineVisuals(null);
+      buildSecretUltimateVisuals(false);
       return null;
     }
+    if (isUltimateSecretSkinId(specialtyInput)) {
+      currentDivineSpec = null;
+      currentSecretActive = true;
+      skin.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
+      skin.secretSkin = true;
+      buildDivineVisuals(null);
+      buildSecretUltimateVisuals(true);
+      updateEffects(0);
+      return ULTIMATE_SECRET_SKIN;
+    }
+    currentSecretActive = false;
+    delete skin.secretSkin;
+    buildSecretUltimateVisuals(false);
     currentDivineSpec = resolveAscensionSpecialty(specialtyInput);
     skin.divineSpecialty = currentDivineSpec.id;
     buildDivineVisuals(currentDivineSpec);
     updateEffects(0);
     return currentDivineSpec;
   };
-  const hasDivineSkin = () => Boolean(currentDivineSpec && divineSkinGroup.visible);
-  const getDivineSpecialty = () => (currentDivineSpec ? currentDivineSpec.id : null);
+  const setSecretSkin = (enabled) => {
+    if (enabled) {
+      return setDivineSpecialty(ULTIMATE_SECRET_SKIN_ID);
+    }
+    if (currentSecretActive) {
+      return setDivineSpecialty(null);
+    }
+    return null;
+  };
+  const hasSecretSkin = () => Boolean(currentSecretActive && secretSkinGroup.visible);
+  const hasDivineSkin = () => Boolean((currentDivineSpec && divineSkinGroup.visible) || hasSecretSkin());
+  const getDivineSpecialty = () =>
+    currentSecretActive ? ULTIMATE_SECRET_SKIN_ID : currentDivineSpec ? currentDivineSpec.id : null;
 
   const updateEffects = (elapsed = 0) => {
     for (const fn of updaters) fn(elapsed);
@@ -1348,7 +1920,14 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     divineAuraGroup,
     energyCrownGroup,
     specialtyAccessoryGroup,
+    secretSkinGroup,
+    cosmicWingsGroup,
+    quantumRingsGroup,
+    cosmicHaloGroup,
+    particleTrailGroup,
     setDivineSpecialty,
+    setSecretSkin,
+    hasSecretSkin,
     hasDivineSkin,
     getDivineSpecialty,
     setFirstPersonVrHidden,
@@ -1546,12 +2125,26 @@ export function disposeObject3D(root, keepSet = null) {
 
 export function renderSkinPreviewSvg(rawSkin = {}, size = 44) {
   const s = normalizeSkin(rawSkin);
+  const isSecret = Boolean(s.secretSkin || isUltimateSecretSkinId(s.divineSpecialty));
+  const divineSpec = !isSecret && s.divineSpecialty ? resolveAscensionSpecialty(s.divineSpecialty) : null;
+  const strokeCol = isSecret ? '#e879f9' : divineSpec ? '#fde047' : s.outfitColor;
+  const bgFill = isSecret ? '#13072e' : '#0b1324';
   const styleMark =
-    s.outfitStyle === 'blouse'
-      ? `<rect x="28" y="34" width="8" height="24" rx="2" fill="#f8fafc"/>`
-      : s.outfitStyle === 'hoodie'
-        ? `<rect x="24" y="45" width="16" height="9" rx="2" fill="#0f172a"/>`
-        : `<rect x="26" y="39" width="12" height="7" rx="2" fill="#38bdf8"/>`;
+    isSecret
+      ? `<polygon points="32,37 37,43 32,49 27,43" fill="#38bdf8" stroke="#fde047" stroke-width="1"/>`
+      : s.outfitStyle === 'blouse'
+        ? `<rect x="28" y="34" width="8" height="24" rx="2" fill="#f8fafc"/>`
+        : s.outfitStyle === 'hoodie'
+          ? `<rect x="24" y="45" width="16" height="9" rx="2" fill="#0f172a"/>`
+          : `<rect x="26" y="39" width="12" height="7" rx="2" fill="#38bdf8"/>`;
+
+  const haloSvg = isSecret
+    ? `<ellipse cx="32" cy="9" rx="14" ry="3.5" fill="none" stroke="#fde047" stroke-width="2"/>
+       <path d="M10 38 L20 33 L20 51 Z" fill="#e879f9" opacity="0.48"/>
+       <path d="M54 38 L44 33 L44 51 Z" fill="#38bdf8" opacity="0.48"/>`
+    : divineSpec
+      ? `<ellipse cx="32" cy="9.5" rx="11" ry="2.8" fill="none" stroke="#fde047" stroke-width="1.8"/>`
+      : '';
 
   const hatSvg =
     s.hat === 'glasses'
@@ -1567,7 +2160,8 @@ export function renderSkinPreviewSvg(rawSkin = {}, size = 44) {
           : '';
 
   return `<svg viewBox="0 0 64 64" width="${size}" height="${size}" class="skin-mini-svg" aria-hidden="true">
-    <rect x="2" y="2" width="60" height="60" rx="14" fill="#0b1324" stroke="${s.outfitColor}" stroke-width="2"/>
+    <rect x="2" y="2" width="60" height="60" rx="14" fill="${bgFill}" stroke="${strokeCol}" stroke-width="${isSecret || divineSpec ? 2.5 : 2}"/>
+    ${haloSvg}
     <rect x="22" y="54" width="9" height="7" rx="1" fill="${s.pantsColor}"/>
     <rect x="33" y="54" width="9" height="7" rx="1" fill="${s.pantsColor}"/>
     <rect x="15" y="34" width="7" height="18" rx="3" fill="${s.outfitColor}" opacity="0.9"/>
@@ -1577,7 +2171,7 @@ export function renderSkinPreviewSvg(rawSkin = {}, size = 44) {
     <rect x="21" y="33" width="22" height="23" rx="4" fill="${s.outfitColor}"/>
     ${styleMark}
     <rect x="22" y="13" width="20" height="19" rx="5" fill="${s.skinTone}"/>
-    <rect x="21" y="11" width="22" height="6" rx="3" fill="#292524"/>
+    <rect x="21" y="11" width="22" height="6" rx="3" fill="${isSecret || divineSpec ? '#e2e8f0' : '#292524'}"/>
     <circle cx="27" cy="21" r="1.7" fill="#0f172a"/>
     <circle cx="37" cy="21" r="1.7" fill="#0f172a"/>
     ${hatSvg}

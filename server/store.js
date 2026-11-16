@@ -28,15 +28,28 @@ export const TP_LABELS = {
   studio: 'TP Studio Audio & DMX 3D'
 };
 
-export const DIVINE_SPECIALTY_IDS = ['cyber', 'reseaux', 'electronique', 'systemes'];
+export const DIVINE_SPECIALTY_IDS = ['cyber', 'reseaux', 'electronique', 'systemes', 'audiovisuel'];
+
+export const ULTIMATE_SECRET_SKIN_ID = 'architecte_supreme';
+
+const ULTIMATE_SECRET_SKIN_COLOR = '#c084fc';
 
 const VALID_DIVINE_SPECIALTIES = new Set(DIVINE_SPECIALTY_IDS);
+
+const SECRET_SKIN_ALIASES = new Set([
+  'architecte_supreme',
+  'secret',
+  'secret_ultime',
+  'ultimate',
+  'entite_quantique'
+]);
 
 const DIVINE_SPECIALTY_COLORS = {
   cyber: '#f43f5e',
   reseaux: '#38bdf8',
   electronique: '#fbbf24',
-  systemes: '#a855f7'
+  systemes: '#a855f7',
+  audiovisuel: '#ec4899'
 };
 
 const DIVINE_SPECIALTY_ALIASES = {
@@ -61,10 +74,26 @@ const DIVINE_SPECIALTY_ALIASES = {
   systeme: 'systemes',
   hardware: 'systemes',
   linux: 'systemes',
-  audiovisual: 'systemes',
-  studio: 'systemes',
-  serveurs: 'systemes'
+  serveurs: 'systemes',
+  audiovisuel: 'audiovisuel',
+  audiovisual: 'audiovisuel',
+  studio: 'audiovisuel',
+  dmx: 'audiovisuel',
+  regie: 'audiovisuel',
+  son: 'audiovisuel',
+  video: 'audiovisuel'
 };
+
+export function isSecretUltimateSkinId(raw) {
+  if (!raw) return false;
+  const clean = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^divine[_:-]/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return SECRET_SKIN_ALIASES.has(clean);
+}
 
 export function resolveDivineSpecialtyId(raw) {
   if (!raw) return null;
@@ -78,6 +107,11 @@ export function resolveDivineSpecialtyId(raw) {
   if (VALID_DIVINE_SPECIALTIES.has(clean)) return clean;
   if (DIVINE_SPECIALTY_ALIASES[clean]) return DIVINE_SPECIALTY_ALIASES[clean];
   return null;
+}
+
+export function hasAllDivineSpecialties(rawList) {
+  const normalized = normalizeDivineSkinList(rawList);
+  return DIVINE_SPECIALTY_IDS.every((id) => normalized.includes(id));
 }
 
 const AVATAR_COLORS = [
@@ -128,17 +162,20 @@ function sanitizeSuggestionText(raw, maxLen) {
 
 export function sanitizeSkin(raw, fallbackColor = DEFAULT_SKIN.outfitColor) {
   const s = raw && typeof raw === 'object' ? raw : {};
-  const divineSpec = resolveDivineSpecialtyId(s.divineSpecialty);
+  const wantSecret = Boolean(s.secretSkin || isSecretUltimateSkinId(s.divineSpecialty));
+  const divineSpec = wantSecret ? null : resolveDivineSpecialtyId(s.divineSpecialty);
   const baseOutfit = isValidHex(fallbackColor) ? fallbackColor : DEFAULT_SKIN.outfitColor;
   const cleaned = {
     outfitColor: isValidHex(s.outfitColor)
       ? s.outfitColor
-      : divineSpec
-        ? DIVINE_SPECIALTY_COLORS[divineSpec]
-        : baseOutfit,
+      : wantSecret
+        ? ULTIMATE_SECRET_SKIN_COLOR
+        : divineSpec
+          ? DIVINE_SPECIALTY_COLORS[divineSpec]
+          : baseOutfit,
     outfitStyle: VALID_STYLES.has(s.outfitStyle)
       ? s.outfitStyle
-      : divineSpec
+      : wantSecret || divineSpec
         ? 'cyber'
         : DEFAULT_SKIN.outfitStyle,
     hat: VALID_HATS.has(s.hat) ? s.hat : DEFAULT_SKIN.hat,
@@ -148,7 +185,10 @@ export function sanitizeSkin(raw, fallbackColor = DEFAULT_SKIN.outfitColor) {
   if (s.creatorAura) {
     cleaned.creatorAura = true;
   }
-  if (divineSpec) {
+  if (wantSecret) {
+    cleaned.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
+    cleaned.secretSkin = true;
+  } else if (divineSpec) {
     cleaned.divineSpecialty = divineSpec;
   }
   return cleaned;
@@ -268,6 +308,11 @@ export class GameStore {
     const lastSeen = base.lastSeen || updatedAt;
     const tpScores = this._normalizeGrades(base.tpScores || base.grades || {});
     const unlockedDivineSkins = normalizeDivineSkinList(base.unlockedDivineSkins);
+    const secretSkinUnlocked = hasAllDivineSpecialties(unlockedDivineSkins);
+    const introSeen = Boolean(base.introSeen);
+    const prestigeCount = Number.isFinite(Number(base.prestigeCount))
+      ? Math.max(0, Math.round(Number(base.prestigeCount)))
+      : 0;
     const defColor = isValidHex(base.color) ? base.color : hashColor(username);
     const avatarCustomization = sanitizeSkin(base.avatarCustomization || base.skin, defColor);
 
@@ -275,24 +320,36 @@ export class GameStore {
       typeof base.selectedSkin === 'string' && base.selectedSkin.trim()
         ? base.selectedSkin.trim()
         : avatarCustomization.divineSpecialty || 'standard';
-    const selectedDivine = resolveDivineSpecialtyId(rawSelected);
+    const wantSecret =
+      Boolean(avatarCustomization.secretSkin) || isSecretUltimateSkinId(rawSelected);
+    const selectedDivine = wantSecret ? null : resolveDivineSpecialtyId(rawSelected);
     let selectedSkin = 'standard';
-    if (selectedDivine && unlockedDivineSkins.includes(selectedDivine)) {
+    if (wantSecret && secretSkinUnlocked) {
+      selectedSkin = ULTIMATE_SECRET_SKIN_ID;
+      avatarCustomization.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
+      avatarCustomization.secretSkin = true;
+      avatarCustomization.outfitColor = ULTIMATE_SECRET_SKIN_COLOR;
+      avatarCustomization.outfitStyle = 'cyber';
+    } else if (selectedDivine && unlockedDivineSkins.includes(selectedDivine)) {
       selectedSkin = selectedDivine;
       avatarCustomization.divineSpecialty = selectedDivine;
+      delete avatarCustomization.secretSkin;
       avatarCustomization.outfitColor = DIVINE_SPECIALTY_COLORS[selectedDivine];
       avatarCustomization.outfitStyle = 'cyber';
     } else if (
       rawSelected &&
       !selectedDivine &&
+      !isSecretUltimateSkinId(rawSelected) &&
       rawSelected !== 'standard' &&
       rawSelected !== 'default'
     ) {
       selectedSkin = rawSelected;
       delete avatarCustomization.divineSpecialty;
+      delete avatarCustomization.secretSkin;
     } else {
       selectedSkin = 'standard';
       delete avatarCustomization.divineSpecialty;
+      delete avatarCustomization.secretSkin;
     }
 
     const bestTimes = {};
@@ -318,8 +375,11 @@ export class GameStore {
       username,
       password,
       createdAt,
+      introSeen,
       tpScores,
       unlockedDivineSkins,
+      secretSkinUnlocked,
+      prestigeCount,
       selectedSkin,
       avatarCustomization,
       xp,
@@ -340,8 +400,11 @@ export class GameStore {
       username: norm.username,
       password: norm.password,
       createdAt: norm.createdAt,
+      introSeen: norm.introSeen,
       tpScores: { ...norm.tpScores },
       unlockedDivineSkins: [...norm.unlockedDivineSkins],
+      secretSkinUnlocked: norm.secretSkinUnlocked,
+      prestigeCount: norm.prestigeCount,
       selectedSkin: norm.selectedSkin,
       avatarCustomization: { ...norm.avatarCustomization },
       xp: norm.xp,
@@ -364,7 +427,10 @@ export class GameStore {
         name: norm.username,
         color: norm.avatarCustomization.outfitColor,
         skin: norm.avatarCustomization,
+        introSeen: norm.introSeen,
         unlockedDivineSkins: norm.unlockedDivineSkins,
+        secretSkinUnlocked: norm.secretSkinUnlocked,
+        prestigeCount: norm.prestigeCount,
         selectedSkin: norm.selectedSkin,
         avatarCustomization: norm.avatarCustomization,
         xp: norm.xp,
@@ -392,22 +458,37 @@ export class GameStore {
       ...(existing.unlockedDivineSkins || []),
       ...(normPlayer.unlockedDivineSkins || [])
     ]);
-    const selectedSkin =
-      normPlayer.skin?.divineSpecialty && unlocked.includes(normPlayer.skin.divineSpecialty)
-        ? normPlayer.skin.divineSpecialty
-        : 'standard';
+    const secretUnlocked = hasAllDivineSpecialties(unlocked);
+    const wantSecret =
+      Boolean(normPlayer.skin?.secretSkin) ||
+      isSecretUltimateSkinId(normPlayer.selectedSkin || normPlayer.skin?.divineSpecialty);
+    let selectedSkin = 'standard';
     const nextAvatarCustom = { ...normPlayer.skin };
-    if (selectedSkin === 'standard') {
+    if (wantSecret && secretUnlocked) {
+      selectedSkin = ULTIMATE_SECRET_SKIN_ID;
+      nextAvatarCustom.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
+      nextAvatarCustom.secretSkin = true;
+    } else if (
+      normPlayer.skin?.divineSpecialty &&
+      unlocked.includes(normPlayer.skin.divineSpecialty)
+    ) {
+      selectedSkin = normPlayer.skin.divineSpecialty;
+      delete nextAvatarCustom.secretSkin;
+    } else {
       delete nextAvatarCustom.divineSpecialty;
+      delete nextAvatarCustom.secretSkin;
     }
+    existing.introSeen = Boolean(existing.introSeen || normPlayer.introSeen);
     existing.tpScores = { ...normPlayer.grades };
     existing.unlockedDivineSkins = unlocked;
+    existing.secretSkinUnlocked = secretUnlocked;
+    existing.prestigeCount = Math.max(0, Number(normPlayer.prestigeCount) || 0);
     existing.selectedSkin = selectedSkin;
     existing.avatarCustomization = nextAvatarCustom;
     existing.xp = normPlayer.xp;
     existing.bestTimes = { ...normPlayer.bestTimes };
     existing.questAccepted = normPlayer.questAccepted;
-    existing.ascensionTriggered = Boolean(existing.ascensionTriggered || normPlayer.ascensionTriggered);
+    existing.ascensionTriggered = Boolean(normPlayer.ascensionTriggered);
     existing.playtimeSeconds = normPlayer.playtimeSeconds;
     existing.lastLogin = normPlayer.lastLogin;
     existing.lastSeen = normPlayer.lastSeen;
@@ -424,14 +505,27 @@ export class GameStore {
     const unlockedDivineSkins = normalizeDivineSkinList(
       Array.isArray(base.unlockedDivineSkins) ? base.unlockedDivineSkins : []
     );
-    if (skin.divineSpecialty && !unlockedDivineSkins.includes(skin.divineSpecialty)) {
+    const secretSkinUnlocked = hasAllDivineSpecialties(unlockedDivineSkins);
+    const wantSecret =
+      Boolean(skin.secretSkin) ||
+      isSecretUltimateSkinId(skin.divineSpecialty) ||
+      isSecretUltimateSkinId(base.selectedSkin);
+
+    let selectedSkin = 'standard';
+    if (wantSecret && secretSkinUnlocked) {
+      selectedSkin = ULTIMATE_SECRET_SKIN_ID;
+      skin.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
+      skin.secretSkin = true;
+      skin.outfitColor = ULTIMATE_SECRET_SKIN_COLOR;
+      skin.outfitStyle = 'cyber';
+    } else if (skin.divineSpecialty && unlockedDivineSkins.includes(skin.divineSpecialty)) {
+      selectedSkin = skin.divineSpecialty;
+      delete skin.secretSkin;
+    } else {
       delete skin.divineSpecialty;
+      delete skin.secretSkin;
     }
     const color = skin.outfitColor || fallbackColor;
-    const selectedSkin =
-      skin.divineSpecialty && unlockedDivineSkins.includes(skin.divineSpecialty)
-        ? skin.divineSpecialty
-        : 'standard';
     const bestTimes = {};
     if (base.bestTimes && typeof base.bestTimes === 'object') {
       for (const id of ALL_TP_IDS) {
@@ -455,12 +549,18 @@ export class GameStore {
     const playtimeSeconds = Number.isFinite(Number(base.playtimeSeconds))
       ? Math.max(0, Math.round(Number(base.playtimeSeconds)))
       : 0;
+    const prestigeCount = Number.isFinite(Number(base.prestigeCount))
+      ? Math.max(0, Math.round(Number(base.prestigeCount)))
+      : 0;
 
     return {
       name,
       color,
       skin,
+      introSeen: Boolean(base.introSeen),
       unlockedDivineSkins,
+      secretSkinUnlocked,
+      prestigeCount,
       selectedSkin,
       avatarCustomization: { ...skin },
       tpScores: { ...grades },
@@ -644,6 +744,7 @@ export class GameStore {
       id: norm.id,
       username: norm.username,
       createdAt: norm.createdAt,
+      introSeen: norm.introSeen,
       tpScores: { ...norm.tpScores },
       tpsAt20Count,
       allTpsTotal: ALL_TP_IDS.length,
@@ -651,6 +752,8 @@ export class GameStore {
       average: profile?.average ?? computeAverage(norm.tpScores),
       xp: norm.xp,
       unlockedDivineSkins: [...norm.unlockedDivineSkins],
+      secretSkinUnlocked: norm.secretSkinUnlocked,
+      prestigeCount: norm.prestigeCount,
       selectedSkin: norm.selectedSkin,
       avatarCustomization: { ...norm.avatarCustomization },
       ascensionTriggered: norm.ascensionTriggered,
@@ -729,13 +832,17 @@ export class GameStore {
       defColor
     );
     delete customSkin.divineSpecialty;
+    delete customSkin.secretSkin;
     const account = this._normalizeAccount({
       id: `acc_${crypto.randomUUID().slice(0, 12)}`,
       username,
       password,
       createdAt: nowIso,
+      introSeen: false,
       tpScores: {},
       unlockedDivineSkins: [],
+      secretSkinUnlocked: false,
+      prestigeCount: 0,
       selectedSkin: 'standard',
       avatarCustomization: customSkin,
       xp: 0,
@@ -806,6 +913,10 @@ export class GameStore {
     }
     const account = this._normalizeAccount(this.accounts.get(key));
 
+    if (payload.introSeen !== undefined) {
+      account.introSeen = Boolean(payload.introSeen);
+    }
+
     const incomingScores = payload.tpScores || payload.grades;
     if (incomingScores && typeof incomingScores === 'object') {
       for (const tpId of ALL_TP_IDS) {
@@ -850,19 +961,37 @@ export class GameStore {
       }
     }
 
+    account.secretSkinUnlocked = hasAllDivineSpecialties(account.unlockedDivineSkins);
+
     const incomingCustom = payload.avatarCustomization || payload.skin;
     if (incomingCustom && typeof incomingCustom === 'object') {
+      const wantCustomSecret = Boolean(
+        incomingCustom.secretSkin || isSecretUltimateSkinId(incomingCustom.divineSpecialty)
+      );
       account.avatarCustomization = sanitizeSkin(
         { ...account.avatarCustomization, ...incomingCustom },
         account.avatarCustomization.outfitColor
       );
       const customDivineSpec = account.avatarCustomization.divineSpecialty;
-      if (!incomingCustom.divineSpecialty && payload.selectedSkin === undefined) {
+      if (!incomingCustom.divineSpecialty && !incomingCustom.secretSkin && payload.selectedSkin === undefined) {
         delete account.avatarCustomization.divineSpecialty;
+        delete account.avatarCustomization.secretSkin;
         account.selectedSkin = 'standard';
+      } else if (wantCustomSecret) {
+        if (account.secretSkinUnlocked) {
+          account.selectedSkin = ULTIMATE_SECRET_SKIN_ID;
+          account.avatarCustomization.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
+          account.avatarCustomization.secretSkin = true;
+        } else {
+          delete account.avatarCustomization.divineSpecialty;
+          delete account.avatarCustomization.secretSkin;
+          account.selectedSkin = 'standard';
+        }
       } else if (customDivineSpec) {
+        delete account.avatarCustomization.secretSkin;
         if (allTps20 && !account.unlockedDivineSkins.includes(customDivineSpec)) {
           account.unlockedDivineSkins.push(customDivineSpec);
+          account.secretSkinUnlocked = hasAllDivineSpecialties(account.unlockedDivineSkins);
         }
         if (account.unlockedDivineSkins.includes(customDivineSpec)) {
           account.selectedSkin = customDivineSpec;
@@ -882,17 +1011,40 @@ export class GameStore {
       ) {
         account.selectedSkin = 'standard';
         delete account.avatarCustomization.divineSpecialty;
+        delete account.avatarCustomization.secretSkin;
+      } else if (isSecretUltimateSkinId(payload.selectedSkin)) {
+        account.secretSkinUnlocked = hasAllDivineSpecialties(account.unlockedDivineSkins);
+        if (account.secretSkinUnlocked) {
+          account.selectedSkin = ULTIMATE_SECRET_SKIN_ID;
+          account.avatarCustomization = sanitizeSkin(
+            {
+              ...account.avatarCustomization,
+              outfitColor: ULTIMATE_SECRET_SKIN_COLOR,
+              outfitStyle: 'cyber',
+              divineSpecialty: ULTIMATE_SECRET_SKIN_ID,
+              secretSkin: true
+            },
+            ULTIMATE_SECRET_SKIN_COLOR
+          );
+        } else {
+          account.selectedSkin = 'standard';
+          delete account.avatarCustomization.divineSpecialty;
+          delete account.avatarCustomization.secretSkin;
+        }
       } else {
         const specId = resolveDivineSpecialtyId(payload.selectedSkin);
         if (specId) {
           if (allTps20 && !account.unlockedDivineSkins.includes(specId)) {
             account.unlockedDivineSkins.push(specId);
+            account.secretSkinUnlocked = hasAllDivineSpecialties(account.unlockedDivineSkins);
           }
           if (account.unlockedDivineSkins.includes(specId)) {
             account.selectedSkin = specId;
+            const cleanCustom = { ...account.avatarCustomization };
+            delete cleanCustom.secretSkin;
             account.avatarCustomization = sanitizeSkin(
               {
-                ...account.avatarCustomization,
+                ...cleanCustom,
                 outfitColor: DIVINE_SPECIALTY_COLORS[specId],
                 outfitStyle: 'cyber',
                 divineSpecialty: specId
@@ -902,13 +1054,17 @@ export class GameStore {
           } else {
             account.selectedSkin = 'standard';
             delete account.avatarCustomization.divineSpecialty;
+            delete account.avatarCustomization.secretSkin;
           }
-        } else if (typeof payload.selectedSkin === 'string') {
-          account.selectedSkin = payload.selectedSkin.trim().slice(0, 32) || 'standard';
+        } else {
+          account.selectedSkin = 'standard';
+          delete account.avatarCustomization.divineSpecialty;
+          delete account.avatarCustomization.secretSkin;
         }
       }
     }
 
+    account.secretSkinUnlocked = hasAllDivineSpecialties(account.unlockedDivineSkins);
     account.updatedAt = new Date().toISOString();
     account.lastSeen = account.updatedAt;
     const normalized = this._normalizeAccount(account);
@@ -936,14 +1092,24 @@ export class GameStore {
 
     const unlocked = normalizeDivineSkinList([...(player.unlockedDivineSkins || []), specId]);
     player.unlockedDivineSkins = unlocked;
+    player.secretSkinUnlocked = hasAllDivineSpecialties(unlocked);
     if (hasAll20) {
-      player.ascensionTriggered = true;
+      player.grades = {};
+      player.tpScores = {};
+      player.average = null;
+      player.completedCount = 0;
+      player.diplomaEarned = false;
+      player.diplomas = [];
+      player.ascensionTriggered = false;
+      player.prestigeCount = (player.prestigeCount || 0) + 1;
     }
     if (equip) {
       player.selectedSkin = specId;
+      const baseSkin = { ...player.skin };
+      delete baseSkin.secretSkin;
       player.skin = sanitizeSkin(
         {
-          ...player.skin,
+          ...baseSkin,
           outfitColor: DIVINE_SPECIALTY_COLORS[specId],
           outfitStyle: 'cyber',
           divineSpecialty: specId
@@ -1001,6 +1167,39 @@ export class GameStore {
     return { deleted: true, username, id };
   }
 
+  _applyPlayerSkinSelection(player, rawSkin) {
+    const nextSkin = sanitizeSkin(rawSkin, player.color);
+    const secretUnlocked = hasAllDivineSpecialties(player.unlockedDivineSkins);
+    const wantSecret = Boolean(
+      nextSkin.secretSkin || isSecretUltimateSkinId(nextSkin.divineSpecialty)
+    );
+    if (wantSecret) {
+      if (secretUnlocked) {
+        nextSkin.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
+        nextSkin.secretSkin = true;
+        nextSkin.outfitColor = ULTIMATE_SECRET_SKIN_COLOR;
+        nextSkin.outfitStyle = 'cyber';
+      } else {
+        delete nextSkin.divineSpecialty;
+        delete nextSkin.secretSkin;
+      }
+    } else if (
+      nextSkin.divineSpecialty &&
+      !player.unlockedDivineSkins.includes(nextSkin.divineSpecialty)
+    ) {
+      delete nextSkin.divineSpecialty;
+      delete nextSkin.secretSkin;
+    } else {
+      delete nextSkin.secretSkin;
+    }
+    player.skin = nextSkin;
+    player.color = nextSkin.outfitColor;
+    player.selectedSkin = nextSkin.secretSkin
+      ? ULTIMATE_SECRET_SKIN_ID
+      : nextSkin.divineSpecialty || 'standard';
+    player.avatarCustomization = { ...nextSkin };
+  }
+
   getOrCreatePlayer(rawName, rawSkin = null) {
     const name = sanitizeName(rawName);
     const key = name.toLowerCase();
@@ -1015,12 +1214,16 @@ export class GameStore {
         const defColor = hashColor(name);
         const skin = sanitizeSkin(rawSkin, defColor);
         delete skin.divineSpecialty;
+        delete skin.secretSkin;
         this.data.players[key] = this._normalizePlayer(
           {
             name,
             color: skin.outfitColor,
             skin,
+            introSeen: false,
             unlockedDivineSkins: [],
+            secretSkinUnlocked: false,
+            prestigeCount: 0,
             selectedSkin: 'standard',
             xp: 0,
             questAccepted: false,
@@ -1038,14 +1241,7 @@ export class GameStore {
       }
     } else if (rawSkin && typeof rawSkin === 'object') {
       const current = this._normalizePlayer(this.data.players[key], name);
-      const nextSkin = sanitizeSkin(rawSkin, current.color);
-      if (nextSkin.divineSpecialty && !current.unlockedDivineSkins.includes(nextSkin.divineSpecialty)) {
-        delete nextSkin.divineSpecialty;
-      }
-      current.skin = nextSkin;
-      current.color = nextSkin.outfitColor;
-      current.selectedSkin = nextSkin.divineSpecialty || 'standard';
-      current.avatarCustomization = { ...nextSkin };
+      this._applyPlayerSkinSelection(current, rawSkin);
       current.updatedAt = new Date().toISOString();
       this.data.players[key] = current;
       this._syncAccountFromPlayer(current);
@@ -1061,14 +1257,7 @@ export class GameStore {
     const key = name.toLowerCase();
     this.getOrCreatePlayer(name);
     const player = this._normalizePlayer(this.data.players[key], name);
-    const nextSkin = sanitizeSkin(rawSkin, player.color);
-    if (nextSkin.divineSpecialty && !player.unlockedDivineSkins.includes(nextSkin.divineSpecialty)) {
-      delete nextSkin.divineSpecialty;
-    }
-    player.skin = nextSkin;
-    player.color = nextSkin.outfitColor;
-    player.selectedSkin = nextSkin.divineSpecialty || 'standard';
-    player.avatarCustomization = { ...nextSkin };
+    this._applyPlayerSkinSelection(player, rawSkin);
     player.updatedAt = new Date().toISOString();
     this.data.players[key] = player;
     this._syncAccountFromPlayer(player);
@@ -1130,10 +1319,7 @@ export class GameStore {
     }
     player.diplomas = computeDiplomas(player.grades, player.average, player.diplomaEarned);
     const allTpsAt20 = hasAllTpsAt20InScores(player.grades);
-    const firstTimeAllAt20 =
-      allTpsAt20 &&
-      !player.ascensionTriggered &&
-      player.unlockedDivineSkins.length === 0;
+    const firstTimeAllAt20 = allTpsAt20 && !player.ascensionTriggered;
     if (firstTimeAllAt20) {
       player.ascensionTriggered = true;
     }
@@ -1229,12 +1415,16 @@ export class GameStore {
     const nowIso = new Date().toISOString();
     const cleanSkin = { ...current.skin };
     delete cleanSkin.divineSpecialty;
+    delete cleanSkin.secretSkin;
     this.data.players[key] = this._normalizePlayer(
       {
         name: current.name,
         color: cleanSkin.outfitColor || current.color,
         skin: cleanSkin,
+        introSeen: current.introSeen,
         unlockedDivineSkins: [],
+        secretSkinUnlocked: false,
+        prestigeCount: 0,
         selectedSkin: 'standard',
         xp: 0,
         questAccepted: false,
@@ -1255,9 +1445,12 @@ export class GameStore {
     if (existingAcc) {
       existingAcc.tpScores = {};
       existingAcc.unlockedDivineSkins = [];
+      existingAcc.secretSkinUnlocked = false;
+      existingAcc.prestigeCount = 0;
       existingAcc.selectedSkin = 'standard';
       const custom = { ...existingAcc.avatarCustomization };
       delete custom.divineSpecialty;
+      delete custom.secretSkin;
       existingAcc.avatarCustomization = sanitizeSkin(custom);
       existingAcc.xp = 0;
       existingAcc.bestTimes = {};
@@ -1293,7 +1486,10 @@ export class GameStore {
       name: norm.name,
       color: norm.color,
       skin: norm.skin,
+      introSeen: Boolean(norm.introSeen),
       unlockedDivineSkins: [...norm.unlockedDivineSkins],
+      secretSkinUnlocked: Boolean(norm.secretSkinUnlocked),
+      prestigeCount: Number(norm.prestigeCount) || 0,
       selectedSkin: norm.selectedSkin,
       avatarCustomization: { ...norm.skin },
       tpScores: { ...norm.grades },

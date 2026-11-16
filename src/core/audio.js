@@ -272,6 +272,32 @@ class SoundEngine {
       this._playClapGrain(delay, freq, vol);
     }
   }
+
+  playIntroChime() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    [440, 554.37, 659.25, 880].forEach((freq, idx) => {
+      this.playTone(freq, 0.24, 'triangle', 0.065, idx * 0.07);
+    });
+  }
+
+  playSecretUnlockFanfare() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    const notes = [
+      { f: 523.25, t: 0, d: 0.2 },
+      { f: 659.25, t: 0.08, d: 0.22 },
+      { f: 783.99, t: 0.16, d: 0.24 },
+      { f: 987.77, t: 0.25, d: 0.28 },
+      { f: 1174.66, t: 0.36, d: 0.35 },
+      { f: 1567.98, t: 0.5, d: 0.55 },
+      { f: 2093.0, t: 0.68, d: 0.72 }
+    ];
+    notes.forEach((n) => {
+      this.playTone(n.f, n.d, 'triangle', 0.09, n.t);
+      this.playTone(n.f * 0.5, n.d, 'sine', 0.055, n.t);
+    });
+  }
 }
 
 export const sfx = new SoundEngine();

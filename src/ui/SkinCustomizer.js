@@ -5,9 +5,15 @@ import {
   ASCENSION_SPECIALTIES,
   buildStudentAvatarMesh,
   disposeObject3D,
-  SKIN_OPTIONS
+  isUltimateSecretSkinId,
+  SKIN_OPTIONS,
+  ULTIMATE_SECRET_SKIN,
+  ULTIMATE_SECRET_SKIN_ID
 } from '../world/AvatarBuilder.js';
 import { createStudioPedestalMaterials } from '../world/RealisticMaterials.js';
+
+export const LOCKED_SECRET_SKIN_LABEL =
+  '❓ Skin Secret — Réunis tous les skins divins pour percer ce mystère';
 
 export function pickRandomSkin() {
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)].id;
@@ -21,30 +27,85 @@ export function pickRandomSkin() {
   };
 }
 
-export function renderSkinControls(ids, gameState, onChanged) {
-  const skin = gameState.skin;
+export function getCasierDivineEntries(gameState = {}) {
+  const skin = gameState.skin || {};
   const unlockedSet = new Set([
     ...(Array.isArray(gameState.unlockedDivineSkins) ? gameState.unlockedDivineSkins : []),
     ...(Array.isArray(gameState.profile?.unlockedDivineSkins)
       ? gameState.profile.unlockedDivineSkins
       : [])
   ]);
+  const secretUnlocked = Boolean(
+    gameState.secretSkinUnlocked ||
+      gameState.account?.secretSkinUnlocked ||
+      gameState.profile?.secretSkinUnlocked ||
+      (ASCENSION_SPECIALTIES.length > 0 &&
+        ASCENSION_SPECIALTIES.every((spec) => unlockedSet.has(spec.id)))
+  );
+  const isSecretActive = Boolean(
+    secretUnlocked && (skin.secretSkin || isUltimateSecretSkinId(skin.divineSpecialty))
+  );
+  const activeDivine = isSecretActive ? ULTIMATE_SECRET_SKIN_ID : skin.divineSpecialty || '';
 
+  const specialties = ASCENSION_SPECIALTIES.map((spec) => {
+    const unlocked = unlockedSet.has(spec.id);
+    return {
+      id: spec.id,
+      unlocked,
+      active: activeDivine === spec.id,
+      label: unlocked ? `${spec.icon} Dieu ${spec.shortLabel}` : `🔒 ${spec.icon} ${spec.shortLabel}`,
+      title: unlocked
+        ? `Skin Divin débloqué : ${spec.label}`
+        : `Débloqué en réussissant l'Ascension 20/20 (${spec.label})`
+    };
+  });
+
+  const secretEntry = secretUnlocked
+    ? {
+        id: ULTIMATE_SECRET_SKIN_ID,
+        unlocked: true,
+        active: isSecretActive,
+        isSecret: true,
+        label: `${ULTIMATE_SECRET_SKIN.icon} ${ULTIMATE_SECRET_SKIN.shortLabel}`,
+        title: `Skin Secret Ultime débloqué : ${ULTIMATE_SECRET_SKIN.label}`
+      }
+    : {
+        id: 'secret_locked',
+        unlocked: false,
+        active: false,
+        isSecret: true,
+        label: LOCKED_SECRET_SKIN_LABEL,
+        title: LOCKED_SECRET_SKIN_LABEL
+      };
+
+  return {
+    activeDivine,
+    standardActive: !activeDivine,
+    specialties,
+    secretEntry,
+    secretUnlocked
+  };
+}
+
+export function renderSkinControls(ids, gameState, onChanged) {
+  const skin = gameState.skin;
   const divineElId = ids.divine || (ids.style === 'hud-skin-style-list' ? 'hud-skin-divine-list' : 'skin-divine-list');
   const divineEl = document.getElementById(divineElId);
   if (divineEl) {
-    const activeDivine = skin?.divineSpecialty || '';
-    const stdActive = !activeDivine;
-    const stdBtn = `<button type="button" class="btn-chip divine-chip-std ${stdActive ? 'active' : ''}" data-divine="standard">👕 Tenue Standard</button>`;
-    const specBtns = ASCENSION_SPECIALTIES.map((spec) => {
-      const unlocked = unlockedSet.has(spec.id);
-      const isAct = activeDivine === spec.id;
-      if (unlocked) {
-        return `<button type="button" class="btn-chip divine-chip-btn unlocked ${isAct ? 'active' : ''}" data-divine="${spec.id}" title="Skin Divin débloqué : ${spec.label}">${spec.icon} Dieu ${spec.shortLabel}</button>`;
-      }
-      return `<button type="button" class="btn-chip divine-chip-btn locked" data-divine="${spec.id}" disabled title="Débloqué en réussissant l'Ascension 20/20 (${spec.label})">🔒 ${spec.icon} ${spec.shortLabel}</button>`;
-    }).join('');
-    divineEl.innerHTML = stdBtn + specBtns;
+    const casier = getCasierDivineEntries(gameState);
+    const stdBtn = `<button type="button" class="btn-chip divine-chip-std ${casier.standardActive ? 'active' : ''}" data-divine="standard">👕 Tenue Standard</button>`;
+    const specBtns = casier.specialties
+      .map((entry) =>
+        entry.unlocked
+          ? `<button type="button" class="btn-chip divine-chip-btn unlocked ${entry.active ? 'active' : ''}" data-divine="${entry.id}" title="${entry.title}">${entry.label}</button>`
+          : `<button type="button" class="btn-chip divine-chip-btn locked" data-divine="${entry.id}" disabled title="${entry.title}">${entry.label}</button>`
+      )
+      .join('');
+    const sec = casier.secretEntry;
+    const secretBtn = sec.unlocked
+      ? `<button type="button" class="btn-chip divine-chip-secret unlocked ${sec.active ? 'active' : ''}" data-divine="${sec.id}" title="${sec.title}">${sec.label}</button>`
+      : `<button type="button" class="btn-chip divine-chip-secret locked" data-divine="${sec.id}" disabled title="${sec.title}">${sec.label}</button>`;
+    divineEl.innerHTML = stdBtn + specBtns + secretBtn;
     divineEl.querySelectorAll('button:not([disabled])').forEach((btn) => {
       btn.addEventListener('click', () => {
         sfx.click();

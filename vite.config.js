@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.11 - Correctif Condition 20/20 Intégral & Reset Global'),
+    __APP_VERSION__: JSON.stringify('v4.12 - Cinématique d’Introduction, Cycle de Prestige & Skin Secret Ultime'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

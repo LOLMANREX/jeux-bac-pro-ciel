@@ -2,6 +2,47 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { resolveAscensionSpecialty } from './AvatarBuilder.js';
 
+export const INTRO_CINEMATIC_SHOTS = [
+  {
+    zoneLabel: '📍 Hall U300 • Accueil du Professeur CIEL',
+    fromPos: [-4.9, 2.05, 2.1],
+    toPos: [-3.65, 1.78, 0.85],
+    fromLook: [-3.35, 1.35, -1.35],
+    toLook: [-3.35, 1.4, -1.35],
+    focusTeacher: true
+  },
+  {
+    zoneLabel: '📍 Salles U301, U302 & U303 • Électronique & Audiovisuel',
+    fromPos: [-5.8, 2.55, -5.0],
+    toPos: [4.8, 2.6, -5.0],
+    fromLook: [-7.5, 1.1, -7.8],
+    toLook: [6.8, 1.2, -7.8]
+  },
+  {
+    zoneLabel: '📍 Salles U305, U306 & U307 • Cyber, Systèmes & Réseaux',
+    fromPos: [5.4, 2.55, 5.4],
+    toPos: [-5.4, 2.6, 5.2],
+    fromLook: [7.8, 1.15, 7.8],
+    toLook: [-9.2, 1.15, 6.8]
+  },
+  {
+    zoneLabel: '📍 Parvis U300 • Ascension & Cycle de Prestige',
+    fromPos: [-5.8, 2.35, 1.55],
+    toPos: [-2.65, 1.98, 1.25],
+    fromLook: [-3.8, 1.32, -1.2],
+    toLook: [-3.4, 1.4, -1.35],
+    focusTeacher: true
+  },
+  {
+    zoneLabel: '📍 Hall U300 • Le Secret de la Légende CIEL',
+    fromPos: [-4.25, 1.76, 0.72],
+    toPos: [-3.72, 1.66, 0.25],
+    fromLook: [-3.35, 1.44, -1.35],
+    toLook: [-3.35, 1.48, -1.35],
+    focusTeacher: true
+  }
+];
+
 export function computeAscensionGatheringLayout(
   teacherPos = { x: -3.35, z: -1.35 },
   winnerId = null,
@@ -625,6 +666,32 @@ export class SceneManager {
     const camZ = midZ + 2.15;
     this.camera.position.set(camX, camY, camZ);
     this.camera.lookAt(midX, 1.38, midZ);
+  }
+
+  applyIntroCinematicShot(stepIndex = 0, stepProgress = 0, elapsed = 0, teacherPos = { x: -3.35, z: -1.35 }) {
+    const idx = Math.max(0, Math.min(INTRO_CINEMATIC_SHOTS.length - 1, Math.floor(Number(stepIndex) || 0)));
+    const shot = INTRO_CINEMATIC_SHOTS[idx];
+    const tRaw = Math.max(0, Math.min(1, Number(stepProgress) || 0));
+    const ease = tRaw < 0.5 ? 2 * tRaw * tRaw : 1 - Math.pow(-2 * tRaw + 2, 2) / 2;
+
+    const tx = Number.isFinite(Number(teacherPos?.x)) ? Number(teacherPos.x) : -3.35;
+    const tz = Number.isFinite(Number(teacherPos?.z)) ? Number(teacherPos.z) : -1.35;
+    const dx = shot.focusTeacher ? tx - -3.35 : 0;
+    const dz = shot.focusTeacher ? tz - -1.35 : 0;
+
+    const swayX = Math.sin(elapsed * 0.45) * 0.14;
+    const swayY = Math.cos(elapsed * 0.35) * 0.04;
+
+    const px = shot.fromPos[0] + (shot.toPos[0] - shot.fromPos[0]) * ease + dx + swayX;
+    const py = shot.fromPos[1] + (shot.toPos[1] - shot.fromPos[1]) * ease + swayY;
+    const pz = shot.fromPos[2] + (shot.toPos[2] - shot.fromPos[2]) * ease + dz;
+
+    const lx = shot.fromLook[0] + (shot.toLook[0] - shot.fromLook[0]) * ease + dx;
+    const ly = shot.fromLook[1] + (shot.toLook[1] - shot.fromLook[1]) * ease;
+    const lz = shot.fromLook[2] + (shot.toLook[2] - shot.fromLook[2]) * ease + dz;
+
+    this.camera.position.set(px, py, pz);
+    this.camera.lookAt(lx, ly, lz);
   }
 
   updateCelebration(dt, elapsed = 0) {

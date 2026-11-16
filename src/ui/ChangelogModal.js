@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.11 - Correctif Condition 20/20 Intégral & Reset Global';
+    : 'v4.12 - Cinématique d’Introduction, Cycle de Prestige & Skin Secret Ultime';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,41 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.11 — Correctif Condition 20/20 Intégral & Reset Global',
+    version: 'v4.12 — Cinématique d’Introduction Professeur CIEL, Cycle de Prestige & Skin Secret Ultime',
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'NOUVEAU',
+        title: 'Cinématique d’Accueil Guidée par le Professeur CIEL (introSeen)',
+        desc: 'Lors de la première connexion après création de compte (introSeen = false), une visite guidée panoramique du Plateau U300 se lance automatiquement avec le Professeur CIEL : présentation des 5 pôles de TPs (Cyber, Réseaux, Électronique, Systèmes, Audiovisuel), explication des Skins Divins à 20/20, du Cycle de Prestige et d’un mystère secret à percer.'
+      },
+      {
+        badge: 'NOUVEAU',
+        title: 'Enregistrement introSeen & Bouton « 🎬 Revoir l’intro »',
+        desc: 'Une fois terminée ou passée, la cinématique enregistre introSeen = true dans accounts.json via POST /api/account/save afin de ne plus se rejouer automatiquement, tout en restant accessible à volonté depuis le bouton « 🎬 Revoir l’intro » dans le menu et le HUD.'
+      },
+      {
+        badge: 'NOUVEAU',
+        title: 'Cycle de Prestige & 5e Spécialité Divine (Audiovisuel)',
+        desc: 'Après avoir obtenu 20/20 sur 100 % des TPs et choisi un Skin Divin lors de la cérémonie d’Ascension (Cyber, Réseaux, Électronique, Systèmes ou Audiovisuel), l’élève débloque ce skin dans son compte et ses notes de TPs (tpScores/grades) sont réinitialisées pour entamer un nouveau Cycle de Prestige et collectionner les autres skins divins.'
+      },
+      {
+        badge: 'NOUVEAU',
+        title: 'Skin Secret Ultime : Entité Quantique CIEL (Architecte Suprême)',
+        desc: 'Dès que les 5 skins divins de spécialité sont réunis dans unlockedDivineSkins, le Skin Secret Ultime se débloque automatiquement avec une annonce HUD spectaculaire (🌌 MYSTÈRE RÉVÉLÉ !). Dans le casier, son visuel et son nom restent masqués et verrouillés côté client et strictement protégés côté serveur tant que tous les skins divins ne sont pas acquis.'
+      },
+      {
+        badge: 'VISUEL 3D',
+        title: 'Rendu 3D Cosmique & Prismatique Multijoueur du Skin Secret Ultime',
+        desc: 'Armure quantique iridescente animée, triple anneaux orbitaux gyroscopiques à satellites, ailes holographiques à 5 lames prismatiques, double couronne céleste, halo luminescent et traînée de particules cosmiques synchronisés en temps réel entre tous les joueurs (AvatarBuilder & RemotePlayers).'
+      }
+    ]
+  },
+  {
+    version: 'v4.11 — Correctif Condition 20/20 Intégral & Reset Global',
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       'Correction critique du déclenchement de la Cinématique d’Ascension « Dieu du Bac Pro CIEL » et du déblocage des Skins Divins : exige désormais 20/20 sur 100 % des TPs du jeu (Cyber, Réseaux, Électronique, Systèmes et Audiovisuel), uniquement lors de la première validation intégrale (ou via le pouvoir manuel du créateur Louis / le bouton « 💯 Tout valider à 20/20 » du Serveur Privé Debug).',
       'Suppression du déclenchement sur un seul TP à 20/20 (client et serveur) : obtenir 20/20 sur un seul TP affiche désormais uniquement la réussite normale du TP sans cinématique mondiale ni déblocage de skin spécial.',
