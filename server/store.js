@@ -778,6 +778,15 @@ export class GameStore {
     return this._buildPublicAccountObject(this.accounts.get(key));
   }
 
+  getAccountByUsername(target) {
+    const pub = this.getPublicAccount(target);
+    if (!pub) return null;
+    return {
+      ...pub,
+      grades: { ...pub.tpScores }
+    };
+  }
+
   getAdminAccount(target) {
     const key = this._findAccountKey(target);
     if (!key) return null;

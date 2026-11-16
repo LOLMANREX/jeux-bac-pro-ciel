@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { PlateauMiniMap } from '../ui/PlateauMiniMap.js';
+import { createDefaultMap, getZoneAtPositionInMap, normalizeMapData } from '../world/mapSchema.js';
 
 function roundRectPath(ctx, x, y, w, h, r) {
   const rad = Math.min(r, w / 2, h / 2);
@@ -30,14 +32,71 @@ function wrapTextLines(ctx, text, maxWidth, maxLines = 2) {
   return lines;
 }
 
+function formatClockText() {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function resolveConnectionDisplay(connectionState, onlineCount, pingMs) {
+  const st = String(connectionState || 'solo').toLowerCase();
+  const count = Number.isFinite(Number(onlineCount)) ? Math.max(0, Number(onlineCount)) : 0;
+  const ping = Number.isFinite(Number(pingMs)) && Number(pingMs) > 0 ? ` ${Math.round(pingMs)}ms` : '';
+  if (st === 'connected') {
+    return {
+      label: `CONNECTÉ • ${Math.max(1, count)}${ping}`,
+      dotColor: '#10b981',
+      rimColor: '#10b981',
+      bgColor: 'rgba(6, 78, 59, 0.85)',
+      borderColor: '#34d399',
+      textColor: '#a7f3d0'
+    };
+  }
+  if (st === 'connecting') {
+    return {
+      label: 'CONNEXION...',
+      dotColor: '#f59e0b',
+      rimColor: '#f59e0b',
+      bgColor: 'rgba(120, 53, 15, 0.85)',
+      borderColor: '#fbbf24',
+      textColor: '#fde68a'
+    };
+  }
+  if (st === 'reconnecting' || st === 'error') {
+    return {
+      label: 'HORS LIGNE',
+      dotColor: '#ef4444',
+      rimColor: '#ef4444',
+      bgColor: 'rgba(127, 29, 29, 0.85)',
+      borderColor: '#fb7185',
+      textColor: '#fecdd3'
+    };
+  }
+  return {
+    label: 'MODE SOLO',
+    dotColor: '#38bdf8',
+    rimColor: '#22d3ee',
+    bgColor: 'rgba(15, 41, 66, 0.9)',
+    borderColor: '#38bdf8',
+    textColor: '#bae6fd'
+  };
+}
+
 export function createWristHudPanel(options = {}) {
   const canvasW = 512;
-  const canvasH = 320;
+  const canvasH = 480;
+  const mapCanvasW = 464;
+  const mapCanvasH = 220;
+
   let canvas = null;
   let ctx = null;
   let texture = null;
+  let mapCanvas = null;
+  let miniMap = null;
+  let currentMapData = normalizeMapData(options.mapData || createDefaultMap());
 
-  if (typeof document !== 'undefined') {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
     canvas = document.createElement('canvas');
     canvas.width = canvasW;
     canvas.height = canvasH;
@@ -45,92 +104,230 @@ export function createWristHudPanel(options = {}) {
     texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+
+    mapCanvas = document.createElement('canvas');
+    mapCanvas.width = mapCanvasW;
+    mapCanvas.height = mapCanvasH;
+    miniMap = new PlateauMiniMap(mapCanvas, currentMapData);
+  } else {
+    miniMap = new PlateauMiniMap(null, currentMapData);
   }
 
   const group = new THREE.Group();
-  const bezel = new THREE.Mesh(
-    new THREE.BoxGeometry(0.232, 0.148, 0.008),
-    new THREE.MeshStandardMaterial({
-      color: '#0f172a',
-      metalness: 0.72,
-      roughness: 0.25,
-      emissive: '#083344',
-      emissiveIntensity: 0.35
-    })
-  );
-  bezel.position.z = -0.005;
+
+  const strapMat = new THREE.MeshStandardMaterial({
+    color: '#0f172a',
+    metalness: 0.25,
+    roughness: 0.65
+  });
+  const caseMat = new THREE.MeshStandardMaterial({
+    color: '#1e293b',
+    metalness: 0.82,
+    roughness: 0.22
+  });
+  const rimMat = new THREE.MeshStandardMaterial({
+    color: '#22d3ee',
+    emissive: '#0891b2',
+    emissiveIntensity: 1.25,
+    metalness: 0.8,
+    roughness: 0.18
+  });
+  const crownMat = new THREE.MeshStandardMaterial({
+    color: '#38bdf8',
+    metalness: 0.9,
+    roughness: 0.15,
+    emissive: '#0284c7',
+    emissiveIntensity: 0.7
+  });
+
+  const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.148, 0.14, 0.014), caseMat);
+  bezel.position.z = -0.008;
   group.add(bezel);
+
+  const statusRim = new THREE.Mesh(new THREE.BoxGeometry(0.152, 0.144, 0.006), rimMat);
+  statusRim.position.z = -0.004;
+  group.add(statusRim);
+
+  const strapTop = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.042, 0.018), strapMat);
+  strapTop.position.set(0, 0.078, -0.014);
+  strapTop.rotation.x = 0.28;
+  group.add(strapTop);
+
+  const strapBottom = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.042, 0.018), strapMat);
+  strapBottom.position.set(0, -0.078, -0.014);
+  strapBottom.rotation.x = -0.28;
+  group.add(strapBottom);
+
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.0065, 0.0065, 0.014, 12), crownMat);
+  crown.rotation.z = Math.PI / 2;
+  crown.position.set(0.079, 0.018, -0.007);
+  group.add(crown);
 
   const screenMat = new THREE.MeshBasicMaterial({
     map: texture,
     transparent: true,
-    opacity: 0.96
+    opacity: 0.98
   });
-  const screenMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.138), screenMat);
+  const screenMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.136, 0.128), screenMat);
   screenMesh.position.z = 0.001;
   group.add(screenMesh);
 
   let hitBoxes = [];
   let hoveredBtnId = null;
   let forceVisible = false;
+  let dirty = true;
+  let lastDrawMs = 0;
+
   const state = {
     name: options.name || 'Eleve_CIEL',
     zoneLabel: '📍 U300 - Couloir Central',
+    zoneColor: '#22d3ee',
     average: '-- / 20',
     xp: 0,
     micEnabled: false,
     isSpeaking: false,
     nearbySpeakers: [],
-    vrLabel: 'Quitter VR'
+    connectionState: 'solo',
+    onlineCount: 1,
+    pingMs: null,
+    targetHint: '',
+    vrLabel: 'Quitter VR',
+    playerPos: { x: -3.95, z: 0.65 },
+    playerYaw: 0,
+    currentZone: null,
+    peers: []
   };
 
   const redraw = () => {
-    if (!ctx || !texture) return;
-    hitBoxes = [];
+    const conn = resolveConnectionDisplay(state.connectionState, state.onlineCount, state.pingMs);
+    rimMat.color.set(state.isSpeaking ? '#34d399' : conn.rimColor);
+    rimMat.emissive.set(state.isSpeaking ? '#10b981' : conn.rimColor);
 
+    if (!ctx || !texture) {
+      dirty = false;
+      return;
+    }
+
+    hitBoxes = [];
     ctx.clearRect(0, 0, canvasW, canvasH);
-    roundRectPath(ctx, 4, 4, canvasW - 8, canvasH - 8, 22);
+
+    roundRectPath(ctx, 4, 4, canvasW - 8, canvasH - 8, 28);
     const bg = ctx.createLinearGradient(0, 0, canvasW, canvasH);
-    bg.addColorStop(0, '#071324');
-    bg.addColorStop(1, '#0b1d36');
+    bg.addColorStop(0, '#050d1d');
+    bg.addColorStop(0.5, '#091830');
+    bg.addColorStop(1, '#061224');
     ctx.fillStyle = bg;
     ctx.fill();
     ctx.lineWidth = 4;
-    ctx.strokeStyle = state.isSpeaking ? '#34d399' : '#22d3ee';
+    ctx.strokeStyle = state.isSpeaking ? '#34d399' : conn.rimColor;
     ctx.stroke();
 
     ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 20px system-ui, sans-serif';
-    ctx.fillText('⌚ MONTRESYS • ATELIER CIEL VR', 22, 36);
+    ctx.font = 'bold 18px system-ui, sans-serif';
+    ctx.fillText(`⌚ CIEL WATCH • ${formatClockText()}`, 22, 34);
 
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '600 18px system-ui, sans-serif';
-    ctx.fillText(String(state.zoneLabel || '').slice(0, 36), 22, 68);
+    const pillW = 196;
+    const pillX = canvasW - pillW - 20;
+    roundRectPath(ctx, pillX, 14, pillW, 28, 14);
+    ctx.fillStyle = conn.bgColor;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = conn.borderColor;
+    ctx.stroke();
 
-    roundRectPath(ctx, 20, 86, canvasW - 40, 86, 14);
+    ctx.fillStyle = conn.dotColor;
+    ctx.beginPath();
+    ctx.arc(pillX + 16, 28, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = conn.textColor;
+    ctx.font = 'bold 13px system-ui, sans-serif';
+    ctx.fillText(conn.label.slice(0, 22), pillX + 27, 33);
+
+    roundRectPath(ctx, 20, 50, canvasW - 40, 68, 14);
     ctx.fillStyle = 'rgba(15, 32, 58, 0.92)';
     ctx.fill();
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
     ctx.stroke();
 
     ctx.fillStyle = '#f8fafc';
-    ctx.font = 'bold 24px system-ui, sans-serif';
-    ctx.fillText(String(state.name || 'Élève').slice(0, 18), 36, 120);
+    ctx.font = 'bold 21px system-ui, sans-serif';
+    ctx.fillText(String(state.name || 'Élève').slice(0, 16), 34, 78);
 
+    const avgDisplay =
+      typeof state.average === 'number'
+        ? `${state.average.toFixed(1)}/20`
+        : String(state.average || '--/20');
     ctx.fillStyle = '#fbbf24';
-    ctx.font = 'bold 22px system-ui, sans-serif';
-    ctx.fillText(`Moy: ${state.average || '--/20'}   •   ${state.xp || 0} XP`, 36, 154);
+    ctx.font = 'bold 18px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${avgDisplay} • ${state.xp || 0} XP`, canvasW - 34, 78);
+    ctx.textAlign = 'left';
+
+    ctx.fillStyle = state.zoneColor || '#38bdf8';
+    ctx.font = '600 16px system-ui, sans-serif';
+    const subStatus = state.targetHint
+      ? String(state.targetHint).slice(0, 44)
+      : String(state.zoneLabel || '📍 U300 - Couloir Central').slice(0, 44);
+    ctx.fillText(subStatus, 34, 105);
+
+    const mapX = 24;
+    const mapY = 128;
+    roundRectPath(ctx, mapX - 3, mapY - 3, mapCanvasW + 6, mapCanvasH + 6, 16);
+    ctx.fillStyle = '#040a17';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#22d3ee';
+    ctx.stroke();
+
+    if (miniMap && mapCanvas) {
+      const zoneObj =
+        state.currentZone ||
+        (state.playerPos
+          ? getZoneAtPositionInMap(currentMapData, state.playerPos.x, state.playerPos.z)
+          : null);
+      miniMap.render({
+        playerPos: state.playerPos,
+        playerYaw: state.playerYaw,
+        currentZone: zoneObj,
+        peers: Array.isArray(state.peers) ? state.peers : []
+      });
+      ctx.save();
+      roundRectPath(ctx, mapX, mapY, mapCanvasW, mapCanvasH, 13);
+      ctx.clip();
+      ctx.drawImage(mapCanvas, mapX, mapY, mapCanvasW, mapCanvasH);
+      ctx.restore();
+    }
+
+    const peerCount = Array.isArray(state.peers) ? state.peers.length : 0;
+    roundRectPath(ctx, mapX + 10, mapY + 8, 132, 24, 10);
+    ctx.fillStyle = 'rgba(7, 15, 32, 0.84)';
+    ctx.fill();
+    ctx.fillStyle = '#7dd3fc';
+    ctx.font = 'bold 13px system-ui, sans-serif';
+    ctx.fillText('🗺️ PLAN U300', mapX + 20, mapY + 24);
+
+    roundRectPath(ctx, mapX + mapCanvasW - 142, mapY + 8, 132, 24, 10);
+    ctx.fillStyle = 'rgba(7, 15, 32, 0.84)';
+    ctx.fill();
+    ctx.fillStyle = '#34d399';
+    ctx.font = 'bold 13px system-ui, sans-serif';
+    ctx.fillText(`👥 ${peerCount + 1} en salle`, mapX + mapCanvasW - 130, mapY + 24);
 
     if (state.nearbySpeakers?.length) {
-      const names = state.nearbySpeakers.slice(0, 2).map((s) => `${s.name} (${s.distance}m)`).join(' • ');
+      const names = state.nearbySpeakers
+        .slice(0, 2)
+        .map((s) => `${s.name} (${Math.round(s.distance)}m)`)
+        .join(' • ');
       ctx.fillStyle = '#34d399';
-      ctx.font = '600 17px system-ui, sans-serif';
-      ctx.fillText(`🔊 ${names}`, 22, 198);
+      ctx.font = '600 16px system-ui, sans-serif';
+      ctx.fillText(`🔊 ${names}`, 24, 378);
     } else {
       ctx.fillStyle = '#64748b';
-      ctx.font = '500 16px system-ui, sans-serif';
-      ctx.fillText('Voice Proximité prêt (0–18m)', 22, 198);
+      ctx.font = '500 15px system-ui, sans-serif';
+      ctx.fillText('🎧 Audio spatial 3D actif (0–18m) • Joystick G: Bouger • D: Snap-Turn', 24, 378);
     }
 
     const drawBtn = (id, x, y, w, h, label, bgHex, borderHex, textHex) => {
@@ -167,10 +364,11 @@ export function createWristHudPanel(options = {}) {
         ? '🎙️ Micro ON'
         : '🔇 Micro OFF';
 
-    drawBtn('btn_mic', 20, 222, 228, 72, micTxt, micBg, micBorder, '#f8fafc');
-    drawBtn('btn_vr_exit', 264, 222, 228, 72, `🚪 ${state.vrLabel}`, '#3f1d2b', '#fb7185', '#ffe4e6');
+    drawBtn('btn_mic', 22, 396, 224, 64, micTxt, micBg, micBorder, '#f8fafc');
+    drawBtn('btn_vr_exit', 266, 396, 224, 64, `🚪 ${state.vrLabel}`, '#3f1d2b', '#fb7185', '#ffe4e6');
 
     texture.needsUpdate = true;
+    dirty = false;
   };
 
   redraw();
@@ -180,10 +378,14 @@ export function createWristHudPanel(options = {}) {
   const forward = new THREE.Vector3();
   const toCam = new THREE.Vector3();
 
-  const updateVisibility = (cameraWorldPos, dt = 0.016) => {
+  const updateVisibility = (cameraWorldPos, dt = 0.016, nowMs = Date.now()) => {
     if (forceVisible) {
       group.visible = true;
-      screenMat.opacity = 0.96;
+      screenMat.opacity = 0.98;
+      if (dirty && nowMs - lastDrawMs >= 75) {
+        lastDrawMs = nowMs;
+        redraw();
+      }
       return true;
     }
     group.getWorldPosition(worldPos);
@@ -191,10 +393,14 @@ export function createWristHudPanel(options = {}) {
     forward.set(0, 0, 1).applyQuaternion(worldQuat).normalize();
     toCam.copy(cameraWorldPos).sub(worldPos).normalize();
     const facing = forward.dot(toCam);
-    const shouldShow = facing > 0.36;
+    const shouldShow = facing > 0.24;
     if (shouldShow) {
       group.visible = true;
-      screenMat.opacity += (0.96 - screenMat.opacity) * Math.min(1, dt * 12);
+      screenMat.opacity += (0.98 - screenMat.opacity) * Math.min(1, dt * 12);
+      if (dirty && nowMs - lastDrawMs >= 75) {
+        lastDrawMs = nowMs;
+        redraw();
+      }
     } else {
       screenMat.opacity += (0 - screenMat.opacity) * Math.min(1, dt * 12);
       if (screenMat.opacity < 0.05) {
@@ -223,29 +429,89 @@ export function createWristHudPanel(options = {}) {
     }
   };
 
-  const updateState = (next = {}) => {
-    let dirty = false;
-    for (const [k, v] of Object.entries(next)) {
-      if (state[k] !== v) {
-        state[k] = v;
-        dirty = true;
+  const setMapData = (mapData) => {
+    if (!mapData) return;
+    currentMapData = normalizeMapData(mapData);
+    miniMap?.setMapData(currentMapData);
+    dirty = true;
+    redraw();
+  };
+
+  const updateMiniMap = (data = {}) => {
+    if (data.playerPos) {
+      state.playerPos = {
+        x: Number(data.playerPos.x) || 0,
+        z: Number(data.playerPos.z) || 0
+      };
+    }
+    if (typeof data.playerYaw === 'number' && Number.isFinite(data.playerYaw)) {
+      state.playerYaw = data.playerYaw;
+    }
+    if (data.currentZone) {
+      state.currentZone = data.currentZone;
+      if (data.currentZone.badgeText) {
+        state.zoneLabel = data.currentZone.badgeText;
+      }
+      if (data.currentZone.color) {
+        state.zoneColor = data.currentZone.color;
       }
     }
-    if (dirty) redraw();
+    if (Array.isArray(data.peers)) {
+      state.peers = data.peers;
+    }
+    dirty = true;
+    if (forceVisible) {
+      const now = Date.now();
+      if (now - lastDrawMs >= 75) {
+        lastDrawMs = now;
+        redraw();
+      }
+    }
+  };
+
+  const updateState = (next = {}) => {
+    let changed = false;
+    for (const [k, v] of Object.entries(next)) {
+      if (v === undefined) continue;
+      if (state[k] !== v) {
+        state[k] = v;
+        changed = true;
+      }
+    }
+    if (changed) {
+      dirty = true;
+      if (group.visible || forceVisible) {
+        redraw();
+      }
+    }
   };
 
   const setForceVisible = (v) => {
     forceVisible = Boolean(v);
     if (forceVisible) {
       group.visible = true;
-      screenMat.opacity = 0.96;
+      screenMat.opacity = 0.98;
+      if (dirty) redraw();
     }
   };
+
+  const getState = () => ({
+    ...state,
+    peersCount: Array.isArray(state.peers) ? state.peers.length : 0,
+    mapBounds: currentMapData?.bounds || null
+  });
 
   const dispose = () => {
     texture?.dispose?.();
     bezel.geometry.dispose();
     bezel.material.dispose();
+    statusRim.geometry.dispose();
+    statusRim.material.dispose();
+    strapTop.geometry.dispose();
+    strapBottom.geometry.dispose();
+    strapMat.dispose();
+    crown.geometry.dispose();
+    crown.material.dispose();
     screenMesh.geometry.dispose();
     screenMesh.material.dispose();
   };
@@ -253,11 +519,17 @@ export function createWristHudPanel(options = {}) {
   return {
     group,
     screenMesh,
+    statusRim,
     hitTestUv,
     setHovered,
+    setMapData,
+    updateMiniMap,
     updateVisibility,
     setForceVisible,
     updateState,
+    getState,
+    hasMiniMapData: () => Boolean(currentMapData && Array.isArray(currentMapData.zones)),
+    getMiniMapBounds: () => currentMapData?.bounds || null,
     dispose
   };
 }
@@ -269,7 +541,7 @@ export function createTpSpatialPanel() {
   let ctx = null;
   let texture = null;
 
-  if (typeof document !== 'undefined') {
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
     canvas = document.createElement('canvas');
     canvas.width = canvasW;
     canvas.height = canvasH;

@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.12 - Cinématique d’Introduction, Cycle de Prestige & Skin Secret Ultime';
+    : 'v4.14 - Refonte VR : Mains Articulées, Sync Multi & Smartwatch Minimap';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,41 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.12 — Cinématique d’Introduction Professeur CIEL, Cycle de Prestige & Skin Secret Ultime',
+    version: 'v4.14 — Refonte VR Fondamentale : Mains Articulées, Sync Multijoueur & Smartwatch Minimap',
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'VR / WEBXR',
+        title: 'Mains 3D Articulées à 3 Phalanges & Hand-Tracking Optionnel',
+        desc: 'Refonte des mains 3D dans VRHandBuilder & VRManager : suivi ergonomique des contrôleurs Meta Quest (gâchette, grip, repose-pouce capacitif) et prise en charge optionnelle du Hand-Tracking WebXR avec articulation individuelle des 5 doigts sur 3 phalanges et adaptation automatique aux skins (Standard, Or 24K, Diamant, Matrix, Divins et Skin Secret Ultime).'
+      },
+      {
+        badge: 'MULTIJOUEUR',
+        title: 'Synchronisation Temps Réel Tête, Bras à 2 Segments & Doigts via WebSockets',
+        desc: 'Transmission optimisée des quaternions normalisés et des flexions de doigts dans server/wsHub.js, AvatarBuilder et RemotePlayers : tous les élèves (PC, Mobile et VR) voient en direct les mouvements exacts de la tête, des bras articulés, des mains, du casque VR et de la montre du joueur en VR.'
+      },
+      {
+        badge: 'SMARTWATCH',
+        title: 'Montre Intelligente 3D au Poignet Gauche avec Minimap U300 Temps Réel',
+        desc: 'Nouvel écran OLED haute lisibilité monté sur boîtier/bracelet 3D au poignet gauche (VRHudPanel + HudManager) : mini-carte stylisée du Plateau U300 affichant votre position, votre cône d’orientation, les salles et les autres participants, état de connexion WebSocket en direct, jauge vocale et boutons laser Micro / Quitter VR.'
+      },
+      {
+        badge: 'FONDATION VR',
+        title: 'Locomotion Fluide, Snap-Turn 35° & Gestion Sécurisée local-floor',
+        desc: 'Navigation VR stabilisée pour Meta Quest Browser : stick gauche avec zone morte radiale pour avancer/reculer/strafer avec glissement contre les murs (PlayerController.moveHorizontally), stick droit pour le Snap-Turn 35° centré sur le joueur, gestion stricte du plancher local-floor anti-chute sous le sol et boucle de rendu WebXR anti-écran noir (SceneManager).'
+      },
+      {
+        badge: 'INFO',
+        title: 'Interactions Complexes des TPs Simplifiées en VR',
+        desc: 'Pour garantir une expérience d’exploration et de communication vocale parfaitement fluide et stable en VR, l’ouverture des ateliers TP complexes est temporairement mise en pause en mode VR (notification informative sur le HUD et la smartwatch) avant leur refonte dédiée dans une prochaine mise à jour.'
+      }
+    ]
+  },
+  {
+    version: 'v4.12 — Cinématique d’Introduction Professeur CIEL, Cycle de Prestige & Skin Secret Ultime',
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'NOUVEAU',

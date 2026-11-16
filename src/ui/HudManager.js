@@ -167,6 +167,9 @@ export class HudManager {
     this.dbgTeleportGoBtn = document.getElementById('btn-debug-teleport-go');
     this.privateDebugActive = false;
     this.debugNoclipActive = false;
+    this.vrManager = null;
+    this.lastConnectionState = 'solo';
+    this.lastOnlineCount = 1;
 
     this.unreadChat = 0;
     this.lastEmoteAt = 0;
@@ -866,8 +869,18 @@ export class HudManager {
     });
   }
 
+  setVrManager(vrManager) {
+    this.vrManager = vrManager || null;
+    this.vrManager?.updateHudInfo?.({
+      connectionState: this.lastConnectionState,
+      onlineCount: this.lastOnlineCount,
+      pingMs: this.network?.lastPingMs ?? null
+    });
+  }
+
   setMapData(mapData) {
     this._renderQuickNav(mapData);
+    this.vrManager?.setMapData?.(mapData);
   }
 
   _renderEmoteBar() {
@@ -944,6 +957,7 @@ export class HudManager {
   }
 
   updateMiniMap(data) {
+    this.vrManager?.updateMiniMap?.(data);
     if (this.minimapPanelEl?.classList.contains('collapsed')) return;
     this.miniMap?.render(data);
   }
@@ -1324,10 +1338,23 @@ export class HudManager {
 
     if (this.netRoomTag) this.netRoomTag.textContent = this.gameState.room;
     if (typeof onlineCount === 'number') {
+      this.lastOnlineCount = onlineCount;
       const label = onlineCount > 1 ? `${onlineCount} élèves` : `${onlineCount} élève`;
       this.onlineCountEl.textContent = label;
       if (this.chatRoomCountEl) this.chatRoomCountEl.textContent = String(onlineCount);
     }
+    this.lastConnectionState = isConnected
+      ? 'connected'
+      : isConnecting
+        ? 'connecting'
+        : isReconnecting
+          ? 'reconnecting'
+          : 'solo';
+    this.vrManager?.updateHudInfo?.({
+      connectionState: this.lastConnectionState,
+      onlineCount: this.lastOnlineCount,
+      pingMs: this.network?.lastPingMs ?? null
+    });
   }
 
   renderRoomRoster() {
@@ -1570,7 +1597,7 @@ export class HudManager {
     if (!this.vrToggleBtn) return;
     const active = Boolean(vrState.active);
     const simMode = Boolean(vrState.simMode);
-    const supported = Boolean(vrState.supported);
+    const supported = Boolean(vrState.xrSupported ?? vrState.supported);
     this.vrToggleBtn.classList.toggle('vr-active', active);
     this.vrToggleBtn.classList.toggle('vr-sim', simMode);
     document.body.classList.toggle('vr-sim-active', active && simMode);
@@ -1587,6 +1614,6 @@ export class HudManager {
       ? 'Quitter le Mode Réalité Virtuelle (F9)'
       : supported
         ? 'Entrer en Réalité Virtuelle WebXR (Meta Quest)'
-        : 'Activer la simulation VR PC (F9) : H Montre • F Poing • Clic Laser';
+        : 'Activer la simulation VR PC (F9) : H Smartwatch • F Poing • Clic Laser';
   }
 }

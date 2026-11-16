@@ -169,6 +169,7 @@ const voiceChat = new ProximityVoiceChat(network, {
 vrManager = new VRManager(sceneMgr, player, {
   skin: gameState.skin,
   playerName: gameState.profile?.name || 'Eleve_CIEL',
+  mapData: currentMapData,
   getInteractables: () => lab.interactables,
   getOccluders: () => lab.solidWallMeshes,
   getNearestInteractable: () => nearestTarget,
@@ -176,11 +177,18 @@ vrManager = new VRManager(sceneMgr, player, {
   onInteract: (item) => interactWith(item),
   onToggleMic: () => voiceChat.toggleMicrophone(),
   onEnterVr: () => {
+    dialogueModal?.close?.();
+    hud?.closeAllModals?.();
+    if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
+      miniGameModal.close();
+    }
+    setModalActive(false, false, false);
     localAvatar?.setFirstPersonVrHidden?.(true);
     player.setAvatarVisible(true);
     player.setEnabled(false);
     touchControls?.setVisible(false);
-    vrManager.setSkin(gameState.skin);
+    vrManager.setSkin(getEffectiveSessionSkin(gameState.skin));
+    vrManager.setMapData(currentMapData);
     if (joined) {
       network.sendMove(player.position.x, 0, player.position.z, player.yaw, true, vrManager.getVrSyncPayload());
     }
@@ -201,7 +209,9 @@ vrManager = new VRManager(sceneMgr, player, {
   onToast: (msg, type) => hud?.toast?.(msg, type)
 });
 sceneMgr.addAlwaysUpdater((dt, elapsed) => {
-  vrManager?.update(dt, elapsed);
+  if (!joined || sceneMgr.paused) {
+    vrManager?.update(dt, elapsed);
+  }
 });
 
 try {
@@ -610,7 +620,7 @@ function runWorldCelebration(payload = {}) {
     localAvatar.group.position.set(player.position.x, 0, player.position.z);
     localAvatar.group.rotation.y = player.yaw + Math.PI;
     localAvatar.group.visible = true;
-    localAvatar.setFirstPersonVrHidden?.(false);
+    localAvatar.setFirstPersonVrHidden?.(Boolean(vrManager?.isVrActive?.()));
   }
   if (!vrManager?.isVrActive?.()) {
     sceneMgr.applyCinematicShot('dialogue', sceneMgr.clock.elapsedTime, teacherPos, winnerSpot);
@@ -755,6 +765,16 @@ async function openTp(tpId, stationItem = null) {
   const tp = getStationById(tpId);
   const factory = MINIGAME_FACTORIES[tpId];
   if (!tp || !factory) return;
+  if (vrManager?.isVrActive?.()) {
+    const grade = gameState.profile.grades?.[tpId];
+    const scoreTxt = typeof grade === 'number' ? ` (${grade.toFixed(1)}/20)` : '';
+    hud?.toast?.(
+      `🔧 ${tp.shortTitle}${scoreTxt} : Interactions TP en VR en cours de refonte pour la prochaine MÀJ.`,
+      'info'
+    );
+    vrManager.updateHudInfo({ targetHint: `⏸️ ${tp.shortTitle}${scoreTxt} (TP VR en pause)` });
+    return;
+  }
 
   const openSeq = ++tpOpenSeqId;
   lab.setHoveredInteractable?.(null);
@@ -1172,6 +1192,7 @@ try {
   });
   touchControls.syncCameraMode(gameState.cameraMode);
   voiceChat._emitState();
+  hud?.setVrManager?.(vrManager);
   hud?.syncVrUi?.(vrManager?.getPublicState?.());
 } catch (err) {
   console.warn('Contrôles tactiles indisponibles:', err);
@@ -1455,6 +1476,26 @@ network.on('chat_message', ({ message }) => {
 
 function interactWith(target) {
   if (!target) return;
+  if (vrManager?.isVrActive?.()) {
+    sfx.interact();
+    if (target.id === 'teacher') {
+      const msg = '👨‍🏫 Professeur CIEL : Bienvenue sur le Plateau U300 en VR ! Déplacez-vous aux joysticks et échangez au micro.';
+      hud?.toast?.(msg, 'info');
+      vrManager.updateHudInfo({ targetHint: '👨‍🏫 Professeur CIEL — Exploration VR' });
+      return;
+    }
+    const tpId = target.tpId || target.id;
+    const st = getStationById(tpId);
+    const grade = gameState.profile.grades?.[tpId];
+    const scoreTxt = typeof grade === 'number' ? ` (${grade.toFixed(1)}/20)` : '';
+    const title = st?.shortTitle || target.label || tpId;
+    hud?.toast?.(
+      `🔧 ${title}${scoreTxt} : TPs en VR temporairement en pause pour cette MÀJ — explorez U300 et utilisez le Voice Chat !`,
+      'info'
+    );
+    vrManager.updateHudInfo({ targetHint: `⏸️ ${title}${scoreTxt} (TP VR en pause)` });
+    return;
+  }
   if (target.id === 'teacher') openTeacherDialogue(target.dialogue || '');
   else openTp(target.tpId || target.id, target);
 }
@@ -1719,6 +1760,9 @@ sceneMgr.addUpdater((dt, elapsed) => {
   }
 
   const vrOn = Boolean(vrManager?.isVrActive?.());
+  if (vrOn) {
+    vrManager.update(dt, elapsed);
+  }
   const step = vrOn || activeCinematic ? null : player.update(dt);
   if (activeCinematic && !vrOn) {
     if (activeCinematic.phase === 'intro') {
@@ -1761,10 +1805,15 @@ sceneMgr.addUpdater((dt, elapsed) => {
     vrManager.updateHudInfo({
       name: gameState.profile.name,
       zoneLabel: currentZone.badgeText,
+      zoneColor: currentZone.color || '#22d3ee',
       average: gameState.profile.average,
       xp: gameState.profile.xp,
       micEnabled: Boolean(latestVoiceState.micEnabled),
-      isSpeaking: Boolean(latestVoiceState.isSpeaking)
+      isSpeaking: Boolean(latestVoiceState.isSpeaking),
+      nearbySpeakers: latestVoiceState.nearbySpeakers || [],
+      connectionState: hud?.lastConnectionState || (network.connected ? 'connected' : 'solo'),
+      onlineCount: hud?.lastOnlineCount || 1,
+      pingMs: network.lastPingMs
     });
   }
 

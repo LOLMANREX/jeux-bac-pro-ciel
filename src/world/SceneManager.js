@@ -489,6 +489,8 @@ export class SceneManager {
     roomEnv.dispose();
 
     this.paused = false;
+    this.vrPresenting = false;
+    this.vrManager = null;
     this.quality = 'high';
     this.updaters = [];
     this.alwaysUpdaters = [];
@@ -582,7 +584,25 @@ export class SceneManager {
   setFov(fov) {
     const clamped = Math.max(50, Math.min(110, Number(fov) || 70));
     this.camera.fov = clamped;
-    this.camera.updateProjectionMatrix();
+    if (!this.renderer.xr?.isPresenting && !this.vrPresenting) {
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
+  bindVrManager(vrManager) {
+    this.vrManager = vrManager || null;
+  }
+
+  setVrPresentingState(presenting) {
+    this.vrPresenting = Boolean(presenting);
+    this.camera.near = this.vrPresenting ? 0.03 : 0.1;
+    if (!this.renderer.xr?.isPresenting) {
+      this.camera.updateProjectionMatrix();
+    }
+    if (!this.vrPresenting) {
+      this.setQuality(this.quality);
+      this._handleResize();
+    }
   }
 
   setQuality(quality) {
@@ -642,6 +662,7 @@ export class SceneManager {
   }
 
   applyCinematicShot(phase = 'dialogue', elapsed = 0, teacherPos = { x: -3.35, z: -1.35 }, winnerPos = { x: -4.15, z: -1.25 }) {
+    if (this.renderer.xr?.isPresenting || this.vrPresenting) return;
     const tx = Number.isFinite(Number(teacherPos?.x)) ? Number(teacherPos.x) : -3.35;
     const tz = Number.isFinite(Number(teacherPos?.z)) ? Number(teacherPos.z) : -1.35;
     const wx = Number.isFinite(Number(winnerPos?.x)) ? Number(winnerPos.x) : tx - 0.8;
@@ -669,6 +690,7 @@ export class SceneManager {
   }
 
   applyIntroCinematicShot(stepIndex = 0, stepProgress = 0, elapsed = 0, teacherPos = { x: -3.35, z: -1.35 }) {
+    if (this.renderer.xr?.isPresenting || this.vrPresenting) return;
     const idx = Math.max(0, Math.min(INTRO_CINEMATIC_SHOTS.length - 1, Math.floor(Number(stepIndex) || 0)));
     const shot = INTRO_CINEMATIC_SHOTS[idx];
     const tRaw = Math.max(0, Math.min(1, Number(stepProgress) || 0));
@@ -716,8 +738,9 @@ export class SceneManager {
       }
       const dt = Math.min(rawDt, 0.1);
       const elapsed = this.clock.elapsedTime;
+      const isXr = Boolean(this.renderer.xr?.isPresenting || this.vrPresenting);
       this.celebrationRig?.update(dt, elapsed);
-      if (this.customRenderScene) {
+      if (this.customRenderScene && !isXr) {
         if (this.customStepFn) {
           this.customStepFn(dt, elapsed);
         }
@@ -727,14 +750,17 @@ export class SceneManager {
         this.renderer.render(this.customRenderScene, this.camera);
         return;
       }
-      if (this.paused) return;
-      for (const fn of this.updaters) {
-        fn(dt, elapsed);
+      if (!this.paused) {
+        for (const fn of this.updaters) {
+          fn(dt, elapsed);
+        }
       }
-      for (const fn of this.alwaysUpdaters) {
-        fn(dt, elapsed);
+      if (!this.paused || isXr) {
+        for (const fn of this.alwaysUpdaters) {
+          fn(dt, elapsed);
+        }
+        this.renderer.render(this.scene, this.camera);
       }
-      this.renderer.render(this.scene, this.camera);
     });
   }
 }

@@ -291,19 +291,44 @@ export function attachWsHub(httpServer, store) {
   function sanitizeVrPoint(raw, includeFingers = false) {
     if (!raw || typeof raw !== 'object') return null;
     const n = (v, fb = 0) => (Number.isFinite(Number(v)) ? Math.round(Number(v) * 1000) / 1000 : fb);
+    let qx = clamp(n(raw.qx, 0), -1, 1);
+    let qy = clamp(n(raw.qy, 0), -1, 1);
+    let qz = clamp(n(raw.qz, 0), -1, 1);
+    let qw = clamp(n(raw.qw, 1), -1, 1);
+    const qLen = Math.hypot(qx, qy, qz, qw);
+    if (qLen > 0.0001) {
+      qx = n(qx / qLen, 0);
+      qy = n(qy / qLen, 0);
+      qz = n(qz / qLen, 0);
+      qw = n(qw / qLen, 1);
+    } else {
+      qx = 0;
+      qy = 0;
+      qz = 0;
+      qw = 1;
+    }
     const out = {
       px: clamp(n(raw.px, 0), -3, 3),
       py: clamp(n(raw.py, includeFingers ? 1.1 : 1.6), -0.5, 3),
       pz: clamp(n(raw.pz, 0), -3, 3),
-      qx: clamp(n(raw.qx, 0), -1, 1),
-      qy: clamp(n(raw.qy, 0), -1, 1),
-      qz: clamp(n(raw.qz, 0), -1, 1),
-      qw: clamp(n(raw.qw, 1), -1, 1)
+      qx,
+      qy,
+      qz,
+      qw
     };
     if (includeFingers) {
       out.grip = clamp(n(raw.grip, 0), 0, 1);
       out.trigger = clamp(n(raw.trigger, 0), 0, 1);
       out.thumb = clamp(n(raw.thumb, 0), 0, 1);
+      if (raw.fingers && typeof raw.fingers === 'object') {
+        out.fingers = {
+          thumb: clamp(n(raw.fingers.thumb, out.thumb), 0, 1),
+          index: clamp(n(raw.fingers.index, out.trigger), 0, 1),
+          middle: clamp(n(raw.fingers.middle, out.grip), 0, 1),
+          ring: clamp(n(raw.fingers.ring, out.grip), 0, 1),
+          pinky: clamp(n(raw.fingers.pinky, out.grip), 0, 1)
+        };
+      }
     }
     return out;
   }
@@ -317,8 +342,30 @@ export function attachWsHub(httpServer, store) {
     return {
       active: true,
       head: head || { px: 0, py: 1.62, pz: 0, qx: 0, qy: 0, qz: 0, qw: 1 },
-      leftHand: leftHand || { px: -0.25, py: 1.15, pz: -0.3, qx: 0, qy: 0, qz: 0, qw: 1, grip: 0, trigger: 0, thumb: 0 },
-      rightHand: rightHand || { px: 0.25, py: 1.15, pz: -0.3, qx: 0, qy: 0, qz: 0, qw: 1, grip: 0, trigger: 0, thumb: 0 }
+      leftHand: leftHand || {
+        px: -0.25,
+        py: 1.15,
+        pz: -0.3,
+        qx: 0,
+        qy: 0,
+        qz: 0,
+        qw: 1,
+        grip: 0,
+        trigger: 0,
+        thumb: 0
+      },
+      rightHand: rightHand || {
+        px: 0.25,
+        py: 1.15,
+        pz: -0.3,
+        qx: 0,
+        qy: 0,
+        qz: 0,
+        qw: 1,
+        grip: 0,
+        trigger: 0,
+        thumb: 0
+      }
     };
   }
 
@@ -594,6 +641,7 @@ export function attachWsHub(httpServer, store) {
           playerId,
           playerName,
           skinId: ULTIMATE_SECRET_SKIN_ID,
+          secretSkinId: ULTIMATE_SECRET_SKIN_ID,
           bannerText: secretBannerText,
           durationMs: 9500,
           at: new Date().toISOString()

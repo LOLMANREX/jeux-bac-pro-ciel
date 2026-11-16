@@ -207,6 +207,73 @@ export class PlayerController {
     this.noclip = Boolean(enabled);
   }
 
+  clampToBounds(x, z) {
+    const bnd = this.bounds || WORLD_BOUNDS;
+    const pad = this.radius + 0.15;
+    const safeX = Number.isFinite(Number(x)) ? Number(x) : this.position.x;
+    const safeZ = Number.isFinite(Number(z)) ? Number(z) : this.position.z;
+    if (this.noclip) {
+      return { x: safeX, z: safeZ };
+    }
+    return {
+      x: Math.max(bnd.minX + pad, Math.min(bnd.maxX - pad, safeX)),
+      z: Math.max(bnd.minZ + pad, Math.min(bnd.maxZ - pad, safeZ))
+    };
+  }
+
+  moveHorizontally(dx, dz, startX = this.position.x, startZ = this.position.z) {
+    const stepX = Number.isFinite(Number(dx)) ? Number(dx) : 0;
+    const stepZ = Number.isFinite(Number(dz)) ? Number(dz) : 0;
+    let curX = Number.isFinite(Number(startX)) ? Number(startX) : this.position.x;
+    let curZ = Number.isFinite(Number(startZ)) ? Number(startZ) : this.position.z;
+    let movedX = false;
+    let movedZ = false;
+
+    if (stepX !== 0 && !this._collides(curX + stepX, curZ)) {
+      curX += stepX;
+      movedX = true;
+    }
+    if (stepZ !== 0 && !this._collides(curX, curZ + stepZ)) {
+      curZ += stepZ;
+      movedZ = true;
+    }
+
+    const clamped = this.clampToBounds(curX, curZ);
+    const actualDx = clamped.x - (Number.isFinite(Number(startX)) ? Number(startX) : this.position.x);
+    const actualDz = clamped.z - (Number.isFinite(Number(startZ)) ? Number(startZ) : this.position.z);
+
+    this.position.set(clamped.x, this.groundY, clamped.z);
+    this.velocityY = 0;
+    this.isGrounded = true;
+
+    return {
+      x: clamped.x,
+      z: clamped.z,
+      movedX,
+      movedZ,
+      actualDx,
+      actualDz,
+      collided: (stepX !== 0 && !movedX) || (stepZ !== 0 && !movedZ)
+    };
+  }
+
+  setVrPose({ x, z, yaw } = {}) {
+    const targetX = Number.isFinite(Number(x)) ? Number(x) : this.position.x;
+    const targetZ = Number.isFinite(Number(z)) ? Number(z) : this.position.z;
+    const clamped = this.clampToBounds(targetX, targetZ);
+    this.position.set(clamped.x, this.groundY, clamped.z);
+    this.velocityY = 0;
+    this.isGrounded = true;
+    this.wasGrounded = true;
+    if (Number.isFinite(Number(yaw))) {
+      this.yaw = Number(yaw);
+    }
+    if (this.avatar?.group) {
+      this.avatar.group.position.set(this.position.x, 0, this.position.z);
+      this.avatar.group.rotation.y = this.yaw + Math.PI;
+    }
+  }
+
   _collides(nx, nz) {
     if (this.noclip) {
       return false;

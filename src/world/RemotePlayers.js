@@ -233,7 +233,7 @@ export class RemotePlayersManager {
   upsertPeer(p) {
     if (!p || !p.id) return;
     if (this.peers.has(p.id)) {
-      this.movePeer(p.id, p.x, p.y, p.z, p.yaw);
+      this.movePeer(p.id, p.x, p.y, p.z, p.yaw, p.vrData);
       if (p.skin) {
         const existing = this.peers.get(p.id);
         if (JSON.stringify(existing.skin) !== JSON.stringify(normalizeSkin(p.skin))) {
@@ -266,6 +266,7 @@ export class RemotePlayersManager {
       diplomaEarned: Boolean(p.diplomaEarned),
       rank: p.rank || null,
       rankLabel: p.rankLabel || 'Apprenti CIEL',
+      avatar: meshData,
       group: meshData.group,
       leftLeg: meshData.leftLeg,
       rightLeg: meshData.rightLeg,
@@ -353,6 +354,7 @@ export class RemotePlayersManager {
 
     peer.skin = nextSkin;
     peer.color = nextSkin.outfitColor;
+    peer.avatar = meshData;
     peer.group = meshData.group;
     peer.leftLeg = meshData.leftLeg;
     peer.rightLeg = meshData.rightLeg;

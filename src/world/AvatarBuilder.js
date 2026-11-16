@@ -182,7 +182,7 @@ export function applySessionDivineSkin(baseSkin = {}, specialtyInput = 'cyber') 
       ...normalized,
       outfitColor: ULTIMATE_SECRET_SKIN.primaryColor,
       outfitStyle: 'cyber',
-      divineSpecialty: ULTIMATE_SECRET_SKIN_ID,
+      divineSpecialty: null,
       secretSkin: true
     };
   }
@@ -1629,7 +1629,7 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     );
     floorRuneHex.rotation.x = -Math.PI / 2;
     floorRuneHex.position.y = 0.024;
-    quantumRingsGroup.add(floorRuneHex);
+    secretSkinGroup.add(floorRuneHex);
 
     const gyroRing1 = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.018, 10, 40), prismMatB);
     gyroRing1.position.y = 1.12;
@@ -1649,7 +1649,7 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
         new THREE.OctahedronGeometry(0.065, 0),
         s % 3 === 0 ? celestialGoldMat : s % 2 === 0 ? prismMatA : prismMatB
       );
-      quantumRingsGroup.add(sat);
+      secretSkinGroup.add(sat);
       quantumSatellites.push({
         mesh: sat,
         phase: (s / 6) * Math.PI * 2,
@@ -1946,15 +1946,65 @@ export function attachRemoteVrVisuals(avatar, rawSkin = {}) {
   vrRoot.add(leftHand.root);
   vrRoot.add(rightHand.root);
 
+  const watchMat = new THREE.MeshStandardMaterial({
+    color: '#0f172a',
+    metalness: 0.78,
+    roughness: 0.25
+  });
+  const watchScreenMat = new THREE.MeshBasicMaterial({ color: '#22d3ee' });
+  const remoteWatch = new THREE.Group();
+  const watchBody = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.012, 0.046), watchMat);
+  remoteWatch.add(watchBody);
+  const watchFace = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.004, 0.038), watchScreenMat);
+  watchFace.position.y = 0.006;
+  remoteWatch.add(watchFace);
+  remoteWatch.position.set(-0.008, 0.022, 0.036);
+  remoteWatch.rotation.z = 0.22;
+  leftHand.root.add(remoteWatch);
+
+  let remoteVisorGroup = null;
+  if (avatar.headGroup && !rawSkin?.showcase?.accessories?.includes('vr_gold') && !rawSkin?.showcase?.accessories?.includes('cyber_visor')) {
+    remoteVisorGroup = new THREE.Group();
+    remoteVisorGroup.visible = false;
+    const hmdBodyMat = new THREE.MeshStandardMaterial({
+      color: '#e2e8f0',
+      metalness: 0.45,
+      roughness: 0.35
+    });
+    const hmdLensMat = new THREE.MeshStandardMaterial({
+      color: '#0f172a',
+      emissive: '#22d3ee',
+      emissiveIntensity: 0.85,
+      metalness: 0.85,
+      roughness: 0.15
+    });
+    const hmdFront = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.12, 0.12), hmdBodyMat);
+    hmdFront.position.set(0, 0.03, 0.165);
+    remoteVisorGroup.add(hmdFront);
+    const hmdGlow = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.065, 0.02), hmdLensMat);
+    hmdGlow.position.set(0, 0.03, 0.22);
+    remoteVisorGroup.add(hmdGlow);
+    const hmdStrap = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.05, 0.36), hmdBodyMat);
+    hmdStrap.position.set(0, 0.04, 0);
+    remoteVisorGroup.add(hmdStrap);
+    avatar.headGroup.add(remoteVisorGroup);
+  }
+
   const armMat = avatar.torsoMat || new THREE.MeshStandardMaterial({ color: '#22d3ee', roughness: 0.55 });
-  const makeDynamicArm = () => {
-    const armMesh = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.115, 1), armMat);
-    armMesh.castShadow = true;
-    vrRoot.add(armMesh);
-    return armMesh;
+  const elbowMat = new THREE.MeshStandardMaterial({ color: '#0f172a', metalness: 0.5, roughness: 0.4 });
+  const makeTwoPartArm = () => {
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.115, 1), armMat);
+    const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1), armMat);
+    const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.058, 8, 8), elbowMat);
+    upper.castShadow = true;
+    forearm.castShadow = true;
+    vrRoot.add(upper);
+    vrRoot.add(forearm);
+    vrRoot.add(elbow);
+    return { upper, forearm, elbow };
   };
-  const leftForearm = makeDynamicArm();
-  const rightForearm = makeDynamicArm();
+  const leftArmSeg = makeTwoPartArm();
+  const rightArmSeg = makeTwoPartArm();
 
   const targetHeadQuat = new THREE.Quaternion();
   const targetLeftPos = new THREE.Vector3(-0.26, 1.18, -0.25);
@@ -1965,40 +2015,60 @@ export function attachRemoteVrVisuals(avatar, rawSkin = {}) {
   const invGroupQuat = new THREE.Quaternion();
   const flipYQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
   const tempDesiredHead = new THREE.Quaternion();
+  const yAxis = new THREE.Vector3(0, 1, 0);
+  const zAxis = new THREE.Vector3(0, 0, 1);
   const shoulderLocal = new THREE.Vector3();
   const wristLocal = new THREE.Vector3();
+  const elbowLocal = new THREE.Vector3();
   const cuffOffset = new THREE.Vector3();
+  const segDir = new THREE.Vector3();
+  const outDir = new THREE.Vector3();
   const midPt = new THREE.Vector3();
 
   let active = false;
   let lastPose = {
-    left: { grip: 0, trigger: 0, thumb: 0 },
-    right: { grip: 0, trigger: 0, thumb: 0 }
+    left: { grip: 0, trigger: 0, thumb: 0, fingers: null },
+    right: { grip: 0, trigger: 0, thumb: 0, fingers: null }
   };
 
-  const placeArmSpan = (armMesh, shoulderX, handRoot) => {
-    shoulderLocal.set(shoulderX, 1.34, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), avatar.group.rotation.y);
-    cuffOffset.set(0, 0, 0.065).applyQuaternion(handRoot.quaternion);
+  const alignSegment = (mesh, fromVec, toVec) => {
+    const len = fromVec.distanceTo(toVec);
+    mesh.visible = len > 0.03;
+    if (!mesh.visible) return;
+    midPt.copy(fromVec).add(toVec).multiplyScalar(0.5);
+    mesh.position.copy(midPt);
+    mesh.scale.set(1, 1, Math.min(0.65, Math.max(0.05, len)));
+    segDir.subVectors(toVec, fromVec).normalize();
+    mesh.quaternion.setFromUnitVectors(zAxis, segDir);
+  };
+
+  const placeArmSpan = (armSeg, shoulderX, handRoot, sideSign) => {
+    shoulderLocal.set(shoulderX, 1.34, 0).applyAxisAngle(yAxis, avatar.group.rotation.y);
+    cuffOffset.set(0, 0, 0.068).applyQuaternion(handRoot.quaternion);
     wristLocal.copy(handRoot.position).add(cuffOffset);
-    const len = shoulderLocal.distanceTo(wristLocal);
-    armMesh.visible = len > 0.04;
-    if (!armMesh.visible) return;
-    midPt.copy(shoulderLocal).addScaledVector(wristLocal, 1).multiplyScalar(0.5);
-    armMesh.position.copy(midPt);
-    armMesh.scale.set(1, 1, Math.min(0.82, Math.max(0.08, len)));
-    armMesh.lookAt(
-      wristLocal.x + avatar.group.position.x,
-      wristLocal.y + avatar.group.position.y,
-      wristLocal.z + avatar.group.position.z
-    );
+    const totalLen = shoulderLocal.distanceTo(wristLocal);
+    if (totalLen < 0.05) {
+      armSeg.upper.visible = false;
+      armSeg.forearm.visible = false;
+      armSeg.elbow.visible = false;
+      return;
+    }
+    outDir.set(sideSign * 0.26, -0.38, -0.08).applyAxisAngle(yAxis, avatar.group.rotation.y).normalize();
+    const bendAmt = Math.max(0.02, (0.64 - Math.min(0.64, totalLen)) * 0.35);
+    elbowLocal.copy(shoulderLocal).lerp(wristLocal, 0.48).addScaledVector(outDir, bendAmt);
+    armSeg.elbow.visible = true;
+    armSeg.elbow.position.copy(elbowLocal);
+    alignSegment(armSeg.upper, shoulderLocal, elbowLocal);
+    alignSegment(armSeg.forearm, elbowLocal, wristLocal);
   };
 
-  const update = (vrData, _dt = 0.016, elapsed = 0) => {
+  const update = (vrData, dt = 0.016, elapsed = 0) => {
     const isActive = Boolean(vrData && vrData.active);
     if (!isActive) {
       if (active) {
         active = false;
         vrRoot.visible = false;
+        if (remoteVisorGroup) remoteVisorGroup.visible = false;
         if (avatar.leftArm) avatar.leftArm.visible = true;
         if (avatar.rightArm) avatar.rightArm.visible = true;
         if (avatar.headGroup) {
@@ -2012,73 +2082,90 @@ export function attachRemoteVrVisuals(avatar, rawSkin = {}) {
     if (!active) {
       active = true;
       vrRoot.visible = true;
+      if (remoteVisorGroup) remoteVisorGroup.visible = true;
       if (avatar.leftArm) avatar.leftArm.visible = false;
       if (avatar.rightArm) avatar.rightArm.visible = false;
       if (vrData.leftHand) {
         leftHand.root.position.set(vrData.leftHand.px, vrData.leftHand.py, vrData.leftHand.pz);
-        leftHand.root.quaternion.set(vrData.leftHand.qx, vrData.leftHand.qy, vrData.leftHand.qz, vrData.leftHand.qw);
+        leftHand.root.quaternion.set(vrData.leftHand.qx, vrData.leftHand.qy, vrData.leftHand.qz, vrData.leftHand.qw).normalize();
       }
       if (vrData.rightHand) {
         rightHand.root.position.set(vrData.rightHand.px, vrData.rightHand.py, vrData.rightHand.pz);
-        rightHand.root.quaternion.set(vrData.rightHand.qx, vrData.rightHand.qy, vrData.rightHand.qz, vrData.rightHand.qw);
+        rightHand.root.quaternion.set(vrData.rightHand.qx, vrData.rightHand.qy, vrData.rightHand.qz, vrData.rightHand.qw).normalize();
       }
     }
 
     vrRoot.rotation.y = -avatar.group.rotation.y;
+    const smooth = Math.min(1, Math.max(0.22, 1 - Math.exp(-18 * (Number(dt) || 0.016))));
 
     if (vrData.head && avatar.headGroup) {
       targetHeadQuat.set(vrData.head.qx, vrData.head.qy, vrData.head.qz, vrData.head.qw).normalize();
       invGroupQuat.copy(avatar.group.quaternion).invert();
       tempDesiredHead.copy(invGroupQuat).multiply(targetHeadQuat).multiply(flipYQuat);
-      avatar.headGroup.quaternion.slerp(tempDesiredHead, 0.25);
+      avatar.headGroup.quaternion.slerp(tempDesiredHead, smooth);
       const hy = Math.max(1.05, Math.min(2.1, Number(vrData.head.py) || 1.58));
-      avatar.headGroup.position.y += (hy - avatar.headGroup.position.y) * 0.25;
+      avatar.headGroup.position.y += (hy - avatar.headGroup.position.y) * smooth;
     }
 
     if (vrData.leftHand) {
       targetLeftPos.set(vrData.leftHand.px, vrData.leftHand.py, vrData.leftHand.pz);
       targetLeftQuat.set(vrData.leftHand.qx, vrData.leftHand.qy, vrData.leftHand.qz, vrData.leftHand.qw).normalize();
-      leftHand.root.position.lerp(targetLeftPos, 0.25);
-      leftHand.root.quaternion.slerp(targetLeftQuat, 0.25);
+      leftHand.root.position.lerp(targetLeftPos, smooth);
+      leftHand.root.quaternion.slerp(targetLeftQuat, smooth);
       lastPose.left.trigger = vrData.leftHand.trigger || 0;
       lastPose.left.grip = vrData.leftHand.grip || 0;
       lastPose.left.thumb = vrData.leftHand.thumb || 0;
+      lastPose.left.fingers = vrData.leftHand.fingers || null;
     }
 
     if (vrData.rightHand) {
       targetRightPos.set(vrData.rightHand.px, vrData.rightHand.py, vrData.rightHand.pz);
       targetRightQuat.set(vrData.rightHand.qx, vrData.rightHand.qy, vrData.rightHand.qz, vrData.rightHand.qw).normalize();
-      rightHand.root.position.lerp(targetRightPos, 0.25);
-      rightHand.root.quaternion.slerp(targetRightQuat, 0.25);
+      rightHand.root.position.lerp(targetRightPos, smooth);
+      rightHand.root.quaternion.slerp(targetRightQuat, smooth);
       lastPose.right.trigger = vrData.rightHand.trigger || 0;
       lastPose.right.grip = vrData.rightHand.grip || 0;
       lastPose.right.thumb = vrData.rightHand.thumb || 0;
+      lastPose.right.fingers = vrData.rightHand.fingers || null;
     }
 
-    leftHand.setPose({ ...lastPose.left, elapsed });
-    rightHand.setPose({ ...lastPose.right, elapsed });
+    leftHand.setPose({ ...lastPose.left, dt, elapsed });
+    rightHand.setPose({ ...lastPose.right, dt, elapsed });
 
-    placeArmSpan(leftForearm, -0.29, leftHand.root);
-    placeArmSpan(rightForearm, 0.29, rightHand.root);
+    placeArmSpan(leftArmSeg, -0.29, leftHand.root, -1);
+    placeArmSpan(rightArmSeg, 0.29, rightHand.root, 1);
   };
 
   const applySkin = (nextSkin) => {
     leftHand.applySkin(nextSkin);
     rightHand.applySkin(nextSkin);
     if (avatar.torsoMat) {
-      leftForearm.material = avatar.torsoMat;
-      rightForearm.material = avatar.torsoMat;
+      leftArmSeg.upper.material = avatar.torsoMat;
+      leftArmSeg.forearm.material = avatar.torsoMat;
+      rightArmSeg.upper.material = avatar.torsoMat;
+      rightArmSeg.forearm.material = avatar.torsoMat;
     }
   };
 
   const dispose = () => {
     leftHand.dispose();
     rightHand.dispose();
-    leftForearm.geometry.dispose();
-    rightForearm.geometry.dispose();
+    watchBody.geometry.dispose();
+    watchFace.geometry.dispose();
+    watchMat.dispose();
+    watchScreenMat.dispose();
+    if (remoteVisorGroup) {
+      disposeObject3D(remoteVisorGroup);
+    }
+    elbowMat.dispose();
+    [leftArmSeg, rightArmSeg].forEach((seg) => {
+      seg.upper.geometry.dispose();
+      seg.forearm.geometry.dispose();
+      seg.elbow.geometry.dispose();
+    });
   };
 
-  return { vrRoot, leftHand, rightHand, update, applySkin, dispose };
+  return { vrRoot, leftHand, rightHand, remoteWatch, remoteVisorGroup, update, applySkin, dispose };
 }
 
 export function animateAvatarLimbs(avatar, dt, { isMoving, isGrounded = true, speedRatio = 1 }) {

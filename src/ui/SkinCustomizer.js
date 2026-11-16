@@ -64,6 +64,7 @@ export function getCasierDivineEntries(gameState = {}) {
     ? {
         id: ULTIMATE_SECRET_SKIN_ID,
         unlocked: true,
+        masked: false,
         active: isSecretActive,
         isSecret: true,
         label: `${ULTIMATE_SECRET_SKIN.icon} ${ULTIMATE_SECRET_SKIN.shortLabel}`,
@@ -72,6 +73,7 @@ export function getCasierDivineEntries(gameState = {}) {
     : {
         id: 'secret_locked',
         unlocked: false,
+        masked: true,
         active: false,
         isSecret: true,
         label: LOCKED_SECRET_SKIN_LABEL,

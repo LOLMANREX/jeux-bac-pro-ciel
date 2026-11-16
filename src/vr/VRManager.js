@@ -3,6 +3,20 @@ import { pickLabInteractable } from '../world/SceneManager.js';
 import { buildArticulatedVRHand } from './VRHandBuilder.js';
 import { createTpSpatialPanel, createWristHudPanel } from './VRHudPanel.js';
 
+const XR_FINGER_CHAINS = {
+  thumb: ['thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip'],
+  index: ['index-finger-metacarpal', 'index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-tip'],
+  middle: ['middle-finger-metacarpal', 'middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate', 'middle-finger-tip'],
+  ring: ['ring-finger-metacarpal', 'ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate', 'ring-finger-tip'],
+  pinky: ['pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-tip']
+};
+
+function clamp01(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
 export class VRManager {
   constructor(sceneMgr, player, options = {}) {
     this.sceneMgr = sceneMgr;
@@ -11,6 +25,9 @@ export class VRManager {
 
     this.xrSupported = false;
     this.xrSession = null;
+    this.worldFloorY = Number.isFinite(Number(options.floorY)) ? Number(options.floorY) : 0;
+    this.xrFloorFallbackOffset = 0;
+    this.xrReferenceSpaceType = 'local-floor';
     this.simMode = false;
     this.active = false;
     this.skin = options.skin || {};
@@ -29,6 +46,7 @@ export class VRManager {
 
     this.renderer = sceneMgr?.renderer || null;
     this.camera = sceneMgr?.camera || null;
+    this.sceneMgr?.bindVrManager?.(this);
 
     this.slots = {
       left: this._createHandSlot('left'),
@@ -38,25 +56,31 @@ export class VRManager {
     this.ctrlAssignments = [null, null];
     this.xrControllers = [];
     this.xrGrips = [];
+    this.xrHands = [];
 
     this.wristPanel = createWristHudPanel({
-      name: options.playerName || 'Eleve_CIEL'
+      name: options.playerName || 'Eleve_CIEL',
+      mapData: options.mapData || null
     });
-    this.wristPanel.group.position.set(0.06, 0.055, 0.01);
-    this.wristPanel.group.rotation.set(-0.65, 0.85, 0.25);
-    this.slots.left.visualParent.add(this.wristPanel.group);
+    this.wristPanel.group.position.set(-0.01, 0.038, 0.036);
+    this.wristPanel.group.rotation.set(-1.12, 0.22, 0.28);
+    this.slots.left.hand.root.add(this.wristPanel.group);
     this.wristPanel.group.visible = false;
 
     this.tpPanel = null;
     this.tpContext = null;
     this.savedExplorePose = null;
 
+    this.snapAngleRad = THREE.MathUtils.degToRad(35);
     this.snapCooldownUntil = 0;
+    this.snapNeedsRelease = false;
     this.lastSentVrSyncAt = 0;
+    this.simWatchInspect = false;
     this.simGestureState = { trigger: 0, grip: 0, thumb: 0 };
+    this.simStickState = { lx: 0, ly: 0, rx: 0, sprint: false };
     this.simKeys = new Set();
     this.simMouseTrigger = false;
-    this.simLookPitch = -0.08;
+    this.simLookPitch = -0.06;
     this.simLookYaw = 0;
 
     this.raycaster = new THREE.Raycaster();
@@ -65,8 +89,18 @@ export class VRManager {
     this.tempDir = new THREE.Vector3();
     this.tempVecA = new THREE.Vector3();
     this.tempVecB = new THREE.Vector3();
+    this.tempVecC = new THREE.Vector3();
+    this.tempVecD = new THREE.Vector3();
     this.tempQuat = new THREE.Quaternion();
+    this.lastForwardDir = new THREE.Vector3(0, 0, -1);
+    this.lastXrLocalXZ = new THREE.Vector2(0, 0);
     this.defaultPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.02);
+
+    this._onXrSessionEnd = () => {
+      if (this.xrSession || this.active) {
+        this._teardownSession();
+      }
+    };
 
     this._initXrControllers();
     this.checkSupport();
@@ -74,9 +108,12 @@ export class VRManager {
 
   _createHandSlot(handedness) {
     const visualParent = new THREE.Group();
+    const handMount = new THREE.Group();
+    visualParent.add(handMount);
+
     const rayParent = new THREE.Group();
     const hand = buildArticulatedVRHand({ handedness, skin: this.skin });
-    visualParent.add(hand.root);
+    handMount.add(hand.root);
 
     const rayPts = [new THREE.Vector3(0, 0, -0.03), new THREE.Vector3(0, 0, -3.5)];
     const rayGeom = new THREE.BufferGeometry().setFromPoints(rayPts);
@@ -98,55 +135,101 @@ export class VRManager {
     dotMesh.visible = false;
     rayParent.add(dotMesh);
 
-    return {
+    const slot = {
       handedness,
       hand,
+      handMount,
       visualParent,
       rayParent,
       rayLine,
+      rayGeom,
       rayMat,
       dotMesh,
       dotMat,
       inputSource: null,
+      trackingMode: 'controller',
       prevTrigger: false,
       prevActionBtn: false,
       hoveredKey: null,
-      dragState: null
+      dragState: null,
+      fingerPose: { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 }
     };
+    this._applySlotHandOffset(slot, 'controller');
+    return slot;
+  }
+
+  _applySlotHandOffset(slot, mode) {
+    if (!slot?.handMount) return;
+    if (mode === 'hand' || this.simMode) {
+      slot.handMount.position.set(0, 0, 0);
+      slot.handMount.rotation.set(0, 0, 0);
+      return;
+    }
+    const sign = slot.handedness === 'left' ? 1 : -1;
+    slot.handMount.position.set(0.014 * sign, -0.014, 0.024);
+    slot.handMount.rotation.set(-0.22, 0.05 * sign, 0.85 * sign);
   }
 
   _initXrControllers() {
     if (!this.renderer?.xr || typeof this.renderer.xr.getController !== 'function') return;
 
+    this.renderer.xr.addEventListener?.('sessionend', this._onXrSessionEnd);
+
     for (let i = 0; i < 2; i++) {
       const ctrl = this.renderer.xr.getController(i);
       const grip = this.renderer.xr.getControllerGrip(i);
+      const xrHand = typeof this.renderer.xr.getHand === 'function' ? this.renderer.xr.getHand(i) : null;
       ctrl.visible = false;
       grip.visible = false;
       this.vrRig.add(ctrl);
       this.vrRig.add(grip);
+      if (xrHand) {
+        xrHand.visible = false;
+        this.vrRig.add(xrHand);
+        this.xrHands.push(xrHand);
+      }
       this.xrControllers.push(ctrl);
       this.xrGrips.push(grip);
 
       ctrl.addEventListener('connected', (ev) => {
         const src = ev.data || null;
-        const side = src?.handedness === 'left' ? 'left' : 'right';
+        const side =
+          src?.handedness === 'left'
+            ? 'left'
+            : src?.handedness === 'right'
+              ? 'right'
+              : i === 0
+                ? 'left'
+                : 'right';
         this.ctrlAssignments[i] = side;
         const slot = this.slots[side];
         slot.inputSource = src;
+        slot.trackingMode = src?.hand ? 'hand' : 'controller';
         ctrl.visible = true;
-        grip.visible = true;
         ctrl.add(slot.rayParent);
-        grip.add(slot.visualParent);
+
+        if (src?.hand) {
+          grip.visible = false;
+          this.vrRig.add(slot.visualParent);
+          this._applySlotHandOffset(slot, 'hand');
+        } else {
+          grip.visible = true;
+          grip.add(slot.visualParent);
+          slot.visualParent.position.set(0, 0, 0);
+          slot.visualParent.quaternion.identity();
+          this._applySlotHandOffset(slot, 'controller');
+        }
       });
 
       ctrl.addEventListener('disconnected', () => {
         const side = this.ctrlAssignments[i];
         this.ctrlAssignments[i] = null;
         if (side && this.slots[side]) {
-          this.slots[side].inputSource = null;
-          this.slots[side].hoveredKey = null;
-          this._clearSlotDrag(this.slots[side]);
+          const slot = this.slots[side];
+          slot.inputSource = null;
+          slot.trackingMode = 'controller';
+          slot.hoveredKey = null;
+          this._clearSlotDrag(slot);
         }
         ctrl.visible = false;
         grip.visible = false;
@@ -174,7 +257,8 @@ export class VRManager {
       xrSupported: this.xrSupported,
       active: this.active,
       xrPresenting: Boolean(this.xrSession),
-      simMode: this.simMode
+      simMode: this.simMode,
+      referenceSpaceType: this.xrReferenceSpaceType
     };
   }
 
@@ -186,6 +270,14 @@ export class VRManager {
     this.skin = skin || {};
     this.slots.left.hand.applySkin(this.skin);
     this.slots.right.hand.applySkin(this.skin);
+  }
+
+  setMapData(mapData) {
+    this.wristPanel.setMapData(mapData);
+  }
+
+  updateMiniMap(data = {}) {
+    this.wristPanel.updateMiniMap(data);
   }
 
   updateHudInfo(info = {}) {
@@ -205,20 +297,33 @@ export class VRManager {
 
   async enterVr() {
     if (this.active) return true;
-    const supported = this.xrSupported || (await this.checkSupport());
-    if (supported && navigator.xr?.requestSession && this.renderer?.xr) {
+    if (typeof navigator !== 'undefined' && typeof navigator.xr?.requestSession === 'function' && this.renderer?.xr) {
+      let session = null;
       try {
-        const session = await navigator.xr.requestSession('immersive-vr', {
-          optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+        session = await navigator.xr.requestSession('immersive-vr', {
+          requiredFeatures: ['local-floor'],
+          optionalFeatures: ['bounded-floor', 'hand-tracking']
         });
+      } catch (err) {
+        if (err && (err.name === 'NotSupportedError' || err.name === 'TypeError')) {
+          try {
+            session = await navigator.xr.requestSession('immersive-vr', {
+              optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+            });
+          } catch {
+            session = null;
+          }
+        }
+      }
+      if (session) {
+        this.xrSupported = true;
         await this._activateXrSession(session);
         return true;
-      } catch (err) {
-        this.options.onToast?.(
-          'Casque WebXR non détecté : passage en Mode Simulation VR sur PC (Touche F9).',
-          'info'
-        );
       }
+      this.options.onToast?.(
+        'Casque WebXR non détecté : passage en Mode Simulation VR sur PC (Touche F9).',
+        'info'
+      );
     } else {
       this.options.onToast?.(
         'WebXR indisponible sur ce navigateur : activation du Mode Simulation VR PC (F9).',
@@ -232,29 +337,41 @@ export class VRManager {
     this.xrSession = session;
     this.simMode = false;
     this.active = true;
+    this.xrFloorFallbackOffset = 0;
+    this.xrReferenceSpaceType = 'local-floor';
     this.renderer.xr.setReferenceSpaceType('local-floor');
-    await this.renderer.xr.setSession(session);
 
-    session.addEventListener('end', () => {
-      this._teardownSession();
-    });
+    try {
+      await this.renderer.xr.setSession(session);
+    } catch {
+      this.xrReferenceSpaceType = 'local';
+      this.xrFloorFallbackOffset = 1.62;
+      this.renderer.xr.setReferenceSpaceType('local');
+      await this.renderer.xr.setSession(session);
+    }
 
+    session.addEventListener('end', this._onXrSessionEnd);
+    this.sceneMgr?.setVrPresentingState?.(true);
     this._mountVrRigForWorld(false);
     this.wristPanel.setForceVisible(false);
     this.options.onEnterVr?.({ mode: 'xr' });
     this.options.onStateChange?.(this.getPublicState());
-    this.options.onToast?.('🥽 Mode VR WebXR (Quest 3S) activé !', 'success');
+    this.options.onToast?.('🥽 Mode VR WebXR (Quest / local-floor) activé !', 'success');
   }
 
   enterSimulationMode() {
     if (this.xrSession) return false;
     this.simMode = true;
     this.active = true;
+    this.simWatchInspect = false;
+    this.xrFloorFallbackOffset = 0;
 
     this.simRightPivot.add(this.slots.right.rayParent);
     this.simRightPivot.add(this.slots.right.visualParent);
     this.simLeftPivot.add(this.slots.left.rayParent);
     this.simLeftPivot.add(this.slots.left.visualParent);
+    this._applySlotHandOffset(this.slots.left, 'hand');
+    this._applySlotHandOffset(this.slots.right, 'hand');
 
     this.simLeftPivot.position.set(-0.26, -0.32, -0.42);
     this.simLeftPivot.rotation.set(0.22, -0.22, 0.18);
@@ -266,7 +383,7 @@ export class VRManager {
     this.options.onEnterVr?.({ mode: 'sim' });
     this.options.onStateChange?.(this.getPublicState());
     this.options.onToast?.(
-      '🥽 Simulation VR PC active (F9 quitter • H montrer montre • F grip • G pouce/signe • Clic gâchette)',
+      '🥽 Simulation VR PC active (F9 quitter • H smartwatch minimap • F grip • G pouce • Clic laser)',
       'success'
     );
     return true;
@@ -276,7 +393,7 @@ export class VRManager {
     if (!this.sceneMgr?.scene || !this.camera) return;
     this.sceneMgr.scene.add(this.vrRig);
     const targetPos = this.player?.position || new THREE.Vector3(-3.95, 0, 0.65);
-    const groundY = this.player?.groundY || 0;
+    const groundY = this.worldFloorY;
     const yaw = this.player?.yaw || 0;
 
     if (isSim) {
@@ -289,13 +406,28 @@ export class VRManager {
       this.vrRig.add(this.camera);
       this.simHandsGroup.position.set(0, 1.65, 0);
     } else {
-      this.vrRig.position.set(targetPos.x, groundY, targetPos.z);
+      const cosY = Math.cos(yaw);
+      const sinY = Math.sin(yaw);
+      const lx = this.lastXrLocalXZ.x;
+      const lz = this.lastXrLocalXZ.y;
+      const worldOffX = lx * cosY + lz * sinY;
+      const worldOffZ = -lx * sinY + lz * cosY;
+      this.vrRig.position.set(
+        targetPos.x - worldOffX,
+        groundY + this.xrFloorFallbackOffset,
+        targetPos.z - worldOffZ
+      );
       this.vrRig.rotation.set(0, yaw, 0);
       this.camera.position.set(0, 0, 0);
       this.camera.rotation.set(0, 0, 0);
       this.vrRig.add(this.camera);
     }
     this.vrRig.updateMatrixWorld(true);
+    this.camera.getWorldDirection(this.tempVecB);
+    const flatLen = Math.hypot(this.tempVecB.x, this.tempVecB.z);
+    if (flatLen > 0.08) {
+      this.lastForwardDir.set(this.tempVecB.x / flatLen, 0, this.tempVecB.z / flatLen);
+    }
   }
 
   async exitVr() {
@@ -322,9 +454,15 @@ export class VRManager {
     this.options.onHoverInteractable?.(null);
     this.active = false;
     this.simMode = false;
+    this.simWatchInspect = false;
     this.simMouseTrigger = false;
     this.simKeys.clear();
+    this.simStickState = { lx: 0, ly: 0, rx: 0, sprint: false };
     this.xrSession = null;
+    this.xrFloorFallbackOffset = 0;
+    this.wristPanel.setForceVisible(false);
+    this.wristPanel.group.visible = false;
+    this.sceneMgr?.setVrPresentingState?.(false);
 
     if (this.sceneMgr?.scene && this.camera) {
       this.sceneMgr.scene.add(this.camera);
@@ -336,9 +474,13 @@ export class VRManager {
   }
 
   toggleWristWatchSim() {
-    if (!this.active) return;
-    const next = !this.wristPanel.group.visible;
-    this.wristPanel.setForceVisible(next);
+    if (!this.active) return false;
+    this.simWatchInspect = !this.simWatchInspect;
+    this.wristPanel.setForceVisible(this.simWatchInspect);
+    if (!this.simWatchInspect) {
+      this.wristPanel.group.visible = false;
+    }
+    return this.simWatchInspect;
   }
 
   setSimKey(code, pressed) {
@@ -347,16 +489,54 @@ export class VRManager {
     else this.simKeys.delete(code);
   }
 
-  setSimInput({ trigger, grip, thumb, lookDx = 0, lookDy = 0, mouseTrigger } = {}) {
+  setSimInput({
+    trigger,
+    grip,
+    thumb,
+    lookDx = 0,
+    lookDy = 0,
+    mouseTrigger,
+    lx,
+    ly,
+    rx,
+    sprint
+  } = {}) {
     if (!this.simMode) return;
     if (typeof trigger === 'number') this.simGestureState.trigger = trigger;
     if (typeof grip === 'number') this.simGestureState.grip = grip;
     if (typeof thumb === 'number') this.simGestureState.thumb = thumb;
     if (typeof mouseTrigger === 'boolean') this.simMouseTrigger = mouseTrigger;
+    if (typeof lx === 'number') this.simStickState.lx = Math.max(-1, Math.min(1, lx));
+    if (typeof ly === 'number') this.simStickState.ly = Math.max(-1, Math.min(1, ly));
+    if (typeof rx === 'number') this.simStickState.rx = Math.max(-1, Math.min(1, rx));
+    if (typeof sprint === 'boolean') this.simStickState.sprint = sprint;
     if (lookDx || lookDy) {
       this.simLookYaw -= lookDx * 0.004;
       this.simLookPitch = Math.max(-1.1, Math.min(1.1, this.simLookPitch - lookDy * 0.004));
     }
+  }
+
+  snapTurn(direction = 1) {
+    if (!this.camera || !this.vrRig) return 0;
+    const sign = direction >= 0 ? 1 : -1;
+    const delta = -sign * this.snapAngleRad;
+    this.vrRig.updateMatrixWorld(true);
+    this.camera.getWorldPosition(this.tempVecA);
+    const beforeX = this.tempVecA.x;
+    const beforeZ = this.tempVecA.z;
+    this.vrRig.rotation.y += delta;
+    this.vrRig.updateMatrixWorld(true);
+    this.camera.getWorldPosition(this.tempVecA);
+    this.vrRig.position.x += beforeX - this.tempVecA.x;
+    this.vrRig.position.z += beforeZ - this.tempVecA.z;
+    this.vrRig.updateMatrixWorld(true);
+
+    this.camera.getWorldDirection(this.tempVecB);
+    const flatLen = Math.hypot(this.tempVecB.x, this.tempVecB.z);
+    if (flatLen > 0.08) {
+      this.lastForwardDir.set(this.tempVecB.x / flatLen, 0, this.tempVecB.z / flatLen);
+    }
+    return delta;
   }
 
   attachTpContext(ctx) {
@@ -435,55 +615,178 @@ export class VRManager {
     this.savedExplorePose = null;
   }
 
+  _readXrHandTracking(slot) {
+    const xrHand = slot?.inputSource?.hand;
+    if (!xrHand || !this.renderer?.xr) return null;
+    const frame = this.renderer.xr.getFrame?.();
+    const refSpace = this.renderer.xr.getReferenceSpace?.();
+    if (!frame || !refSpace || typeof frame.getJointPose !== 'function') return null;
+
+    const wristSpace = xrHand.get?.('wrist');
+    if (wristSpace) {
+      const wristPose = frame.getJointPose(wristSpace, refSpace);
+      if (wristPose?.transform) {
+        const p = wristPose.transform.position;
+        const o = wristPose.transform.orientation;
+        slot.visualParent.position.set(p.x, p.y, p.z);
+        slot.visualParent.quaternion.set(o.x, o.y, o.z, o.w);
+      }
+    }
+
+    const fingerCurls = {};
+    for (const [fKey, jointNames] of Object.entries(XR_FINGER_CHAINS)) {
+      const j0 = xrHand.get?.(jointNames[0]);
+      const j1 = xrHand.get?.(jointNames[1]);
+      const j2 = xrHand.get?.(jointNames[2]);
+      const j3 = xrHand.get?.(jointNames[3]);
+      const p0 = j0 ? frame.getJointPose(j0, refSpace) : null;
+      const p1 = j1 ? frame.getJointPose(j1, refSpace) : null;
+      const p2 = j2 ? frame.getJointPose(j2, refSpace) : null;
+      const p3 = j3 ? frame.getJointPose(j3, refSpace) : null;
+      if (p0 && p1 && p2 && p3) {
+        this.tempVecA.set(
+          p1.transform.position.x - p0.transform.position.x,
+          p1.transform.position.y - p0.transform.position.y,
+          p1.transform.position.z - p0.transform.position.z
+        ).normalize();
+        this.tempVecB.set(
+          p3.transform.position.x - p2.transform.position.x,
+          p3.transform.position.y - p2.transform.position.y,
+          p3.transform.position.z - p2.transform.position.z
+        ).normalize();
+        const dot = Math.max(-1, Math.min(1, this.tempVecA.dot(this.tempVecB)));
+        fingerCurls[fKey] = clamp01((1 - dot) / 1.45);
+      } else {
+        fingerCurls[fKey] = 0;
+      }
+    }
+
+    let pinchVal = 0;
+    const thumbTipSpace = xrHand.get?.('thumb-tip');
+    const indexTipSpace = xrHand.get?.('index-finger-tip');
+    if (thumbTipSpace && indexTipSpace) {
+      const tPose = frame.getJointPose(thumbTipSpace, refSpace);
+      const iPose = frame.getJointPose(indexTipSpace, refSpace);
+      if (tPose && iPose) {
+        const dist = Math.hypot(
+          tPose.transform.position.x - iPose.transform.position.x,
+          tPose.transform.position.y - iPose.transform.position.y,
+          tPose.transform.position.z - iPose.transform.position.z
+        );
+        pinchVal = dist <= 0.024 ? 1 : dist >= 0.055 ? 0 : clamp01(1 - (dist - 0.024) / 0.031);
+      }
+    }
+
+    const gripAvg = (fingerCurls.middle + fingerCurls.ring + fingerCurls.pinky) / 3;
+    return {
+      triggerVal: Math.max(pinchVal, fingerCurls.index),
+      triggerPressed: pinchVal > 0.78,
+      gripVal: gripAvg,
+      thumbVal: fingerCurls.thumb,
+      actionBtn: false,
+      sprintPressed: false,
+      axes: [0, 0, 0, 0],
+      fingers: fingerCurls
+    };
+  }
+
   _readControllerButtons(slot) {
     if (this.simMode) {
-      if (slot.handedness === 'right') {
-        return {
-          triggerVal: this.simMouseTrigger ? 1 : this.simGestureState.trigger,
-          triggerPressed: this.simMouseTrigger || this.simGestureState.trigger > 0.65,
-          gripVal: this.simGestureState.grip,
-          thumbVal: this.simGestureState.thumb,
-          actionBtn: false,
-          axes: [0, 0, 0, 0]
-        };
-      }
-      return {
-        triggerVal: this.simGestureState.trigger,
-        triggerPressed: false,
-        gripVal: this.simGestureState.grip,
-        thumbVal: this.simGestureState.thumb,
-        actionBtn: false,
-        axes: [0, 0, 0, 0]
+      const triggerVal = slot.handedness === 'right'
+        ? this.simMouseTrigger
+          ? 1
+          : this.simGestureState.trigger
+        : this.simGestureState.trigger;
+      const gripVal = this.simGestureState.grip;
+      const thumbVal = this.simGestureState.thumb;
+      const fingers = {
+        thumb: clamp01(thumbVal),
+        index: clamp01(triggerVal),
+        middle: clamp01(gripVal),
+        ring: clamp01(gripVal),
+        pinky: clamp01(gripVal)
       };
+      slot.fingerPose = fingers;
+      return {
+        triggerVal,
+        triggerPressed: slot.handedness === 'right' && (this.simMouseTrigger || triggerVal > 0.65),
+        gripVal,
+        thumbVal,
+        actionBtn: false,
+        sprintPressed: this.simStickState.sprint,
+        axes:
+          slot.handedness === 'left'
+            ? [0, 0, this.simStickState.lx, this.simStickState.ly]
+            : [0, 0, this.simStickState.rx, 0],
+        fingers
+      };
+    }
+
+    if (slot.inputSource?.hand) {
+      const handData = this._readXrHandTracking(slot);
+      if (handData) {
+        slot.fingerPose = handData.fingers;
+        return handData;
+      }
     }
 
     const gp = slot.inputSource?.gamepad;
     if (!gp) {
+      slot.fingerPose = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
       return {
         triggerVal: 0,
         triggerPressed: false,
         gripVal: 0,
         thumbVal: 0,
         actionBtn: false,
-        axes: [0, 0, 0, 0]
+        sprintPressed: false,
+        axes: [0, 0, 0, 0],
+        fingers: slot.fingerPose
       };
     }
     const btns = gp.buttons || [];
-    const triggerVal = btns[0]?.value ?? (btns[0]?.pressed ? 1 : 0);
+    const rawTrigger = btns[0]?.value ?? (btns[0]?.pressed ? 1 : 0);
+    const triggerVal = rawTrigger > 0.02 ? rawTrigger : btns[0]?.touched ? 0.16 : 0;
     const gripVal = btns[1]?.value ?? (btns[1]?.pressed ? 1 : 0);
+    const thumbPressed = Boolean(btns[3]?.pressed || btns[4]?.pressed || btns[5]?.pressed);
     const thumbTouched = Boolean(
-      btns[3]?.touched || btns[3]?.pressed || btns[4]?.touched || btns[4]?.pressed || btns[5]?.touched || btns[5]?.pressed
+      btns[3]?.touched || btns[4]?.touched || btns[5]?.touched
     );
+    const thumbVal = thumbPressed ? 1 : thumbTouched ? 0.45 : 0;
     const actionBtn = Boolean(btns[4]?.pressed);
+    const sprintPressed = Boolean(btns[3]?.pressed);
+
+    const fingers = {
+      thumb: clamp01(thumbVal),
+      index: clamp01(triggerVal),
+      middle: clamp01(gripVal),
+      ring: clamp01(gripVal),
+      pinky: clamp01(gripVal)
+    };
+    slot.fingerPose = fingers;
 
     return {
       triggerVal,
-      triggerPressed: Boolean(btns[0]?.pressed || triggerVal > 0.68),
+      triggerPressed: Boolean(btns[0]?.pressed || rawTrigger > 0.68),
       gripVal,
-      thumbVal: thumbTouched ? 1 : 0,
+      thumbVal,
       actionBtn,
-      axes: gp.axes || []
+      sprintPressed,
+      axes: gp.axes || [],
+      fingers
     };
+  }
+
+  _readThumbstick(axes = []) {
+    if (!Array.isArray(axes) || axes.length === 0) return { x: 0, y: 0 };
+    const x2 = Number(axes[2]) || 0;
+    const y2 = Number(axes[3]) || 0;
+    const x0 = Number(axes[0]) || 0;
+    const y0 = Number(axes[1]) || 0;
+    if (axes.length >= 4 && (Math.hypot(x2, y2) >= Math.hypot(x0, y0) || Math.hypot(x2, y2) > 0.01)) {
+      return { x: x2, y: y2 };
+    }
+    return { x: x0, y: y0 };
   }
 
   _pulseHaptic(slot, intensity = 0.4, durationMs = 40) {
@@ -586,10 +889,13 @@ export class VRManager {
       this.tpContext.setHoveredEntry?.(hitInteractiveEntry);
     } else if (!this.tpContext && slot.handedness === 'right') {
       this.options.onHoverInteractable?.(hoveredLabItem);
+      this.wristPanel.updateState({
+        targetHint: hoveredLabItem ? `🎯 ${hoveredLabItem.label || hoveredLabItem.id}` : ''
+      });
     }
 
     if (hitKey && hitKey !== slot.hoveredKey) {
-      this._pulseHaptic(slot, 0.4, 40);
+      this._pulseHaptic(slot, 0.35, 35);
     }
     slot.hoveredKey = hitKey;
 
@@ -721,6 +1027,25 @@ export class VRManager {
     };
   }
 
+  _stabilizeFloor() {
+    if (!this.player || !this.camera || !this.vrRig) return;
+    const floorY = this.worldFloorY;
+    let rigY = floorY + this.xrFloorFallbackOffset;
+
+    if (!this.simMode) {
+      this.lastXrLocalXZ.set(this.camera.position.x, this.camera.position.z);
+      if (this.xrFloorFallbackOffset === 0) {
+        const localY = Number(this.camera.position.y) || 0;
+        if (localY < -0.05) {
+          rigY = floorY + (0.35 - localY);
+        }
+      }
+    }
+
+    this.vrRig.position.y = rigY;
+    this.player.position.y = Number.isFinite(Number(this.player.groundY)) ? this.player.groundY : floorY;
+  }
+
   _updateLocomotion(dt, nowMs, leftState, rightState) {
     if (!this.player || !this.camera) return;
 
@@ -733,12 +1058,17 @@ export class VRManager {
       return;
     }
 
+    this._stabilizeFloor();
+    this.vrRig.updateMatrixWorld(true);
     this.camera.getWorldPosition(this.tempVecA);
     this.camera.getWorldDirection(this.tempVecB);
 
     const flatLen = Math.hypot(this.tempVecB.x, this.tempVecB.z);
-    const fwdX = flatLen > 0.001 ? this.tempVecB.x / flatLen : 0;
-    const fwdZ = flatLen > 0.001 ? this.tempVecB.z / flatLen : -1;
+    if (flatLen > 0.08) {
+      this.lastForwardDir.set(this.tempVecB.x / flatLen, 0, this.tempVecB.z / flatLen);
+    }
+    const fwdX = this.lastForwardDir.x;
+    const fwdZ = this.lastForwardDir.z;
     const rightX = -fwdZ;
     const rightZ = fwdX;
 
@@ -746,50 +1076,72 @@ export class VRManager {
     let moveZ = 0;
 
     if (this.simMode) {
-      let forward = 0;
-      let right = 0;
+      const targetLeftPos = this.simWatchInspect
+        ? this.tempVecC.set(-0.15, -0.17, -0.31)
+        : this.tempVecC.set(-0.26, -0.32, -0.42);
+      const targetLeftRot = this.simWatchInspect
+        ? this.tempVecD.set(0.58, 0.45, -0.38)
+        : this.tempVecD.set(0.22, -0.22, 0.18);
+      const sm = Math.min(1, dt * 14);
+      this.simLeftPivot.position.lerp(targetLeftPos, sm);
+      this.simLeftPivot.rotation.x += (targetLeftRot.x - this.simLeftPivot.rotation.x) * sm;
+      this.simLeftPivot.rotation.y += (targetLeftRot.y - this.simLeftPivot.rotation.y) * sm;
+      this.simLeftPivot.rotation.z += (targetLeftRot.z - this.simLeftPivot.rotation.z) * sm;
+
+      let forward = -this.simStickState.ly;
+      let right = this.simStickState.lx;
       const hasKey = (code) => this.simKeys.has(code) || this.player.keys.has(code);
       if (hasKey('KeyW') || hasKey('ArrowUp')) forward += 1;
       if (hasKey('KeyS') || hasKey('ArrowDown')) forward -= 1;
       if (hasKey('KeyD') || hasKey('ArrowRight')) right += 1;
       if (hasKey('KeyA') || hasKey('ArrowLeft')) right -= 1;
+
       const len = Math.hypot(forward, right);
       if (len > 0.01) {
-        const sprint = hasKey('ShiftLeft') || hasKey('ShiftRight') ? 1.45 : 1;
-        const speed = this.player.speed * sprint * dt;
+        const clamped = Math.min(1, len);
+        const sprint =
+          hasKey('ShiftLeft') || hasKey('ShiftRight') || this.simStickState.sprint ? 1.4 : 1;
+        const speed = this.player.speed * (this.player.speedMultiplier || 1) * sprint * clamped * dt;
         moveX = ((fwdX * forward + rightX * right) / len) * speed;
         moveZ = ((fwdZ * forward + rightZ * right) / len) * speed;
       }
+
+      if (Math.abs(this.simStickState.rx) > 0.62) {
+        if (!this.snapNeedsRelease || nowMs >= this.snapCooldownUntil) {
+          this.snapTurn(Math.sign(this.simStickState.rx));
+          this.snapCooldownUntil = nowMs + 280;
+          this.snapNeedsRelease = true;
+        }
+      } else if (Math.abs(this.simStickState.rx) < 0.35) {
+        this.snapNeedsRelease = false;
+      }
+
       this.camera.rotation.set(this.simLookPitch, this.simLookYaw, 0, 'YXZ');
       this.simHandsGroup.position.set(0, 1.65, 0);
       this.simHandsGroup.rotation.set(this.simLookPitch * 0.65, this.simLookYaw, 0, 'YXZ');
     } else {
-      const lAxes = leftState.axes || [];
-      const lx = Math.abs(lAxes[2] || 0) > 0.01 ? lAxes[2] : lAxes[0] || 0;
-      const ly = Math.abs(lAxes[3] || 0) > 0.01 ? lAxes[3] : lAxes[1] || 0;
-      const dead = 0.16;
-      const fx = Math.abs(lx) > dead ? lx : 0;
-      const fy = Math.abs(ly) > dead ? -ly : 0;
-      const len = Math.hypot(fx, fy);
-      if (len > 0.01) {
-        const clamped = Math.min(1, len);
-        const speed = this.player.speed * clamped * dt;
-        moveX = ((fwdX * fy + rightX * fx) / len) * speed;
-        moveZ = ((fwdZ * fy + rightZ * fx) / len) * speed;
+      const lStick = this._readThumbstick(leftState.axes);
+      const mag = Math.hypot(lStick.x, lStick.y);
+      const dead = 0.15;
+      if (mag > dead) {
+        const normMag = Math.min(1, (mag - dead) / (1 - dead));
+        const nx = lStick.x / mag;
+        const ny = -lStick.y / mag;
+        const sprint = leftState.sprintPressed ? 1.35 : 1;
+        const speed = this.player.speed * (this.player.speedMultiplier || 1) * sprint * normMag * dt;
+        moveX = (fwdX * ny + rightX * nx) * speed;
+        moveZ = (fwdZ * ny + rightZ * nx) * speed;
       }
 
-      const rAxes = rightState.axes || [];
-      const rx = Math.abs(rAxes[2] || 0) > 0.01 ? rAxes[2] : rAxes[0] || 0;
-      if (Math.abs(rx) > 0.64 && nowMs >= this.snapCooldownUntil) {
-        this.snapCooldownUntil = nowMs + 280;
-        const beforeX = this.tempVecA.x;
-        const beforeZ = this.tempVecA.z;
-        this.vrRig.rotation.y -= Math.sign(rx) * THREE.MathUtils.degToRad(35);
-        this.vrRig.updateMatrixWorld(true);
-        this.camera.getWorldPosition(this.tempVecA);
-        this.vrRig.position.x += beforeX - this.tempVecA.x;
-        this.vrRig.position.z += beforeZ - this.tempVecA.z;
-        this.vrRig.updateMatrixWorld(true);
+      const rStick = this._readThumbstick(rightState.axes);
+      if (Math.abs(rStick.x) > 0.62) {
+        if (!this.snapNeedsRelease || nowMs >= this.snapCooldownUntil) {
+          this.snapTurn(Math.sign(rStick.x));
+          this.snapCooldownUntil = nowMs + 280;
+          this.snapNeedsRelease = true;
+        }
+      } else if (Math.abs(rStick.x) < 0.35) {
+        this.snapNeedsRelease = false;
       }
     }
 
@@ -797,26 +1149,44 @@ export class VRManager {
       this.camera.getWorldPosition(this.tempVecA);
       const curX = this.tempVecA.x;
       const curZ = this.tempVecA.z;
-      if (!this.player._collides(curX + moveX, curZ)) {
-        this.vrRig.position.x += moveX;
-      }
-      this.camera.getWorldPosition(this.tempVecA);
-      if (!this.player._collides(this.tempVecA.x, this.tempVecA.z + moveZ)) {
-        this.vrRig.position.z += moveZ;
+      if (typeof this.player.moveHorizontally === 'function') {
+        const step = this.player.moveHorizontally(moveX, moveZ, curX, curZ);
+        this.vrRig.position.x += step.actualDx;
+        this.vrRig.position.z += step.actualDz;
+      } else {
+        if (!this.player._collides(curX + moveX, curZ)) {
+          this.vrRig.position.x += moveX;
+        }
+        this.camera.getWorldPosition(this.tempVecA);
+        if (!this.player._collides(this.tempVecA.x, this.tempVecA.z + moveZ)) {
+          this.vrRig.position.z += moveZ;
+        }
       }
     }
 
+    this._stabilizeFloor();
     this.vrRig.updateMatrixWorld(true);
     this.camera.getWorldPosition(this.tempVecA);
-    this.player.position.set(this.tempVecA.x, this.player.groundY, this.tempVecA.z);
-    this.player.yaw = Math.atan2(-fwdX, -fwdZ);
+    this.camera.getWorldDirection(this.tempVecB);
+    const endFlatLen = Math.hypot(this.tempVecB.x, this.tempVecB.z);
+    if (endFlatLen > 0.08) {
+      this.lastForwardDir.set(this.tempVecB.x / endFlatLen, 0, this.tempVecB.z / endFlatLen);
+    }
+    const nextYaw = Math.atan2(-this.lastForwardDir.x, -this.lastForwardDir.z);
+
+    if (typeof this.player.setVrPose === 'function') {
+      this.player.setVrPose({ x: this.tempVecA.x, z: this.tempVecA.z, yaw: nextYaw });
+    } else {
+      this.player.position.set(this.tempVecA.x, this.player.groundY || 0, this.tempVecA.z);
+      this.player.yaw = nextYaw;
+    }
   }
 
   getVrSyncPayload() {
     if (!this.active || !this.camera || !this.player) return { active: false };
     const basePos = this.player.position;
-    const baseY = this.player.groundY || 0;
-    const q = (v) => Math.round(v * 1000) / 1000;
+    const baseY = this.worldFloorY;
+    const q = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v) * 1000) / 1000 : 0);
 
     const extractRel = (obj, extra = null) => {
       obj.getWorldPosition(this.tempVecA);
@@ -836,6 +1206,13 @@ export class VRManager {
 
     const leftBtn = this._readControllerButtons(this.slots.left);
     const rightBtn = this._readControllerButtons(this.slots.right);
+    const mapFingers = (f) => ({
+      thumb: q(f?.thumb || 0),
+      index: q(f?.index || 0),
+      middle: q(f?.middle || 0),
+      ring: q(f?.ring || 0),
+      pinky: q(f?.pinky || 0)
+    });
 
     return {
       active: true,
@@ -843,17 +1220,19 @@ export class VRManager {
       leftHand: extractRel(this.slots.left.hand.root, {
         grip: q(leftBtn.gripVal),
         trigger: q(leftBtn.triggerVal),
-        thumb: q(leftBtn.thumbVal)
+        thumb: q(leftBtn.thumbVal),
+        fingers: mapFingers(leftBtn.fingers)
       }),
       rightHand: extractRel(this.slots.right.hand.root, {
         grip: q(rightBtn.gripVal),
         trigger: q(rightBtn.triggerVal),
-        thumb: q(rightBtn.thumbVal)
+        thumb: q(rightBtn.thumbVal),
+        fingers: mapFingers(rightBtn.fingers)
       })
     };
   }
 
-  update(dt, elapsed, nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now()) {
+  update(dt = 0.016, elapsed = 0, nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now()) {
     if (!this.active) return;
 
     const leftState = this._readControllerButtons(this.slots.left);
@@ -865,12 +1244,16 @@ export class VRManager {
       trigger: leftState.triggerVal,
       grip: leftState.gripVal,
       thumb: leftState.thumbVal,
+      fingers: leftState.fingers,
+      dt,
       elapsed
     });
     this.slots.right.hand.setPose({
       trigger: rightState.triggerVal,
       grip: rightState.gripVal,
       thumb: rightState.thumbVal,
+      fingers: rightState.fingers,
+      dt,
       elapsed
     });
 
@@ -881,5 +1264,21 @@ export class VRManager {
 
     this._updateSlotRayAndInteract(this.slots.left, leftState, dt, elapsed);
     this._updateSlotRayAndInteract(this.slots.right, rightState, dt, elapsed);
+  }
+
+  dispose() {
+    this.renderer?.xr?.removeEventListener?.('sessionend', this._onXrSessionEnd);
+    if (this.active) {
+      this._teardownSession();
+    }
+    this.wristPanel?.dispose?.();
+    this.tpPanel?.dispose?.();
+    for (const slot of [this.slots.left, this.slots.right]) {
+      slot.hand?.dispose?.();
+      slot.rayGeom?.dispose?.();
+      slot.rayMat?.dispose?.();
+      slot.dotMesh?.geometry?.dispose?.();
+      slot.dotMat?.dispose?.();
+    }
   }
 }
