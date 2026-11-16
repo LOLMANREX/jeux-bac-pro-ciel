@@ -1,146 +1,104 @@
-# 📋 Rapport Technique — Atelier CIEL 3D `v4.15`
+# 📋 Rapport Technique — Atelier CIEL 3D `v4.16`
 
-**Mise à jour :** `v4.15 - Audit WebXR Écran Noir, Panneau Debug VR & Rapport Technique`
-**Date :** 16/11/2026
-**Objectif :** Identifier et corriger la cause exacte de l'écran noir lors du passage en mode VR WebXR dans Meta Quest Browser (Quest 3S), fiabiliser toute la chaîne de rendu VR, déployer un panneau de diagnostic 3D flottant en VR et systématiser la production de ce rapport technique (`LAST_REPORT.md`).
+**Mise à jour :** `v4.16 - Correctif Note 20/20 TP Brasure & Attribution Passe VIP Palier 7 à yanfufu`  
+**Date :** 16/11/2026  
+**Objectifs :**
+1. Auditer le mini-jeu **TP Brasure PCB 3D** (`soldering`) et corriger les bugs empêchant d'atteindre `20/20`, puis garantir la transmission et la persistance de `20/20` dans `server/data/accounts.json` via `POST /api/account/save`.
+2. Attribuer automatiquement et de façon persistante le skin légendaire **Passe VIP « Clé Maîtresse Baie Serveur » (Palier 7)** au compte `yanfufu` (insensible à la casse), au chargement/migration du store, à l'inscription et à la connexion, sans écraser sa progression de TPs, avec affichage et gestion dédiée dans `/admin`.
+3. Mettre à jour le versionning (`vite.config.js`, `src/ui/ChangelogModal.js`), ajouter les tests unitaires/serveur, exécuter `node --test --test-force-exit tests/*.test.js`, `npm test` et `npm run build`, puis publier sur `origin main`.
 
 ---
 
 ## 🔍 1. Diagnostic & Causes Identifiées
 
-L'audit complet du pipeline WebXR (`src/world/SceneManager.js`, `src/main.js`, `src/vr/`, `src/world/PlayerController.js`, `src/ui/SkinCustomizer.js`, `src/styles/main.css`, `index.html`) et de Three.js (`three@0.174.0`) a mis en évidence **1 cause fatale immédiate** expliquant l'écran noir total à la première frame XR, accompagnée de **5 causes secondaires critiques** affectant le contexte WebGL/XR, la boucle de rendu, le placement du rig et les overlays HTML.
+### 1.1 TP Brasure PCB 3D (`soldering`) : plafond réel à `19.8/20` et bugs de gameplay
+L'audit complet de `src/minigames/SolderingGame.js`, `src/minigames/MiniGameModal.js`, `src/main.js`, `server/store.js` et `server/index.js` a mis en évidence les anomalies suivantes :
+1. **Pénalité `reworkCount` inévitable sur les pastilles `U2` et `U3` :**
+   - À l'initialisation de l'étape 2 (`SOLDER_STAGES[1]`), les pastilles `U2` (`U1-TX`) et `U3` (`U1-RX`) démarrent avec `state: 'bridge'` (pont d'étain obligatoire à nettoyer avec la tresse cuivre).
+   - Dans `onDragStart`, l'utilisation de `tool === 'wick'` incrémentait inconditionnellement `reworkCount += 1` même lorsque la pastille nettoyée était le pont initial `pad.state === 'bridge'`, infligeant `-0.25` point et plafonnant la note réelle à `19.8/20` (`Math.round(19.75 * 10) / 10`).
+2. **Fenêtre temporelle trop serrée (`durationSec <= 120`) :**
+   - `computeSolderingScore3D` retirait `0.5` point dès `121s` alors que le nettoyage du pont + chauffe/étain sur 8 pastilles + test 5V demande couramment entre 90s et 220s. La tolérance à pleine note (`1.0` pt) a été portée à `<= 240s` (`0.5` pt jusqu'à `360s`, `0.2` pt au-delà).
+3. **Zone morte thermique `395°C–405°C` & courbe de chauffe instable :**
+   - Dans `onDragEnd`, la condition exigeait `pad.temp <= 395` alors que la surchauffe (`burnt`) ne se déclenchait qu'à `>= 405°C`. Une pastille relâchée entre `395°C` et `405°C` retombait en `state: 'cold'` sans indication de brûlure.
+   - Le refroidissement à `dt * 55` °C/s pénalisait la transition entre `iron` et `tin`, tandis qu'un clic ultérieur avec le fer sur une pastille déjà `'good'` la reclassait en `'cold'`.
+   - Dans `triggerPowerTest()`, si un élève testait le PCB avant la fin de toutes les pastilles alors que l'état était faux ou si `powerOn` basculait via `!powerOn`, un clic ultérieur sur un montage validé pouvait éteindre l'alimentation (`false`) au lieu de valider.
+4. **Conservation du skin sélectionné lors de `POST /api/account/save` :**
+   - Dans `src/main.js`, la sauvegarde envoyée à la fin d'un TP calculait `selectedSkin` uniquement à partir de `secretSkin` ou `divineSpecialty`, ce qui aurait écrasé `selectedSkin: 'bp_tier_7'` en `'standard'` lors d'une sauvegarde TP sur le compte de `yanfufu`.
 
-### 1.1 Cause racine fatale (100% reproductible) : Crash Raycaster sur `THREE.Sprite` dès la 1ère frame VR
-- **Fichiers & fonctions :** `VRManager._updateSlotRayAndInteract` ([`src/vr/VRManager.js`](src/vr/VRManager.js)) et `pickLabInteractable` ([`src/world/SceneManager.js`](src/world/SceneManager.js)) + `Sprite.prototype.raycast` (`three`).
-- **Mécanisme exact :**
-  1. Avant `v4.15`, `VRManager._updateSlotRayAndInteract` configurait `this.raycaster.set(this.tempOrigin, this.tempDir)` sans renseigner `this.raycaster.camera`, puis appelait `pickLabInteractable(this.raycaster, list, occluders, 4.8)`.
-  2. `pickLabInteractable` exécutait `raycaster.intersectObject(item.mesh, true)` en mode récursif sur toutes les bornes interactives du plateau U300 et sur le Professeur CIEL.
-  3. Or, chaque borne TP (via `makeStationLabelSprite` dans `LabBuilder.js`) et le Professeur CIEL (`createLabel` dans `NpcTeacher.js`) contiennent un enfant `THREE.Sprite`.
-  4. Dans Three.js r174, `Sprite.prototype.raycast` exécute `if (raycaster.camera === null)` puis lance immédiatement un `console.error` avant de tenter d'accéder à `camera.matrixWorld`, déclenchant un **`TypeError: Cannot read properties of null (reading 'matrixWorld')`**.
-  5. Dans `SceneManager.start()`, `vrManager.update(...)` est exécuté dans un `alwaysUpdater` **avant** `this.renderer.render(this.scene, this.camera)`. Sans bloc `try/catch` isolant les updaters ni affectation de `raycaster.camera`, l'exception interrompait la boucle `setAnimationLoop` à la toute première frame VR **avant même qu'un seul appel `renderer.render(...)` ne dessine dans le framebuffer stéréoscopique du Meta Quest 3S** — produisant un écran noir permanent.
-
-### 1.2 Initialisation WebGL2 sans `xrCompatible: true` ni gestion de perte de contexte
-- **Fichier & classe :** `SceneManager` ([`src/world/SceneManager.js`](src/world/SceneManager.js)).
-- **Problème :** Le `WebGLRenderer` était instancié sans acquisition préalable d'un contexte `webgl2` configuré avec `{ alpha: false, xrCompatible: true }`, et sans méthode `ensureXrCompatible()` ni écouteurs `webglcontextlost` / `webglcontextrestored`. Lors de `renderer.xr.setSession(session)` sur Quest Browser, le basculement tardif via `makeXRCompatible()` après compilation `RoomEnvironment` / `PMREMGenerator` pouvait provoquer un changement d'adaptateur GPU ou une perte silencieuse de contexte WebGL.
-
-### 1.3 Ordre d'activation de session WebXR, double appel potentiel et hauteur fallback `local`
-- **Fichiers & méthodes :** `VRManager.enterVr` et `VRManager._activateXrSession` ([`src/vr/VRManager.js`](src/vr/VRManager.js)).
-- **Problèmes :**
-  1. Le flux précédent appelait `renderer.xr.setSession(session)` pour `'local-floor'`, puis pouvait retenter un second `setSession` sur la même session en cas d'échec ou laisser `session` active sans `teardown` complet en cas d'erreur.
-  2. La sonde de support du `ReferenceSpace` n'était pas réalisée avant `renderer.xr.setSession(session)`.
-  3. Le fallback `'local'` appliquait un offset `1.62` m au lieu de `1.65` m et ne réinitialisait pas `this.lastXrLocalXZ` au `_teardownSession()`, risquant de conserver un décalage horizontal fantôme lors d'une ré-entrée VR.
-  4. Aucun contrôle n'empêchait un `vrRig` bloqué contre un mur/obstacle (ou hors bornes) de démarrer avec la caméra coincée dans une géométrie opaque, ni n'imposait `near = 0.05` / `far >= 180` dès le montage.
-  5. Les erreurs `SecurityError` / `NotAllowedError` de `navigator.xr.requestSession` basculaient vers le mode simulation PC au lieu d'être journalisées et signalées proprement.
-
-### 1.4 Boucles `requestAnimationFrame` parallèles & conflits caméra pendant WebXR
-- **Fichiers concernés :** `SkinPreview3D` ([`src/ui/SkinCustomizer.js`](src/ui/SkinCustomizer.js)), `animateCameraPose` ([`src/main.js`](src/main.js)), `PlayerController` ([`src/world/PlayerController.js`](src/world/PlayerController.js)).
-- **Problèmes :**
-  1. `SkinPreview3D._tick` relançait une boucle `requestAnimationFrame` infinie sur ses canvas WebGL de prévisualisation (menu principal & casier), même lorsque `setActive(false)` était appelé (qui remettait uniquement un drapeau booléen à `false` sans `cancelAnimationFrame`), consommant des contextes WebGL parallèles pendant la session XR.
-  2. `animateCameraPose()` dans `src/main.js` utilisait un `requestAnimationFrame` autonome qui continuait d'appeler `renderer.render(...)` et de réécrire la matrice caméra si un tween était actif au moment de l'entrée en VR.
-  3. `PlayerController.setAvatar()`, `setCameraMode()` et `teleportTo()` appelaient `_applyCamera()` sans vérifier si le mode VR contrôlait la caméra.
-
-### 1.5 Absence d'`AmbientLight`, isolation des `renderTarget` et overlays CSS bloquants
-- **Fichiers concernés :** `SceneManager._setupLights` / `SceneManager.start` ([`src/world/SceneManager.js`](src/world/SceneManager.js)), [`src/styles/main.css`](src/styles/main.css), `onEnterVr` ([`src/main.js`](src/main.js)).
-- **Problèmes :**
-  1. La scène n'avait pas d'`AmbientLight` de secours en complément de `HemisphereLight` et des `DirectionalLight` (si l'environnement PMREM ou les normales posent problème dans un shader mobile WebXR).
-  2. `SceneManager.start()` ne vérifiait pas si un `RenderTarget` non-XR restait attaché avant le rendu principal (tout en devant préserver impérativement les renderTargets marqués `isXRRenderTarget` bindés par `WebXRManager.onAnimationFrame`).
-  3. Sur DOM 2D miroir et sur certains navigateurs XR injectant des couches DOM, plusieurs modales/overlays HTML (`.overlay-screen`, `.modal-backdrop`, `.intro-cinematic-overlay`, `.ascension-dialogue-overlay`) n'étaient pas systématiquement fermés et masqués au passage en VR via une classe CSS dédiée.
-  4. **Correctif bonus Changelog (`src/ui/ChangelogModal.js`) :** `_renderReleases()` supposait que chaque élément de `items` était une chaîne de caractères, ce qui affichait `[object Object]` pour les entrées structurées `{ badge, title, desc }` ajoutées depuis la `v4.14`.
+### 1.2 Passe VIP Palier 7 pour `yanfufu` & Architecture de Persistance
+1. Les paliers du Passe de Combat étaient uniquement définis côté interface dans `src/ui/BattlePassModal.js` et non rattachés à un catalogue partagé client/serveur.
+2. Les tests existants (`v4.11`/`v4.12`) vérifient que `unlockedDivineSkins` reste strictement limité aux 5 spécialités d'Ascension (`DIVINE_SPECIALTY_IDS`). Les déblocages Passe VIP devaient donc être stockés séparément dans `unlockedBattlePassTiers` (avec `vipChambreAccess` et `selectedSkin: 'bp_tier_7'`).
+3. Aucun endpoint `/admin` ni modale dédiée ne permettait d'inspecter ou d'attribuer les paliers Passe VIP aux comptes élèves.
 
 ---
 
-## 🛠️ 2. Modifications Appliquées
+## 🛠️ 2. Modifications Fichier par Fichier
 
-> Toutes les modifications respectent strictement la règle **zéro commentaire** (JS, CSS, HTML), la **protection de la carte** (aucune modification de géométrie ni de `server/data/db.json`) et le **Lore CIEL** (`Professeur CIEL`).
+### [`src/core/battlePassSkins.js`](file:///opt/atelier-dev/src/core/battlePassSkins.js) *(nouveau module ESM partagé)*
+- Définition de `YANFUFU_VIP_TIER = 7` et `BATTLE_PASS_SKIN_CATALOG` (paliers `1` à `10` avec métadonnées complètes, couleurs d'accent, accès `vipChambreAccess` et `showcase` 3D).
+- Helpers exportés : `cloneShowcase`, `getBattlePassTierSpec`, `getBattlePassSkinId`, `isBattlePassSkinId`, `normalizeBattlePassTierList`, `isYanfufuUsername` (comparaison insensible à la casse `username.toLowerCase() === 'yanfufu'`), `hasVipChambreAccess`.
 
-### [`src/world/SceneManager.js`](src/world/SceneManager.js)
-- **Raycaster anti-crash `THREE.Sprite` (`collectNonSpriteMeshes`, `pickLabInteractable`) :** Vérification `Boolean(raycaster.camera)` ; lorsque `raycaster.camera` est absent, fallback automatique sur `collectNonSpriteMeshes(item.mesh)` qui exclut les `THREE.Sprite` de l'intersection.
-- **Contexte WebGL2 compatible WebXR :** Création explicite d'un contexte `webgl2` avec `{ alpha: false, depth: true, stencil: false, antialias: true, powerPreference: 'high-performance', xrCompatible: true }` (avec fallback sûr si indisponible), ajout de `ensureXrCompatible()`, `recordXrError(source, err)` et `getXrErrors()`.
-- **Écouteurs WebXR & Contexte WebGL :** Ajout de `this._onXrSessionStart`, `this._onXrSessionEnd`, `this._onContextLost` (avec `preventDefault()`) et `this._onContextRestored` ; remise systématique de `renderer.autoClear = true`, `setClearColor('#cfe4f7', 1)`, `customRenderScene = null` et `customStepFn = null` sur `sessionstart`.
-- **Éclairage & Frustum VR :** Ajout de `new THREE.AmbientLight('#f8fafc', 0.42)` dans `_setupLights()` ; dans `setVrPresentingState(presenting)`, réglage `camera.near = this.vrPresenting ? 0.05 : 0.1` et `camera.far = Math.max(180, ...)`, et blocage de `_handleResize()` pendant `renderer.xr.isPresenting || this.vrPresenting`.
-- **Boucle `renderer.setAnimationLoop` blindée (`start()` & `dispose()`) :** Isolation individuelle par `try/catch` de `celebrationRig.update`, `customStepFn`, chaque `updaters[i]`, chaque `alwaysUpdaters[i]` et `renderer.render(scene, camera)` avec journalisation dans `recordXrError(...)` pour affichage dans le panneau debug VR ; réinitialisation `renderer.setRenderTarget(null)` uniquement si `activeRt && !activeRt.isXRRenderTarget` ; nettoyage complet dans `dispose()`.
+### [`src/minigames/SolderingGame.js`](file:///opt/atelier-dev/src/minigames/SolderingGame.js)
+- **`evaluateSolderStage` & `computeSolderingScore3D` :** Arrondi propre de la température (`Math.round`), gardes anti-`NaN` sur tous les compteurs (`safeTemp`, `safeBurns`, `safeReworks`, `safeDuration`), et fenêtre temps portée à `durationSec <= 240` pour le point complet de rapidité (`1.0` pt), permettant d'atteindre exactement `20/20` (`12 + 2.5 + 2.5 + 2.0 + 1.0 = 20`).
+- **Tresse cuivre (`wick`) sans pénalité sur pont initial :** `reworkCount += 1` n'est plus incrémenté lorsque `pad.state === 'bridge'`.
+- **Thermique, protection & test 5V :** Refroidissement ralenti (`dt * 24`), chauffe lissée (`pad.temp > 320 ? 34 : 108`), plafonnement de `tinProgress` à `1`, suppression de la zone morte (`pad.temp >= 215 && pad.temp < 405` et `Math.round(tempC) >= 325`), protection des pastilles déjà `'good'`, passage automatique à l'étape 2, suivi entier du potentiomètre `tempDialRaw`, et correction de `triggerPowerTest()` (`powerOn = true` si toutes les pastilles sont conformes).
 
-### [`src/vr/VRHudPanel.js`](src/vr/VRHudPanel.js)
-- **Nouveau Panneau de Debug 3D Flottant VR (`createVrDebugPanel`) :**
-  - Canvas haute lisibilité `640x340` mappé sur un `PlaneGeometry(0.68, 0.36)` (`MeshBasicMaterial` non éclairé, `transparent: true`, `opacity: 0.94`, `depthWrite: false`, `side: THREE.DoubleSide`, `renderOrder = 18`).
-  - Affiche en temps réel : **XR Presenting** (`OUI (WebXR Actif)` / `SIMULATION PC` / `NON`), **ReferenceSpace** (`local-floor` / `local` / `sim`), **Rig XYZ + Tête Y**, **FPS Moteur**, **FRAME #** (avec voyant pulsant confirmant le rafraîchissement des frames), et **Erreurs WebGL / XR** (bandeau vert si 0 erreur, rouge avec le dernier message capturé sinon).
-  - Positionnement doux devant le regard du joueur (`updateTransform(vrRig, camera, dt, snap)`) et rafraîchissement throttlé (`updateState(next, nowMs, force)`), plus `getState()` et `dispose()`.
+### [`server/store.js`](file:///opt/atelier-dev/server/store.js)
+- Import des helpers `battlePassSkins.js` et validation complète dans `sanitizeSkin`, `_normalizeAccount`, `_serializeAccount`, `_normalizePlayer`, `_syncPlayerFromAccount`, `_syncAccountFromPlayer`.
+- **Attribution à deux niveaux pour `yanfufu` :**
+  - **Chargement / migration (`_load()`) :** Détecte un compte `yanfufu` déjà présent dans `accounts.json` sans Palier 7 ou `vipChambreAccess`, débloque le Palier 7 (`[7]`), active `vipChambreAccess: true`, équipe `bp_tier_7` si le skin était standard, et sauvegarde immédiatement sur disque (`needsGrantSave = true`) sans altérer `tpScores` ni les notes existantes.
+  - **Inscription, connexion, invité & reset (`registerAccount`, `loginAccount`, `getOrCreatePlayer`, `resetPlayer`) :** Garantit l'attribution automatique et persistante de `[7]`, `vipChambreAccess: true` et `bp_tier_7` à `yanfufu` tout en bloquant l'usurpation côté client dans `saveAccountData`.
+- Ajout de `adminUpdateAccountBattlePass(target, payload)` permettant d'attribuer, équiper ou retirer des paliers VIP `1..10` (ou revenir en `standard`) tout en préservant l'accès VIP permanent de `yanfufu`.
 
-### [`src/vr/VRManager.js`](src/vr/VRManager.js)
-- **Fix critique Raycaster :** Dans `_updateSlotRayAndInteract`, mise à jour de `this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert()` et affectation de `this.raycaster.camera = this.camera` avant tout appel à `pickLabInteractable`.
-- **Capture d'erreurs & Télémétrie VR :** Ajout de `this.debugPanel = createVrDebugPanel()` attaché à `this.vrRig`, `this.xrErrors`, `this.frameCount`, `recordError(source, err)`, `getCapturedErrors()`, `_syncDebugPanel(force, nowMs)` et enrichissement de `getPublicState()`.
-- **Cycle de vie WebXR fiabilisé :**
-  - `enterVr()` active `this.renderer.xr.enabled = true`, isole `_activateXrSession(session)` dans un `try/catch` avec cleanup `session.end()` + `_teardownSession()` en cas d'erreur, et capture `SecurityError`/`NotAllowedError` sans masquer l'erreur.
-  - `_activateXrSession(session)` sonde d'abord `'local-floor'` puis bascule sur `'local'` (`xrFloorFallbackOffset = 1.65`) **avant** un unique appel `await this.renderer.xr.setSession(session)`.
-  - `handleXrSessionStart()`, `_resolveClearRigPose()` (vérifie bornes + `_collides(x, z)` avec fallback dégagé `{ x: -3.95, z: 0.65 }` au centre du plateau U300), `_mountVrRigForWorld()` (`scale` à `1`, `near = 0.05`, `far >= 180`, placement immédiat du `debugPanel`) et `_teardownSession()` (réinitialisation `this.lastXrLocalXZ.set(0, 0)` et masquage du `debugPanel`).
+### [`server/wsHub.js`](file:///opt/atelier-dev/server/wsHub.js) & [`server/index.js`](file:///opt/atelier-dev/server/index.js)
+- Enrichissement de `getAllEnrichedPlayers()` avec `unlockedBattlePassTiers` et `vipChambreAccess`.
+- Ajout de `wsHub.notifyAccountUpdated(profile)` pour pousser en direct (`profile_updated` + `player_skin_updated`) les changements cosmétiques/VIP au joueur connecté et à sa salle.
+- Ajout des routes admin protégées par `requireAdmin` : `POST /api/admin/accounts/:target/battlepass` et `POST /api/admin/accounts/:target/special-skins`.
 
-### [`src/world/PlayerController.js`](src/world/PlayerController.js)
-- Ajout de `this.vrModeActive = false` et `setVrMode(active)` pour empêcher `setAvatar()`, `setCameraMode()` et `teleportTo()` d'appeler `_applyCamera()` et d'écraser la caméra WebXR lorsque la VR est active.
+### [`src/core/gameState.js`](file:///opt/atelier-dev/src/core/gameState.js)
+- Ajout des propriétés `unlockedBattlePassTiers`, `vipChambreAccess`, `hasBattlePassTier(tier)`, `hasVipChambreAccess()` et `equipBattlePassSkin(tierOrId)` (et prise en charge dans `equipDivineSkin`, `setAccount`, `clearAccount`, `setProfile`, `setSkin`).
 
-### [`src/ui/SkinCustomizer.js`](src/ui/SkinCustomizer.js)
-- Correction de `SkinPreview3D.setActive(active)` : annule explicitement `cancelAnimationFrame(this.animId)` et remet `this.animId = null` lors de la désactivation, puis relance `_tick` uniquement à la réactivation — supprimant les boucles `requestAnimationFrame` et rendus WebGL concurrents en arrière-plan pendant la VR.
+### [`src/world/AvatarBuilder.js`](file:///opt/atelier-dev/src/world/AvatarBuilder.js) & [`src/world/RemotePlayers.js`](file:///opt/atelier-dev/src/world/RemotePlayers.js)
+- Ajout de `applyBattlePassSkin`, gestion de `battlePassTier` et `showcase` dans `normalizeSkin` / `applySessionDivineSkin`, exposition de `hasBattlePassSkin()` et `getBattlePassTier()`, et rendu 2D SVG VIP (`materialTheme: 'cyber_gold'` + badge VIP or) dans `renderSkinPreviewSvg`.
+- Mise en valeur du Palier VIP sur les étiquettes flottantes multijoueur `makeStudentBadge` (bordure or, rang `🔑VIP` et sous-titre `Passe VIP P.7`).
 
-### [`src/main.js`](src/main.js)
-- **Hook `onEnterVr` renforcé :** Incrémente `activeCameraTweenId` pour stopper tout tween caméra, ferme `mainMenu`, `platformModal`, `changelogModal`, `faqModal`, `battlePassModal`, `dialogueModal`, `miniGameModal`, les overlays d'intro/ascension et toutes les modales HUD ; désactive `mainMenu.preview` et `hud.skinPreview` ; applique `document.body.classList.add('vr-presenting')` et `player.setVrMode(true)`.
-- **Hook `onExitVr` & gardes :** Retire `vr-presenting`, restaure `player.setVrMode(false)`, bloque `animateCameraPose()` pendant la VR et remonte `vrRig` lors de `onDebugTeleport` en VR.
+### [`src/ui/BattlePassModal.js`](file:///opt/atelier-dev/src/ui/BattlePassModal.js), [`src/ui/SkinCustomizer.js`](file:///opt/atelier-dev/src/ui/SkinCustomizer.js), [`src/ui/MainMenu.js`](file:///opt/atelier-dev/src/ui/MainMenu.js), [`src/ui/HudManager.js`](file:///opt/atelier-dev/src/ui/HudManager.js), [`src/main.js`](file:///opt/atelier-dev/src/main.js), [`src/styles/main.css`](file:///opt/atelier-dev/src/styles/main.css)
+- Affichage des skins Passe VIP débloqués dans le Casier (`SkinCustomizer.getCasierDivineEntries` & `renderSkinControls` avec `.divine-chip-vip`) et dans `BattlePassModal` (badges `✅ DÉBLOQUÉ` / `🏆 ÉQUIPÉ` et bouton `✨ ÉQUIPER`, tout en conservant la blague pigeon pour les paliers verrouillés).
+- Ajout de `getSelectedSkinIdFromSkin(skin)` dans `src/main.js` pour conserver `bp_tier_X` lors des sauvegardes TP (`POST /api/account/save`), changements de skin et validations debug.
+- Rafraîchissement de `battlePassModal`, toast d'accueil VIP à l'entrée en zone `CHAMBRE`, et badge `🔑 VIP` dans le classement HUD (`HudManager.renderLeaderboard`) et la fiche de connexion (`MainMenu.syncAuthUi`).
 
-### [`src/styles/main.css`](src/styles/main.css)
-- Attribution explicite de `position: relative; z-index: 1; background: transparent;` sur `#game-canvas`.
-- Ajout de la règle `body.vr-presenting` masquant fermement `.overlay-screen`, `.modal-backdrop`, `.intro-cinematic-overlay` et `.ascension-dialogue-overlay` (`display: none !important; pointer-events: none !important;`).
+### [`admin.html`](file:///opt/atelier-dev/admin.html), [`src/admin/admin.js`](file:///opt/atelier-dev/src/admin/admin.js) & [`src/admin/admin.css`](file:///opt/atelier-dev/src/admin/admin.css)
+- Affichage des badges Passe VIP (`.vip-admin-badge`, `.vip-admin-badge.equipped`) et `🔐 Chambre VIP` sur les fiches comptes et joueurs dans `/admin`.
+- Ajout de la modale `#admin-special-skins-modal` (`🎁 Skins VIP`) permettant d'attribuer, équiper ou retirer les paliers 1 à 10 directement depuis `/admin`.
 
-### [`vite.config.js`](vite.config.js) & [`src/ui/ChangelogModal.js`](src/ui/ChangelogModal.js)
-- Passage de `__APP_VERSION__` et `APP_VERSION` à `'v4.15 - Audit WebXR Écran Noir, Panneau Debug VR & Rapport Technique'`.
-- Ajout de l'entrée `v4.15` (`16/11/2026`, tag `'DERNIÈRE MÀJ'`) en tête de `CHANGELOG_RELEASES` et passage de `v4.14` au tag `'HISTORIQUE'`.
-- Amélioration de `ChangelogModal._renderReleases()` pour formater proprement les items objets `{ badge, title, desc }` en HTML (badge stylé, titre en gras et description) en plus des chaînes simples.
-
-### [`tests/vr.test.js`](tests/vr.test.js) & [`tests/celebration-debug.test.js`](tests/celebration-debug.test.js)
-- Ajout de 3 nouveaux tests automatisés dans `tests/vr.test.js` :
-  1. `v4.15 : pickLabInteractable et VRManager raycastent sans crash sur des bornes contenant THREE.Sprite`
-  2. `v4.15 : SceneManager garantit boucle WebXR unique, éclairage complet, clearColor jour et isolation des erreurs`
-  3. `v4.15 : VRManager gère session WebXR local-floor (y=0), fallback local (y=1.65), spawn dégagé et panneau debug 3D`
-- Mise à jour des assertions de version `v4.15` / `v4.14` / `v4.12` dans `tests/celebration-debug.test.js`.
+### [`vite.config.js`](file:///opt/atelier-dev/vite.config.js), [`src/ui/ChangelogModal.js`](file:///opt/atelier-dev/src/ui/ChangelogModal.js) & Tests
+- Incrémentation de `__APP_VERSION__` et `APP_VERSION` vers `v4.16 - Correctif Note 20/20 TP Brasure & Attribution Passe VIP Palier 7 à yanfufu`.
+- Ajout de l'entrée datée `v4.16` en haut de `CHANGELOG_RELEASES` et passage de `v4.15` au tag `'HISTORIQUE'`.
+- Ajout des tests dans `tests/minigame-logic.test.js` et `tests/server.test.js`, et mise à jour des assertions de version dans `tests/celebration-debug.test.js`.
 
 ---
 
 ## 🧪 3. Résultats des Tests & Build
 
-Toutes les vérifications ont été exécutées **après** la dernière modification du code, sans aucun test ignoré ni timer/socket résiduel bloquant :
-
-| Commande exécutée | Résultat | Détails observés |
-| --- | --- | --- |
-| `npm test` (`node --test tests/*.test.js`) | ✅ **SUCCÈS** (`exit code 0`) | **60 tests**, **60 réussis**, **0 échec**, 0 ignoré, durée `9714.44ms` |
-| `node --test --test-force-exit tests/*.test.js` | ✅ **SUCCÈS** (`exit code 0`) | **60 tests**, **60 réussis**, **0 échec**, 0 ignoré, durée `9150.01ms` |
-| `npm run build` (`vite v6.4.6`) | ✅ **SUCCÈS** (`exit code 0`) | `50 modules transformed`, build `dist/` terminé en `10.59s` |
-
-**Artefacts générés par `vite build` :**
-- `dist/admin.html` (`14.48 kB` │ gzip `3.62 kB`)
-- `dist/index.html` (`56.17 kB` │ gzip `11.69 kB`)
-- `dist/assets/admin-DnCCAKf8.css` (`19.03 kB` │ gzip `4.48 kB`)
-- `dist/assets/main-D0e0-hBG.css` (`92.87 kB` │ gzip `19.04 kB`)
-- `dist/assets/admin-DeVyDmsM.js` (`90.20 kB` │ gzip `24.31 kB`)
-- `dist/assets/LabBuilder-BZdg-RcA.js` (`155.84 kB` │ gzip `46.77 kB`)
-- `dist/assets/three-D_Xx5LGZ.js` (`523.72 kB` │ gzip `132.74 kB`)
-- `dist/assets/main-CuNViwfk.js` (`565.14 kB` │ gzip `175.42 kB`)
+Vérifications exécutées sur le dépôt :
+- **`node --test --test-force-exit tests/*.test.js` :** `exit code 0` — **62 tests**, **62 réussis**, **0 échec**, 0 ignoré (`9590.61ms`).
+- **`npm test` :** `exit code 0` — **62 tests**, **62 réussis**, **0 échec**, 0 ignoré (`9573.39ms`).
+- **`npm run build` (`vite v6.4.6`) :** `exit code 0` — **51 modules transformés**, build `dist/` terminé en `15.57s` (`dist/admin.html`, `dist/index.html`, `dist/assets/admin-*.css`, `dist/assets/main-*.css`, `dist/assets/admin-*.js`, `dist/assets/LabBuilder-*.js`, `dist/assets/three-*.js`, `dist/assets/main-*.js`).
+- **Contrôles de conformité :** `0` occurrence de `"Fortin"`, `0` commentaire ajouté en JS/CSS/HTML, aucune modification de `server/data/map.json` ni `server/data/db.json`.
 
 ---
 
-## 🎯 4. Vérification & Points d'Attention
+## 🎯 4. Guide de Vérification
 
-### Comment tester sur Meta Quest 3S (et en Simulation VR PC)
-1. **Démarrer le serveur et servir en HTTPS** (obligatoire pour `navigator.xr` sur Meta Quest Browser depuis un poste distant, ou via tunnel HTTPS / certificat local) puis ouvrir l'application dans le navigateur du **Meta Quest 3S**.
-2. Rejoindre le plateau U300 puis cliquer sur le bouton **« Mode VR »** (interaction directe requise par l'API WebXR pour l'activation utilisateur).
-3. **Vérifier visuellement dans le casque :**
-   - La salle U300 s'affiche immédiatement en plein éclairage jour (aucun écran noir).
-   - Juste devant et légèrement au-dessus de la ligne de regard apparaît le **panneau flottant `🩺 DEBUG WEBXR • ATELIER CIEL 3D`** affichant :
-     - `XR Presenting : OUI (WebXR Actif)`
-     - `ReferenceSpace : local-floor` (ou `local` si le guardian n'a pas de plancher calibré)
-     - `Rig XYZ` cohérent avec `Y: 0.00` (`local-floor`) ou `Y: 1.65` (`local`) et `Tête Y` dynamique lorsque vous bougez la tête
-     - `FPS Moteur` et un compteur `FRAME #...` qui s'incrémente en continu
-     - Bandeau vert `✅ Erreurs WebGL / XR : Aucune erreur capturée`
-4. **Pointer avec les contrôleurs (ou mains en Hand-Tracking) vers une borne TP et vers le Professeur CIEL** : le rayon laser surligne la borne et déclenche le panneau spatial sans bloquer le rendu.
-5. **Test rapide sur PC (sans casque) :** appuyer sur **`F9`** (ou passer par « Simulation VR ») pour vérifier le panneau debug flottant, la montre poignet gauche (`H`) et les interactions laser.
-
-### Points d'attention si un symptôme persiste dans le casque
-- **Si l'écran du casque reste noir sur une scène donnée :** vérifier via le miroir/inspecteur USB `chrome://inspect` si la console signale `WebGL context lost` (cas d'un onglet Quest ayant saturé la mémoire GPU avec d'autres onglets ouverts) ou une erreur `[render]` / `[alwaysUpdater:...]` désormais capturée sans planter la boucle.
-- **Si `ReferenceSpace : local` apparaît et que vous êtes trop bas/haut :** recalibrer le niveau du sol Guardian dans Quest OS (ce qui rétablit `local-floor`), sinon le rig applique automatiquement le fallback `y = 1.65`.
-- **Si `Mode VR` affiche une alerte d'autorisation WebXR :** vérifier que la page est chargée en **HTTPS** et que l'entrée en VR provient bien d'un clic utilisateur direct (jamais d'un appel différé sans geste).
+1. **Vérifier le `20/20` sur le TP Brasure (`soldering`) :**
+   - Lancer l'atelier Brasure PCB 3D en U301, activer `💨 Allumer Extracteur` et régler la station entre `335°C` et `370°C` (`350°C` recommandé).
+   - Souder les 4 pastilles de l'étape 1 (`J1-VCC`, `J1-GND`, `R1-A`, `C1-GND`) avec `🔥 Fer à souder` puis `🧵 Fer + Fil d’étain`.
+   - À l'étape 2, sélectionner la `🩹 Tresse cuivre` pour retirer le pont d'étain entre `U1-TX` et `U1-RX`, braser `U1-TX`, `U1-RX`, `U1-PWM` et `LED-OK`, puis cliquer sur `⚡ Tester PCB 5V`.
+   - Constater l'affichage de **`20.0 / 20`** dans le HUD et la persistance de `tpScores.soldering === 20` dans `server/data/accounts.json` via `POST /api/account/save`.
+2. **Vérifier le Passe VIP Palier 7 de `yanfufu` :**
+   - Se connecter ou créer un compte avec le pseudo `yanfufu` (peu importe la casse, ex. `YanFuFu`).
+   - Vérifier dès le menu principal que le Casier affiche `🔑 Passe VIP Clé Maîtresse (P.7)` actif, que la modale Passe de Combat affiche `✅ DÉBLOQUÉ` / `🏆 ÉQUIPÉ` sur le Palier 7 et que l'avatar 3D porte la tenue Fibre Sombre & Finitions Or 24K + Badge VIP Or + Drone + particules dorées.
+   - Entrer en jeu puis se rendre dans la zone **Chambre Baie Serveur** (`CHAMBRE`) : le toast d'accès VIP s'affiche et l'étiquette au-dessus de l'avatar porte le rang `🔑VIP`.
+3. **Vérifier dans `/admin` :**
+   - Ouvrir `/admin`, consulter l'onglet Comptes Élèves : la ligne `yanfufu` affiche `🔑 Passe P.7 (Passe VIP Clé Maîtresse) ★` et `🔐 Chambre VIP`.
+   - Cliquer sur `🎁 Skins VIP` sur n'importe quel élève pour tester l'attribution, l'équipement ou le retrait d'un palier spécial.

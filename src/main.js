@@ -3,6 +3,7 @@ import './styles/minigames.css';
 
 import * as THREE from 'three';
 import { sfx } from './core/audio.js';
+import { getBattlePassSkinId } from './core/battlePassSkins.js';
 import {
   GameState,
   getAllTps,
@@ -111,6 +112,13 @@ let vrManager = null;
 let latestVoiceState = {};
 let sessionDivineSpecialty = null;
 let activeCinematic = null;
+
+function getSelectedSkinIdFromSkin(skin = gameState.skin) {
+  if (skin?.secretSkin) return ULTIMATE_SECRET_SKIN_ID;
+  if (skin?.divineSpecialty) return skin.divineSpecialty;
+  if (skin?.battlePassTier) return getBattlePassSkinId(skin.battlePassTier);
+  return 'standard';
+}
 
 function getEffectiveSessionSkin(baseSkin = gameState.skin) {
   if (sessionDivineSpecialty) {
@@ -248,6 +256,35 @@ try {
 try {
   battlePassModal = new BattlePassModal({
     getBaseSkin: () => gameState.skin,
+    getUnlockedTiers: () => gameState.unlockedBattlePassTiers || [],
+    getSelectedSkin: () => gameState.selectedSkin || getSelectedSkinIdFromSkin(gameState.skin),
+    onEquipTier: (choice) => {
+      const targetSkin = choice === 'standard' ? null : getBattlePassSkinId(choice);
+      gameState.equipBattlePassSkin(targetSkin);
+      const updatedSkin = gameState.skin;
+      const selectedId = getSelectedSkinIdFromSkin(updatedSkin);
+      sessionDivineSpecialty = updatedSkin?.secretSkin
+        ? ULTIMATE_SECRET_SKIN_ID
+        : updatedSkin?.divineSpecialty || null;
+      rebuildLocalAvatar(updatedSkin);
+      mainMenu?.renderSkinUi?.();
+      mainMenu?.preview?.rebuild?.();
+      hud?._refreshInGameSkinUi?.();
+      network.sendSkinUpdate(updatedSkin);
+      if (gameState.isAuthenticated()) {
+        network.saveAccount({
+          selectedSkin: selectedId,
+          avatarCustomization: updatedSkin,
+          unlockedDivineSkins: gameState.unlockedDivineSkins
+        });
+      }
+      hud?.toast?.(
+        choice === 'standard'
+          ? '👕 Tenue Standard équipée.'
+          : `🔑 Skin Passe VIP Palier ${choice} équipé !`,
+        choice === 'standard' ? 'info' : 'success'
+      );
+    },
     onPurchaseAttempt: () => {
       const playerName =
         document.getElementById('player-name-input')?.value?.trim() ||
@@ -852,9 +889,7 @@ async function openTp(tpId, stationItem = null) {
       network.saveAccount({
         tpScores: p.grades,
         unlockedDivineSkins: gameState.unlockedDivineSkins,
-        selectedSkin: gameState.skin?.secretSkin
-          ? ULTIMATE_SECRET_SKIN_ID
-          : gameState.skin?.divineSpecialty || 'standard',
+        selectedSkin: getSelectedSkinIdFromSkin(gameState.skin),
         avatarCustomization: gameState.skin
       });
       if (firstTimeAllAt20 && !network.connected) {
@@ -974,11 +1009,12 @@ hud = new HudManager(gameState, network, {
   onQuickNav: (id) => teleportNearTarget(id),
   onModalOpen: (isOpen) => setModalActive(isOpen, false, false),
   onSkinChange: (skin) => {
-    const selectedId = skin?.secretSkin
+    const selectedId = getSelectedSkinIdFromSkin(skin);
+    sessionDivineSpecialty = skin?.secretSkin
       ? ULTIMATE_SECRET_SKIN_ID
-      : skin?.divineSpecialty || 'standard';
-    sessionDivineSpecialty = selectedId === 'standard' ? null : selectedId;
+      : skin?.divineSpecialty || null;
     rebuildLocalAvatar(skin);
+    battlePassModal?.refresh?.();
     network.sendSkinUpdate(skin);
     network.saveAccount({
       selectedSkin: selectedId,
@@ -1102,9 +1138,7 @@ hud = new HudManager(gameState, network, {
       network.saveAccount({
         tpScores: nextGrades,
         unlockedDivineSkins: gameState.unlockedDivineSkins,
-        selectedSkin: gameState.skin?.secretSkin
-          ? ULTIMATE_SECRET_SKIN_ID
-          : gameState.skin?.divineSpecialty || 'standard',
+        selectedSkin: getSelectedSkinIdFromSkin(gameState.skin),
         avatarCustomization: gameState.skin
       });
     }
@@ -1295,6 +1329,14 @@ network.on('welcome', (msg) => {
   const requestedName = gameState.profile.name;
   notifiedNetError = false;
   gameState.setProfile(msg.profile);
+  sessionDivineSpecialty = gameState.skin?.secretSkin
+    ? ULTIMATE_SECRET_SKIN_ID
+    : gameState.skin?.divineSpecialty || null;
+  rebuildLocalAvatar(gameState.skin);
+  battlePassModal?.refresh?.();
+  mainMenu?.syncAuthUi?.();
+  mainMenu?.renderSkinUi?.();
+  hud?._refreshInGameSkinUi?.();
   lab.updateStationBadges(msg.profile.grades);
   remotePlayers.setPeers(msg.peers);
   gameState.setRoomRoster(msg.roomRoster || []);
@@ -1318,7 +1360,10 @@ network.on('profile_updated', ({ profile }) => {
     : gameState.skin?.divineSpecialty || null;
   rebuildLocalAvatar(gameState.skin);
   lab.updateStationBadges(profile.grades);
+  battlePassModal?.refresh?.();
+  mainMenu?.syncAuthUi?.();
   mainMenu?.renderSkinUi?.();
+  hud?._refreshInGameSkinUi?.();
   hud?.refresh?.();
   syncWallLeaderboard();
 });
@@ -1336,6 +1381,10 @@ network.on('profile_reset', ({ profile, message }) => {
   hud?.hideSecretSkinAnnouncement?.();
   gameState.setProfile(profile);
   rebuildLocalAvatar(gameState.skin);
+  battlePassModal?.refresh?.();
+  mainMenu?.syncAuthUi?.();
+  mainMenu?.renderSkinUi?.();
+  hud?._refreshInGameSkinUi?.();
   lab.updateStationBadges(profile.grades);
   refreshWallLeaderboard();
   hud.toast(message || 'Votre progression a été réinitialisée par l’administrateur.', 'error');
@@ -1830,6 +1879,9 @@ sceneMgr.addUpdater((dt, elapsed) => {
     lastZoneId = currentZone.id;
     hud?.setCurrentZone?.(currentZone);
     network.sendZone(currentZone.id, currentZone.badgeText.replace('📍 ', ''));
+    if (currentZone.id === 'CHAMBRE' && gameState.hasVipChambreAccess?.()) {
+      hud?.toast?.('🔑 Accès VIP Clé Maîtresse — Bienvenue en Chambre Baie Serveur !', 'success');
+    }
   }
 
   if (vrOn) {
@@ -2016,11 +2068,13 @@ mainMenu = new MainMenu(gameState, network, {
       ? ULTIMATE_SECRET_SKIN_ID
       : gameState.skin?.divineSpecialty || null;
     rebuildLocalAvatar(gameState.skin);
+    battlePassModal?.refresh?.();
     lab.updateStationBadges(gameState.profile.grades);
   },
   onLogout: () => {
     sessionDivineSpecialty = null;
     rebuildLocalAvatar(gameState.skin);
+    battlePassModal?.refresh?.();
     lab.updateStationBadges({});
   }
 });

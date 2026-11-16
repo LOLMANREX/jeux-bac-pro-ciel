@@ -31,7 +31,8 @@ export const SOLDER_STAGES = [
 
 export function evaluateSolderStage(pads, tempC, fumeExtractorOn, reworkCount) {
   const allGood = pads.every((p) => p.state === 'good');
-  const tempOk = tempC >= 335 && tempC <= 370;
+  const safeTemp = Number.isFinite(Number(tempC)) ? Math.round(Number(tempC)) : 0;
+  const tempOk = safeTemp >= 335 && safeTemp <= 370;
   let ratio = 0;
   if (allGood) ratio += 0.7;
   if (tempOk) ratio += 0.15;
@@ -41,15 +42,22 @@ export function evaluateSolderStage(pads, tempC, fumeExtractorOn, reworkCount) {
 }
 
 export function computeSolderingScore3D({ pads, tempC, fumeExtractorOn, burnCount, reworkCount, powerTestedOk, durationSec }) {
-  const total = Math.max(1, pads.length);
-  const goodCount = pads.filter((p) => p.state === 'good').length;
-  const coldCount = pads.filter((p) => p.state === 'cold').length;
-  const bridgeCount = pads.filter((p) => p.state === 'bridge').length;
+  const list = Array.isArray(pads) ? pads : [];
+  const total = Math.max(1, list.length);
+  const goodCount = list.filter((p) => p.state === 'good').length;
+  const coldCount = list.filter((p) => p.state === 'cold').length;
+  const bridgeCount = list.filter((p) => p.state === 'bridge').length;
+  const safeTemp = Number.isFinite(Number(tempC)) ? Math.round(Number(tempC)) : 0;
+  const safeBurns = Math.max(0, Number.isFinite(Number(burnCount)) ? Number(burnCount) : 0);
+  const safeReworks = Math.max(0, Number.isFinite(Number(reworkCount)) ? Number(reworkCount) : 0);
+  const safeDuration = Math.max(0, Number.isFinite(Number(durationSec)) ? Number(durationSec) : 0);
   const qualityPts = (goodCount / total) * 12 + (coldCount / total) * 4;
-  const safetyPts = (fumeExtractorOn ? 2.5 : 0) + (tempC >= 335 && tempC <= 370 ? 2.5 : tempC >= 315 && tempC <= 385 ? 1.2 : 0);
+  const safetyPts =
+    (fumeExtractorOn ? 2.5 : 0) +
+    (safeTemp >= 335 && safeTemp <= 370 ? 2.5 : safeTemp >= 315 && safeTemp <= 385 ? 1.2 : 0);
   const powerPts = powerTestedOk ? 2.0 : 0;
-  const speedPts = durationSec <= 120 ? 1.0 : durationSec <= 190 ? 0.5 : 0.2;
-  const penalties = burnCount * 1.5 + bridgeCount * 1.2 + Math.min(1.5, reworkCount * 0.25);
+  const speedPts = safeDuration <= 240 ? 1.0 : safeDuration <= 360 ? 0.5 : 0.2;
+  const penalties = safeBurns * 1.5 + bridgeCount * 1.2 + Math.min(1.5, safeReworks * 0.25);
   return Math.max(0, Math.min(20, Math.round((qualityPts + safetyPts + powerPts + speedPts - penalties) * 10) / 10));
 }
 
@@ -64,6 +72,7 @@ export function createSolderingGame(api) {
 
   let stageIdx = 0;
   let tempC = 280;
+  let tempDialRaw = 280;
   let fumeExtractorOn = false;
   let tool = 'iron';
   let heatingActive = false;
@@ -277,10 +286,12 @@ export function createSolderingGame(api) {
       },
       dragPlane: solderWorkPlane,
       onDragStart: () => {
-        activePad = pad;
         if (tool === 'wick') {
+          activePad = pad;
           if (pad.state === 'bridge' || pad.burnt || pad.state === 'cold' || pad.tinProgress > 0) {
-            reworkCount += 1;
+            if (pad.state !== 'bridge') {
+              reworkCount += 1;
+            }
             if (pad.id === 'U2' || pad.id === 'U3') {
               allPads.forEach((op) => {
                 if (op.id === 'U2' || op.id === 'U3') {
@@ -307,14 +318,25 @@ export function createSolderingGame(api) {
           }
           return;
         }
+        if (pad.state === 'bridge') {
+          sfx.error();
+          wb.showToast(`⚠️ Pont d’étain sur ${pad.label} : sélectionnez la 🩹 Tresse cuivre !`, 'error');
+          return;
+        }
+        if (pad.state === 'good') {
+          wb.showToast(`✅ ${pad.label} est déjà brasée proprement !`, 'info');
+          return;
+        }
+        activePad = pad;
         heatingActive = true;
         if (tool === 'tin') tinFeeding = true;
       },
       onHoldTick: (dt) => {
-        if (activePad !== pad || tool === 'wick') return;
+        if (activePad !== pad || tool === 'wick' || pad.state === 'bridge' || pad.state === 'good') return;
         const tipHeatFactor = Math.max(0.25, (tempC - 210) / 145) / (pad.mass || 1);
         if (heatingActive) {
-          pad.temp = Math.min(440, pad.temp + dt * 138 * tipHeatFactor);
+          const heatRate = pad.temp > 320 ? 34 : 108;
+          pad.temp = Math.min(440, pad.temp + dt * heatRate * tipHeatFactor);
           pad.smokeTimer += dt;
           if (pad.smokeTimer > 0.14) {
             pad.smokeTimer = 0;
@@ -328,7 +350,7 @@ export function createSolderingGame(api) {
           }
         }
         if ((tinFeeding || tool === 'tin') && pad.temp >= 205 && !pad.burnt && pad.state !== 'bridge') {
-          pad.tinProgress = Math.min(1.05, pad.tinProgress + dt * 0.95);
+          pad.tinProgress = Math.min(1, pad.tinProgress + dt * 0.9);
           if (pad.smokeTimer === 0) {
             const wp = new THREE.Vector3();
             grp.getWorldPosition(wp);
@@ -350,17 +372,30 @@ export function createSolderingGame(api) {
       },
       onDragEnd: () => {
         if (activePad === pad && tool !== 'wick') {
-          if (!pad.burnt && pad.state !== 'bridge') {
-            if (pad.temp >= 215 && pad.temp <= 395 && pad.tinProgress >= 0.72 && tempC >= 325) {
+          if (!pad.burnt && pad.state !== 'bridge' && pad.state !== 'good') {
+            if (pad.temp >= 215 && pad.temp < 405 && pad.tinProgress >= 0.72 && Math.round(tempC) >= 325) {
               pad.state = 'good';
               const wp = new THREE.Vector3();
               grp.getWorldPosition(wp);
               wb.spawnPulseRing(wp, '#10b981', 0.08);
               sfx.success();
+              if (
+                stageIdx === 0 &&
+                SOLDER_STAGES[0].pads.every((sp) => allPads.find((p) => p.id === sp.id)?.state === 'good')
+              ) {
+                stageIdx = 1;
+                wb.showToast('✅ Étape 1 validée ! Passez à U1 : nettoyez d’abord le pont à la Tresse cuivre.', 'success');
+              }
             } else if (pad.tinProgress > 0.08) {
               pad.state = 'cold';
               sfx.error();
-              wb.showToast(`❄️ ${pad.label} : soudure froide (${Math.round(pad.temp)}°C)`, 'error');
+              const reason =
+                Math.round(tempC) < 325
+                  ? `station trop froide (${Math.round(tempC)}°C < 325°C)`
+                  : pad.tinProgress < 0.72
+                    ? `étain insuffisant (${Math.round(pad.tinProgress * 100)}%)`
+                    : `${Math.round(pad.temp)}°C`;
+              wb.showToast(`❄️ ${pad.label} : soudure froide (${reason})`, 'error');
             }
           }
           heatingActive = false;
@@ -368,6 +403,8 @@ export function createSolderingGame(api) {
           activePad = null;
           updatePadVisual(pad);
           refreshHud();
+        } else if (activePad === pad && tool === 'wick') {
+          activePad = null;
         }
       }
     });
@@ -413,8 +450,8 @@ export function createSolderingGame(api) {
 
     if (activePad === pad && pad.temp > 35) {
       pm.heatHaloMat.opacity = 0.85;
-      if (pad.temp > 395) pm.heatHaloMat.color.set('#f43f5e');
-      else if (pad.temp >= 215 && pad.tinProgress >= 0.72) pm.heatHaloMat.color.set('#10b981');
+      if (pad.temp >= 390) pm.heatHaloMat.color.set('#f43f5e');
+      else if (pad.temp >= 215 && pad.tinProgress >= 0.72 && Math.round(tempC) >= 325) pm.heatHaloMat.color.set('#10b981');
       else if (pad.temp >= 215) pm.heatHaloMat.color.set('#fbbf24');
       else pm.heatHaloMat.color.set('#38bdf8');
     } else {
@@ -484,12 +521,14 @@ export function createSolderingGame(api) {
     label: () => `🌡️ Molette Station : ${Math.round(tempC)}°C (Glisser ↔ ou cliquer)`,
     cursor: 'ew-resize',
     onDragMove: (_pt, dx, dy) => {
-      tempC = Math.max(260, Math.min(420, tempC + (dx - dy * 0.5) * 0.8));
+      tempDialRaw = Math.max(260, Math.min(420, tempDialRaw + (dx - dy * 0.5) * 0.8));
+      tempC = Math.round(tempDialRaw);
       syncKnobAngle();
       refreshHud();
     },
     onClick: () => {
       tempC = tempC >= 335 && tempC <= 370 ? 280 : 350;
+      tempDialRaw = tempC;
       sfx.click();
       syncKnobAngle();
       refreshHud();
@@ -689,8 +728,6 @@ export function createSolderingGame(api) {
       return;
     }
 
-    pcbPowerLedTime = 0.01;
-    sfx.success();
     const durationSec = Math.round(wb.getElapsedSec());
     const finalScore = computeSolderingScore3D({
       pads: allPads,
@@ -703,6 +740,8 @@ export function createSolderingGame(api) {
     });
 
     if (allDone) {
+      pcbPowerLedTime = 0.01;
+      sfx.success();
       finalized = true;
       wb.showToast('🚀 Toutes les LEDs s’allument ! Carte validée !', 'success');
       setTimeout(() => {
@@ -718,6 +757,11 @@ export function createSolderingGame(api) {
         );
       }, 1500);
     } else {
+      pcbPowerLedTime = 0;
+      powerOn = false;
+      pwrLever.rotation.x = -0.35;
+      pcbLeds.forEach((l) => (l.mat.emissiveIntensity = 0.05));
+      sfx.error();
       wb.showToast(`⚠️ Certaines pastilles restent incomplètes (${allPads.filter((p) => p.state === 'good').length}/${allPads.length})`, 'error');
     }
     refreshHud();
@@ -784,6 +828,7 @@ export function createSolderingGame(api) {
         label: `🌡️ ${Math.round(tempC)}°C (Cible 350°C)`,
         onClick: () => {
           tempC = 350;
+          tempDialRaw = 350;
           syncKnobAngle();
           refreshHud();
         }
@@ -827,7 +872,7 @@ export function createSolderingGame(api) {
 
     allPads.forEach((pad) => {
       if (activePad !== pad && pad.temp > 25) {
-        pad.temp = Math.max(25, pad.temp - dt * 55);
+        pad.temp = Math.max(25, pad.temp - dt * 24);
         updatePadVisual(pad);
       }
     });

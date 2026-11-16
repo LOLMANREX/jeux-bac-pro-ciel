@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.15 - Audit WebXR Écran Noir, Panneau Debug VR & Rapport Technique';
+    : 'v4.16 - Correctif Note 20/20 TP Brasure & Attribution Passe VIP Palier 7 à yanfufu';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,36 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.15 — Diagnostic Profond Écran Noir WebXR, Panneau Debug VR & Rapport Technique',
+    version: 'v4.16 — Correctif Note 20/20 TP Brasure & Attribution Passe VIP Palier 7 à yanfufu',
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'TP BRASURE 20/20',
+        title: 'Résolution du Plafond 19.8/20 & Courbe Thermique Réaliste',
+        desc: 'Suppression de la pénalité injustifiée reworkCount lorsque l’élève nettoie les ponts de soudure initiaux U2/U3 avec la tresse à dessouder, suppression de la zone morte thermique 395–405 °C, refroidissement ralenti, tolérance temps élargie à 240s et sauvegarde garantie à 20/20 via POST /api/account/save.'
+      },
+      {
+        badge: 'PASSE VIP PALIER 7',
+        title: 'Attribution Automatique « Clé Maîtresse Baie Serveur » pour yanfufu',
+        desc: 'Attribution automatique et persistante du Palier 7 Passe VIP (Fibre Sombre & Finitions Or 24K, Badge VIP Or 3D, Mini-Drone Cisco, Particules Dorées & Accès Chambre VIP) au joueur yanfufu à la migration/chargement du store, à l’inscription et à la connexion sans affecter sa progression TPs.'
+      },
+      {
+        badge: 'CASIER & RENDU 3D',
+        title: 'Équipement Direct dans le Casier, Passe de Combat, Multijoueur & VR',
+        desc: 'Ajout des skins Passe VIP débloqués dans SkinCustomizer, BattlePassModal (boutons ✅ DÉBLOQUÉ & ✨ ÉQUIPER), AvatarBuilder, RemotePlayers (badge 🔑VIP or) et conservation de selectedSkin lors de la validation des TPs.'
+      },
+      {
+        badge: 'PANNEAU /ADMIN',
+        title: 'Affichage VIP & Modale de Gestion des Skins Passe VIP',
+        desc: 'Affichage des badges Passe VIP et 🔐 Chambre VIP sur les fiches comptes/joueurs de /admin avec ajout de la modale « 🎁 Skins VIP » et des routes POST /api/admin/accounts/:target/battlepass et /special-skins.'
+      }
+    ]
+  },
+  {
+    version: 'v4.15 — Diagnostic Profond Écran Noir WebXR, Panneau Debug VR & Rapport Technique',
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'CORRECTIF CRITIQUE VR',

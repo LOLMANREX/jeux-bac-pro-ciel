@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.15 - Audit WebXR Écran Noir, Panneau Debug VR & Rapport Technique'),
+    __APP_VERSION__: JSON.stringify('v4.16 - Correctif Note 20/20 TP Brasure & Attribution Passe VIP Palier 7 à yanfufu'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

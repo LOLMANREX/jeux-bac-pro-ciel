@@ -1,6 +1,16 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  cloneShowcase,
+  getBattlePassSkinId,
+  getBattlePassTierSpec,
+  hasVipChambreAccess,
+  isBattlePassSkinId,
+  isYanfufuUsername,
+  normalizeBattlePassTierList,
+  YANFUFU_VIP_TIER
+} from '../src/core/battlePassSkins.js';
 import { createDefaultMap, normalizeMapData } from '../src/world/mapSchema.js';
 
 export const TP_IDS = ['oscilloscope', 'soldering', 'electronics', 'antivirus', 'vmvlan'];
@@ -164,6 +174,10 @@ export function sanitizeSkin(raw, fallbackColor = DEFAULT_SKIN.outfitColor) {
   const s = raw && typeof raw === 'object' ? raw : {};
   const wantSecret = Boolean(s.secretSkin || isSecretUltimateSkinId(s.divineSpecialty));
   const divineSpec = wantSecret ? null : resolveDivineSpecialtyId(s.divineSpecialty);
+  const bpSpec =
+    !wantSecret && !divineSpec
+      ? getBattlePassTierSpec(s.battlePassTier ?? s.vipPassId)
+      : null;
   const baseOutfit = isValidHex(fallbackColor) ? fallbackColor : DEFAULT_SKIN.outfitColor;
   const cleaned = {
     outfitColor: isValidHex(s.outfitColor)
@@ -172,10 +186,12 @@ export function sanitizeSkin(raw, fallbackColor = DEFAULT_SKIN.outfitColor) {
         ? ULTIMATE_SECRET_SKIN_COLOR
         : divineSpec
           ? DIVINE_SPECIALTY_COLORS[divineSpec]
-          : baseOutfit,
+          : bpSpec
+            ? bpSpec.accentColor
+            : baseOutfit,
     outfitStyle: VALID_STYLES.has(s.outfitStyle)
       ? s.outfitStyle
-      : wantSecret || divineSpec
+      : wantSecret || divineSpec || bpSpec
         ? 'cyber'
         : DEFAULT_SKIN.outfitStyle,
     hat: VALID_HATS.has(s.hat) ? s.hat : DEFAULT_SKIN.hat,
@@ -190,6 +206,11 @@ export function sanitizeSkin(raw, fallbackColor = DEFAULT_SKIN.outfitColor) {
     cleaned.secretSkin = true;
   } else if (divineSpec) {
     cleaned.divineSpecialty = divineSpec;
+  } else if (bpSpec) {
+    cleaned.battlePassTier = bpSpec.tier;
+    cleaned.outfitColor = bpSpec.accentColor;
+    cleaned.outfitStyle = 'cyber';
+    cleaned.showcase = cloneShowcase(bpSpec.showcase);
   }
   return cleaned;
 }
@@ -309,6 +330,14 @@ export class GameStore {
     const tpScores = this._normalizeGrades(base.tpScores || base.grades || {});
     const unlockedDivineSkins = normalizeDivineSkinList(base.unlockedDivineSkins);
     const secretSkinUnlocked = hasAllDivineSpecialties(unlockedDivineSkins);
+    const unlockedBattlePassTiers = normalizeBattlePassTierList(base.unlockedBattlePassTiers);
+    let autoGrantYanfufuVip = false;
+    if (isYanfufuUsername(username) && !unlockedBattlePassTiers.includes(YANFUFU_VIP_TIER)) {
+      unlockedBattlePassTiers.push(YANFUFU_VIP_TIER);
+      unlockedBattlePassTiers.sort((a, b) => a - b);
+      autoGrantYanfufuVip = true;
+    }
+    const vipChambreAccess = hasVipChambreAccess(unlockedBattlePassTiers, username);
     const introSeen = Boolean(base.introSeen);
     const prestigeCount = Number.isFinite(Number(base.prestigeCount))
       ? Math.max(0, Math.round(Number(base.prestigeCount)))
@@ -319,10 +348,18 @@ export class GameStore {
     const rawSelected =
       typeof base.selectedSkin === 'string' && base.selectedSkin.trim()
         ? base.selectedSkin.trim()
-        : avatarCustomization.divineSpecialty || 'standard';
+        : avatarCustomization.divineSpecialty ||
+          (avatarCustomization.battlePassTier
+            ? getBattlePassSkinId(avatarCustomization.battlePassTier)
+            : 'standard');
     const wantSecret =
       Boolean(avatarCustomization.secretSkin) || isSecretUltimateSkinId(rawSelected);
     const selectedDivine = wantSecret ? null : resolveDivineSpecialtyId(rawSelected);
+    const selectedBpSpec =
+      !wantSecret && !selectedDivine
+        ? getBattlePassTierSpec(rawSelected) ||
+          getBattlePassTierSpec(avatarCustomization.battlePassTier)
+        : null;
     let selectedSkin = 'standard';
     if (wantSecret && secretSkinUnlocked) {
       selectedSkin = ULTIMATE_SECRET_SKIN_ID;
@@ -330,26 +367,55 @@ export class GameStore {
       avatarCustomization.secretSkin = true;
       avatarCustomization.outfitColor = ULTIMATE_SECRET_SKIN_COLOR;
       avatarCustomization.outfitStyle = 'cyber';
+      delete avatarCustomization.battlePassTier;
+      delete avatarCustomization.showcase;
     } else if (selectedDivine && unlockedDivineSkins.includes(selectedDivine)) {
       selectedSkin = selectedDivine;
       avatarCustomization.divineSpecialty = selectedDivine;
       delete avatarCustomization.secretSkin;
+      delete avatarCustomization.battlePassTier;
+      delete avatarCustomization.showcase;
       avatarCustomization.outfitColor = DIVINE_SPECIALTY_COLORS[selectedDivine];
       avatarCustomization.outfitStyle = 'cyber';
+    } else if (selectedBpSpec && unlockedBattlePassTiers.includes(selectedBpSpec.tier)) {
+      selectedSkin = selectedBpSpec.id;
+      avatarCustomization.battlePassTier = selectedBpSpec.tier;
+      avatarCustomization.outfitColor = selectedBpSpec.accentColor;
+      avatarCustomization.outfitStyle = 'cyber';
+      avatarCustomization.showcase = cloneShowcase(selectedBpSpec.showcase);
+      delete avatarCustomization.divineSpecialty;
+      delete avatarCustomization.secretSkin;
+    } else if (
+      autoGrantYanfufuVip &&
+      (!rawSelected || rawSelected === 'standard' || rawSelected === 'default')
+    ) {
+      const yanSpec = getBattlePassTierSpec(YANFUFU_VIP_TIER);
+      selectedSkin = yanSpec.id;
+      avatarCustomization.battlePassTier = yanSpec.tier;
+      avatarCustomization.outfitColor = yanSpec.accentColor;
+      avatarCustomization.outfitStyle = 'cyber';
+      avatarCustomization.showcase = cloneShowcase(yanSpec.showcase);
+      delete avatarCustomization.divineSpecialty;
+      delete avatarCustomization.secretSkin;
     } else if (
       rawSelected &&
       !selectedDivine &&
       !isSecretUltimateSkinId(rawSelected) &&
+      !isBattlePassSkinId(rawSelected) &&
       rawSelected !== 'standard' &&
       rawSelected !== 'default'
     ) {
       selectedSkin = rawSelected;
       delete avatarCustomization.divineSpecialty;
       delete avatarCustomization.secretSkin;
+      delete avatarCustomization.battlePassTier;
+      delete avatarCustomization.showcase;
     } else {
       selectedSkin = 'standard';
       delete avatarCustomization.divineSpecialty;
       delete avatarCustomization.secretSkin;
+      delete avatarCustomization.battlePassTier;
+      delete avatarCustomization.showcase;
     }
 
     const bestTimes = {};
@@ -379,6 +445,8 @@ export class GameStore {
       tpScores,
       unlockedDivineSkins,
       secretSkinUnlocked,
+      unlockedBattlePassTiers,
+      vipChambreAccess,
       prestigeCount,
       selectedSkin,
       avatarCustomization,
@@ -404,6 +472,8 @@ export class GameStore {
       tpScores: { ...norm.tpScores },
       unlockedDivineSkins: [...norm.unlockedDivineSkins],
       secretSkinUnlocked: norm.secretSkinUnlocked,
+      unlockedBattlePassTiers: [...norm.unlockedBattlePassTiers],
+      vipChambreAccess: norm.vipChambreAccess,
       prestigeCount: norm.prestigeCount,
       selectedSkin: norm.selectedSkin,
       avatarCustomization: { ...norm.avatarCustomization },
@@ -430,6 +500,8 @@ export class GameStore {
         introSeen: norm.introSeen,
         unlockedDivineSkins: norm.unlockedDivineSkins,
         secretSkinUnlocked: norm.secretSkinUnlocked,
+        unlockedBattlePassTiers: norm.unlockedBattlePassTiers,
+        vipChambreAccess: norm.vipChambreAccess,
         prestigeCount: norm.prestigeCount,
         selectedSkin: norm.selectedSkin,
         avatarCustomization: norm.avatarCustomization,
@@ -459,29 +531,53 @@ export class GameStore {
       ...(normPlayer.unlockedDivineSkins || [])
     ]);
     const secretUnlocked = hasAllDivineSpecialties(unlocked);
+    const unlockedBp = normalizeBattlePassTierList([
+      ...(existing.unlockedBattlePassTiers || []),
+      ...(normPlayer.unlockedBattlePassTiers || []),
+      ...(isYanfufuUsername(player.name) ? [YANFUFU_VIP_TIER] : [])
+    ]);
     const wantSecret =
       Boolean(normPlayer.skin?.secretSkin) ||
       isSecretUltimateSkinId(normPlayer.selectedSkin || normPlayer.skin?.divineSpecialty);
+    const bpSpec = getBattlePassTierSpec(
+      normPlayer.skin?.battlePassTier ?? normPlayer.selectedSkin
+    );
     let selectedSkin = 'standard';
     const nextAvatarCustom = { ...normPlayer.skin };
     if (wantSecret && secretUnlocked) {
       selectedSkin = ULTIMATE_SECRET_SKIN_ID;
       nextAvatarCustom.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
       nextAvatarCustom.secretSkin = true;
+      delete nextAvatarCustom.battlePassTier;
+      delete nextAvatarCustom.showcase;
     } else if (
       normPlayer.skin?.divineSpecialty &&
       unlocked.includes(normPlayer.skin.divineSpecialty)
     ) {
       selectedSkin = normPlayer.skin.divineSpecialty;
       delete nextAvatarCustom.secretSkin;
+      delete nextAvatarCustom.battlePassTier;
+      delete nextAvatarCustom.showcase;
+    } else if (bpSpec && unlockedBp.includes(bpSpec.tier)) {
+      selectedSkin = bpSpec.id;
+      nextAvatarCustom.battlePassTier = bpSpec.tier;
+      nextAvatarCustom.outfitColor = bpSpec.accentColor;
+      nextAvatarCustom.outfitStyle = 'cyber';
+      nextAvatarCustom.showcase = cloneShowcase(bpSpec.showcase);
+      delete nextAvatarCustom.divineSpecialty;
+      delete nextAvatarCustom.secretSkin;
     } else {
       delete nextAvatarCustom.divineSpecialty;
       delete nextAvatarCustom.secretSkin;
+      delete nextAvatarCustom.battlePassTier;
+      delete nextAvatarCustom.showcase;
     }
     existing.introSeen = Boolean(existing.introSeen || normPlayer.introSeen);
     existing.tpScores = { ...normPlayer.grades };
     existing.unlockedDivineSkins = unlocked;
     existing.secretSkinUnlocked = secretUnlocked;
+    existing.unlockedBattlePassTiers = unlockedBp;
+    existing.vipChambreAccess = hasVipChambreAccess(unlockedBp, player.name);
     existing.prestigeCount = Math.max(0, Number(normPlayer.prestigeCount) || 0);
     existing.selectedSkin = selectedSkin;
     existing.avatarCustomization = nextAvatarCustom;
@@ -506,10 +602,22 @@ export class GameStore {
       Array.isArray(base.unlockedDivineSkins) ? base.unlockedDivineSkins : []
     );
     const secretSkinUnlocked = hasAllDivineSpecialties(unlockedDivineSkins);
+    const unlockedBattlePassTiers = normalizeBattlePassTierList(base.unlockedBattlePassTiers);
+    let autoGrantYanfufuVip = false;
+    if (isYanfufuUsername(name) && !unlockedBattlePassTiers.includes(YANFUFU_VIP_TIER)) {
+      unlockedBattlePassTiers.push(YANFUFU_VIP_TIER);
+      unlockedBattlePassTiers.sort((a, b) => a - b);
+      autoGrantYanfufuVip = true;
+    }
+    const vipChambreAccess = hasVipChambreAccess(unlockedBattlePassTiers, name);
     const wantSecret =
       Boolean(skin.secretSkin) ||
       isSecretUltimateSkinId(skin.divineSpecialty) ||
       isSecretUltimateSkinId(base.selectedSkin);
+    const bpSpec =
+      !wantSecret && !skin.divineSpecialty
+        ? getBattlePassTierSpec(skin.battlePassTier ?? base.selectedSkin)
+        : null;
 
     let selectedSkin = 'standard';
     if (wantSecret && secretSkinUnlocked) {
@@ -518,12 +626,38 @@ export class GameStore {
       skin.secretSkin = true;
       skin.outfitColor = ULTIMATE_SECRET_SKIN_COLOR;
       skin.outfitStyle = 'cyber';
+      delete skin.battlePassTier;
+      delete skin.showcase;
     } else if (skin.divineSpecialty && unlockedDivineSkins.includes(skin.divineSpecialty)) {
       selectedSkin = skin.divineSpecialty;
+      delete skin.secretSkin;
+      delete skin.battlePassTier;
+      delete skin.showcase;
+    } else if (bpSpec && unlockedBattlePassTiers.includes(bpSpec.tier)) {
+      selectedSkin = bpSpec.id;
+      skin.battlePassTier = bpSpec.tier;
+      skin.outfitColor = bpSpec.accentColor;
+      skin.outfitStyle = 'cyber';
+      skin.showcase = cloneShowcase(bpSpec.showcase);
+      delete skin.divineSpecialty;
+      delete skin.secretSkin;
+    } else if (
+      autoGrantYanfufuVip &&
+      (!base.selectedSkin || base.selectedSkin === 'standard' || base.selectedSkin === 'default')
+    ) {
+      const yanSpec = getBattlePassTierSpec(YANFUFU_VIP_TIER);
+      selectedSkin = yanSpec.id;
+      skin.battlePassTier = yanSpec.tier;
+      skin.outfitColor = yanSpec.accentColor;
+      skin.outfitStyle = 'cyber';
+      skin.showcase = cloneShowcase(yanSpec.showcase);
+      delete skin.divineSpecialty;
       delete skin.secretSkin;
     } else {
       delete skin.divineSpecialty;
       delete skin.secretSkin;
+      delete skin.battlePassTier;
+      delete skin.showcase;
     }
     const color = skin.outfitColor || fallbackColor;
     const bestTimes = {};
@@ -560,6 +694,8 @@ export class GameStore {
       introSeen: Boolean(base.introSeen),
       unlockedDivineSkins,
       secretSkinUnlocked,
+      unlockedBattlePassTiers,
+      vipChambreAccess,
       prestigeCount,
       selectedSkin,
       avatarCustomization: { ...skin },
@@ -606,6 +742,7 @@ export class GameStore {
 
     if (this.accountsFilePath) {
       let needsMigrationResetSave = false;
+      let needsGrantSave = false;
       this.migratedToV411 = false;
       try {
         if (fs.existsSync(this.accountsFilePath)) {
@@ -628,7 +765,14 @@ export class GameStore {
             if (isMigratedV411 && Array.isArray(parsed.accounts)) {
               for (const item of parsed.accounts) {
                 if (item && typeof item === 'object') {
+                  const rawTiers = normalizeBattlePassTierList(item.unlockedBattlePassTiers);
                   const normAcc = this._normalizeAccount(item);
+                  if (
+                    isYanfufuUsername(normAcc.username) &&
+                    (!rawTiers.includes(YANFUFU_VIP_TIER) || !item.vipChambreAccess)
+                  ) {
+                    needsGrantSave = true;
+                  }
                   this._syncPlayerFromAccount(normAcc);
                 }
               }
@@ -652,7 +796,7 @@ export class GameStore {
         needsMigrationResetSave = true;
         this.migratedToV411 = true;
       }
-      if (needsMigrationResetSave) {
+      if (needsMigrationResetSave || needsGrantSave) {
         this._save();
       }
       return;
@@ -753,6 +897,8 @@ export class GameStore {
       xp: norm.xp,
       unlockedDivineSkins: [...norm.unlockedDivineSkins],
       secretSkinUnlocked: norm.secretSkinUnlocked,
+      unlockedBattlePassTiers: [...norm.unlockedBattlePassTiers],
+      vipChambreAccess: Boolean(norm.vipChambreAccess),
       prestigeCount: norm.prestigeCount,
       selectedSkin: norm.selectedSkin,
       avatarCustomization: { ...norm.avatarCustomization },
@@ -842,6 +988,16 @@ export class GameStore {
     );
     delete customSkin.divineSpecialty;
     delete customSkin.secretSkin;
+    delete customSkin.battlePassTier;
+    delete customSkin.showcase;
+    const isYanfufu = isYanfufuUsername(username);
+    const yanSpec = isYanfufu ? getBattlePassTierSpec(YANFUFU_VIP_TIER) : null;
+    if (yanSpec) {
+      customSkin.battlePassTier = yanSpec.tier;
+      customSkin.outfitColor = yanSpec.accentColor;
+      customSkin.outfitStyle = 'cyber';
+      customSkin.showcase = cloneShowcase(yanSpec.showcase);
+    }
     const account = this._normalizeAccount({
       id: `acc_${crypto.randomUUID().slice(0, 12)}`,
       username,
@@ -851,8 +1007,10 @@ export class GameStore {
       tpScores: {},
       unlockedDivineSkins: [],
       secretSkinUnlocked: false,
+      unlockedBattlePassTiers: isYanfufu ? [YANFUFU_VIP_TIER] : [],
+      vipChambreAccess: isYanfufu,
       prestigeCount: 0,
-      selectedSkin: 'standard',
+      selectedSkin: yanSpec ? yanSpec.id : 'standard',
       avatarCustomization: customSkin,
       xp: 0,
       bestTimes: {},
@@ -887,8 +1045,8 @@ export class GameStore {
         error: 'Identifiant ou mot de passe incorrect.'
       };
     }
-    const account = this.accounts.get(key);
-    if (!account || account.password !== password) {
+    const existing = this.accounts.get(key);
+    if (!existing || existing.password !== password) {
       return {
         ok: false,
         status: 401,
@@ -897,16 +1055,18 @@ export class GameStore {
     }
 
     const nowIso = new Date().toISOString();
-    account.lastLogin = nowIso;
-    account.lastSeen = nowIso;
-    account.updatedAt = nowIso;
+    existing.lastLogin = nowIso;
+    existing.lastSeen = nowIso;
+    existing.updatedAt = nowIso;
+    const account = this._normalizeAccount(existing);
     this._syncPlayerFromAccount(account);
     this._save();
 
+    const persisted = this.accounts.get(key) || account;
     return {
       ok: true,
       status: 200,
-      account: this._buildPublicAccountObject(account),
+      account: this._buildPublicAccountObject(persisted),
       profile: this.getPublicProfile(key)
     };
   }
@@ -971,6 +1131,11 @@ export class GameStore {
     }
 
     account.secretSkinUnlocked = hasAllDivineSpecialties(account.unlockedDivineSkins);
+    if (isYanfufuUsername(account.username) && !account.unlockedBattlePassTiers.includes(YANFUFU_VIP_TIER)) {
+      account.unlockedBattlePassTiers.push(YANFUFU_VIP_TIER);
+      account.unlockedBattlePassTiers.sort((a, b) => a - b);
+    }
+    account.vipChambreAccess = hasVipChambreAccess(account.unlockedBattlePassTiers, account.username);
 
     const incomingCustom = payload.avatarCustomization || payload.skin;
     if (incomingCustom && typeof incomingCustom === 'object') {
@@ -982,11 +1147,21 @@ export class GameStore {
         account.avatarCustomization.outfitColor
       );
       const customDivineSpec = account.avatarCustomization.divineSpecialty;
-      if (!incomingCustom.divineSpecialty && !incomingCustom.secretSkin && payload.selectedSkin === undefined) {
+      const customBpSpec = getBattlePassTierSpec(account.avatarCustomization.battlePassTier);
+      if (
+        !incomingCustom.divineSpecialty &&
+        !incomingCustom.secretSkin &&
+        !incomingCustom.battlePassTier &&
+        payload.selectedSkin === undefined
+      ) {
         delete account.avatarCustomization.divineSpecialty;
         delete account.avatarCustomization.secretSkin;
+        delete account.avatarCustomization.battlePassTier;
+        delete account.avatarCustomization.showcase;
         account.selectedSkin = 'standard';
       } else if (wantCustomSecret) {
+        delete account.avatarCustomization.battlePassTier;
+        delete account.avatarCustomization.showcase;
         if (account.secretSkinUnlocked) {
           account.selectedSkin = ULTIMATE_SECRET_SKIN_ID;
           account.avatarCustomization.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
@@ -998,6 +1173,8 @@ export class GameStore {
         }
       } else if (customDivineSpec) {
         delete account.avatarCustomization.secretSkin;
+        delete account.avatarCustomization.battlePassTier;
+        delete account.avatarCustomization.showcase;
         if (allTps20 && !account.unlockedDivineSkins.includes(customDivineSpec)) {
           account.unlockedDivineSkins.push(customDivineSpec);
           account.secretSkinUnlocked = hasAllDivineSpecialties(account.unlockedDivineSkins);
@@ -1006,6 +1183,20 @@ export class GameStore {
           account.selectedSkin = customDivineSpec;
         } else {
           delete account.avatarCustomization.divineSpecialty;
+          account.selectedSkin = 'standard';
+        }
+      } else if (customBpSpec) {
+        delete account.avatarCustomization.divineSpecialty;
+        delete account.avatarCustomization.secretSkin;
+        if (account.unlockedBattlePassTiers.includes(customBpSpec.tier)) {
+          account.selectedSkin = customBpSpec.id;
+          account.avatarCustomization.battlePassTier = customBpSpec.tier;
+          account.avatarCustomization.outfitColor = customBpSpec.accentColor;
+          account.avatarCustomization.outfitStyle = 'cyber';
+          account.avatarCustomization.showcase = cloneShowcase(customBpSpec.showcase);
+        } else {
+          delete account.avatarCustomization.battlePassTier;
+          delete account.avatarCustomization.showcase;
           account.selectedSkin = 'standard';
         }
       }
@@ -1021,8 +1212,12 @@ export class GameStore {
         account.selectedSkin = 'standard';
         delete account.avatarCustomization.divineSpecialty;
         delete account.avatarCustomization.secretSkin;
+        delete account.avatarCustomization.battlePassTier;
+        delete account.avatarCustomization.showcase;
       } else if (isSecretUltimateSkinId(payload.selectedSkin)) {
         account.secretSkinUnlocked = hasAllDivineSpecialties(account.unlockedDivineSkins);
+        delete account.avatarCustomization.battlePassTier;
+        delete account.avatarCustomization.showcase;
         if (account.secretSkinUnlocked) {
           account.selectedSkin = ULTIMATE_SECRET_SKIN_ID;
           account.avatarCustomization = sanitizeSkin(
@@ -1041,8 +1236,32 @@ export class GameStore {
           delete account.avatarCustomization.secretSkin;
         }
       } else {
-        const specId = resolveDivineSpecialtyId(payload.selectedSkin);
-        if (specId) {
+        const bpSpec = getBattlePassTierSpec(payload.selectedSkin);
+        const specId = bpSpec ? null : resolveDivineSpecialtyId(payload.selectedSkin);
+        if (bpSpec) {
+          if (account.unlockedBattlePassTiers.includes(bpSpec.tier)) {
+            account.selectedSkin = bpSpec.id;
+            const cleanCustom = { ...account.avatarCustomization };
+            delete cleanCustom.divineSpecialty;
+            delete cleanCustom.secretSkin;
+            account.avatarCustomization = sanitizeSkin(
+              {
+                ...cleanCustom,
+                outfitColor: bpSpec.accentColor,
+                outfitStyle: 'cyber',
+                battlePassTier: bpSpec.tier,
+                showcase: cloneShowcase(bpSpec.showcase)
+              },
+              bpSpec.accentColor
+            );
+          } else {
+            account.selectedSkin = 'standard';
+            delete account.avatarCustomization.divineSpecialty;
+            delete account.avatarCustomization.secretSkin;
+            delete account.avatarCustomization.battlePassTier;
+            delete account.avatarCustomization.showcase;
+          }
+        } else if (specId) {
           if (allTps20 && !account.unlockedDivineSkins.includes(specId)) {
             account.unlockedDivineSkins.push(specId);
             account.secretSkinUnlocked = hasAllDivineSpecialties(account.unlockedDivineSkins);
@@ -1051,6 +1270,8 @@ export class GameStore {
             account.selectedSkin = specId;
             const cleanCustom = { ...account.avatarCustomization };
             delete cleanCustom.secretSkin;
+            delete cleanCustom.battlePassTier;
+            delete cleanCustom.showcase;
             account.avatarCustomization = sanitizeSkin(
               {
                 ...cleanCustom,
@@ -1064,11 +1285,15 @@ export class GameStore {
             account.selectedSkin = 'standard';
             delete account.avatarCustomization.divineSpecialty;
             delete account.avatarCustomization.secretSkin;
+            delete account.avatarCustomization.battlePassTier;
+            delete account.avatarCustomization.showcase;
           }
         } else {
           account.selectedSkin = 'standard';
           delete account.avatarCustomization.divineSpecialty;
           delete account.avatarCustomization.secretSkin;
+          delete account.avatarCustomization.battlePassTier;
+          delete account.avatarCustomization.showcase;
         }
       }
     }
@@ -1179,10 +1404,22 @@ export class GameStore {
   _applyPlayerSkinSelection(player, rawSkin) {
     const nextSkin = sanitizeSkin(rawSkin, player.color);
     const secretUnlocked = hasAllDivineSpecialties(player.unlockedDivineSkins);
+    const unlockedBp = normalizeBattlePassTierList([
+      ...(player.unlockedBattlePassTiers || []),
+      ...(isYanfufuUsername(player.name) ? [YANFUFU_VIP_TIER] : [])
+    ]);
+    player.unlockedBattlePassTiers = unlockedBp;
+    player.vipChambreAccess = hasVipChambreAccess(unlockedBp, player.name);
     const wantSecret = Boolean(
       nextSkin.secretSkin || isSecretUltimateSkinId(nextSkin.divineSpecialty)
     );
+    const bpSpec =
+      !wantSecret && !nextSkin.divineSpecialty
+        ? getBattlePassTierSpec(nextSkin.battlePassTier)
+        : null;
     if (wantSecret) {
+      delete nextSkin.battlePassTier;
+      delete nextSkin.showcase;
       if (secretUnlocked) {
         nextSkin.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
         nextSkin.secretSkin = true;
@@ -1192,20 +1429,32 @@ export class GameStore {
         delete nextSkin.divineSpecialty;
         delete nextSkin.secretSkin;
       }
-    } else if (
-      nextSkin.divineSpecialty &&
-      !player.unlockedDivineSkins.includes(nextSkin.divineSpecialty)
-    ) {
+    } else if (nextSkin.divineSpecialty) {
+      delete nextSkin.battlePassTier;
+      delete nextSkin.showcase;
+      delete nextSkin.secretSkin;
+      if (!player.unlockedDivineSkins.includes(nextSkin.divineSpecialty)) {
+        delete nextSkin.divineSpecialty;
+      }
+    } else if (bpSpec && unlockedBp.includes(bpSpec.tier)) {
+      nextSkin.battlePassTier = bpSpec.tier;
+      nextSkin.outfitColor = bpSpec.accentColor;
+      nextSkin.outfitStyle = 'cyber';
+      nextSkin.showcase = cloneShowcase(bpSpec.showcase);
       delete nextSkin.divineSpecialty;
       delete nextSkin.secretSkin;
     } else {
+      delete nextSkin.divineSpecialty;
       delete nextSkin.secretSkin;
+      delete nextSkin.battlePassTier;
+      delete nextSkin.showcase;
     }
     player.skin = nextSkin;
     player.color = nextSkin.outfitColor;
     player.selectedSkin = nextSkin.secretSkin
       ? ULTIMATE_SECRET_SKIN_ID
-      : nextSkin.divineSpecialty || 'standard';
+      : nextSkin.divineSpecialty ||
+        (nextSkin.battlePassTier ? getBattlePassSkinId(nextSkin.battlePassTier) : 'standard');
     player.avatarCustomization = { ...nextSkin };
   }
 
@@ -1224,6 +1473,9 @@ export class GameStore {
         const skin = sanitizeSkin(rawSkin, defColor);
         delete skin.divineSpecialty;
         delete skin.secretSkin;
+        delete skin.battlePassTier;
+        delete skin.showcase;
+        const isYanfufu = isYanfufuUsername(name);
         this.data.players[key] = this._normalizePlayer(
           {
             name,
@@ -1232,6 +1484,8 @@ export class GameStore {
             introSeen: false,
             unlockedDivineSkins: [],
             secretSkinUnlocked: false,
+            unlockedBattlePassTiers: [],
+            vipChambreAccess: isYanfufu,
             prestigeCount: 0,
             selectedSkin: 'standard',
             xp: 0,
@@ -1425,6 +1679,17 @@ export class GameStore {
     const cleanSkin = { ...current.skin };
     delete cleanSkin.divineSpecialty;
     delete cleanSkin.secretSkin;
+    delete cleanSkin.battlePassTier;
+    delete cleanSkin.showcase;
+    const isYanfufu = isYanfufuUsername(current.name);
+    const preservedBpTiers = isYanfufu ? [YANFUFU_VIP_TIER] : [];
+    const yanSpec = isYanfufu ? getBattlePassTierSpec(YANFUFU_VIP_TIER) : null;
+    if (yanSpec) {
+      cleanSkin.battlePassTier = yanSpec.tier;
+      cleanSkin.outfitColor = yanSpec.accentColor;
+      cleanSkin.outfitStyle = 'cyber';
+      cleanSkin.showcase = cloneShowcase(yanSpec.showcase);
+    }
     this.data.players[key] = this._normalizePlayer(
       {
         name: current.name,
@@ -1433,8 +1698,10 @@ export class GameStore {
         introSeen: current.introSeen,
         unlockedDivineSkins: [],
         secretSkinUnlocked: false,
+        unlockedBattlePassTiers: preservedBpTiers,
+        vipChambreAccess: isYanfufu,
         prestigeCount: 0,
-        selectedSkin: 'standard',
+        selectedSkin: yanSpec ? yanSpec.id : 'standard',
         xp: 0,
         questAccepted: false,
         ascensionTriggered: false,
@@ -1455,12 +1722,11 @@ export class GameStore {
       existingAcc.tpScores = {};
       existingAcc.unlockedDivineSkins = [];
       existingAcc.secretSkinUnlocked = false;
+      existingAcc.unlockedBattlePassTiers = [...preservedBpTiers];
+      existingAcc.vipChambreAccess = isYanfufu;
       existingAcc.prestigeCount = 0;
-      existingAcc.selectedSkin = 'standard';
-      const custom = { ...existingAcc.avatarCustomization };
-      delete custom.divineSpecialty;
-      delete custom.secretSkin;
-      existingAcc.avatarCustomization = sanitizeSkin(custom);
+      existingAcc.selectedSkin = yanSpec ? yanSpec.id : 'standard';
+      existingAcc.avatarCustomization = sanitizeSkin(cleanSkin);
       existingAcc.xp = 0;
       existingAcc.bestTimes = {};
       existingAcc.questAccepted = false;
@@ -1472,6 +1738,110 @@ export class GameStore {
     }
     this._save();
     return this.getPublicProfile(key);
+  }
+
+  adminUpdateAccountBattlePass(target, payload = {}) {
+    const key = this._findAccountKey(target) || this._findPlayerKey(target);
+    if (!key) return null;
+    let account = this.accounts.get(key) ? this._normalizeAccount(this.accounts.get(key)) : null;
+    const player = this.data.players[key]
+      ? this._normalizePlayer(this.data.players[key], key)
+      : null;
+    const username = account?.username || player?.name || String(target);
+    const isYanfufu = isYanfufuUsername(username);
+    let tiers = normalizeBattlePassTierList([
+      ...(account?.unlockedBattlePassTiers || player?.unlockedBattlePassTiers || []),
+      ...(isYanfufu ? [YANFUFU_VIP_TIER] : [])
+    ]);
+
+    if (Array.isArray(payload.unlockedBattlePassTiers)) {
+      tiers = normalizeBattlePassTierList([
+        ...payload.unlockedBattlePassTiers,
+        ...(isYanfufu ? [YANFUFU_VIP_TIER] : [])
+      ]);
+    }
+
+    const grantSpec = getBattlePassTierSpec(payload.grantTier ?? payload.tier);
+    if (grantSpec && !tiers.includes(grantSpec.tier)) {
+      tiers.push(grantSpec.tier);
+      tiers.sort((a, b) => a - b);
+    }
+
+    const revokeSpec = getBattlePassTierSpec(payload.revokeTier);
+    if (revokeSpec) {
+      if (!(isYanfufu && revokeSpec.tier === YANFUFU_VIP_TIER)) {
+        tiers = tiers.filter((t) => t !== revokeSpec.tier);
+      }
+    }
+
+    const baseSkin = sanitizeSkin(
+      account?.avatarCustomization || player?.skin || DEFAULT_SKIN,
+      player?.color || hashColor(username)
+    );
+    let selectedSkin = account?.selectedSkin || player?.selectedSkin || 'standard';
+
+    const equipReq = payload.equipTier ?? payload.selectedSkin;
+    if (equipReq === 'standard' || equipReq === null || equipReq === false) {
+      selectedSkin = 'standard';
+      delete baseSkin.battlePassTier;
+      delete baseSkin.showcase;
+      delete baseSkin.divineSpecialty;
+      delete baseSkin.secretSkin;
+    } else if (grantSpec && payload.equip !== false) {
+      selectedSkin = grantSpec.id;
+      baseSkin.battlePassTier = grantSpec.tier;
+      baseSkin.outfitColor = grantSpec.accentColor;
+      baseSkin.outfitStyle = 'cyber';
+      baseSkin.showcase = cloneShowcase(grantSpec.showcase);
+      delete baseSkin.divineSpecialty;
+      delete baseSkin.secretSkin;
+    } else if (equipReq !== undefined) {
+      const eqBpSpec = getBattlePassTierSpec(equipReq);
+      if (eqBpSpec && tiers.includes(eqBpSpec.tier)) {
+        selectedSkin = eqBpSpec.id;
+        baseSkin.battlePassTier = eqBpSpec.tier;
+        baseSkin.outfitColor = eqBpSpec.accentColor;
+        baseSkin.outfitStyle = 'cyber';
+        baseSkin.showcase = cloneShowcase(eqBpSpec.showcase);
+        delete baseSkin.divineSpecialty;
+        delete baseSkin.secretSkin;
+      }
+    } else {
+      const currentBp = getBattlePassTierSpec(baseSkin.battlePassTier ?? selectedSkin);
+      if (currentBp && !tiers.includes(currentBp.tier)) {
+        selectedSkin = 'standard';
+        delete baseSkin.battlePassTier;
+        delete baseSkin.showcase;
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const vipChambreAccess = hasVipChambreAccess(tiers, username);
+
+    if (account) {
+      account.unlockedBattlePassTiers = tiers;
+      account.vipChambreAccess = vipChambreAccess;
+      account.selectedSkin = selectedSkin;
+      account.avatarCustomization = sanitizeSkin(baseSkin, baseSkin.outfitColor);
+      account.updatedAt = nowIso;
+      account = this._normalizeAccount(account);
+      this._syncPlayerFromAccount(account);
+    } else if (player) {
+      player.unlockedBattlePassTiers = tiers;
+      player.vipChambreAccess = vipChambreAccess;
+      player.selectedSkin = selectedSkin;
+      player.skin = sanitizeSkin(baseSkin, baseSkin.outfitColor);
+      player.color = player.skin.outfitColor;
+      player.avatarCustomization = { ...player.skin };
+      player.updatedAt = nowIso;
+      this.data.players[key] = this._normalizePlayer(player, username);
+    }
+
+    this._save();
+    return {
+      account: account ? this._buildAdminAccountObject(this.accounts.get(key) || account) : null,
+      profile: this.getPublicProfile(key)
+    };
   }
 
   deletePlayer(rawName) {
@@ -1498,6 +1868,8 @@ export class GameStore {
       introSeen: Boolean(norm.introSeen),
       unlockedDivineSkins: [...norm.unlockedDivineSkins],
       secretSkinUnlocked: Boolean(norm.secretSkinUnlocked),
+      unlockedBattlePassTiers: [...norm.unlockedBattlePassTiers],
+      vipChambreAccess: Boolean(norm.vipChambreAccess),
       prestigeCount: Number(norm.prestigeCount) || 0,
       selectedSkin: norm.selectedSkin,
       avatarCustomization: { ...norm.skin },

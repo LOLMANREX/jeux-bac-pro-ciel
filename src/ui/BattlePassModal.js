@@ -228,9 +228,18 @@ function buildFeaturePills(tier) {
 }
 
 export class BattlePassModal {
-  constructor({ onPurchaseAttempt = null, getBaseSkin = null } = {}) {
+  constructor({
+    onPurchaseAttempt = null,
+    getBaseSkin = null,
+    getUnlockedTiers = null,
+    getSelectedSkin = null,
+    onEquipTier = null
+  } = {}) {
     this.onPurchaseAttempt = typeof onPurchaseAttempt === 'function' ? onPurchaseAttempt : null;
     this.getBaseSkin = typeof getBaseSkin === 'function' ? getBaseSkin : null;
+    this.getUnlockedTiers = typeof getUnlockedTiers === 'function' ? getUnlockedTiers : null;
+    this.getSelectedSkin = typeof getSelectedSkin === 'function' ? getSelectedSkin : null;
+    this.onEquipTier = typeof onEquipTier === 'function' ? onEquipTier : null;
     this.modal = document.getElementById('battlepass-modal');
     this.closeBtn = document.getElementById('bp-close-btn');
     this.trackEl = document.getElementById('bp-track-list');
@@ -246,6 +255,7 @@ export class BattlePassModal {
     this.trollCloseBtn = document.getElementById('pigeon-troll-close');
 
     this.activeTier = 1;
+    this._hasManualSelection = false;
     this.preview = this.previewCanvas
       ? new SkinPreview3D(this.previewCanvas, () => this._getActiveShowcaseSkin(), 320, 360, {
           interactivePodium: true,
@@ -256,6 +266,18 @@ export class BattlePassModal {
     this._renderTrack();
     this._renderDetails(BATTLE_PASS_TIERS[0]);
     this._bindEvents();
+  }
+
+  _getUnlockedTierSet() {
+    const raw = this.getUnlockedTiers ? this.getUnlockedTiers() : [];
+    const list = Array.isArray(raw) ? raw : [];
+    return new Set(list.map((v) => Number(v)).filter((n) => Number.isInteger(n)));
+  }
+
+  _getEquippedTierNum() {
+    const sel = String(this.getSelectedSkin ? this.getSelectedSkin() : '');
+    const m = sel.match(/^bp_tier_(\d+)$/);
+    return m ? Number(m[1]) : null;
   }
 
   _getTier(tierNum) {
@@ -272,25 +294,46 @@ export class BattlePassModal {
     };
   }
 
+  refresh() {
+    this._renderTrack();
+    this._renderDetails(this._getTier(this.activeTier));
+    if (this.preview && this.isOpen()) {
+      this.preview.rebuild();
+    }
+  }
+
   _renderTrack() {
     if (!this.trackEl) return;
-    this.trackEl.innerHTML = BATTLE_PASS_TIERS.map(
-      (item) => `
+    const unlockedSet = this._getUnlockedTierSet();
+    const equippedTier = this._getEquippedTierNum();
+    this.trackEl.innerHTML = BATTLE_PASS_TIERS.map((item) => {
+      const unlocked = unlockedSet.has(item.tier);
+      const equipped = unlocked && equippedTier === item.tier;
+      const topBtn = unlocked
+        ? `<button type="button" class="bp-tier-unlocked-btn ${equipped ? 'is-equipped' : ''}" data-equip-tier="${
+            equipped ? 'standard' : item.tier
+          }" title="${equipped ? 'Skin équipé — cliquer pour retirer' : 'Palier débloqué — cliquer pour équiper'}">${
+            equipped ? '🏆 ÉQUIPÉ' : '✅ DÉBLOQUÉ'
+          }</button>`
+        : `<button type="button" class="bp-tier-lock-btn" title="Débloquer avec le Passe (10 €)">🔒</button>`;
+      return `
       <article class="bp-tier-card rarity-${item.rarity}${item.ultimate ? ' tier-ultimate' : ''}${
-        item.tier === this.activeTier ? ' is-active' : ''
-      }" data-tier="${item.tier}" tabindex="0">
+        unlocked ? ' is-unlocked' : ''
+      }${equipped ? ' is-equipped' : ''}${item.tier === this.activeTier ? ' is-active' : ''}" data-tier="${
+        item.tier
+      }" tabindex="0">
         <div class="bp-tier-top">
           <span class="bp-tier-num">PALIER ${item.tier}</span>
           <span class="bp-rarity-pill rarity-${item.rarity}">${escapeHtml(item.rarityLabel)}</span>
-          <button type="button" class="bp-tier-lock-btn" title="Débloquer avec le Passe (10 €)">🔒</button>
+          ${topBtn}
         </div>
         <div class="bp-tier-icon">${item.iconSvg}</div>
         <h4 class="bp-tier-title">${escapeHtml(item.name)}</h4>
         <div class="bp-tier-stat">${escapeHtml(item.stat)}</div>
         <p class="bp-tier-desc">${escapeHtml(item.desc)}</p>
       </article>
-    `
-    ).join('');
+    `;
+    }).join('');
   }
 
   _renderDetails(tier) {
@@ -299,10 +342,30 @@ export class BattlePassModal {
       this.stageRarityEl.textContent = tier.rarityLabel;
     }
     if (!this.detailsEl) return;
+    const unlockedSet = this._getUnlockedTierSet();
+    const unlocked = unlockedSet.has(tier.tier);
+    const equipped = unlocked && this._getEquippedTierNum() === tier.tier;
     const pills = buildFeaturePills(tier);
+    const statusText = equipped
+      ? `PALIER ${tier.tier} / ${BATTLE_PASS_TIERS.length} • 🏆 ÉQUIPÉ EN JEU`
+      : unlocked
+        ? `PALIER ${tier.tier} / ${BATTLE_PASS_TIERS.length} • ✅ DÉBLOQUÉ SUR VOTRE COMPTE`
+        : `PALIER ${tier.tier} / ${BATTLE_PASS_TIERS.length} • ÉQUIPÉ SUR L'APERÇU 3D`;
+    const actionBtnHtml = unlocked
+      ? equipped
+        ? `<button type="button" class="bp-equip-btn is-equipped" data-equip-tier="standard">
+            ✅ ÉQUIPÉ EN JEU — Revenir en Tenue Standard
+          </button>`
+        : `<button type="button" class="bp-equip-btn" data-equip-tier="${tier.tier}">
+            ✨ ÉQUIPER « ${escapeHtml(tier.name)} » EN JEU
+          </button>`
+      : `<button type="button" class="bp-buy-btn bp-details-buy">
+          <span class="bp-buy-shine" aria-hidden="true"></span>
+          💳 ACHETER LE PASSE PREMIUM — 10,00 € (Débloquer dès maintenant)
+        </button>`;
     this.detailsEl.innerHTML = `
       <div class="bp-details-top">
-        <span class="bp-details-tier">PALIER ${tier.tier} / ${BATTLE_PASS_TIERS.length} • ÉQUIPÉ SUR L'APERÇU 3D</span>
+        <span class="bp-details-tier">${statusText}</span>
         <span class="bp-rarity-pill rarity-${tier.rarity}">${escapeHtml(tier.rarityLabel)}</span>
       </div>
       <h3 class="bp-details-title">${escapeHtml(tier.name)}</h3>
@@ -319,10 +382,7 @@ export class BattlePassModal {
           )
           .join('')}
       </div>
-      <button type="button" class="bp-buy-btn bp-details-buy">
-        <span class="bp-buy-shine" aria-hidden="true"></span>
-        💳 ACHETER LE PASSE PREMIUM — 10,00 € (Débloquer dès maintenant)
-      </button>
+      ${actionBtnHtml}
     `;
   }
 
@@ -357,23 +417,43 @@ export class BattlePassModal {
         this.close();
         return;
       }
+      const equipBtn = e.target.closest('.bp-equip-btn, .bp-tier-unlocked-btn');
+      if (equipBtn) {
+        const card = equipBtn.closest('.bp-tier-card');
+        if (card) {
+          this._hasManualSelection = true;
+          this.activeTier = Number(card.dataset.tier);
+        }
+        const rawChoice = equipBtn.dataset.equipTier;
+        const target = rawChoice === 'standard' ? 'standard' : Number(rawChoice);
+        this.onEquipTier?.(target);
+        this.refresh();
+        return;
+      }
       if (e.target.closest('.bp-buy-btn, .bp-tier-lock-btn')) {
         this.openTrollModal();
         return;
       }
       const card = e.target.closest('.bp-tier-card');
       if (card) {
+        this._hasManualSelection = true;
         this.selectTier(Number(card.dataset.tier));
       }
     });
 
     this.trackEl?.addEventListener('pointerover', (e) => {
       const card = e.target.closest('.bp-tier-card');
-      if (card) this.selectTier(Number(card.dataset.tier));
+      if (card) {
+        this._hasManualSelection = true;
+        this.selectTier(Number(card.dataset.tier));
+      }
     });
     this.trackEl?.addEventListener('focusin', (e) => {
       const card = e.target.closest('.bp-tier-card');
-      if (card) this.selectTier(Number(card.dataset.tier));
+      if (card) {
+        this._hasManualSelection = true;
+        this.selectTier(Number(card.dataset.tier));
+      }
     });
 
     this.scrollLeftBtn?.addEventListener('click', () => {
@@ -403,6 +483,7 @@ export class BattlePassModal {
       ) {
         const delta = e.key === 'ArrowRight' ? 1 : -1;
         const next = Math.max(1, Math.min(BATTLE_PASS_TIERS.length, this.activeTier + delta));
+        this._hasManualSelection = true;
         this.selectTier(next);
         const card = this.trackEl?.querySelector(`.bp-tier-card[data-tier="${next}"]`);
         card?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
@@ -415,11 +496,20 @@ export class BattlePassModal {
   }
 
   open() {
+    const unlockedSet = this._getUnlockedTierSet();
+    if (!this._hasManualSelection && unlockedSet.size > 0) {
+      const equipped = this._getEquippedTierNum();
+      const firstUnlocked = equipped && unlockedSet.has(equipped) ? equipped : [...unlockedSet][0];
+      if (firstUnlocked) {
+        this.activeTier = firstUnlocked;
+      }
+    }
     this.modal?.classList.remove('hidden');
+    this._renderTrack();
     if (this.preview) {
       this.preview.setActive(true);
-      this.selectTier(this.activeTier, true);
     }
+    this.selectTier(this.activeTier, true);
   }
 
   close() {

@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { sfx } from '../core/audio.js';
 import {
+  BATTLE_PASS_SKIN_CATALOG,
+  getBattlePassTierSpec,
+  isYanfufuUsername,
+  normalizeBattlePassTierList,
+  YANFUFU_VIP_TIER
+} from '../core/battlePassSkins.js';
+import {
   ASCENSION_SPECIALTIES,
   buildStudentAvatarMesh,
   disposeObject3D,
@@ -23,7 +30,8 @@ export function pickRandomSkin() {
     hat: pick(SKIN_OPTIONS.hats),
     skinTone: pick(SKIN_OPTIONS.skinTones),
     pantsColor: pick(SKIN_OPTIONS.pantsColors),
-    divineSpecialty: null
+    divineSpecialty: null,
+    battlePassTier: null
   };
 }
 
@@ -34,6 +42,17 @@ export function getCasierDivineEntries(gameState = {}) {
     ...(Array.isArray(gameState.profile?.unlockedDivineSkins)
       ? gameState.profile.unlockedDivineSkins
       : [])
+  ]);
+  const username = gameState.account?.username || gameState.profile?.name || '';
+  const unlockedBpTiers = normalizeBattlePassTierList([
+    ...(Array.isArray(gameState.unlockedBattlePassTiers) ? gameState.unlockedBattlePassTiers : []),
+    ...(Array.isArray(gameState.profile?.unlockedBattlePassTiers)
+      ? gameState.profile.unlockedBattlePassTiers
+      : []),
+    ...(Array.isArray(gameState.account?.unlockedBattlePassTiers)
+      ? gameState.account.unlockedBattlePassTiers
+      : []),
+    ...(isYanfufuUsername(username) ? [YANFUFU_VIP_TIER] : [])
   ]);
   const secretUnlocked = Boolean(
     gameState.secretSkinUnlocked ||
@@ -46,6 +65,11 @@ export function getCasierDivineEntries(gameState = {}) {
     secretUnlocked && (skin.secretSkin || isUltimateSecretSkinId(skin.divineSpecialty))
   );
   const activeDivine = isSecretActive ? ULTIMATE_SECRET_SKIN_ID : skin.divineSpecialty || '';
+  const rawBpSpec = !activeDivine
+    ? getBattlePassTierSpec(skin.battlePassTier ?? gameState.selectedSkin)
+    : null;
+  const activeBattlePassTier =
+    rawBpSpec && unlockedBpTiers.includes(rawBpSpec.tier) ? rawBpSpec.tier : null;
 
   const specialties = ASCENSION_SPECIALTIES.map((spec) => {
     const unlocked = unlockedSet.has(spec.id);
@@ -59,6 +83,17 @@ export function getCasierDivineEntries(gameState = {}) {
         : `Débloqué en réussissant l'Ascension 20/20 (${spec.label})`
     };
   });
+
+  const battlePassEntries = BATTLE_PASS_SKIN_CATALOG.filter((item) =>
+    unlockedBpTiers.includes(item.tier)
+  ).map((item) => ({
+    id: item.id,
+    tier: item.tier,
+    unlocked: true,
+    active: activeBattlePassTier === item.tier,
+    label: `${item.icon} ${item.shortName} (P.${item.tier})`,
+    title: `${item.name} — ${item.stat}`
+  }));
 
   const secretEntry = secretUnlocked
     ? {
@@ -82,8 +117,11 @@ export function getCasierDivineEntries(gameState = {}) {
 
   return {
     activeDivine,
-    standardActive: !activeDivine,
+    activeBattlePassTier,
+    standardActive: !activeDivine && !activeBattlePassTier,
     specialties,
+    battlePassEntries,
+    unlockedBattlePassTiers: unlockedBpTiers,
     secretEntry,
     secretUnlocked
   };
@@ -96,6 +134,12 @@ export function renderSkinControls(ids, gameState, onChanged) {
   if (divineEl) {
     const casier = getCasierDivineEntries(gameState);
     const stdBtn = `<button type="button" class="btn-chip divine-chip-std ${casier.standardActive ? 'active' : ''}" data-divine="standard">👕 Tenue Standard</button>`;
+    const vipBtns = casier.battlePassEntries
+      .map(
+        (entry) =>
+          `<button type="button" class="btn-chip divine-chip-btn divine-chip-vip unlocked ${entry.active ? 'active' : ''}" data-divine="${entry.id}" title="${entry.title}">${entry.label}</button>`
+      )
+      .join('');
     const specBtns = casier.specialties
       .map((entry) =>
         entry.unlocked
@@ -107,7 +151,7 @@ export function renderSkinControls(ids, gameState, onChanged) {
     const secretBtn = sec.unlocked
       ? `<button type="button" class="btn-chip divine-chip-secret unlocked ${sec.active ? 'active' : ''}" data-divine="${sec.id}" title="${sec.title}">${sec.label}</button>`
       : `<button type="button" class="btn-chip divine-chip-secret locked" data-divine="${sec.id}" disabled title="${sec.title}">${sec.label}</button>`;
-    divineEl.innerHTML = stdBtn + specBtns + secretBtn;
+    divineEl.innerHTML = stdBtn + vipBtns + specBtns + secretBtn;
     divineEl.querySelectorAll('button:not([disabled])').forEach((btn) => {
       btn.addEventListener('click', () => {
         sfx.click();

@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import {
+  cloneShowcase,
+  getBattlePassTierSpec,
+  isBattlePassSkinId
+} from '../core/battlePassSkins.js';
 import { buildArticulatedVRHand } from '../vr/VRHandBuilder.js';
 
 export const SKIN_OPTIONS = {
@@ -175,16 +180,38 @@ export function resolveAscensionSpecialty(rawInput) {
   return ASCENSION_SPECIALTIES[0];
 }
 
+export function applyBattlePassSkin(baseSkin = {}, tierOrId = 7) {
+  const normalized = normalizeSkin(baseSkin);
+  const tierSpec = getBattlePassTierSpec(tierOrId);
+  if (!tierSpec) return normalized;
+  const out = {
+    ...normalized,
+    outfitColor: tierSpec.accentColor || '#fbbf24',
+    outfitStyle: 'cyber',
+    battlePassTier: tierSpec.tier,
+    showcase: cloneShowcase(tierSpec.showcase)
+  };
+  delete out.divineSpecialty;
+  delete out.secretSkin;
+  return out;
+}
+
 export function applySessionDivineSkin(baseSkin = {}, specialtyInput = 'cyber') {
   const normalized = normalizeSkin(baseSkin);
   if (isUltimateSecretSkinId(specialtyInput)) {
-    return {
+    const out = {
       ...normalized,
       outfitColor: ULTIMATE_SECRET_SKIN.primaryColor,
       outfitStyle: 'cyber',
       divineSpecialty: null,
       secretSkin: true
     };
+    delete out.battlePassTier;
+    delete out.showcase;
+    return out;
+  }
+  if (isBattlePassSkinId(specialtyInput)) {
+    return applyBattlePassSkin(normalized, specialtyInput);
   }
   const spec = resolveAscensionSpecialty(specialtyInput);
   const out = {
@@ -194,6 +221,8 @@ export function applySessionDivineSkin(baseSkin = {}, specialtyInput = 'cyber') 
     divineSpecialty: spec.id
   };
   delete out.secretSkin;
+  delete out.battlePassTier;
+  delete out.showcase;
   return out;
 }
 
@@ -226,6 +255,17 @@ export function normalizeSkin(rawSkin = {}) {
     out.secretSkin = true;
   } else if (s.divineSpecialty) {
     out.divineSpecialty = resolveAscensionSpecialty(s.divineSpecialty).id;
+  } else {
+    const bpSpec = getBattlePassTierSpec(s.battlePassTier ?? s.vipPassId);
+    if (bpSpec) {
+      out.battlePassTier = bpSpec.tier;
+      out.showcase = cloneShowcase(bpSpec.showcase);
+    } else if (s.showcase && typeof s.showcase === 'object') {
+      const cleanShowcase = cloneShowcase(s.showcase);
+      if (cleanShowcase) {
+        out.showcase = cleanShowcase;
+      }
+    }
   }
   return out;
 }
@@ -444,7 +484,7 @@ function createThemeMaterials(skin, showcase = null) {
 
 export function buildStudentAvatarMesh(rawSkin = {}) {
   const skin = normalizeSkin(rawSkin);
-  const showcase = rawSkin && typeof rawSkin === 'object' ? rawSkin.showcase || null : null;
+  const showcase = skin.showcase || (rawSkin && typeof rawSkin === 'object' ? rawSkin.showcase || null : null);
   const accessories = new Set(Array.isArray(showcase?.accessories) ? showcase.accessories : []);
   const mats = createThemeMaterials(skin, showcase);
   const { torsoMat, pantsMat, shoeMat, skinMat, hairMat, trimMat } = mats;
@@ -1904,6 +1944,9 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     rightArm.visible = vis;
   };
 
+  const hasBattlePassSkin = () => Boolean(skin.battlePassTier || showcase);
+  const getBattlePassTier = () => skin.battlePassTier || null;
+
   return {
     group,
     leftLeg,
@@ -1930,6 +1973,8 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     hasSecretSkin,
     hasDivineSkin,
     getDivineSpecialty,
+    hasBattlePassSkin,
+    getBattlePassTier,
     setFirstPersonVrHidden,
     updateEffects
   };
@@ -2214,16 +2259,43 @@ export function renderSkinPreviewSvg(rawSkin = {}, size = 44) {
   const s = normalizeSkin(rawSkin);
   const isSecret = Boolean(s.secretSkin || isUltimateSecretSkinId(s.divineSpecialty));
   const divineSpec = !isSecret && s.divineSpecialty ? resolveAscensionSpecialty(s.divineSpecialty) : null;
-  const strokeCol = isSecret ? '#e879f9' : divineSpec ? '#fde047' : s.outfitColor;
-  const bgFill = isSecret ? '#13072e' : '#0b1324';
+  const bpSpec = !isSecret && !divineSpec && s.battlePassTier ? getBattlePassTierSpec(s.battlePassTier) : null;
+  const hasVipBadge = Boolean(bpSpec?.tier === 7 || s.showcase?.accessories?.includes('vip_badge'));
+  const materialTheme = s.showcase?.materialTheme || null;
+  const torsoColor =
+    materialTheme === 'cyber_gold'
+      ? '#17153b'
+      : materialTheme === 'gold24k'
+        ? '#fbbf24'
+        : materialTheme === 'matrix'
+          ? '#08100c'
+          : materialTheme === 'carbon_neon'
+            ? '#111827'
+            : materialTheme === 'diamond'
+              ? '#67e8f9'
+              : materialTheme === 'chrome_rgb'
+                ? '#e2e8f0'
+                : s.outfitColor;
+  const strokeCol = isSecret
+    ? '#e879f9'
+    : divineSpec
+      ? '#fde047'
+      : bpSpec || hasVipBadge
+        ? bpSpec?.accentColor || '#fbbf24'
+        : s.outfitColor;
+  const bgFill = isSecret ? '#13072e' : bpSpec || hasVipBadge ? '#1b1204' : '#0b1324';
   const styleMark =
     isSecret
       ? `<polygon points="32,37 37,43 32,49 27,43" fill="#38bdf8" stroke="#fde047" stroke-width="1"/>`
-      : s.outfitStyle === 'blouse'
-        ? `<rect x="28" y="34" width="8" height="24" rx="2" fill="#f8fafc"/>`
-        : s.outfitStyle === 'hoodie'
-          ? `<rect x="24" y="45" width="16" height="9" rx="2" fill="#0f172a"/>`
-          : `<rect x="26" y="39" width="12" height="7" rx="2" fill="#38bdf8"/>`;
+      : hasVipBadge
+        ? `<rect x="23" y="38" width="6" height="8" rx="1.5" fill="#fbbf24" stroke="#fef08a" stroke-width="0.9"/><rect x="25" y="40" width="2" height="2" fill="#ef4444"/><rect x="33" y="41" width="7" height="3" rx="1" fill="#fbbf24"/>`
+        : bpSpec || materialTheme
+          ? `<rect x="23" y="35" width="3" height="20" rx="1" fill="${strokeCol}"/><rect x="38" y="35" width="3" height="20" rx="1" fill="${strokeCol}"/><polygon points="32,39 36,43 32,47 28,43" fill="${strokeCol}"/>`
+          : s.outfitStyle === 'blouse'
+            ? `<rect x="28" y="34" width="8" height="24" rx="2" fill="#f8fafc"/>`
+            : s.outfitStyle === 'hoodie'
+              ? `<rect x="24" y="45" width="16" height="9" rx="2" fill="#0f172a"/>`
+              : `<rect x="26" y="39" width="12" height="7" rx="2" fill="#38bdf8"/>`;
 
   const haloSvg = isSecret
     ? `<ellipse cx="32" cy="9" rx="14" ry="3.5" fill="none" stroke="#fde047" stroke-width="2"/>
@@ -2231,31 +2303,33 @@ export function renderSkinPreviewSvg(rawSkin = {}, size = 44) {
        <path d="M54 38 L44 33 L44 51 Z" fill="#38bdf8" opacity="0.48"/>`
     : divineSpec
       ? `<ellipse cx="32" cy="9.5" rx="11" ry="2.8" fill="none" stroke="#fde047" stroke-width="1.8"/>`
-      : '';
+      : hasVipBadge
+        ? `<circle cx="13" cy="14" r="4.2" fill="none" stroke="#fbbf24" stroke-width="1.8"/><path d="M13 18.2 V27 M13 23 H17 M13 26 H16" stroke="#fde047" stroke-width="1.7" stroke-linecap="round"/><circle cx="51" cy="14" r="3.5" fill="#0c4a6e" stroke="#38bdf8" stroke-width="1.3"/>`
+        : '';
 
   const hatSvg =
     s.hat === 'glasses'
       ? `<rect x="23" y="19" width="8" height="4" rx="1" fill="#0284c7" stroke="#bae6fd" stroke-width="0.8"/>
          <rect x="33" y="19" width="8" height="4" rx="1" fill="#0284c7" stroke="#bae6fd" stroke-width="0.8"/>`
       : s.hat === 'cap'
-        ? `<rect x="20" y="9" width="24" height="7" rx="3" fill="${s.outfitColor}"/>
-           <rect x="21" y="14" width="25" height="3" rx="1" fill="${s.outfitColor}" opacity="0.9"/>`
+        ? `<rect x="20" y="9" width="24" height="7" rx="3" fill="${torsoColor}"/>
+           <rect x="21" y="14" width="25" height="3" rx="1" fill="${torsoColor}" opacity="0.9"/>`
         : s.hat === 'headset'
           ? `<path d="M19 23 C19 10, 45 10, 45 23" fill="none" stroke="#0f172a" stroke-width="3"/>
-             <rect x="17" y="17" width="5" height="10" rx="2" fill="${s.outfitColor}"/>
-             <rect x="42" y="17" width="5" height="10" rx="2" fill="${s.outfitColor}"/>`
+             <rect x="17" y="17" width="5" height="10" rx="2" fill="${torsoColor}"/>
+             <rect x="42" y="17" width="5" height="10" rx="2" fill="${torsoColor}"/>`
           : '';
 
   return `<svg viewBox="0 0 64 64" width="${size}" height="${size}" class="skin-mini-svg" aria-hidden="true">
-    <rect x="2" y="2" width="60" height="60" rx="14" fill="${bgFill}" stroke="${strokeCol}" stroke-width="${isSecret || divineSpec ? 2.5 : 2}"/>
+    <rect x="2" y="2" width="60" height="60" rx="14" fill="${bgFill}" stroke="${strokeCol}" stroke-width="${isSecret || divineSpec || bpSpec ? 2.5 : 2}"/>
     ${haloSvg}
     <rect x="22" y="54" width="9" height="7" rx="1" fill="${s.pantsColor}"/>
     <rect x="33" y="54" width="9" height="7" rx="1" fill="${s.pantsColor}"/>
-    <rect x="15" y="34" width="7" height="18" rx="3" fill="${s.outfitColor}" opacity="0.9"/>
-    <rect x="42" y="34" width="7" height="18" rx="3" fill="${s.outfitColor}" opacity="0.9"/>
+    <rect x="15" y="34" width="7" height="18" rx="3" fill="${torsoColor}" opacity="0.92"/>
+    <rect x="42" y="34" width="7" height="18" rx="3" fill="${torsoColor}" opacity="0.92"/>
     <circle cx="18.5" cy="53" r="3" fill="${s.skinTone}"/>
     <circle cx="45.5" cy="53" r="3" fill="${s.skinTone}"/>
-    <rect x="21" y="33" width="22" height="23" rx="4" fill="${s.outfitColor}"/>
+    <rect x="21" y="33" width="22" height="23" rx="4" fill="${torsoColor}"/>
     ${styleMark}
     <rect x="22" y="13" width="20" height="19" rx="5" fill="${s.skinTone}"/>
     <rect x="21" y="11" width="22" height="6" rx="3" fill="${isSecret || divineSpec ? '#e2e8f0' : '#292524'}"/>

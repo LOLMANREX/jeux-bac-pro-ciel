@@ -1358,6 +1358,81 @@ button:active {
   color: var(--muted);
 }
 
+.vip-admin-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  color: #fde047;
+}
+
+.vip-admin-badge.equipped {
+  background: rgba(245, 158, 11, 0.28);
+  border-color: #fde047;
+  color: #fef9c3;
+}
+
+.vip-admin-badge.chambre {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(52, 211, 153, 0.55);
+  color: #86efac;
+}
+
+.admin-vip-modal-card {
+  max-width: 680px;
+  width: min(94vw, 680px);
+}
+
+.admin-vip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 52vh;
+  overflow-y: auto;
+  margin: 12px 0;
+  padding-right: 4px;
+}
+
+.admin-vip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.admin-vip-row.unlocked {
+  border-color: rgba(74, 222, 128, 0.5);
+}
+
+.admin-vip-row.equipped {
+  border-color: rgba(251, 191, 36, 0.75);
+  background: rgba(120, 53, 15, 0.28);
+}
+
+.admin-vip-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.admin-vip-title {
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.admin-vip-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 #admin-edit-pw-input {
   width: 100%;
   background: #070d19;

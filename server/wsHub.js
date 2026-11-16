@@ -212,6 +212,9 @@ export function attachWsHub(httpServer, store) {
         accountId: adminAcc?.id || null,
         password: adminAcc?.password ?? null,
         unlockedDivineSkins: adminAcc?.unlockedDivineSkins || entry.unlockedDivineSkins || [],
+        unlockedBattlePassTiers:
+          adminAcc?.unlockedBattlePassTiers || entry.unlockedBattlePassTiers || [],
+        vipChambreAccess: Boolean(adminAcc?.vipChambreAccess ?? entry.vipChambreAccess),
         selectedSkin: adminAcc?.selectedSkin || entry.selectedSkin || 'standard',
         avatarCustomization: adminAcc?.avatarCustomization || entry.skin,
         tpScores: adminAcc?.tpScores || entry.grades || {},
@@ -1330,6 +1333,34 @@ export function attachWsHub(httpServer, store) {
         if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
           s.skin = profile.skin;
           s.color = profile.color;
+          broadcastToRoom(
+            s.room,
+            {
+              type: 'player_skin_updated',
+              id: s.id,
+              name: s.name,
+              skin: s.skin,
+              color: s.color
+            },
+            sock
+          );
+        }
+      }
+      broadcastLeaderboard();
+    },
+    notifyAccountUpdated: (profile) => {
+      if (!profile?.name) return;
+      const key = profile.name.toLowerCase();
+      for (const [sock, s] of clients.entries()) {
+        if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
+          s.skin = profile.skin;
+          s.color = profile.color;
+          sock.send(
+            JSON.stringify({
+              type: 'profile_updated',
+              profile
+            })
+          );
           broadcastToRoom(
             s.room,
             {

@@ -1,4 +1,10 @@
 import './admin.css';
+import {
+  BATTLE_PASS_SKIN_CATALOG,
+  getBattlePassTierSpec,
+  isYanfufuUsername,
+  normalizeBattlePassTierList
+} from '../core/battlePassSkins.js';
 import { renderSkinPreviewSvg, resolveAscensionSpecialty } from '../world/AvatarBuilder.js';
 import { TP_CATALOG } from '../core/gameState.js';
 import { MapEditor } from './MapEditor.js';
@@ -48,6 +54,14 @@ const pwModalSubtitle = document.getElementById('pw-modal-subtitle');
 const editPwInput = document.getElementById('admin-edit-pw-input');
 const pwModalCancelBtn = document.getElementById('btn-pw-modal-cancel');
 const pwModalSaveBtn = document.getElementById('btn-pw-modal-save');
+
+const specialSkinsModal = document.getElementById('admin-special-skins-modal');
+const specialSkinsTitleEl = document.getElementById('special-skins-modal-title');
+const specialSkinsSubtitleEl = document.getElementById('special-skins-modal-subtitle');
+const specialSkinsListEl = document.getElementById('admin-special-skins-list');
+const specialSkinsStdBtn = document.getElementById('btn-special-skins-standard');
+const specialSkinsCloseBtn = document.getElementById('btn-special-skins-close');
+let editingSpecialSkinsUsername = null;
 
 const pigeonsStatTotalEl = document.getElementById('pigeons-stat-total');
 const pigeonsStatLatestEl = document.getElementById('pigeons-stat-latest');
@@ -311,16 +325,35 @@ function renderAccountsTable() {
       const avgTxt = typeof acc.average === 'number' ? `${acc.average.toFixed(1)}/20` : '--/20';
 
       const divineList = Array.isArray(acc.unlockedDivineSkins) ? acc.unlockedDivineSkins : [];
-      const divineHtml =
-        divineList.length > 0
-          ? divineList
-              .map((specId) => {
-                const spec = resolveAscensionSpecialty(specId);
-                const isEquipped = acc.selectedSkin === spec.id;
-                return `<span class="divine-admin-badge ${isEquipped ? 'equipped' : ''}" title="${escapeHtml(spec.label)}">${spec.icon} ${escapeHtml(spec.shortLabel)}${isEquipped ? ' ★' : ''}</span>`;
-              })
-              .join('')
-          : '<span class="divine-admin-badge empty">Aucun Skin Divin</span>';
+      const vipTiers = normalizeBattlePassTierList(acc.unlockedBattlePassTiers);
+      const selectedBpSpec = getBattlePassTierSpec(
+        acc.avatarCustomization?.battlePassTier ?? acc.selectedSkin
+      );
+      const hasVipChambre =
+        Boolean(acc.vipChambreAccess) || isYanfufuUsername(acc.username) || vipTiers.includes(7);
+      const vipBadges = vipTiers
+        .map((tierNum) => {
+          const bpSpec = getBattlePassTierSpec(tierNum);
+          if (!bpSpec) return '';
+          const isEquipped = selectedBpSpec?.tier === tierNum;
+          return `<span class="vip-admin-badge ${isEquipped ? 'equipped' : ''}" title="${escapeHtml(bpSpec.name)} — ${escapeHtml(bpSpec.stat)}">${bpSpec.icon} Passe P.${tierNum} (${escapeHtml(bpSpec.shortName)})${isEquipped ? ' ★' : ''}</span>`;
+        })
+        .filter(Boolean)
+        .join('');
+      const chambrePill = hasVipChambre
+        ? '<span class="vip-admin-badge chambre" title="Accès illimité Chambre Baie Serveur">🔐 Chambre VIP</span>'
+        : '';
+      const divineItems = divineList
+        .map((specId) => {
+          const spec = resolveAscensionSpecialty(specId);
+          const isEquipped = acc.selectedSkin === spec.id;
+          return `<span class="divine-admin-badge ${isEquipped ? 'equipped' : ''}" title="${escapeHtml(spec.label)}">${spec.icon} ${escapeHtml(spec.shortLabel)}${isEquipped ? ' ★' : ''}</span>`;
+        })
+        .join('');
+      const badgesHtml =
+        vipBadges +
+        chambrePill +
+        (divineItems || (vipTiers.length === 0 ? '<span class="divine-admin-badge empty">Aucun Skin Spécial</span>' : ''));
 
       const onlineBadge = acc.online
         ? '<span class="status-pill online"><span class="dot"></span>En ligne</span>'
@@ -372,7 +405,7 @@ function renderAccountsTable() {
                 <span class="tps20-pill ${tps20 >= allTpTotal ? 'full' : ''}">🏆 ${tps20} / ${allTpTotal} TPs à 20/20</span>
                 <span class="player-sub">Moy. ${avgTxt}</span>
               </div>
-              <div class="divine-badges-row">${divineHtml}</div>
+              <div class="divine-badges-row">${badgesHtml}</div>
             </div>
           </td>
           <td>
@@ -381,6 +414,14 @@ function renderAccountsTable() {
           </td>
           <td>
             <div class="actions-cell">
+              <button
+                type="button"
+                class="btn-secondary btn-xs"
+                data-acc-action="special-skins"
+                data-username="${escapeHtml(acc.username)}"
+              >
+                🎁 Skins VIP
+              </button>
               <button
                 type="button"
                 class="btn-secondary btn-xs"
@@ -603,6 +644,7 @@ function renderPlayersTable() {
                 <div class="player-name-row">
                   <span>${escapeHtml(p.name)}</span>
                   ${p.diplomaEarned ? '<span>🎓</span>' : ''}
+                  ${p.vipChambreAccess || p.skin?.battlePassTier ? '<span class="vip-admin-badge equipped">🔑 VIP</span>' : ''}
                 </div>
                 <div class="player-sub">${escapeHtml(p.rankLabel || 'Apprenti CIEL')} • ${p.completedCount || 0}/5 TP</div>
                 <div class="tp-chips">${tpChips}</div>
@@ -839,6 +881,11 @@ accountsTbody?.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'special-skins') {
+    openSpecialSkinsModal(username);
+    return;
+  }
+
   if (action === 'reset-account') {
     openConfirmModal('reset_account', username);
     return;
@@ -924,6 +971,112 @@ confirmModal.addEventListener('click', (e) => {
 });
 confirmExecBtn.addEventListener('click', () => {
   if (pendingConfirmAction) pendingConfirmAction();
+});
+
+function renderSpecialSkinsList() {
+  if (!specialSkinsListEl || !editingSpecialSkinsUsername) return;
+  const key = editingSpecialSkinsUsername.toLowerCase();
+  const acc = allAccounts.find((a) => a.username.toLowerCase() === key);
+  if (!acc) return;
+  const unlockedSet = new Set(normalizeBattlePassTierList(acc.unlockedBattlePassTiers));
+  const selectedBp = getBattlePassTierSpec(
+    acc.avatarCustomization?.battlePassTier ?? acc.selectedSkin
+  );
+  const isYanfufu = isYanfufuUsername(acc.username);
+  specialSkinsListEl.innerHTML = BATTLE_PASS_SKIN_CATALOG.map((item) => {
+    const unlocked = unlockedSet.has(item.tier);
+    const equipped = unlocked && selectedBp?.tier === item.tier;
+    const lockedPermanent = isYanfufu && item.tier === 7;
+    return `
+      <div class="admin-vip-row ${unlocked ? 'unlocked' : ''} ${equipped ? 'equipped' : ''}">
+        <div class="admin-vip-info">
+          <div class="admin-vip-title">${item.icon} Palier ${item.tier} — ${escapeHtml(item.name)}</div>
+          <div class="player-sub">${escapeHtml(item.stat)}</div>
+        </div>
+        <div class="admin-vip-actions">
+          ${
+            unlocked
+              ? `<button type="button" class="btn-secondary btn-xs" data-bp-action="equip" data-tier="${item.tier}" ${
+                  equipped ? 'disabled' : ''
+                }>${equipped ? '★ Équipé' : '✨ Équiper'}</button>${
+                  lockedPermanent
+                    ? '<span class="vip-admin-badge equipped">VIP Permanent</span>'
+                    : `<button type="button" class="btn-delete btn-xs" data-bp-action="revoke" data-tier="${item.tier}">Retirer</button>`
+                }`
+              : `<button type="button" class="btn-primary btn-xs" data-bp-action="grant" data-tier="${item.tier}">🎁 Attribuer &amp; Équiper</button>`
+          }
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openSpecialSkinsModal(username) {
+  editingSpecialSkinsUsername = username;
+  if (specialSkinsTitleEl) {
+    specialSkinsTitleEl.textContent = `🎁 Skins Passe VIP — ${username}`;
+  }
+  if (specialSkinsSubtitleEl) {
+    specialSkinsSubtitleEl.textContent =
+      'Attribuez, équipez ou gérez les paliers spéciaux du Passe VIP pour cet élève.';
+  }
+  renderSpecialSkinsList();
+  specialSkinsModal?.classList.remove('hidden');
+}
+
+function closeSpecialSkinsModal() {
+  editingSpecialSkinsUsername = null;
+  specialSkinsModal?.classList.add('hidden');
+}
+
+async function sendAdminBattlePassUpdate(payload, feedbackMsg) {
+  if (!editingSpecialSkinsUsername) return;
+  try {
+    const encoded = encodeURIComponent(editingSpecialSkinsUsername);
+    await apiFetch(`/api/admin/accounts/${encoded}/battlepass`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    showToast(feedbackMsg, 'success');
+    await loadPlayers(true);
+    renderSpecialSkinsList();
+  } catch (err) {
+    showToast(err.message || 'Action impossible sur le Passe VIP', 'error');
+  }
+}
+
+specialSkinsCloseBtn?.addEventListener('click', closeSpecialSkinsModal);
+specialSkinsModal?.addEventListener('click', (e) => {
+  if (e.target === specialSkinsModal) closeSpecialSkinsModal();
+});
+specialSkinsStdBtn?.addEventListener('click', () => {
+  if (!editingSpecialSkinsUsername) return;
+  sendAdminBattlePassUpdate(
+    { selectedSkin: 'standard' },
+    `👕 Tenue Standard équipée pour "${editingSpecialSkinsUsername}".`
+  );
+});
+specialSkinsListEl?.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-bp-action]');
+  if (!btn || !editingSpecialSkinsUsername) return;
+  const action = btn.dataset.bpAction;
+  const tier = Number(btn.dataset.tier);
+  if (!tier) return;
+  if (action === 'grant') {
+    sendAdminBattlePassUpdate(
+      { grantTier: tier, equip: true },
+      `🎁 Palier VIP ${tier} attribué et équipé à "${editingSpecialSkinsUsername}" !`
+    );
+  } else if (action === 'equip') {
+    sendAdminBattlePassUpdate(
+      { equipTier: tier },
+      `✨ Palier VIP ${tier} équipé à "${editingSpecialSkinsUsername}" !`
+    );
+  } else if (action === 'revoke') {
+    sendAdminBattlePassUpdate(
+      { revokeTier: tier },
+      `Palier VIP ${tier} retiré pour "${editingSpecialSkinsUsername}".`
+    );
+  }
 });
 
 if (adminToken) {

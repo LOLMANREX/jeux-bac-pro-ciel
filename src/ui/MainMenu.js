@@ -1,4 +1,5 @@
 import { sfx } from '../core/audio.js';
+import { getBattlePassSkinId } from '../core/battlePassSkins.js';
 import { getAllTps } from '../core/gameState.js';
 import { DEFAULT_ROOM } from '../core/network.js';
 import { ASCENSION_SPECIALTIES, ULTIMATE_SECRET_SKIN_ID } from '../world/AvatarBuilder.js';
@@ -216,7 +217,11 @@ export class MainMenu {
         const tps20 = allTps.filter((tp) => Number(grades[tp.id]) === 20).length;
         const divines = (this.gameState.unlockedDivineSkins || []).length;
         const secretTag = this.gameState.secretSkinUnlocked ? ' • 🌌 Skin Secret' : '';
-        this.connectedMetaEl.textContent = `🏆 ${tps20}/${allTps.length} TP à 20/20 • ⚡ ${divines}/${ASCENSION_SPECIALTIES.length} Skins Divins${secretTag}`;
+        const bpTiers = this.gameState.unlockedBattlePassTiers || [];
+        const vipTag = bpTiers.length
+          ? ` • 🔑 Passe VIP (P.${bpTiers.join(',')})`
+          : '';
+        this.connectedMetaEl.textContent = `🏆 ${tps20}/${allTps.length} TP à 20/20 • ⚡ ${divines}/${ASCENSION_SPECIALTIES.length} Skins Divins${secretTag}${vipTag}`;
       }
     }
   }
@@ -258,7 +263,10 @@ export class MainMenu {
       if (this.gameState.isAuthenticated()) {
         const nextSel = updatedSkin?.secretSkin
           ? ULTIMATE_SECRET_SKIN_ID
-          : updatedSkin?.divineSpecialty || 'standard';
+          : updatedSkin?.divineSpecialty ||
+            (updatedSkin?.battlePassTier
+              ? getBattlePassSkinId(updatedSkin.battlePassTier)
+              : 'standard');
         this.network.saveAccount({
           selectedSkin: nextSel,
           avatarCustomization: updatedSkin,

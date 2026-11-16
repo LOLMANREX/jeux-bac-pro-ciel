@@ -6,6 +6,7 @@ import test from 'node:test';
 import { WebSocket } from 'ws';
 import { createGameServer } from '../server/index.js';
 import { GameStore, TP_IDS } from '../server/store.js';
+import { getBattlePassTierSpec, YANFUFU_VIP_TIER } from '../src/core/battlePassSkins.js';
 import { buildWebSocketUrl } from '../src/core/network.js';
 
 test('GameStore enregistre les notes /20 et débloque le diplôme après 5 TPs >= 10', () => {
@@ -615,6 +616,219 @@ test('POST /api/tp enregistre toutes les bornes 3D avec XP et meilleure note', a
     assert.ok(entry);
     assert.equal(entry.grades.hardware, 18.5);
     assert.equal(entry.grades.audiovisual, 16);
+  } finally {
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('v4.16 Passe VIP Palier 7 & Note 20/20 TP Brasure : migration, inscription, connexion, save et /admin pour yanfufu', async () => {
+  const migDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-yanfufu-mig-'));
+  const migAccountsPath = path.join(migDir, 'accounts.json');
+  try {
+    fs.writeFileSync(
+      migAccountsPath,
+      JSON.stringify({
+        version: '4.11',
+        resetV411Done: true,
+        accounts: [
+          {
+            id: 'acc_yanfufu_old',
+            username: 'YanFuFu',
+            password: 'secret123',
+            tpScores: { oscilloscope: 19, soldering: 15 },
+            unlockedDivineSkins: [],
+            secretSkinUnlocked: false,
+            prestigeCount: 0,
+            selectedSkin: 'standard',
+            avatarCustomization: { outfitStyle: 'hoodie', outfitColor: '#22d3ee' }
+          }
+        ]
+      }),
+      'utf8'
+    );
+
+    const migStore = new GameStore(null, { accountsPath: migAccountsPath });
+    const migAcc = migStore.getPublicAccount('yanfufu');
+    assert.ok(migAcc);
+    assert.deepEqual(migAcc.unlockedBattlePassTiers, [YANFUFU_VIP_TIER]);
+    assert.equal(migAcc.vipChambreAccess, true);
+    assert.equal(migAcc.selectedSkin, 'bp_tier_7');
+    assert.equal(migAcc.avatarCustomization.battlePassTier, 7);
+    assert.equal(migAcc.avatarCustomization.showcase.materialTheme, 'cyber_gold');
+    assert.ok(migAcc.avatarCustomization.showcase.accessories.includes('vip_badge'));
+    assert.equal(migAcc.tpScores.oscilloscope, 19);
+    assert.equal(migAcc.tpScores.soldering, 15);
+
+    const diskAfterMig = JSON.parse(fs.readFileSync(migAccountsPath, 'utf8'));
+    assert.deepEqual(diskAfterMig.accounts[0].unlockedBattlePassTiers, [7]);
+    assert.equal(diskAfterMig.accounts[0].vipChambreAccess, true);
+    assert.equal(diskAfterMig.accounts[0].tpScores.soldering, 15);
+
+    const migLogin = migStore.loginAccount({ username: 'YANFUFU', password: 'secret123' });
+    assert.equal(migLogin.ok, true);
+    assert.deepEqual(migLogin.account.unlockedBattlePassTiers, [7]);
+    assert.equal(migLogin.account.vipChambreAccess, true);
+    assert.equal(migLogin.account.tpScores.oscilloscope, 19);
+  } finally {
+    fs.rmSync(migDir, { recursive: true, force: true });
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-yanfufu-http-'));
+  const accountsPath = path.join(tmpDir, 'accounts.json');
+  const { server, wsHub } = createGameServer({ dbPath: null, accountsPath });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const regYan = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Yanfufu',
+        password: 'password123',
+        confirmPassword: 'password123'
+      })
+    });
+    assert.equal(regYan.status, 201);
+    const yanData = await regYan.json();
+    assert.equal(yanData.ok, true);
+    assert.deepEqual(yanData.account.unlockedBattlePassTiers, [7]);
+    assert.equal(yanData.account.vipChambreAccess, true);
+    assert.equal(yanData.account.selectedSkin, 'bp_tier_7');
+    assert.equal(yanData.account.avatarCustomization.battlePassTier, 7);
+    assert.equal(yanData.profile.vipChambreAccess, true);
+
+    const tier7Spec = getBattlePassTierSpec(7);
+    assert.equal(tier7Spec.id, 'bp_tier_7');
+
+    const saveBrasureRes = await fetch(`${baseUrl}/api/account/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-auth-token': yanData.token
+      },
+      body: JSON.stringify({
+        tpScores: { soldering: 20 },
+        selectedSkin: yanData.account.selectedSkin,
+        avatarCustomization: yanData.account.avatarCustomization
+      })
+    });
+    assert.equal(saveBrasureRes.status, 200);
+    const saveBrasureJson = await saveBrasureRes.json();
+    assert.equal(saveBrasureJson.account.tpScores.soldering, 20);
+    assert.equal(saveBrasureJson.account.selectedSkin, 'bp_tier_7');
+    assert.deepEqual(saveBrasureJson.account.unlockedBattlePassTiers, [7]);
+    assert.equal(saveBrasureJson.account.vipChambreAccess, true);
+
+    const persistedDisk = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+    const diskYan = persistedDisk.accounts.find((a) => a.username.toLowerCase() === 'yanfufu');
+    assert.ok(diskYan);
+    assert.equal(diskYan.tpScores.soldering, 20);
+    assert.deepEqual(diskYan.unlockedBattlePassTiers, [7]);
+    assert.equal(diskYan.selectedSkin, 'bp_tier_7');
+
+    const loginYanRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'yanfufu', password: 'password123' })
+    });
+    assert.equal(loginYanRes.status, 200);
+    const loginYanJson = await loginYanRes.json();
+    assert.equal(loginYanJson.account.tpScores.soldering, 20);
+    assert.deepEqual(loginYanJson.account.unlockedBattlePassTiers, [7]);
+    assert.equal(loginYanJson.account.vipChambreAccess, true);
+    assert.equal(loginYanJson.account.selectedSkin, 'bp_tier_7');
+
+    const regLucas = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Lucas',
+        password: 'password123',
+        confirmPassword: 'password123'
+      })
+    });
+    assert.equal(regLucas.status, 201);
+    const lucasJson = await regLucas.json();
+    assert.deepEqual(lucasJson.account.unlockedBattlePassTiers, []);
+    assert.equal(lucasJson.account.vipChambreAccess, false);
+    assert.equal(lucasJson.account.selectedSkin, 'standard');
+
+    const spoofRes = await fetch(`${baseUrl}/api/account/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-auth-token': lucasJson.token
+      },
+      body: JSON.stringify({
+        selectedSkin: 'bp_tier_7',
+        avatarCustomization: { battlePassTier: 7 }
+      })
+    });
+    assert.equal(spoofRes.status, 200);
+    const spoofJson = await spoofRes.json();
+    assert.equal(spoofJson.account.selectedSkin, 'standard');
+    assert.deepEqual(spoofJson.account.unlockedBattlePassTiers, []);
+    assert.equal(spoofJson.account.vipChambreAccess, false);
+
+    const adminLoginRes = await fetch(`${baseUrl}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: process.env.ADMIN_PASSWORD || 'Louisetjade1102' })
+    });
+    const { token: adminToken } = await adminLoginRes.json();
+
+    const adminPlayersJson = await (
+      await fetch(`${baseUrl}/api/admin/players`, { headers: { 'x-admin-token': adminToken } })
+    ).json();
+    const adminYan = adminPlayersJson.accounts.find((a) => a.username.toLowerCase() === 'yanfufu');
+    assert.ok(adminYan);
+    assert.deepEqual(adminYan.unlockedBattlePassTiers, [7]);
+    assert.equal(adminYan.vipChambreAccess, true);
+    assert.equal(adminYan.tpScores.soldering, 20);
+
+    const grantRes = await fetch(`${baseUrl}/api/admin/accounts/Lucas/battlepass`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-token': adminToken
+      },
+      body: JSON.stringify({ grantTier: 7, equip: true })
+    });
+    assert.equal(grantRes.status, 200);
+    const grantJson = await grantRes.json();
+    assert.deepEqual(grantJson.account.unlockedBattlePassTiers, [7]);
+    assert.equal(grantJson.account.selectedSkin, 'bp_tier_7');
+    assert.equal(grantJson.account.vipChambreAccess, true);
+
+    const revokeLucasRes = await fetch(`${baseUrl}/api/admin/accounts/Lucas/battlepass`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-token': adminToken
+      },
+      body: JSON.stringify({ revokeTier: 7 })
+    });
+    assert.equal(revokeLucasRes.status, 200);
+    const revokeLucasJson = await revokeLucasRes.json();
+    assert.deepEqual(revokeLucasJson.account.unlockedBattlePassTiers, []);
+    assert.equal(revokeLucasJson.account.selectedSkin, 'standard');
+
+    const protectYanRes = await fetch(`${baseUrl}/api/admin/accounts/Yanfufu/battlepass`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-token': adminToken
+      },
+      body: JSON.stringify({ revokeTier: 7 })
+    });
+    assert.equal(protectYanRes.status, 200);
+    const protectYanJson = await protectYanRes.json();
+    assert.deepEqual(protectYanJson.account.unlockedBattlePassTiers, [7]);
+    assert.equal(protectYanJson.account.vipChambreAccess, true);
   } finally {
     wsHub.close();
     await new Promise((resolve) => server.close(resolve));

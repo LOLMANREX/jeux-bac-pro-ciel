@@ -465,6 +465,24 @@ export function createGameServer(options = {}) {
     return res.json({ ok: true, account: result.account, profile: result.profile });
   });
 
+  const handleAdminBattlePassUpdate = (req, res) => {
+    const result = store.adminUpdateAccountBattlePass(req.params.target, req.body || {});
+    if (!result) {
+      return res.status(404).json({ error: 'Compte élève introuvable' });
+    }
+    if (result.profile) {
+      if (wsHub.notifyAccountUpdated) {
+        wsHub.notifyAccountUpdated(result.profile);
+      } else {
+        wsHub.notifySkinUpdated(result.profile);
+      }
+    }
+    return res.json({ ok: true, account: result.account, profile: result.profile });
+  };
+
+  app.post('/api/admin/accounts/:target/battlepass', requireAdmin, handleAdminBattlePassUpdate);
+  app.post('/api/admin/accounts/:target/special-skins', requireAdmin, handleAdminBattlePassUpdate);
+
   app.delete('/api/admin/accounts/:target', requireAdmin, (req, res) => {
     const deleted = store.deleteAccount(req.params.target);
     if (!deleted) {

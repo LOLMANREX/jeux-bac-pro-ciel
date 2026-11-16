@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { OSCILLO_STAGES, evaluateOscilloscopeStage, computeOscilloBenchScore } from '../src/minigames/OscilloscopeGame.js';
-import { evaluateSolderStage, computeSolderingScore3D } from '../src/minigames/SolderingGame.js';
+import { SOLDER_STAGES, evaluateSolderStage, computeSolderingScore3D } from '../src/minigames/SolderingGame.js';
 import {
   computeResistorOhms,
   simulateDividerCircuit,
@@ -412,4 +412,60 @@ test('v4.10 AudioVisualGame : étapes plateau/audio/matrice et protection bornes
   assert.ok(clamped.score >= 0 && clamped.score <= 20);
   assert.equal(Number.isFinite(clamped.xp), true);
   assert.ok(clamped.xp >= 0);
+});
+
+test('v4.16 Brasure : 20/20 atteignable après nettoyage pont initial U2/U3 et tolérance temps/température', () => {
+  const initialPads = [...SOLDER_STAGES[0].pads, ...SOLDER_STAGES[1].pads].map((p) => ({ ...p }));
+  assert.equal(initialPads.filter((p) => p.state === 'bridge').length, 2);
+
+  const solvedPads = initialPads.map((p) => ({ ...p, state: 'good' }));
+  const stageCheck = evaluateSolderStage(solvedPads, 349.6, true, 0);
+  assert.equal(stageCheck.allGood, true);
+  assert.equal(stageCheck.tempOk, true);
+  assert.equal(stageCheck.ratio, 1);
+
+  const exact20Fast = computeSolderingScore3D({
+    pads: solvedPads,
+    tempC: 350,
+    fumeExtractorOn: true,
+    burnCount: 0,
+    reworkCount: 0,
+    powerTestedOk: true,
+    durationSec: 95
+  });
+  assert.equal(exact20Fast, 20);
+
+  const exact20Realistic = computeSolderingScore3D({
+    pads: solvedPads,
+    tempC: 369.6,
+    fumeExtractorOn: true,
+    burnCount: 0,
+    reworkCount: 0,
+    powerTestedOk: true,
+    durationSec: 235
+  });
+  assert.equal(exact20Realistic, 20);
+
+  const bridgePenaltyScore = computeSolderingScore3D({
+    pads: initialPads.map((p) => (p.state === 'bridge' ? p : { ...p, state: 'good' })),
+    tempC: 350,
+    fumeExtractorOn: true,
+    burnCount: 0,
+    reworkCount: 0,
+    powerTestedOk: false,
+    durationSec: 90
+  });
+  assert.ok(bridgePenaltyScore < 20);
+
+  const safeNan = computeSolderingScore3D({
+    pads: solvedPads,
+    tempC: Number.NaN,
+    fumeExtractorOn: true,
+    burnCount: Number.NaN,
+    reworkCount: undefined,
+    powerTestedOk: true,
+    durationSec: Number.NaN
+  });
+  assert.equal(Number.isFinite(safeNan), true);
+  assert.ok(safeNan >= 0 && safeNan <= 20);
 });

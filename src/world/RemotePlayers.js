@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getBattlePassTierSpec } from '../core/battlePassSkins.js';
 import {
   animateAvatarLimbs,
   applySessionDivineSkin,
@@ -29,22 +30,32 @@ function makeStudentBadge(peer) {
     !isSecret && peer.skin?.divineSpecialty
       ? resolveAscensionSpecialty(peer.skin.divineSpecialty)
       : null;
+  const bpSpec =
+    !isSecret && !divineSpec && peer.skin?.battlePassTier
+      ? getBattlePassTierSpec(peer.skin.battlePassTier)
+      : null;
   const accent = isSecret
     ? ULTIMATE_SECRET_SKIN.primaryColor
     : divineSpec
       ? divineSpec.primaryColor
-      : peer.color || '#22d3ee';
+      : bpSpec
+        ? bpSpec.accentColor || '#fbbf24'
+        : peer.color || '#22d3ee';
   const borderCol = isSecret
     ? '#e879f9'
-    : divineSpec
+    : divineSpec || bpSpec
       ? '#fde047'
       : peer.diplomaEarned || peer.rank === 1
         ? '#fbbf24'
         : accent;
 
-  ctx.fillStyle = isSecret ? 'rgba(18, 8, 42, 0.94)' : 'rgba(9, 15, 30, 0.9)';
+  ctx.fillStyle = isSecret
+    ? 'rgba(18, 8, 42, 0.94)'
+    : bpSpec
+      ? 'rgba(28, 18, 4, 0.94)'
+      : 'rgba(9, 15, 30, 0.9)';
   ctx.strokeStyle = borderCol;
-  ctx.lineWidth = isSecret ? 5 : 4;
+  ctx.lineWidth = isSecret || bpSpec ? 5 : 4;
   ctx.beginPath();
   ctx.roundRect(10, 10, 520, 132, 22);
   ctx.fill();
@@ -54,12 +65,14 @@ function makeStudentBadge(peer) {
     ? '🌌ULTIME'
     : divineSpec
       ? '⚡DIEU'
-      : peer.rank
-        ? `#${peer.rank}`
-        : 'CIEL';
+      : bpSpec
+        ? `${bpSpec.icon}VIP`
+        : peer.rank
+          ? `#${peer.rank}`
+          : 'CIEL';
   ctx.fillStyle = isSecret
     ? '#e879f9'
-    : divineSpec
+    : divineSpec || bpSpec
       ? '#fde047'
       : peer.rank === 1
         ? '#fbbf24'
@@ -98,16 +111,18 @@ function makeStudentBadge(peer) {
   ctx.font = 'bold 21px system-ui, sans-serif';
   ctx.fillText(avgText, 463, 44);
 
-  ctx.fillStyle = isSecret ? '#f5d0fe' : divineSpec ? '#fef08a' : '#f8fafc';
+  ctx.fillStyle = isSecret ? '#f5d0fe' : divineSpec || bpSpec ? '#fef08a' : '#f8fafc';
   ctx.font = 'bold 28px system-ui, sans-serif';
   ctx.textAlign = 'center';
   const suffix = isSecret
     ? ' 🌌👑'
     : divineSpec
       ? ` ⚡${divineSpec.icon}`
-      : peer.diplomaEarned
-        ? ' 🎓'
-        : '';
+      : bpSpec
+        ? ` ${bpSpec.icon}`
+        : peer.diplomaEarned
+          ? ' 🎓'
+          : '';
   const nameLabel = `${peer.name}${suffix}`;
   ctx.fillText(nameLabel.slice(0, 20), isSecret ? 260 : 253, 46, 290);
 
@@ -115,7 +130,9 @@ function makeStudentBadge(peer) {
     ? 'Entité Quantique CIEL'
     : divineSpec
       ? `Dieu CIEL (${divineSpec.shortLabel})`
-      : peer.rankLabel || 'Apprenti CIEL';
+      : bpSpec
+        ? `Passe VIP P.${bpSpec.tier}`
+        : peer.rankLabel || 'Apprenti CIEL';
   const subTp = `${peer.completedCount || 0}/5 TPs`;
   const locText = peer.zoneLabel || 'U300';
   const actPart =

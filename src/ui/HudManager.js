@@ -1444,11 +1444,15 @@ export class HudManager {
         const place = row.rank || entries.indexOf(row) + 1;
         const isSelf = row.name.toLowerCase() === me;
         const avgStr = typeof row.average === 'number' ? `${row.average.toFixed(1)}/20` : '--/20';
+        const vipIcon =
+          row.vipChambreAccess || row.skin?.battlePassTier
+            ? ' <span title="Passe VIP Passe Baie Serveur">🔑</span>'
+            : '';
         return `
           <div class="podium-card place-${place} ${isSelf ? 'self' : ''}">
             <div class="podium-rank">${medalByRank[place] || `#${place}`}</div>
             <div class="podium-avatar">${renderSkinPreviewSvg(row.skin, 54)}</div>
-            <div class="podium-name">${this._escape(row.name)} ${row.diplomaEarned ? '🎓' : ''}</div>
+            <div class="podium-name">${this._escape(row.name)} ${row.diplomaEarned ? '🎓' : ''}${vipIcon}</div>
             <div class="podium-status ${row.online ? 'online' : 'offline'}">
               <span class="dot ${row.online ? 'online' : ''}"></span>
               ${row.online ? 'En ligne' : 'Hors ligne'}
@@ -1499,6 +1503,7 @@ export class HudManager {
                         <div class="lb-student-name">
                           <strong>${this._escape(row.name)}</strong>
                           ${isSelf ? '<span class="self-tag">Vous</span>' : ''}
+                          ${row.vipChambreAccess || row.skin?.battlePassTier ? '<span title="Passe VIP Baie Serveur">🔑 VIP</span>' : ''}
                           ${row.diplomaEarned ? `<span title="${this._escape(diplomasTip || 'BAC PRO CIEL')}">🎓</span>` : ''}
                         </div>
                         <div class="lb-sub">${this._escape(row.rankLabel || '')} (${row.completedCount}/5 TPs)</div>

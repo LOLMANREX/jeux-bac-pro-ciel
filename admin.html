@@ -150,7 +150,7 @@
                   <tr>
                     <th>Identifiant (username)</th>
                     <th>Mot de passe &amp; Récupération</th>
-                    <th>Progression (TPs 20/20 &amp; Skins Divins)</th>
+                    <th>Progression (TPs 20/20, Skins Divins &amp; Passe VIP)</th>
                     <th>Date de création</th>
                     <th>Actions rapides</th>
                   </tr>
@@ -291,6 +291,23 @@
             </button>
           </div>
         </form>
+      </div>
+
+      <div id="admin-special-skins-modal" class="modal-backdrop hidden">
+        <div class="confirm-card admin-vip-modal-card">
+          <div class="confirm-badge">GESTION PASSE VIP &amp; SKINS SPÉCIAUX</div>
+          <h2 id="special-skins-modal-title">Skins Passe VIP</h2>
+          <p id="special-skins-modal-subtitle"></p>
+          <div id="admin-special-skins-list" class="admin-vip-list"></div>
+          <div class="confirm-actions">
+            <button type="button" id="btn-special-skins-standard" class="btn-secondary">
+              👕 Équiper Tenue Standard
+            </button>
+            <button type="button" id="btn-special-skins-close" class="btn-primary">
+              Fermer
+            </button>
+          </div>
+        </div>
       </div>
 
       <div id="admin-confirm-modal" class="modal-backdrop hidden">
