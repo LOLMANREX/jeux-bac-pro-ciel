@@ -3,7 +3,7 @@ import './styles/minigames.css';
 
 import * as THREE from 'three';
 import { sfx } from './core/audio.js';
-import { GameState, getTpById, getStationById, QUICK_EMOTES, TP_CATALOG } from './core/gameState.js';
+import { GameState, getTpById, getStationById, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from './core/gameState.js';
 import { NetworkClient } from './core/network.js';
 import { SceneManager } from './world/SceneManager.js';
 import {
@@ -28,7 +28,7 @@ import {
 } from './world/AvatarBuilder.js';
 import { ProximityVoiceChat } from './network/ProximityVoiceChat.js';
 import { VRManager } from './vr/VRManager.js';
-import { HudManager } from './ui/HudManager.js';
+import { HudManager, formatWorldCelebrationBanner } from './ui/HudManager.js';
 import { MainMenu } from './ui/MainMenu.js';
 import { DialogueModal } from './ui/DialogueModal.js';
 import { ChangelogModal } from './ui/ChangelogModal.js';
@@ -227,6 +227,44 @@ let modalOpen = false;
 let subModalActive = false;
 let nearestTarget = null;
 let wallLeaderboardPending = false;
+let privateDebugMode = false;
+let lastCelebrationAt = 0;
+
+const DEBUG_ZONE_SPOTS = {
+  U300: { x: -3.95, z: 0.65 },
+  U301: { x: -8.0, z: -7.5 },
+  U302: { x: 0.0, z: -7.5 },
+  U303: { x: 7.0, z: -7.5 },
+  U304: { x: 8.5, z: 0.0 },
+  U305: { x: 8.0, z: 8.0 },
+  U306: { x: 0.0, z: 8.5 },
+  U307: { x: -8.0, z: 7.0 },
+  CHAMBRE: { x: -10.0, z: -0.5 },
+  U308: { x: 1.45, z: 4.45 },
+  U309: { x: -6.35, z: -0.5 },
+  U311: { x: -5.65, z: 1.12 }
+};
+
+function runWorldCelebration(payload = {}) {
+  const now = Date.now();
+  if (now - lastCelebrationAt < 1800) return;
+  lastCelebrationAt = now;
+  const playerName = payload.playerName || gameState.profile.name || 'Eleve_CIEL';
+  const tpLabel = payload.tpName || payload.tpLabel || 'Oscilloscope & Diagnostic 3D';
+  const bannerText = payload.bannerText || formatWorldCelebrationBanner(playerName, tpLabel);
+  sfx.celebrate20();
+  sceneMgr.triggerWorldCelebration({
+    duration: 8,
+    center: player.position
+  });
+  hud?.showWorldCelebration?.({
+    ...payload,
+    playerName,
+    tpLabel,
+    bannerText,
+    durationMs: 8000
+  });
+}
 
 function syncWallLeaderboard(entries = gameState.leaderboard) {
   lab.updateLeaderboardBoard?.(entries, gameState.profile.name);
@@ -377,6 +415,13 @@ async function openTp(tpId, stationItem = null) {
       lab.updateStationBadges(p.grades);
 
       network.submitScore(gameState.profile.name, doneId, score, durationSec, gameState.skin);
+      if (score >= 20) {
+        runWorldCelebration({
+          playerName: gameState.profile.name,
+          tpId: doneId,
+          tpLabel: tp.title || tp.shortTitle
+        });
+      }
       setTimeout(() => refreshWallLeaderboard(), 420);
       if (!getTpById(doneId)) {
         hud.toast(`${tp.icon} Atelier ${tp.shortTitle} validé (${score.toFixed(1)}/20) !`, score >= 10 ? 'success' : 'info');
@@ -502,6 +547,132 @@ hud = new HudManager(gameState, network, {
   onVoiceVolumeChange: (vol) => {
     voiceChat.setVolume(vol);
   },
+  onApplaud: () => {
+    const cheers = [
+      '👏🎉 Bravo 20/20 ! 🏆',
+      '👏🔥 GG 20/20 ! ✨',
+      '🥳👏 Félicitations 20/20 ! 🎉',
+      '🏆👏 Masterclass CIEL 20/20 ! ✨'
+    ];
+    const label = cheers[Math.floor(Math.random() * cheers.length)];
+    network.sendEmote('applaud', label);
+    showSpeechBubble(localBubble, label, { isEmote: true, color: '#fbbf24' });
+  },
+  onTriggerCreatorCelebration: () => {
+    const sent = network.sendCreatorCelebration('oscilloscope', 'Excellence BAC PRO CIEL 3D', false);
+    if (!sent) {
+      runWorldCelebration({
+        playerName: gameState.profile.name,
+        tpLabel: 'Excellence BAC PRO CIEL 3D'
+      });
+    }
+    hud?.toast?.('👑 Célébration Mondiale 20/20 déclenchée pour la classe !', 'success');
+  },
+  onToggleCreatorAura: (enabled) => {
+    const nextSkin = { ...gameState.skin };
+    if (enabled) {
+      nextSkin.creatorAura = true;
+    } else {
+      delete nextSkin.creatorAura;
+    }
+    gameState.setSkin(nextSkin);
+    localAvatar?.setCreatorAura?.(enabled);
+    network.sendCreatorAura(enabled);
+    network.sendSkinUpdate(nextSkin);
+    if (enabled && gameState.cameraMode === 'first' && !vrManager?.isVrActive?.()) {
+      gameState.setCameraMode('third');
+      player.setCameraMode('third');
+      hud?.syncCameraUi?.();
+      touchControls?.syncCameraMode?.('third');
+    }
+    hud?.toast?.(
+      enabled
+        ? '👑 Aura Lumineuse Dorée 3D activée et synchronisée en multijoueur !'
+        : '👑 Aura Lumineuse Dorée 3D désactivée.'
+    );
+  },
+  onDebugCelebrate: () => {
+    const sent = network.sendDebugAction('celebrate', { tpId: 'oscilloscope' });
+    if (!sent) {
+      runWorldCelebration({
+        playerName: gameState.profile.name,
+        tpLabel: 'Oscilloscope & Diagnostic 3D'
+      });
+    }
+  },
+  onDebugValidateAll: () => {
+    const nextGrades = { ...gameState.profile.grades };
+    TP_CATALOG.forEach((tp) => {
+      nextGrades[tp.id] = 20;
+    });
+    EXTRA_STATIONS.forEach((st) => {
+      nextGrades[st.id] = 20;
+    });
+    const nextProfile = {
+      ...gameState.profile,
+      grades: nextGrades,
+      average: 20,
+      completedCount: TP_CATALOG.length,
+      diplomaEarned: true,
+      xp: Math.max((gameState.profile.xp || 0) + 1750, 3150),
+      questAccepted: true
+    };
+    gameState.setProfile(nextProfile);
+    lab.updateStationBadges(nextGrades);
+    network.sendDebugAction('validate_all');
+    fetch('/api/debug/validate-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: gameState.profile.name, skin: gameState.skin })
+    }).catch(() => {});
+    hud?.toast?.('💯 Tous les TPs ont été validés à 20/20 (Mode Debug) !', 'success');
+  },
+  onDebugResetProgress: () => {
+    const resetProfile = {
+      ...gameState.profile,
+      grades: {},
+      average: null,
+      completedCount: 0,
+      diplomaEarned: false,
+      xp: 0,
+      questAccepted: false
+    };
+    gameState.setProfile(resetProfile);
+    lab.updateStationBadges({});
+    network.sendDebugAction('reset_progress');
+    fetch('/api/debug/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: gameState.profile.name })
+    }).catch(() => {});
+    hud?.toast?.('🔄 Progression de test réinitialisée à zéro.', 'info');
+  },
+  onDebugSpeedChange: (mult) => {
+    player.setSpeedMultiplier(mult);
+    hud?.toast?.(`⚡ Vitesse de déplacement : ${mult}×`);
+  },
+  onDebugNoclipToggle: (enabled) => {
+    player.setNoclip(enabled);
+    hud?.toast?.(enabled ? '👻 Mode Noclip activé (traversée des murs)' : '🧱 Collisions standard rétablies');
+  },
+  onDebugTeleport: (targetVal) => {
+    const val = String(targetVal || '');
+    if (val.startsWith('tp:')) {
+      teleportNearTarget(val.slice(3));
+      return;
+    }
+    if (val.startsWith('zone:')) {
+      const code = val.slice(5);
+      const mapZone = (currentMapData?.zones || []).find((z) => z.code === code || z.id === code);
+      const pos = DEBUG_ZONE_SPOTS[code] || (mapZone ? { x: mapZone.x || 0, z: mapZone.z || 0 } : { x: -3.95, z: 0.65 });
+      player.teleportTo(pos, { x: pos.x, z: pos.z - 2 });
+      const zInfo = getZoneAtPositionInMap(currentMapData, pos.x, pos.z);
+      hud?.setCurrentZone?.(zInfo);
+      network.sendMove(pos.x, 0, pos.z, player.yaw, true);
+      network.sendZone(zInfo.id, zInfo.badgeText.replace('📍 ', ''));
+      hud?.toast?.(`📍 Téléporté vers ${zInfo.badgeText}`);
+    }
+  },
   onReturnToMenu: () => returnToMainMenu()
 });
 
@@ -551,6 +722,10 @@ function returnToMainMenu() {
   joined = false;
   modalOpen = false;
   subModalActive = false;
+  privateDebugMode = false;
+  player.setSpeedMultiplier(1);
+  player.setNoclip(false);
+  hud?.setPrivateDebugMode?.(false);
   voiceChat.setInTp(false);
   voiceChat.disconnect();
   player.setEnabled(false);
@@ -647,6 +822,24 @@ network.on('player_moved', ({ id, x, y, z, yaw, vrData }) => {
 
 network.on('player_skin_updated', ({ id, skin }) => {
   remotePlayers.setSkin(id, skin);
+});
+
+network.on('creator_aura_updated', ({ id, enabled }) => {
+  if (id === network.clientId) {
+    localAvatar?.setCreatorAura?.(enabled);
+  } else {
+    remotePlayers.setCreatorAura(id, enabled);
+  }
+});
+
+network.on('world_celebration', (payload) => {
+  runWorldCelebration(payload);
+  if (payload?.playerId && payload.playerId !== network.clientId) {
+    remotePlayers.showBubble(payload.playerId, '🏆 20/20 PARFAIT ! 🎉', {
+      isEmote: true,
+      color: '#fbbf24'
+    });
+  }
 });
 
 network.on('player_activity', ({ id, activity, roomRoster }) => {
@@ -903,9 +1096,11 @@ canvas.addEventListener('mouseup', (e) => {
 
 let lastZoneId = '';
 let lastMiniMapDrawAt = 0;
+let lastDebugStatsAt = 0;
 
 sceneMgr.addUpdater((dt, elapsed) => {
   lab.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned);
+  localAvatar?.updateEffects?.(elapsed);
   remotePlayers.update(dt, elapsed);
   updateSpeechBubble(localBubble, dt);
 
@@ -954,6 +1149,16 @@ sceneMgr.addUpdater((dt, elapsed) => {
     });
   }
 
+  if (privateDebugMode && elapsed - lastDebugStatsAt >= 0.15) {
+    lastDebugStatsAt = elapsed;
+    hud?.updateDebugStats?.({
+      fps: sceneMgr.getFps(),
+      pingMs: network.lastPingMs,
+      pos: player.position,
+      socketState: network.getSocketDebugState()
+    });
+  }
+
   if (!modalOpen) {
     const jumpY = vrOn ? 0 : Math.max(0, player.position.y - player.groundY);
     network.sendMove(
@@ -998,8 +1203,12 @@ setInterval(() => {
   }
 }, 180);
 
-function startGameSession({ name, room, skin }, startVr = false) {
+function startGameSession({ name, room, skin, privateDebug = false }, startVr = false) {
   const cleanRoom = room || 'plateau-u300';
+  const isDebugRoom = Boolean(
+    privateDebug || String(cleanRoom).toLowerCase().startsWith('priv-debug')
+  );
+  privateDebugMode = isDebugRoom;
   notifiedNetError = false;
   gameState.room = cleanRoom;
   gameState.setProfile({ ...gameState.profile, name, skin });
@@ -1007,6 +1216,9 @@ function startGameSession({ name, room, skin }, startVr = false) {
   joined = true;
 
   hud.show();
+  hud.setPrivateDebugMode(isDebugRoom, cleanRoom);
+  player.setSpeedMultiplier(1);
+  player.setNoclip(false);
   player.setAvatarVisible(true);
   player.setCameraMode(gameState.cameraMode);
   player.setTouchMode(gameState.touchMode);
@@ -1089,3 +1301,33 @@ try {
 } catch (err) {
   console.warn('Sélecteur de plateforme indisponible:', err);
 }
+
+(function checkAutoLaunchPrivateDebug() {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(window.location.search || '');
+  const debugFlag = params.get('debug') === '1' || params.get('mode') === 'debug';
+  const roomParam = String(params.get('room') || '').trim();
+  if (!debugFlag && !roomParam.toLowerCase().startsWith('priv-debug')) return;
+  const targetRoom =
+    roomParam && roomParam.toLowerCase().startsWith('priv-debug')
+      ? roomParam
+      : `priv-debug-${Math.random().toString(36).slice(2, 8)}`;
+  const savedName =
+    params.get('name')?.trim() ||
+    localStorage.getItem('ciel_player_name')?.trim() ||
+    'Admin_Debug';
+  platformModal?.close?.();
+  mainMenu?.hide?.();
+  startGameSession(
+    {
+      name: savedName,
+      room: targetRoom,
+      skin: gameState.skin,
+      privateDebug: true
+    },
+    false
+  );
+  setTimeout(() => {
+    hud?.toast?.('🛠️ Serveur Privé (Mode Debug) actif — Salon isolé des élèves publics', 'success');
+  }, 350);
+})();

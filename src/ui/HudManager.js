@@ -1,9 +1,15 @@
 import { sfx } from '../core/audio.js';
 import { getMention, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import { getStationTeleportInMap, getZoneAtPositionInMap } from '../world/mapSchema.js';
-import { renderSkinPreviewSvg } from '../world/AvatarBuilder.js';
+import { isCreatorLouis, renderSkinPreviewSvg } from '../world/AvatarBuilder.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 import { PlateauMiniMap } from './PlateauMiniMap.js';
+
+export function formatWorldCelebrationBanner(playerName, tpLabel = 'Oscilloscope & Diagnostic 3D') {
+  const cleanName = String(playerName || 'Élève').trim() || 'Élève';
+  const cleanTp = String(tpLabel || 'Oscilloscope & Diagnostic 3D').replace(/^TP\s+/i, '').trim() || 'Oscilloscope & Diagnostic 3D';
+  return `🏆 EXPLOIT CIEL : ${cleanName} a décroché 20/20 au TP ${cleanTp} !`;
+}
 
 export class HudManager {
   constructor(gameState, network, handlers) {
@@ -55,6 +61,34 @@ export class HudManager {
     this.voiceNearbyBar = document.getElementById('voice-nearby-bar');
     this.vrToggleBtn = document.getElementById('btn-vr-toggle');
     this.vrBtnLabel = document.getElementById('vr-btn-label');
+    this.creatorPowerBtn = document.getElementById('btn-creator-power');
+    this.creatorPowerPopover = document.getElementById('creator-power-popover');
+    this.creatorCelebrateBtn = document.getElementById('btn-creator-celebrate');
+    this.creatorAuraBtn = document.getElementById('btn-creator-aura');
+    this.creatorAuraStateEl = document.getElementById('creator-aura-state');
+
+    this.celebrationBannerEl = document.getElementById('world-celebration-banner');
+    this.celebrationTextEl = document.getElementById('world-celebration-text');
+    this.celebrationApplaudBtn = document.getElementById('btn-celebration-applaud');
+    this.celebrationProgressEl = document.getElementById('world-celebration-progress');
+    this.celebrationTimer = null;
+
+    this.privateDebugBadgeEl = document.getElementById('hud-private-debug-badge');
+    this.debugPanelEl = document.getElementById('debug-tools-panel');
+    this.debugCollapseBtn = document.getElementById('btn-debug-collapse');
+    this.dbgFpsEl = document.getElementById('dbg-val-fps');
+    this.dbgPingEl = document.getElementById('dbg-val-ping');
+    this.dbgXyzEl = document.getElementById('dbg-val-xyz');
+    this.dbgSocketEl = document.getElementById('dbg-val-socket');
+    this.dbgCelebrateBtn = document.getElementById('btn-debug-celebrate');
+    this.dbgValidateAllBtn = document.getElementById('btn-debug-validate-all');
+    this.dbgResetBtn = document.getElementById('btn-debug-reset-progress');
+    this.dbgNoclipBtn = document.getElementById('btn-debug-noclip');
+    this.dbgTeleportSelect = document.getElementById('debug-teleport-select');
+    this.dbgTeleportGoBtn = document.getElementById('btn-debug-teleport-go');
+    this.privateDebugActive = false;
+    this.debugNoclipActive = false;
+
     this.unreadChat = 0;
     this.lastEmoteAt = 0;
 
@@ -267,6 +301,92 @@ export class HudManager {
     this.vrToggleBtn?.addEventListener('click', () => {
       sfx.click();
       this.handlers.onToggleVr?.();
+    });
+
+    this.creatorPowerBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sfx.click();
+      this.creatorPowerPopover?.classList.toggle('hidden');
+    });
+
+    this.creatorCelebrateBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.creatorPowerPopover?.classList.add('hidden');
+      this.handlers.onTriggerCreatorCelebration?.();
+    });
+
+    this.creatorAuraBtn?.addEventListener('click', () => {
+      sfx.click();
+      const next = !Boolean(this.gameState.skin?.creatorAura);
+      this.handlers.onToggleCreatorAura?.(next);
+      this.syncCreatorUi();
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.creator-power-wrapper')) {
+        this.creatorPowerPopover?.classList.add('hidden');
+      }
+    });
+
+    this.celebrationApplaudBtn?.addEventListener('click', () => {
+      sfx.applaud();
+      this.celebrationApplaudBtn.classList.add('applauded');
+      setTimeout(() => this.celebrationApplaudBtn?.classList.remove('applauded'), 350);
+      this.handlers.onApplaud?.();
+    });
+
+    this.debugCollapseBtn?.addEventListener('click', () => {
+      sfx.click();
+      const collapsed = this.debugPanelEl?.classList.toggle('collapsed');
+      if (this.debugCollapseBtn) {
+        this.debugCollapseBtn.textContent = collapsed ? '▸' : '▾';
+      }
+    });
+
+    this.dbgCelebrateBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onDebugCelebrate?.();
+    });
+
+    this.dbgValidateAllBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onDebugValidateAll?.();
+    });
+
+    this.dbgResetBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onDebugResetProgress?.();
+    });
+
+    this.debugPanelEl?.querySelectorAll('[data-dbg-speed]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        sfx.click();
+        const mult = Number(btn.dataset.dbgSpeed) || 1;
+        this.debugPanelEl.querySelectorAll('[data-dbg-speed]').forEach((b) => {
+          b.classList.toggle('active', b === btn);
+        });
+        this.handlers.onDebugSpeedChange?.(mult);
+      });
+    });
+
+    this.dbgNoclipBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.debugNoclipActive = !this.debugNoclipActive;
+      this.dbgNoclipBtn.classList.toggle('active', this.debugNoclipActive);
+      this.dbgNoclipBtn.textContent = this.debugNoclipActive ? '👻 Noclip: ON' : '👻 Noclip: OFF';
+      this.handlers.onDebugNoclipToggle?.(this.debugNoclipActive);
+    });
+
+    this.dbgTeleportGoBtn?.addEventListener('click', () => {
+      sfx.click();
+      const val = this.dbgTeleportSelect?.value || 'tp:teacher';
+      this.handlers.onDebugTeleport?.(val);
+    });
+
+    this.dbgTeleportSelect?.addEventListener('change', () => {
+      sfx.click();
+      const val = this.dbgTeleportSelect.value;
+      if (val) this.handlers.onDebugTeleport?.(val);
     });
 
     document.getElementById('settings-close')?.addEventListener('click', () => {
@@ -689,6 +809,8 @@ export class HudManager {
 
   hide() {
     this.closeAllModals();
+    this.creatorPowerPopover?.classList.add('hidden');
+    this.hideWorldCelebration();
     this.netErrorBanner?.classList.add('hidden');
     this.orientationHintEl?.classList.add('hidden');
     this.hudEl.classList.add('hidden');
@@ -696,11 +818,106 @@ export class HudManager {
     this.interactPromptEl.classList.add('hidden');
   }
 
+  syncCreatorUi() {
+    const isLouis = isCreatorLouis(this.gameState.profile?.name);
+    if (this.creatorPowerBtn) {
+      this.creatorPowerBtn.classList.toggle('hidden', !isLouis);
+    }
+    if (!isLouis) {
+      this.creatorPowerPopover?.classList.add('hidden');
+    }
+    const auraOn = Boolean(this.gameState.skin?.creatorAura);
+    if (this.creatorAuraStateEl) {
+      this.creatorAuraStateEl.textContent = auraOn ? 'ON' : 'OFF';
+    }
+    if (this.creatorAuraBtn) {
+      this.creatorAuraBtn.classList.toggle('active', auraOn);
+    }
+  }
+
+  showWorldCelebration(payload = {}) {
+    if (!this.celebrationBannerEl) return;
+    const bannerText =
+      payload.bannerText ||
+      formatWorldCelebrationBanner(
+        payload.playerName || this.gameState.profile?.name || 'Élève',
+        payload.tpName || payload.tpLabel || 'Oscilloscope & Diagnostic 3D'
+      );
+    if (this.celebrationTextEl) {
+      this.celebrationTextEl.textContent = bannerText;
+    }
+    const durationMs = Math.max(1000, Number(payload.durationMs) || 8000);
+    this.celebrationBannerEl.classList.remove('hidden');
+    if (this.celebrationProgressEl) {
+      this.celebrationProgressEl.style.transition = 'none';
+      this.celebrationProgressEl.style.width = '100%';
+      void this.celebrationProgressEl.offsetWidth;
+      this.celebrationProgressEl.style.transition = `width ${durationMs}ms linear`;
+      this.celebrationProgressEl.style.width = '0%';
+    }
+    if (this.celebrationTimer) {
+      clearTimeout(this.celebrationTimer);
+    }
+    this.celebrationTimer = setTimeout(() => {
+      this.celebrationTimer = null;
+      this.hideWorldCelebration();
+    }, durationMs);
+  }
+
+  hideWorldCelebration() {
+    if (this.celebrationTimer) {
+      clearTimeout(this.celebrationTimer);
+      this.celebrationTimer = null;
+    }
+    this.celebrationBannerEl?.classList.add('hidden');
+  }
+
+  setPrivateDebugMode(active, roomCode = '') {
+    this.privateDebugActive = Boolean(active);
+    this.privateDebugBadgeEl?.classList.toggle('hidden', !this.privateDebugActive);
+    this.debugPanelEl?.classList.toggle('hidden', !this.privateDebugActive);
+    if (!this.privateDebugActive) {
+      this.debugNoclipActive = false;
+      if (this.dbgNoclipBtn) {
+        this.dbgNoclipBtn.classList.remove('active');
+        this.dbgNoclipBtn.textContent = '👻 Noclip: OFF';
+      }
+      this.debugPanelEl?.querySelectorAll('[data-dbg-speed]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.dbgSpeed === '1');
+      });
+    } else if (roomCode && this.netRoomTag) {
+      this.netRoomTag.textContent = roomCode;
+    }
+  }
+
+  updateDebugStats({ fps = 60, pingMs = null, pos = null, socketState = null } = {}) {
+    if (!this.privateDebugActive) return;
+    if (this.dbgFpsEl) {
+      this.dbgFpsEl.textContent = `${Math.round(Number(fps) || 60)}`;
+    }
+    if (this.dbgPingEl) {
+      this.dbgPingEl.textContent =
+        typeof pingMs === 'number' && Number.isFinite(pingMs) ? `${Math.round(pingMs)} ms` : '1 ms';
+    }
+    if (this.dbgXyzEl && pos) {
+      const x = Number(pos.x || 0).toFixed(2);
+      const y = Number(pos.y || 0).toFixed(2);
+      const z = Number(pos.z || 0).toFixed(2);
+      this.dbgXyzEl.textContent = `X: ${x} | Y: ${y} | Z: ${z}`;
+    }
+    if (this.dbgSocketEl && socketState) {
+      const st = socketState.stateLabel || (socketState.connected ? 'OPEN' : 'SOLO');
+      const rm = socketState.room || this.gameState.room || 'priv-debug';
+      this.dbgSocketEl.textContent = `${st} • ${rm} (id: ${socketState.clientId || '--'})`;
+    }
+  }
+
   refresh() {
     const p = this.gameState.profile;
     this.nameEl.textContent = p.name;
     this.xpEl.textContent = `${p.xp} XP`;
     this.avgEl.textContent = p.average !== null ? `${p.average.toFixed(1)} / 20` : '-- / 20';
+    this.syncCreatorUi();
 
     const completed = p.completedCount || 0;
     this.questProgressEl.textContent = `${completed} / 5`;

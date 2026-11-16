@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.6 - Mode VR WebXR, Mains 3D Articulées & Sync Multijoueur'),
+    __APP_VERSION__: JSON.stringify('v4.7 - Cinématique Mondiale 20/20, Pouvoirs Exclusifs & Serveur Privé Debug'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

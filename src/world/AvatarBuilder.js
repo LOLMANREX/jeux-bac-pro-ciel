@@ -42,10 +42,19 @@ export const DEFAULT_SKIN = {
   pantsColor: '#1e293b'
 };
 
+export function isCreatorLouis(rawName) {
+  return (
+    String(rawName || '')
+      .trim()
+      .toLowerCase()
+      .replace(/#\d+$/, '') === 'louis'
+  );
+}
+
 export function normalizeSkin(rawSkin = {}) {
   const s = rawSkin && typeof rawSkin === 'object' ? rawSkin : {};
   const hexOk = (v, fb) => (/^#[0-9a-fA-F]{6}$/.test(String(v || '')) ? String(v) : fb);
-  return {
+  const out = {
     outfitColor: hexOk(s.outfitColor, DEFAULT_SKIN.outfitColor),
     outfitStyle: SKIN_OPTIONS.outfitStyles.some((o) => o.id === s.outfitStyle)
       ? s.outfitStyle
@@ -54,6 +63,10 @@ export function normalizeSkin(rawSkin = {}) {
     skinTone: hexOk(s.skinTone, DEFAULT_SKIN.skinTone),
     pantsColor: hexOk(s.pantsColor, DEFAULT_SKIN.pantsColor)
   };
+  if (s.creatorAura) {
+    out.creatorAura = true;
+  }
+  return out;
 }
 
 function createThemeMaterials(skin, showcase = null) {
@@ -657,6 +670,91 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     });
   }
 
+  const creatorAuraGroup = new THREE.Group();
+  creatorAuraGroup.name = 'creator-golden-aura';
+  creatorAuraGroup.visible = Boolean(rawSkin?.creatorAura);
+  group.add(creatorAuraGroup);
+
+  const auraGoldMat = new THREE.MeshStandardMaterial({
+    color: '#fde047',
+    emissive: '#fbbf24',
+    emissiveIntensity: 2.1,
+    metalness: 0.9,
+    roughness: 0.12
+  });
+  const auraGlowMat = new THREE.MeshBasicMaterial({
+    color: '#fef08a',
+    transparent: true,
+    opacity: 0.65,
+    side: THREE.DoubleSide
+  });
+
+  const baseRing = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.025, 10, 36), auraGoldMat);
+  baseRing.rotation.x = Math.PI / 2;
+  baseRing.position.y = 0.04;
+  creatorAuraGroup.add(baseRing);
+
+  const innerFloorDisc = new THREE.Mesh(new THREE.RingGeometry(0.38, 0.56, 28), auraGlowMat);
+  innerFloorDisc.rotation.x = -Math.PI / 2;
+  innerFloorDisc.position.y = 0.025;
+  creatorAuraGroup.add(innerFloorDisc);
+
+  const risingRing = new THREE.Mesh(new THREE.TorusGeometry(0.48, 0.018, 10, 32), auraGoldMat);
+  risingRing.rotation.x = Math.PI / 2;
+  risingRing.position.y = 0.95;
+  creatorAuraGroup.add(risingRing);
+
+  const crownHalo = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.024, 10, 28), auraGoldMat);
+  crownHalo.rotation.x = Math.PI / 2;
+  crownHalo.position.y = 2.02;
+  creatorAuraGroup.add(crownHalo);
+
+  const auraMotes = [];
+  const moteGeom = new THREE.OctahedronGeometry(0.038, 0);
+  for (let i = 0; i < 18; i++) {
+    const moteMat = new THREE.MeshBasicMaterial({
+      color: i % 2 === 0 ? '#fde047' : '#fbbf24'
+    });
+    const mote = new THREE.Mesh(moteGeom, moteMat);
+    creatorAuraGroup.add(mote);
+    auraMotes.push({
+      mesh: mote,
+      angle: (i / 18) * Math.PI * 2,
+      radius: 0.48 + (i % 3) * 0.11,
+      speed: 1.5 + (i % 4) * 0.35,
+      yOffset: (i / 18) * 1.85
+    });
+  }
+
+  const auraLight = new THREE.PointLight('#fbbf24', 1.5, 4.8);
+  auraLight.position.set(0, 1.15, 0);
+  creatorAuraGroup.add(auraLight);
+
+  updaters.push((t) => {
+    if (!creatorAuraGroup.visible) return;
+    baseRing.rotation.z = t * 1.2;
+    const pulse = 1 + Math.sin(t * 3.8) * 0.07;
+    baseRing.scale.set(pulse, pulse, 1);
+    innerFloorDisc.rotation.z = -t * 0.9;
+    risingRing.position.y = 1.0 + Math.sin(t * 2.2) * 0.45;
+    risingRing.rotation.z = -t * 1.6;
+    crownHalo.position.y = 2.02 + Math.sin(t * 3.0) * 0.04;
+    crownHalo.rotation.z = t * 1.8;
+    auraLight.intensity = 1.35 + Math.sin(t * 4.5) * 0.4;
+    for (const m of auraMotes) {
+      const a = m.angle + t * m.speed;
+      const y = 0.18 + ((m.yOffset + t * 0.55) % 1.85);
+      m.mesh.position.set(Math.cos(a) * m.radius, y, Math.sin(a) * m.radius);
+      m.mesh.rotation.y = t * 2.6;
+      m.mesh.rotation.x = t * 1.9;
+    }
+  });
+
+  const setCreatorAura = (enabled) => {
+    creatorAuraGroup.visible = Boolean(enabled);
+  };
+  const hasCreatorAura = () => Boolean(creatorAuraGroup.visible);
+
   const updateEffects = (elapsed = 0) => {
     for (const fn of updaters) fn(elapsed);
   };
@@ -677,6 +775,9 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     rightArm,
     headGroup,
     torsoMat,
+    creatorAuraGroup,
+    setCreatorAura,
+    hasCreatorAura,
     setFirstPersonVrHidden,
     updateEffects
   };

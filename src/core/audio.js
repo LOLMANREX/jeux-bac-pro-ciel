@@ -95,6 +95,72 @@ class SoundEngine {
     this.playTone(880, 0.09, 'square', 0.045);
     setTimeout(() => this.playTone(660, 0.09, 'square', 0.045), 95);
   }
+
+  _playClapGrain(delaySec = 0, bandFreq = 1350, volume = 0.045) {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    const startAt = ctx.currentTime + Math.max(0, delaySec);
+    const dur = 0.055;
+    const len = Math.max(64, Math.floor(ctx.sampleRate * dur));
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const env = Math.pow(1 - i / len, 1.8);
+      data[i] = (Math.random() * 2 - 1) * env;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(bandFreq, startAt);
+    filter.Q.setValueAtTime(1.8, startAt);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(volume, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.001, startAt + dur);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    src.start(startAt);
+    src.stop(startAt + dur);
+  }
+
+  applaud() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    for (let i = 0; i < 10; i++) {
+      const delay = i * 0.048 + (Math.random() * 0.018);
+      const freq = 1050 + Math.random() * 850;
+      this._playClapGrain(delay, freq, 0.045);
+    }
+    this.playTone(880, 0.09, 'triangle', 0.055);
+    setTimeout(() => this.playTone(1174.66, 0.12, 'triangle', 0.06), 70);
+  }
+
+  celebrate20() {
+    const fanfare = [
+      { f: 523.25, t: 0, d: 0.16 },
+      { f: 659.25, t: 95, d: 0.16 },
+      { f: 783.99, t: 190, d: 0.18 },
+      { f: 1046.5, t: 300, d: 0.28 },
+      { f: 783.99, t: 460, d: 0.14 },
+      { f: 1046.5, t: 580, d: 0.36 },
+      { f: 1318.5, t: 760, d: 0.42 }
+    ];
+    fanfare.forEach((n) => {
+      setTimeout(() => {
+        this.playTone(n.f, n.d, 'triangle', 0.085);
+        this.playTone(n.f * 0.5, n.d, 'sine', 0.05);
+      }, n.t);
+    });
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    for (let i = 0; i < 38; i++) {
+      const delay = 0.25 + i * 0.065 + (Math.random() * 0.03);
+      const freq = 950 + Math.random() * 1100;
+      const vol = 0.032 + Math.sin((i / 38) * Math.PI) * 0.028;
+      this._playClapGrain(delay, freq, vol);
+    }
+  }
 }
 
 export const sfx = new SoundEngine();

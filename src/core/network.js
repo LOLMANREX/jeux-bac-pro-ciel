@@ -27,6 +27,8 @@ export class NetworkClient {
     this.manualClose = false;
     this.lastError = null;
     this.wsUrl = '';
+    this.lastPingMs = null;
+    this.lastPingSentAt = 0;
   }
 
   on(event, fn) {
@@ -191,9 +193,10 @@ export class NetworkClient {
       }
 
       this._stopHeartbeat();
+      this.sendPing();
       this.heartbeatTimer = setInterval(() => {
         if (this.connected) {
-          this.send({ type: 'ping' });
+          this.sendPing();
         }
       }, 20000);
     });
@@ -211,6 +214,12 @@ export class NetworkClient {
         if (this.pendingJoin && msg.profile?.name) {
           this.pendingJoin.name = msg.profile.name;
         }
+      }
+      if (msg.type === 'pong') {
+        if (this.lastPingSentAt > 0) {
+          this.lastPingMs = Math.max(1, Math.round(performance.now() - this.lastPingSentAt));
+        }
+        msg.pingMs = this.lastPingMs;
       }
       if (msg.type === 'account_deleted') {
         this.manualClose = true;
@@ -360,6 +369,53 @@ export class NetworkClient {
 
   sendEmote(emoteId, label) {
     return this.send({ type: 'emote', emoteId, label });
+  }
+
+  sendPing() {
+    this.lastPingSentAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    return this.send({ type: 'ping' });
+  }
+
+  sendCreatorCelebration(tpId = 'oscilloscope', tpLabel = '', debug = false) {
+    return this.send({
+      type: 'trigger_celebration',
+      tpId,
+      tpLabel,
+      debug: Boolean(debug)
+    });
+  }
+
+  sendCreatorAura(enabled) {
+    return this.send({
+      type: 'creator_aura',
+      enabled: Boolean(enabled)
+    });
+  }
+
+  sendDebugAction(action, extra = {}) {
+    return this.send({
+      type: 'debug_action',
+      action,
+      ...extra
+    });
+  }
+
+  getSocketDebugState() {
+    const stateMap = {
+      0: 'CONNECTING',
+      1: 'OPEN',
+      2: 'CLOSING',
+      3: 'CLOSED'
+    };
+    const rs = this.ws ? this.ws.readyState : 3;
+    return {
+      connected: Boolean(this.connected),
+      readyState: rs,
+      stateLabel: stateMap[rs] || 'CLOSED',
+      clientId: this.clientId || '--',
+      room: this.pendingJoin?.room || DEFAULT_ROOM,
+      pingMs: this.lastPingMs
+    };
   }
 
   sendChat(text) {

@@ -2,6 +2,7 @@ import './admin.css';
 import { renderSkinPreviewSvg } from '../world/AvatarBuilder.js';
 import { TP_CATALOG } from '../core/gameState.js';
 import { MapEditor } from './MapEditor.js';
+import { PRIVATE_DEBUG_STORAGE_KEY, requestPrivateDebugSession } from '../admin.js';
 
 const TOKEN_STORAGE_KEY = 'ciel_admin_token';
 
@@ -42,6 +43,7 @@ const searchInput = document.getElementById('search-player-input');
 const sortSelect = document.getElementById('sort-select');
 const filterOnlineBtn = document.getElementById('btn-filter-online');
 const refreshBtn = document.getElementById('btn-refresh');
+const launchPrivateDebugBtn = document.getElementById('btn-launch-private-debug');
 const logoutBtn = document.getElementById('btn-logout');
 
 const tbody = document.getElementById('players-tbody');
@@ -540,6 +542,17 @@ loginForm.addEventListener('submit', async (e) => {
 });
 
 refreshBtn.addEventListener('click', () => loadPlayers());
+launchPrivateDebugBtn?.addEventListener('click', async () => {
+  launchPrivateDebugBtn.disabled = true;
+  try {
+    const session = await requestPrivateDebugSession(apiFetch);
+    sessionStorage.setItem(PRIVATE_DEBUG_STORAGE_KEY, JSON.stringify(session));
+    showToast(`Ouverture du Serveur Privé Debug (${session.room})...`, 'success');
+    window.location.href = session.debugUrl;
+  } finally {
+    launchPrivateDebugBtn.disabled = false;
+  }
+});
 logoutBtn.addEventListener('click', () => {
   switchAdminSection('users');
   clearSession();

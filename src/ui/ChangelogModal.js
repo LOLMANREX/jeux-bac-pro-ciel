@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.6 - Mode VR WebXR, Mains 3D Articulées & Sync Multijoueur';
+    : 'v4.7 - Cinématique Mondiale 20/20, Pouvoirs Exclusifs & Serveur Privé Debug';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,20 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
+    version: 'v4.7 — Cinématique Mondiale 20/20, Pouvoirs Exclusifs & Serveur Privé Debug',
+    date: '16/11/2026',
+    tag: 'DERNIÈRE MÀJ',
+    items: [
+      'Cinématique Mondiale 20/20 : lorsqu’un élève décroche 20/20 à un TP 3D, diffusion réseau à toute la salle avec bannière HUD dorée animée (« 🏆 EXPLOIT CIEL : [Pseudo] a décroché 20/20 au TP [Nom du TP] ! »), feux d’artifice 3D, pluie de particules dorées/cyan, éclairages dynamiques et applaudissements synthétisés en Web Audio API.',
+      'Action rapide « 👏 Applaudir » affichée pendant 8 secondes dans le HUD lors d’un 20/20 pour permettre aux camarades d’envoyer des émojis festifs au-dessus de leur avatar 3D.',
+      'Pouvoir Exclusif Créateur (« 👑 Pouvoir Créateur ») réservé au pseudo « Louis » (insensible à la casse) : déclenchement manuel de la célébration mondiale 20/20 pour toute la classe et activation d’une aura lumineuse dorée 3D synchronisée en multijoueur.',
+      'Serveur Privé & Outils de Debug depuis /admin (« 🔒 Lancer une partie sur Serveur Privé (Mode Debug) ») : salon privé isolé invisible des élèves publics avec badge « 🛠️ SERVEUR PRIVÉ DEBUG », validation instantanée « 💯 Tout valider à 20/20 », réinitialisation, vitesse sprint/noclip, téléportation vers tous les TPs/salles U300 et télémétrie temps réel (FPS, ping, XYZ, WebSocket).'
+    ]
+  },
+  {
     version: 'v4.6 — Mode VR WebXR, Mains 3D Articulées & Sync Multijoueur',
     date: '13/11/2026',
-    tag: 'DERNIÈRE MÀJ',
+    tag: 'HISTORIQUE',
     items: [
       'Intégration complète WebXR (optimisée Meta Quest 3S, local-floor, 72–90 Hz) + Mode Simulation VR sur PC via la touche F9 et boutons « MODE VR (QUEST / WEBXR) » dans le Menu Principal, le sélecteur de plateforme et le HUD.',
       'Mains 3D articulées gauche/droite adaptées aux skins du casier (Or 24K, Diamant, Matrix, Carbone Néon, Chrome RGB, Cyber Or, tenue standard) avec pliage temps réel des 5 doigts sur 2 phalanges depuis les boutons gâchette, grip et repose-pouce.',

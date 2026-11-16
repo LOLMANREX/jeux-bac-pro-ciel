@@ -66,13 +66,17 @@ function sanitizeSuggestionText(raw, maxLen) {
 export function sanitizeSkin(raw, fallbackColor = DEFAULT_SKIN.outfitColor) {
   const s = raw && typeof raw === 'object' ? raw : {};
   const baseOutfit = isValidHex(fallbackColor) ? fallbackColor : DEFAULT_SKIN.outfitColor;
-  return {
+  const cleaned = {
     outfitColor: isValidHex(s.outfitColor) ? s.outfitColor : baseOutfit,
     outfitStyle: VALID_STYLES.has(s.outfitStyle) ? s.outfitStyle : DEFAULT_SKIN.outfitStyle,
     hat: VALID_HATS.has(s.hat) ? s.hat : DEFAULT_SKIN.hat,
     skinTone: isValidHex(s.skinTone) ? s.skinTone : DEFAULT_SKIN.skinTone,
     pantsColor: isValidHex(s.pantsColor) ? s.pantsColor : DEFAULT_SKIN.pantsColor
   };
+  if (s.creatorAura) {
+    cleaned.creatorAura = true;
+  }
+  return cleaned;
 }
 
 export function computeAverage(grades = {}) {
@@ -375,6 +379,32 @@ export class GameStore {
       isNewBest,
       score,
       completedCount
+    };
+  }
+
+  validateAllTps(rawName, rawSkin = null) {
+    const name = sanitizeName(rawName);
+    const key = name.toLowerCase();
+    this.getOrCreatePlayer(name, rawSkin);
+    const player = this._normalizePlayer(this.data.players[key], name);
+    for (const id of ALL_TP_IDS) {
+      player.grades[id] = 20;
+      if (!player.bestTimes[id]) {
+        player.bestTimes[id] = 45;
+      }
+    }
+    player.xp = Math.max(player.xp + 1750, 3150);
+    player.questAccepted = true;
+    player.average = computeAverage(player.grades);
+    player.diplomaEarned = true;
+    player.diplomas = computeDiplomas(player.grades, player.average, true);
+    player.updatedAt = new Date().toISOString();
+    this.data.players[key] = player;
+    this._save();
+    return {
+      profile: this.getPublicProfile(key),
+      score: 20,
+      completedCount: TP_IDS.length
     };
   }
 

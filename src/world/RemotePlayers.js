@@ -225,6 +225,10 @@ export class RemotePlayersManager {
       rightLeg: meshData.rightLeg,
       leftArm: meshData.leftArm,
       rightArm: meshData.rightArm,
+      headGroup: meshData.headGroup,
+      torsoMat: meshData.torsoMat,
+      updateEffects: meshData.updateEffects,
+      setCreatorAura: meshData.setCreatorAura,
       _walkPhase: 0,
       badge: null,
       bubble: null,
@@ -305,11 +309,25 @@ export class RemotePlayersManager {
     peer.rightArm = meshData.rightArm;
     peer.headGroup = meshData.headGroup;
     peer.torsoMat = meshData.torsoMat;
+    peer.updateEffects = meshData.updateEffects;
+    peer.setCreatorAura = meshData.setCreatorAura;
     peer.vrTracker = attachRemoteVrVisuals(peer, nextSkin);
     peer._walkPhase = 0;
 
     this.scene.add(peer.group);
     this._refreshBadge(peer);
+  }
+
+  setCreatorAura(id, enabled) {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    peer.skin = { ...peer.skin };
+    if (enabled) {
+      peer.skin.creatorAura = true;
+    } else {
+      delete peer.skin.creatorAura;
+    }
+    peer.setCreatorAura?.(Boolean(enabled));
   }
 
   movePeer(id, x, y, z, yaw, vrData = undefined) {
@@ -472,6 +490,7 @@ export class RemotePlayersManager {
         speedRatio: Math.max(0.8, Math.min(1.5, peer.horizSpeed / 5.2))
       });
 
+      peer.updateEffects?.(elapsed);
       peer.vrTracker?.update?.(peer.vrData, dt, elapsed);
       updateSpeechBubble(peer.bubble, dt);
       updateVoiceIndicatorSprite(peer.voiceIndicator, dt, peer.isSpeaking);

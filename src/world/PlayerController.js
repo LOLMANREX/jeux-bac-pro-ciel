@@ -20,6 +20,8 @@ export class PlayerController {
     this.yaw = Math.atan2(-dx, -dz);
     this.pitch = -0.05;
     this.speed = 5.4;
+    this.speedMultiplier = 1.0;
+    this.noclip = false;
     this.radius = 0.42;
     this.keys = new Set();
     this.virtualMove = { right: 0, forward: 0 };
@@ -196,7 +198,19 @@ export class PlayerController {
     }
   }
 
+  setSpeedMultiplier(mult) {
+    const n = Number(mult);
+    this.speedMultiplier = Number.isFinite(n) ? Math.max(0.5, Math.min(6, n)) : 1.0;
+  }
+
+  setNoclip(enabled) {
+    this.noclip = Boolean(enabled);
+  }
+
   _collides(nx, nz) {
+    if (this.noclip) {
+      return false;
+    }
     const bnd = this.bounds || WORLD_BOUNDS;
     if (
       nx - this.radius < bnd.minX + 0.14 ||
@@ -245,7 +259,8 @@ export class PlayerController {
 
     let isMoving = false;
     const sprint =
-      this.virtualSprint || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 1.45 : 1;
+      (this.virtualSprint || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 1.45 : 1) *
+      (this.speedMultiplier || 1);
 
     const len = Math.hypot(forward, right);
     if (len > 0.001) {

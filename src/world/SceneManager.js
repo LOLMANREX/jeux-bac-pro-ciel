@@ -1,6 +1,184 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
+export function createWorldCelebrationRig(scene) {
+  const root = new THREE.Group();
+  root.name = 'world-celebration-20-rig';
+  root.visible = false;
+  if (scene) scene.add(root);
+
+  const rainItems = [];
+  const goldCyanPalette = ['#fbbf24', '#fde047', '#22d3ee', '#67e8f9', '#f59e0b', '#38bdf8'];
+  const octGeom = new THREE.OctahedronGeometry(0.055, 0);
+  const confettiGeom = new THREE.BoxGeometry(0.075, 0.02, 0.045);
+
+  for (let i = 0; i < 120; i++) {
+    const col = goldCyanPalette[i % goldCyanPalette.length];
+    const mat = new THREE.MeshBasicMaterial({ color: col });
+    const mesh = new THREE.Mesh(i % 2 === 0 ? octGeom : confettiGeom, mat);
+    const rx = ((i * 37) % 240) / 10 - 12;
+    const rz = ((i * 53) % 220) / 10 - 11;
+    const ry = 0.6 + ((i * 19) % 42) / 10;
+    mesh.position.set(rx, ry, rz);
+    root.add(mesh);
+    rainItems.push({
+      mesh,
+      baseX: rx,
+      baseZ: rz,
+      yOffset: ry,
+      speedY: 1.15 + (i % 5) * 0.28,
+      driftAmp: 0.25 + (i % 4) * 0.09,
+      driftFreq: 1.4 + (i % 6) * 0.35,
+      rotSpeed: 2.2 + (i % 5) * 0.6
+    });
+  }
+
+  const fireworkOrigins = [
+    new THREE.Vector3(-4.2, 3.6, -2.0),
+    new THREE.Vector3(3.8, 3.9, -2.5),
+    new THREE.Vector3(-2.5, 4.1, 3.2),
+    new THREE.Vector3(4.1, 3.7, 2.8),
+    new THREE.Vector3(0.0, 4.2, -0.5),
+    new THREE.Vector3(-6.5, 3.6, 0.8)
+  ];
+  const sparkGeom = new THREE.SphereGeometry(0.048, 6, 6);
+  const bursts = [];
+
+  fireworkOrigins.forEach((origin, bIdx) => {
+    const burstGroup = new THREE.Group();
+    burstGroup.position.copy(origin);
+    root.add(burstGroup);
+    const sparks = [];
+    const sparkCount = 22;
+    for (let s = 0; s < sparkCount; s++) {
+      const phi = Math.acos(1 - (2 * (s + 0.5)) / sparkCount);
+      const theta = Math.PI * (1 + Math.sqrt(5)) * s;
+      const dir = new THREE.Vector3(
+        Math.cos(theta) * Math.sin(phi),
+        Math.cos(phi),
+        Math.sin(theta) * Math.sin(phi)
+      ).normalize();
+      const col = goldCyanPalette[(bIdx + s) % goldCyanPalette.length];
+      const sparkMesh = new THREE.Mesh(
+        sparkGeom,
+        new THREE.MeshBasicMaterial({ color: col })
+      );
+      burstGroup.add(sparkMesh);
+      sparks.push({
+        mesh: sparkMesh,
+        dir,
+        speed: 1.4 + (s % 4) * 0.35
+      });
+    }
+    bursts.push({
+      group: burstGroup,
+      origin: origin.clone(),
+      phaseOffset: bIdx * 0.42,
+      sparks
+    });
+  });
+
+  const goldLightA = new THREE.PointLight('#fbbf24', 0, 18);
+  goldLightA.position.set(-3.5, 3.4, 0.5);
+  root.add(goldLightA);
+
+  const cyanLight = new THREE.PointLight('#22d3ee', 0, 18);
+  cyanLight.position.set(3.2, 3.4, -1.2);
+  root.add(cyanLight);
+
+  const goldLightB = new THREE.PointLight('#fde047', 0, 16);
+  goldLightB.position.set(0, 3.8, 3.0);
+  root.add(goldLightB);
+
+  const dynamicLights = [goldLightA, cyanLight, goldLightB];
+
+  let active = false;
+  let remaining = 0;
+  let duration = 8;
+  let localElapsed = 0;
+
+  const trigger = (opts = {}) => {
+    duration = Math.max(1, Number(opts.duration) || 8);
+    remaining = duration;
+    localElapsed = 0;
+    active = true;
+    root.visible = true;
+    if (opts.center && Number.isFinite(Number(opts.center.x)) && Number.isFinite(Number(opts.center.z))) {
+      root.position.set(Number(opts.center.x) * 0.15, 0, Number(opts.center.z) * 0.15);
+    } else {
+      root.position.set(0, 0, 0);
+    }
+    return {
+      active: true,
+      duration,
+      particleCount: rainItems.length,
+      fireworkCount: bursts.length,
+      lightCount: dynamicLights.length
+    };
+  };
+
+  const update = (dt = 0.016, _elapsed = 0) => {
+    if (!active) return false;
+    remaining -= dt;
+    localElapsed += dt;
+    if (remaining <= 0) {
+      active = false;
+      remaining = 0;
+      root.visible = false;
+      for (const l of dynamicLights) l.intensity = 0;
+      return false;
+    }
+
+    const fade = remaining < 1.2 ? Math.max(0, remaining / 1.2) : 1;
+
+    for (const item of rainItems) {
+      const y = 4.6 - ((item.yOffset + localElapsed * item.speedY) % 4.4);
+      const x = item.baseX + Math.sin(localElapsed * item.driftFreq + item.yOffset) * item.driftAmp;
+      const z = item.baseZ + Math.cos(localElapsed * item.driftFreq + item.baseX) * item.driftAmp;
+      item.mesh.position.set(x, y, z);
+      item.mesh.rotation.x = localElapsed * item.rotSpeed;
+      item.mesh.rotation.y = localElapsed * (item.rotSpeed * 0.8);
+      item.mesh.scale.setScalar(fade);
+    }
+
+    for (const b of bursts) {
+      const cycle = (localElapsed + b.phaseOffset) % 1.45;
+      const norm = cycle / 1.45;
+      const radius = norm * 2.35;
+      const drop = norm * norm * 0.65;
+      const scale = Math.max(0.01, (1 - norm * 0.82) * fade);
+      for (const sp of b.sparks) {
+        sp.mesh.position.set(
+          sp.dir.x * radius * sp.speed * 0.55,
+          sp.dir.y * radius * sp.speed * 0.55 - drop,
+          sp.dir.z * radius * sp.speed * 0.55
+        );
+        sp.mesh.scale.setScalar(scale);
+      }
+    }
+
+    goldLightA.intensity = (2.2 + Math.sin(localElapsed * 7.5) * 1.1) * fade;
+    cyanLight.intensity = (2.0 + Math.cos(localElapsed * 6.8) * 1.0) * fade;
+    goldLightB.intensity = (2.1 + Math.sin(localElapsed * 8.4 + 1.2) * 1.1) * fade;
+    goldLightA.position.x = -3.5 + Math.sin(localElapsed * 2.1) * 3.0;
+    cyanLight.position.x = 3.2 + Math.cos(localElapsed * 2.3) * 3.0;
+    goldLightB.position.z = 2.0 + Math.sin(localElapsed * 1.9) * 3.2;
+
+    return true;
+  };
+
+  return {
+    root,
+    rainItems,
+    bursts,
+    dynamicLights,
+    trigger,
+    update,
+    isActive: () => active,
+    getRemaining: () => remaining
+  };
+}
+
 export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
@@ -43,6 +221,8 @@ export class SceneManager {
     this.customRenderScene = null;
     this.customStepFn = null;
     this.clock = new THREE.Clock();
+    this.fps = 60;
+    this.celebrationRig = createWorldCelebrationRig(this.scene);
 
     this._setupLights();
     this.setQuality('high');
@@ -171,6 +351,18 @@ export class SceneManager {
     this.alwaysUpdaters.push(fn);
   }
 
+  getFps() {
+    return Math.round(this.fps || 60);
+  }
+
+  triggerWorldCelebration(options = {}) {
+    return this.celebrationRig?.trigger(options);
+  }
+
+  updateCelebration(dt, elapsed = 0) {
+    return this.celebrationRig?.update(dt, elapsed);
+  }
+
   _handleResize() {
     if (this.renderer.xr?.isPresenting) return;
     const w = window.innerWidth;
@@ -182,8 +374,14 @@ export class SceneManager {
 
   start() {
     this.renderer.setAnimationLoop(() => {
-      const dt = Math.min(this.clock.getDelta(), 0.1);
+      const rawDt = this.clock.getDelta();
+      if (rawDt > 0.0005) {
+        const instFps = Math.min(240, Math.max(1, 1 / rawDt));
+        this.fps = this.fps * 0.88 + instFps * 0.12;
+      }
+      const dt = Math.min(rawDt, 0.1);
       const elapsed = this.clock.elapsedTime;
+      this.celebrationRig?.update(dt, elapsed);
       if (this.customRenderScene) {
         if (this.customStepFn) {
           this.customStepFn(dt, elapsed);

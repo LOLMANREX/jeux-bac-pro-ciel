@@ -3,6 +3,30 @@ import { WebSocketServer } from 'ws';
 import { sanitizeName, sanitizeSkin, ALL_TP_IDS, TP_IDS, TP_LABELS } from './store.js';
 
 const DEFAULT_ROOMS = ['plateau-u300', 'salle-reseau'];
+export const PRIVATE_DEBUG_PREFIX = 'priv-debug';
+
+export function isPrivateDebugRoom(rawRoom) {
+  return String(rawRoom || '')
+    .trim()
+    .toLowerCase()
+    .startsWith(PRIVATE_DEBUG_PREFIX);
+}
+
+export function isCreatorPseudo(rawName) {
+  return (
+    String(rawName || '')
+      .trim()
+      .toLowerCase()
+      .replace(/#\d+$/, '') === 'louis'
+  );
+}
+
+export function formatCelebrationBanner(playerName, rawTpLabel) {
+  const cleanName = sanitizeName(playerName || 'Eleve_CIEL');
+  const rawTp = String(rawTpLabel || 'Oscilloscope & Diagnostic 3D').trim();
+  const cleanTp = rawTp.replace(/^TP\s+/i, '').trim() || 'Oscilloscope & Diagnostic 3D';
+  return `🏆 EXPLOIT CIEL : ${cleanName} a décroché 20/20 au TP ${cleanTp} !`;
+}
 
 function sanitizeRoom(raw) {
   const cleaned = String(raw || '')
@@ -10,7 +34,7 @@ function sanitizeRoom(raw) {
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, '-')
     .replace(/-+/g, '-')
-    .slice(0, 22);
+    .slice(0, 28);
   return cleaned || 'plateau-u300';
 }
 
@@ -254,6 +278,32 @@ export function attachWsHub(httpServer, store) {
     );
   }
 
+  function broadcastCelebrationInRoom(roomId, opts = {}) {
+    const targetRoom = sanitizeRoom(roomId || 'plateau-u300');
+    const tpId = opts.tpId && ALL_TP_IDS.includes(opts.tpId) ? opts.tpId : 'oscilloscope';
+    const tpLabel = opts.tpLabel || TP_LABELS[tpId] || 'TP Oscilloscope & Diagnostic 3D';
+    const cleanTpName = String(tpLabel).replace(/^TP\s+/i, '').trim() || 'Oscilloscope & Diagnostic 3D';
+    const playerName = sanitizeName(opts.playerName || 'Eleve_CIEL');
+    const bannerText = formatCelebrationBanner(playerName, cleanTpName);
+    const payload = {
+      type: 'world_celebration',
+      id: crypto.randomUUID().slice(0, 8),
+      room: targetRoom,
+      playerId: opts.playerId || null,
+      playerName,
+      tpId,
+      tpLabel,
+      tpName: cleanTpName,
+      score: 20,
+      durationMs: 8000,
+      reason: opts.reason || 'tp_20',
+      bannerText,
+      at: new Date().toISOString()
+    };
+    broadcastToRoom(targetRoom, payload, null);
+    return payload;
+  }
+
   function announceScoreInRoom(state, tpId, result, excludeWs = null) {
     const tpLabel = TP_LABELS[tpId] || tpId;
     const message = result.profile.diplomaEarned
@@ -296,14 +346,27 @@ export function attachWsHub(httpServer, store) {
       excludeWs
     );
 
+    if (Number(result.score) >= 20) {
+      broadcastCelebrationInRoom(state.room, {
+        playerId: state.id,
+        playerName: state.name,
+        tpId,
+        tpLabel,
+        reason: 'tp_20'
+      });
+    }
+
     if (result.score >= 16 || result.profile.diplomaEarned) {
       const sysMsg = {
         id: crypto.randomUUID().slice(0, 8),
         system: true,
         author: 'Professeur CIEL',
-        text: result.profile.diplomaEarned
-          ? `Félicitations à ${state.name} qui décroche le BAC PRO CIEL (${result.profile.average}/20) !`
-          : `Bravo ${state.name} pour son ${result.score}/20 au ${tpLabel} !`,
+        text:
+          Number(result.score) >= 20
+            ? `🏆 EXPLOIT PARFAIT ! ${state.name} vient de décrocher 20/20 au ${tpLabel} !`
+            : result.profile.diplomaEarned
+              ? `Félicitations à ${state.name} qui décroche le BAC PRO CIEL (${result.profile.average}/20) !`
+              : `Bravo ${state.name} pour son ${result.score}/20 au ${tpLabel} !`,
         at: new Date().toISOString()
       };
       pushChat(state.room, sysMsg);
@@ -564,6 +627,120 @@ export function attachWsHub(httpServer, store) {
           break;
         }
 
+        case 'trigger_celebration': {
+          if (!state.name) return;
+          const allowed =
+            isCreatorPseudo(state.name) ||
+            isPrivateDebugRoom(state.room) ||
+            Boolean(msg.debug);
+          if (!allowed) return;
+          const tpId = msg.tpId && ALL_TP_IDS.includes(msg.tpId) ? msg.tpId : 'oscilloscope';
+          broadcastCelebrationInRoom(state.room, {
+            playerId: state.id,
+            playerName: msg.playerName || state.name,
+            tpId,
+            tpLabel: msg.tpLabel || TP_LABELS[tpId],
+            reason: isPrivateDebugRoom(state.room) ? 'debug' : 'creator'
+          });
+          break;
+        }
+
+        case 'creator_aura': {
+          if (!state.name) return;
+          if (!isCreatorPseudo(state.name) && !isPrivateDebugRoom(state.room)) return;
+          const enabled = Boolean(msg.enabled);
+          const nextSkin = { ...state.skin };
+          if (enabled) {
+            nextSkin.creatorAura = true;
+          } else {
+            delete nextSkin.creatorAura;
+          }
+          const profile = store.updatePlayerSkin(state.name, nextSkin);
+          state.skin = profile.skin;
+          state.color = profile.color;
+          ws.send(JSON.stringify({ type: 'profile_updated', profile }));
+          broadcastToRoom(
+            state.room,
+            {
+              type: 'player_skin_updated',
+              id: state.id,
+              name: state.name,
+              skin: state.skin,
+              color: state.color
+            },
+            ws
+          );
+          broadcastToRoom(
+            state.room,
+            {
+              type: 'creator_aura_updated',
+              id: state.id,
+              name: state.name,
+              enabled,
+              skin: state.skin
+            },
+            null
+          );
+          break;
+        }
+
+        case 'debug_action': {
+          if (!state.name) return;
+          if (!isPrivateDebugRoom(state.room) && !isCreatorPseudo(state.name)) return;
+          if (msg.action === 'validate_all') {
+            const res = store.validateAllTps(state.name, state.skin);
+            ws.send(JSON.stringify({ type: 'profile_updated', profile: res.profile }));
+            broadcastToRoom(
+              state.room,
+              {
+                type: 'player_stats_updated',
+                id: state.id,
+                profile: {
+                  xp: res.profile.xp,
+                  average: res.profile.average,
+                  completedCount: res.profile.completedCount,
+                  diplomaEarned: res.profile.diplomaEarned,
+                  rank: res.profile.rank,
+                  rankLabel: res.profile.rankLabel
+                }
+              },
+              ws
+            );
+            broadcastLeaderboard();
+          } else if (msg.action === 'reset_progress') {
+            const profile = store.resetPlayer(state.name);
+            if (profile) {
+              ws.send(JSON.stringify({ type: 'profile_updated', profile }));
+              broadcastToRoom(
+                state.room,
+                {
+                  type: 'player_stats_updated',
+                  id: state.id,
+                  profile: {
+                    xp: profile.xp,
+                    average: profile.average,
+                    completedCount: profile.completedCount,
+                    diplomaEarned: profile.diplomaEarned,
+                    rank: profile.rank,
+                    rankLabel: profile.rankLabel
+                  }
+                },
+                ws
+              );
+              broadcastLeaderboard();
+            }
+          } else if (msg.action === 'celebrate') {
+            broadcastCelebrationInRoom(state.room, {
+              playerId: state.id,
+              playerName: state.name,
+              tpId: msg.tpId || 'oscilloscope',
+              tpLabel: msg.tpLabel,
+              reason: 'debug'
+            });
+          }
+          break;
+        }
+
         case 'chat': {
           if (!state.name) return;
           const text = String(msg.text || '').trim().slice(0, 160);
@@ -674,13 +851,17 @@ export function attachWsHub(httpServer, store) {
         map.set(def, { room: def, count: 0, players: [] });
       }
       for (const s of clients.values()) {
-        if (!s.name) continue;
+        if (!s.name || isPrivateDebugRoom(s.room)) continue;
         if (!map.has(s.room)) map.set(s.room, { room: s.room, count: 0, players: [] });
         const entry = map.get(s.room);
         entry.count++;
         entry.players.push(s.name);
       }
       return [...map.values()];
+    },
+    triggerCelebration: (opts = {}) => {
+      const room = sanitizeRoom(opts.room || 'plateau-u300');
+      return broadcastCelebrationInRoom(room, opts);
     },
     getEnrichedLeaderboard,
     getAllEnrichedPlayers,

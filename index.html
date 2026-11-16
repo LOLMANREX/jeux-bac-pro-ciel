@@ -195,9 +195,31 @@
             <div id="hud-zone-pill" class="zone-pill" title="Zone actuelle sur le Plateau U300">
               📍 U300 - Couloir Central
             </div>
+            <div id="hud-private-debug-badge" class="private-debug-badge hidden" title="Instance privée isolée de la session publique">
+              🛠️ SERVEUR PRIVÉ DEBUG
+            </div>
           </div>
 
           <div class="hud-actions">
+            <div class="creator-power-wrapper">
+              <button
+                type="button"
+                id="btn-creator-power"
+                class="btn-hud btn-creator-gold hidden"
+                title="Pouvoir Exclusif Créateur (Réservé à Louis)"
+              >
+                👑 Pouvoir Créateur
+              </button>
+              <div id="creator-power-popover" class="creator-power-popover hidden">
+                <div class="cp-popover-title">👑 POUVOIRS EXCLUSIFS — LOUIS</div>
+                <button type="button" id="btn-creator-celebrate" class="cp-action-btn">
+                  🏆 Déclencher Cinématique 20/20
+                </button>
+                <button type="button" id="btn-creator-aura" class="cp-action-btn">
+                  ✨ Aura Dorée 3D : <strong id="creator-aura-state">OFF</strong>
+                </button>
+              </div>
+            </div>
             <button
               type="button"
               id="btn-vr-toggle"
@@ -223,6 +245,106 @@
             <button id="btn-main-menu" class="btn-hud" title="Retour au menu principal">🏠 Menu principal</button>
           </div>
         </header>
+
+        <div id="world-celebration-banner" class="world-celebration-banner hidden" role="status" aria-live="polite">
+          <div class="wc-glow-ring" aria-hidden="true"></div>
+          <div class="wc-content">
+            <span class="wc-trophy-ico" aria-hidden="true">🏆</span>
+            <div class="wc-text-wrap">
+              <div class="wc-tag">CÉLÉBRATION MONDIALE 20/20 • EXCELLENCE BAC PRO CIEL</div>
+              <div id="world-celebration-text" class="wc-main-text">
+                🏆 EXPLOIT CIEL : Élève a décroché 20/20 au TP Oscilloscope !
+              </div>
+            </div>
+            <button type="button" id="btn-celebration-applaud" class="btn-celebration-applaud">
+              👏 Applaudir
+            </button>
+          </div>
+          <div class="wc-progress-track">
+            <div id="world-celebration-progress" class="wc-progress-bar"></div>
+          </div>
+        </div>
+
+        <aside id="debug-tools-panel" class="debug-tools-panel hidden" aria-label="Outils Serveur Privé Debug">
+          <div class="dbg-header">
+            <span>🛠️ Outils Serveur Privé Debug</span>
+            <button type="button" id="btn-debug-collapse" class="btn-quest-toggle" title="Réduire ou agrandir">▾</button>
+          </div>
+          <div id="debug-tools-body" class="dbg-body">
+            <div class="dbg-stats-grid">
+              <div class="dbg-stat-box">
+                <span class="dbg-stat-lbl">FPS</span>
+                <strong id="dbg-val-fps">60</strong>
+              </div>
+              <div class="dbg-stat-box">
+                <span class="dbg-stat-lbl">PING</span>
+                <strong id="dbg-val-ping">1 ms</strong>
+              </div>
+              <div class="dbg-stat-box dbg-stat-wide">
+                <span class="dbg-stat-lbl">POS XYZ</span>
+                <strong id="dbg-val-xyz">X: 0.0 | Y: 0.0 | Z: 0.0</strong>
+              </div>
+              <div class="dbg-stat-box dbg-stat-wide">
+                <span class="dbg-stat-lbl">SOCKET</span>
+                <strong id="dbg-val-socket">OPEN • Salon privé isolé</strong>
+              </div>
+            </div>
+
+            <div class="dbg-section-title">Actions de test rapides</div>
+            <div class="dbg-actions-col">
+              <button type="button" id="btn-debug-celebrate" class="dbg-btn dbg-btn-gold">
+                🏆 Tester Cinématique 20/20
+              </button>
+              <button type="button" id="btn-debug-validate-all" class="dbg-btn dbg-btn-emerald">
+                💯 Tout valider à 20/20
+              </button>
+              <button type="button" id="btn-debug-reset-progress" class="dbg-btn dbg-btn-rose">
+                🔄 Réinitialiser progression
+              </button>
+            </div>
+
+            <div class="dbg-section-title">Déplacement &amp; Physique</div>
+            <div class="dbg-speed-row">
+              <button type="button" class="dbg-chip active" data-dbg-speed="1">1× Normal</button>
+              <button type="button" class="dbg-chip" data-dbg-speed="2">2× Sprint</button>
+              <button type="button" class="dbg-chip" data-dbg-speed="3.5">3.5× Turbo</button>
+              <button type="button" id="btn-debug-noclip" class="dbg-chip dbg-chip-noclip">👻 Noclip: OFF</button>
+            </div>
+
+            <div class="dbg-section-title">Téléportation instantanée (U300 &amp; TPs)</div>
+            <div class="dbg-tp-row">
+              <select id="debug-teleport-select" aria-label="Choisir une destination de téléportation">
+                <optgroup label="Bornes TP &amp; Professeur CIEL">
+                  <option value="tp:teacher">👨‍🏫 Professeur CIEL (Hall U300)</option>
+                  <option value="tp:oscilloscope">〰️ TP Oscilloscope (U302)</option>
+                  <option value="tp:soldering">🔥 TP Brasure PCB (U301)</option>
+                  <option value="tp:electronics">⚡ TP Électronique 3D (U302)</option>
+                  <option value="tp:antivirus">🛡️ TP Cyber SOC (U305)</option>
+                  <option value="tp:vmvlan">🌐 TP VLAN 802.1Q (U307)</option>
+                  <option value="tp:patchrack">🔌 TP Brassage Baie 19" (Chambre)</option>
+                  <option value="tp:hardware">🖥️ TP Montage PC ESD (U306)</option>
+                  <option value="tp:audiovisual">🎛️ TP Éclairage DMX512 (U303)</option>
+                  <option value="tp:studio">🎬 TP Régie Studio (U304)</option>
+                </optgroup>
+                <optgroup label="Salles du Plateau U300">
+                  <option value="zone:U300">📍 U300 — Hall &amp; Couloir Central</option>
+                  <option value="zone:U301">📍 U301 — Atelier Brasure</option>
+                  <option value="zone:U302">📍 U302 — Labo Oscilloscopes &amp; Élec</option>
+                  <option value="zone:U303">📍 U303 — Plateau Audiovisuel</option>
+                  <option value="zone:U304">📍 U304 — Studio Régie &amp; Son</option>
+                  <option value="zone:U305">📍 U305 — Centre Cyber SOC</option>
+                  <option value="zone:U306">📍 U306 — Maintenance Hardware PC</option>
+                  <option value="zone:U307">📍 U307 — Salle Réseaux &amp; VLAN</option>
+                  <option value="zone:CHAMBRE">📍 Chambre Serveur — Baies 19"</option>
+                  <option value="zone:U308">📍 U308 — Sas ESD</option>
+                  <option value="zone:U309">📍 U309 — Local Technique</option>
+                  <option value="zone:U311">📍 U311 — Réserve Matériel</option>
+                </optgroup>
+              </select>
+              <button type="button" id="btn-debug-teleport-go" class="dbg-btn dbg-btn-cyan">⚡ TP</button>
+            </div>
+          </div>
+        </aside>
 
         <div id="voice-nearby-bar" class="voice-nearby-bar hidden" aria-live="polite"></div>
 
@@ -372,7 +494,6 @@
         </div>
       </div>
 
-      <!-- Modal Paramètres (FOV, Qualité, Souris, Audio) -->
       <div id="settings-modal" class="modal-backdrop hidden">
         <div class="dialogue-card settings-card">
           <div class="dialogue-header">
@@ -656,7 +777,6 @@
         </div>
       </div>
 
-      <!-- Modal Conteneur des Mini-Jeux -->
       <div id="minigame-modal" class="modal-backdrop hidden">
         <div class="minigame-shell">
           <div class="minigame-topbar">

@@ -1219,3 +1219,23 @@ button:active {
     grid-template-rows: 260px 440px auto;
   }
 }
+
+.btn-private-debug {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #0f172a;
+  border: 1.5px solid #fde047;
+  padding: 9px 15px;
+  border-radius: 10px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.35);
+}
+
+.btn-private-debug:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 8px 26px rgba(251, 191, 36, 0.5);
+}

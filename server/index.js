@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { GameStore, MapStore, ALL_TP_IDS, TP_IDS, TP_LABELS } from './store.js';
-import { attachWsHub } from './wsHub.js';
+import { attachWsHub, isCreatorPseudo, isPrivateDebugRoom } from './wsHub.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -109,6 +109,44 @@ export function createGameServer(options = {}) {
   app.post('/api/score', handleRecordTpScore);
   app.post('/api/tp', handleRecordTpScore);
 
+  app.post('/api/celebration', (req, res) => {
+    const { name, room, tpId, tpLabel, debug } = req.body || {};
+    if (!name) {
+      return res.status(400).json({ error: 'Pseudo requis' });
+    }
+    if (!isCreatorPseudo(name) && !isPrivateDebugRoom(room) && !debug) {
+      return res.status(403).json({ error: 'Pouvoir réservé au Créateur Louis ou au Serveur Privé Debug' });
+    }
+    const celebration = wsHub.triggerCelebration({
+      playerName: name,
+      room: room || 'plateau-u300',
+      tpId: tpId || 'oscilloscope',
+      tpLabel,
+      reason: isPrivateDebugRoom(room) ? 'debug' : 'creator'
+    });
+    return res.json({ ok: true, celebration });
+  });
+
+  app.post('/api/debug/validate-all', (req, res) => {
+    const { name, skin } = req.body || {};
+    if (!name) {
+      return res.status(400).json({ error: 'Pseudo requis' });
+    }
+    const result = store.validateAllTps(name, skin);
+    return res.json({ ok: true, ...result });
+  });
+
+  app.post('/api/debug/reset', (req, res) => {
+    const { name } = req.body || {};
+    if (!name) {
+      return res.status(400).json({ error: 'Pseudo requis' });
+    }
+    store.getOrCreatePlayer(name);
+    const profile = store.resetPlayer(name);
+    wsHub.notifyPlayerReset(profile);
+    return res.json({ ok: true, profile });
+  });
+
   app.get('/api/suggestions', (_req, res) => {
     res.json({
       suggestions: store.getSuggestions()
@@ -158,6 +196,22 @@ export function createGameServer(options = {}) {
     const token = crypto.randomBytes(32).toString('hex');
     adminTokens.set(token, Date.now() + ADMIN_SESSION_TTL_MS);
     return res.json({ ok: true, token, expiresInMs: ADMIN_SESSION_TTL_MS });
+  });
+
+  app.post('/api/admin/debug-session', requireAdmin, (req, res) => {
+    const requestedRoom = String(req.body?.room || '').trim();
+    const room =
+      requestedRoom && isPrivateDebugRoom(requestedRoom)
+        ? requestedRoom
+        : `priv-debug-${crypto.randomBytes(3).toString('hex')}`;
+    const debugUrl = `/?debug=1&room=${encodeURIComponent(room)}`;
+    return res.json({
+      ok: true,
+      isolated: true,
+      room,
+      debugUrl,
+      badge: '🛠️ SERVEUR PRIVÉ DEBUG'
+    });
   });
 
   app.get('/api/admin/players', requireAdmin, (_req, res) => {
