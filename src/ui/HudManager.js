@@ -111,6 +111,18 @@ export class HudManager {
     this.voiceBtnIco = document.getElementById('voice-btn-ico');
     this.voiceBtnLabel = document.getElementById('voice-btn-label');
     this.voiceNearbyBar = document.getElementById('voice-nearby-bar');
+    this.audioSettingsBtn = document.getElementById('btn-audio-settings');
+    this.audioSettingsPopover = document.getElementById('audio-settings-popover');
+    this.audioRefreshBtn = document.getElementById('btn-audio-refresh');
+    this.audioCloseBtn = document.getElementById('btn-audio-close');
+    this.audioInputSelect = document.getElementById('audio-input-select');
+    this.audioOutputSelect = document.getElementById('audio-output-select');
+    this.audioOutputStatusEl = document.getElementById('audio-output-status');
+    this.audioMicTestBtn = document.getElementById('btn-audio-mic-test');
+    this.audioMicMeterFillEl = document.getElementById('audio-mic-meter-fill');
+    this.audioMicMeterLabelEl = document.getElementById('audio-mic-meter-label');
+    this.audioHudSfxToggle = document.getElementById('audio-hud-sfx-toggle');
+    this.audioMeterTimer = null;
     this.vrToggleBtn = document.getElementById('btn-vr-toggle');
     this.vrBtnLabel = document.getElementById('vr-btn-label');
     this.creatorPowerBtn = document.getElementById('btn-creator-power');
@@ -162,6 +174,7 @@ export class HudManager {
     this.dbgCelebrateBtn = document.getElementById('btn-debug-celebrate');
     this.dbgValidateAllBtn = document.getElementById('btn-debug-validate-all');
     this.dbgResetBtn = document.getElementById('btn-debug-reset-progress');
+    this.dbgVrPanelBtn = document.getElementById('btn-debug-vr-panel');
     this.dbgNoclipBtn = document.getElementById('btn-debug-noclip');
     this.dbgTeleportSelect = document.getElementById('debug-teleport-select');
     this.dbgTeleportGoBtn = document.getElementById('btn-debug-teleport-go');
@@ -225,10 +238,17 @@ export class HudManager {
     const syncMuteUi = () => {
       if (muteBtn) muteBtn.textContent = sfx.muted ? '🔇' : '🔊';
       if (soundCheck) soundCheck.checked = !sfx.muted;
+      if (this.audioHudSfxToggle) this.audioHudSfxToggle.checked = !sfx.muted;
     };
+    this.syncMuteUi = syncMuteUi;
 
     muteBtn?.addEventListener('click', () => {
       sfx.toggleMute();
+      syncMuteUi();
+    });
+
+    this.audioHudSfxToggle?.addEventListener('change', () => {
+      sfx.setMuted(!this.audioHudSfxToggle.checked);
       syncMuteUi();
     });
 
@@ -477,6 +497,12 @@ export class HudManager {
       this.handlers.onDebugResetProgress?.();
     });
 
+    this.dbgVrPanelBtn?.addEventListener('click', () => {
+      sfx.click();
+      const next = this.handlers.onDebugToggleVrPanel?.();
+      this.syncDebugVrPanelBtn(Boolean(next));
+    });
+
     this.debugPanelEl?.querySelectorAll('[data-dbg-speed]').forEach((btn) => {
       btn.addEventListener('click', () => {
         sfx.click();
@@ -576,6 +602,77 @@ export class HudManager {
     this.voiceToggleBtn?.addEventListener('click', () => {
       sfx.click();
       this.handlers.onVoiceToggle?.();
+    });
+
+    const toggleAudioPopover = (forceOpen = null) => {
+      if (!this.audioSettingsPopover) return;
+      const isClosed = this.audioSettingsPopover.classList.contains('hidden');
+      const shouldOpen = forceOpen === null ? isClosed : Boolean(forceOpen);
+      if (shouldOpen) {
+        this.audioSettingsPopover.classList.remove('hidden');
+        this.audioSettingsBtn?.classList.add('open');
+        this.syncMuteUi?.();
+        this.handlers.onAudioPanelToggle?.(true);
+        if (!this.audioMeterTimer) {
+          this.audioMeterTimer = setInterval(() => {
+            const level = this.handlers.onSampleMicLevel?.() ?? 0;
+            this.updateMicMeter(level, true);
+          }, 60);
+        }
+      } else {
+        this.audioSettingsPopover.classList.add('hidden');
+        this.audioSettingsBtn?.classList.remove('open');
+        if (this.audioMeterTimer) {
+          clearInterval(this.audioMeterTimer);
+          this.audioMeterTimer = null;
+        }
+        this.updateMicMeter(0, false);
+        this.handlers.onAudioPanelToggle?.(false);
+      }
+    };
+    this.toggleAudioPopover = toggleAudioPopover;
+
+    this.audioSettingsBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sfx.click();
+      toggleAudioPopover();
+    });
+
+    this.audioCloseBtn?.addEventListener('click', () => {
+      sfx.click();
+      toggleAudioPopover(false);
+    });
+
+    this.audioRefreshBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onAudioRefreshDevices?.();
+    });
+
+    this.audioInputSelect?.addEventListener('change', () => {
+      const id = this.audioInputSelect.value;
+      this.gameState.setAudioInputId(id);
+      this.handlers.onAudioInputChange?.(id);
+    });
+
+    this.audioOutputSelect?.addEventListener('change', () => {
+      const id = this.audioOutputSelect.value;
+      this.gameState.setAudioOutputId(id);
+      this.handlers.onAudioOutputChange?.(id);
+    });
+
+    this.audioMicTestBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onAudioMicTestToggle?.();
+    });
+
+    document.addEventListener('click', (e) => {
+      if (
+        this.audioSettingsPopover &&
+        !this.audioSettingsPopover.classList.contains('hidden') &&
+        !e.target.closest('.audio-settings-wrapper')
+      ) {
+        toggleAudioPopover(false);
+      }
     });
 
     document.getElementById('set-reset-btn')?.addEventListener('click', () => {
@@ -770,6 +867,7 @@ export class HudManager {
     this.closeSkinModal();
     this.closeSettings();
     this.rosterPopover.classList.add('hidden');
+    this.toggleAudioPopover?.(false);
   }
 
   toggleChat(forceOpen = null, focusInput = false) {
@@ -1596,9 +1694,80 @@ export class HudManager {
           .join('');
       }
     }
+
+    this.syncAudioDevices(voiceState);
+  }
+
+  syncAudioDevices(voiceState = {}) {
+    if (this.audioInputSelect && Array.isArray(voiceState.audioInputs)) {
+      const currentVal = voiceState.inputDeviceId ?? this.gameState.audioInputId ?? '';
+      const opts = ['<option value="">Microphone système par défaut</option>'];
+      for (const dev of voiceState.audioInputs) {
+        if (!dev.deviceId || dev.deviceId === 'default') continue;
+        opts.push(`<option value="${this._escape(dev.deviceId)}">${this._escape(dev.label || 'Microphone')}</option>`);
+      }
+      const html = opts.join('');
+      if (this.audioInputSelect.innerHTML !== html) {
+        this.audioInputSelect.innerHTML = html;
+      }
+      this.audioInputSelect.value = currentVal;
+    }
+
+    if (this.audioOutputSelect && Array.isArray(voiceState.audioOutputs)) {
+      const currentOut = voiceState.outputDeviceId ?? this.gameState.audioOutputId ?? '';
+      const opts = ['<option value="">Sortie système par défaut</option>'];
+      for (const dev of voiceState.audioOutputs) {
+        if (!dev.deviceId || dev.deviceId === 'default') continue;
+        opts.push(`<option value="${this._escape(dev.deviceId)}">${this._escape(dev.label || 'Sortie audio')}</option>`);
+      }
+      const html = opts.join('');
+      if (this.audioOutputSelect.innerHTML !== html) {
+        this.audioOutputSelect.innerHTML = html;
+      }
+      this.audioOutputSelect.value = currentOut;
+    }
+
+    if (this.audioOutputStatusEl) {
+      if (voiceState.sinkStatusMessage) {
+        this.audioOutputStatusEl.textContent = voiceState.sinkStatusMessage;
+      } else if (voiceState.sinkSupported === false) {
+        this.audioOutputStatusEl.textContent = 'Sélection de sortie gérée par le système (setSinkId indisponible).';
+      } else {
+        this.audioOutputStatusEl.textContent = '';
+      }
+    }
+
+    if (this.audioMicTestBtn) {
+      const testing = Boolean(voiceState.meterActive);
+      this.audioMicTestBtn.textContent = testing ? '⏹️ Stopper' : '🎙️ Tester';
+    }
+  }
+
+  updateMicMeter(level = 0, active = false) {
+    const pct = Math.max(0, Math.min(100, Math.round((Number(level) || 0) * 100)));
+    if (this.audioMicMeterFillEl) {
+      this.audioMicMeterFillEl.style.width = `${pct}%`;
+    }
+    if (this.audioMicMeterLabelEl) {
+      if (!active) {
+        this.audioMicMeterLabelEl.textContent = 'Inactif';
+      } else if (pct > 18) {
+        this.audioMicMeterLabelEl.textContent = `Signal détecté (${pct}%)`;
+      } else {
+        this.audioMicMeterLabelEl.textContent = `À l’écoute (${pct}%)`;
+      }
+    }
+  }
+
+  syncDebugVrPanelBtn(enabled = false) {
+    if (!this.dbgVrPanelBtn) return;
+    const on = Boolean(enabled);
+    this.dbgVrPanelBtn.textContent = on ? '🩺 Panneau Debug VR 3D : ON' : '🩺 Panneau Debug VR 3D : OFF';
+    this.dbgVrPanelBtn.classList.toggle('is-off', !on);
   }
 
   syncVrUi(vrState = {}) {
+    this.syncDebugVrPanelBtn(vrState.debugOverlayEnabled ?? vrState.debugPanelVisible);
     if (!this.vrToggleBtn) return;
     const active = Boolean(vrState.active);
     const simMode = Boolean(vrState.simMode);

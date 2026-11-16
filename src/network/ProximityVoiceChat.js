@@ -58,11 +58,25 @@ export function computeProximityAudioParams({
   };
 }
 
+export function computeRmsMicLevel(samples) {
+  if (!samples || !samples.length) return { rms: 0, level: 0 };
+  let sumSq = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const norm = (samples[i] - 128) / 128;
+    sumSq += norm * norm;
+  }
+  const rms = Math.sqrt(sumSq / samples.length);
+  const level = Math.max(0, Math.min(1, Math.round(rms * 4.5 * 1000) / 1000));
+  return { rms, level };
+}
+
 export class ProximityVoiceChat {
   constructor(network, options = {}) {
     this.network = network;
     this.onStateChange = options.onStateChange || null;
     this.onToast = options.onToast || null;
+    this.onDevicesChange = options.onDevicesChange || null;
+    this.onMicLevel = options.onMicLevel || null;
 
     this.maxRange = options.maxRange || VOICE_MAX_RANGE;
     this.fullVolumeRange = options.fullVolumeRange || VOICE_FULL_VOLUME_RANGE;
@@ -74,15 +88,33 @@ export class ProximityVoiceChat {
 
     this.audioCtx = null;
     this.masterGain = null;
+    this.outputSinkDest = null;
+    this.outputSinkEl = null;
+    this.usingStreamSink = false;
     this.localStream = null;
     this.localTrack = null;
     this.localSource = null;
     this.analyser = null;
     this.vadBuffer = null;
 
+    this.meterStream = null;
+    this.meterTrack = null;
+    this.meterSource = null;
+    this.meterAnalyser = null;
+    this.meterBuffer = null;
+    this.meterActive = false;
+    this.micLevel = 0;
+
     this.peers = new Map();
     this.remoteVoiceStates = new Map();
     this.nearbySpeakers = [];
+
+    this.inputDeviceId = String(options.inputDeviceId ?? this._readStorage('ciel_audio_input_id') ?? '');
+    this.outputDeviceId = String(options.outputDeviceId ?? this._readStorage('ciel_audio_output_id') ?? '');
+    this.audioInputs = [];
+    this.audioOutputs = [];
+    this.sinkSupported = this.isOutputSelectionSupported();
+    this.sinkStatusMessage = '';
 
     this.micEnabled = false;
     this.pttHeld = false;
@@ -98,6 +130,140 @@ export class ProximityVoiceChat {
     this.pendingConnectTimer = null;
 
     this._lastSentState = null;
+    this._onDeviceChangeBound = () => {
+      this.refreshDevices().catch(() => {});
+    };
+    this._bindDeviceChangeListener();
+  }
+
+  _readStorage(key) {
+    try {
+      return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  _writeStorage(key, value) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        if (value) localStorage.setItem(key, String(value));
+        else localStorage.removeItem(key);
+      }
+    } catch {
+      return;
+    }
+  }
+
+  _bindDeviceChangeListener() {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices) return;
+    try {
+      navigator.mediaDevices.ondevicechange = this._onDeviceChangeBound;
+      this._boundViaProperty = true;
+    } catch {
+      this._boundViaProperty = false;
+      if (typeof navigator.mediaDevices.addEventListener === 'function') {
+        navigator.mediaDevices.addEventListener('devicechange', this._onDeviceChangeBound);
+        this._boundViaEvent = true;
+      }
+    }
+  }
+
+  _unbindDeviceChangeListener() {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices) return;
+    if (this._boundViaProperty && navigator.mediaDevices.ondevicechange === this._onDeviceChangeBound) {
+      try {
+        navigator.mediaDevices.ondevicechange = null;
+      } catch {}
+    }
+    if (this._boundViaEvent && typeof navigator.mediaDevices.removeEventListener === 'function') {
+      navigator.mediaDevices.removeEventListener('devicechange', this._onDeviceChangeBound);
+    }
+    this._boundViaProperty = false;
+    this._boundViaEvent = false;
+  }
+
+  isOutputSelectionSupported() {
+    if (typeof window === 'undefined') return false;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx?.prototype && typeof AudioCtx.prototype.setSinkId === 'function') {
+      return true;
+    }
+    if (typeof HTMLAudioElement !== 'undefined' && typeof HTMLAudioElement.prototype?.setSinkId === 'function') {
+      return true;
+    }
+    return false;
+  }
+
+  _buildAudioConstraints(deviceId = this.inputDeviceId) {
+    const audio = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    };
+    const cleanId = String(deviceId || '');
+    if (cleanId && cleanId !== 'default') {
+      audio.deviceId = { exact: cleanId };
+    }
+    return { audio, video: false };
+  }
+
+  async refreshDevices() {
+    if (typeof navigator === 'undefined' || typeof navigator.mediaDevices?.enumerateDevices !== 'function') {
+      this.audioInputs = [];
+      this.audioOutputs = [];
+      return { audioInputs: [], audioOutputs: [] };
+    }
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      const raw = Array.isArray(list) ? list : [];
+      const inputs = [];
+      const outputs = [];
+      for (const dev of raw) {
+        if (!dev) continue;
+        if (dev.kind === 'audioinput') {
+          const idx = inputs.length + 1;
+          inputs.push({
+            deviceId: String(dev.deviceId || ''),
+            label: dev.label || (dev.deviceId === 'default' ? 'Microphone par défaut' : `Microphone ${idx}`)
+          });
+        } else if (dev.kind === 'audiooutput') {
+          const idx = outputs.length + 1;
+          outputs.push({
+            deviceId: String(dev.deviceId || ''),
+            label: dev.label || (dev.deviceId === 'default' ? 'Sortie système par défaut' : `Sortie audio ${idx}`)
+          });
+        }
+      }
+      this.audioInputs = inputs;
+      this.audioOutputs = outputs;
+
+      const hasNamedInputs = inputs.some((d) => d.deviceId && d.deviceId !== 'default');
+      if (hasNamedInputs && this.inputDeviceId && this.inputDeviceId !== 'default' && !inputs.some((d) => d.deviceId === this.inputDeviceId)) {
+        this.inputDeviceId = '';
+        this._writeStorage('ciel_audio_input_id', '');
+        if (this.micEnabled) {
+          await this.setInputDevice('');
+        }
+      }
+      const hasNamedOutputs = outputs.some((d) => d.deviceId && d.deviceId !== 'default');
+      if (hasNamedOutputs && this.outputDeviceId && this.outputDeviceId !== 'default' && !outputs.some((d) => d.deviceId === this.outputDeviceId)) {
+        this.outputDeviceId = '';
+        this._writeStorage('ciel_audio_output_id', '');
+        await this.setOutputDevice('');
+      }
+
+      this.onDevicesChange?.({
+        audioInputs: this.audioInputs,
+        audioOutputs: this.audioOutputs,
+        inputDeviceId: this.inputDeviceId,
+        outputDeviceId: this.outputDeviceId
+      });
+      this._emitState();
+      return { audioInputs: this.audioInputs, audioOutputs: this.audioOutputs };
+    } catch {
+      return { audioInputs: this.audioInputs, audioOutputs: this.audioOutputs };
+    }
   }
 
   setMode(mode) {
@@ -156,6 +322,9 @@ export class ProximityVoiceChat {
       this.masterGain = this.audioCtx.createGain();
       this.masterGain.connect(this.audioCtx.destination);
       this._applyMasterVolume();
+      if (this.outputDeviceId) {
+        this._applySinkToAudioContext(this.outputDeviceId).catch(() => {});
+      }
     }
     if (this.audioCtx.state === 'suspended') {
       try {
@@ -165,6 +334,41 @@ export class ProximityVoiceChat {
       }
     }
     return this.audioCtx;
+  }
+
+  async _getStreamForDevice(deviceId = this.inputDeviceId) {
+    const cleanId = String(deviceId || '');
+    try {
+      return await navigator.mediaDevices.getUserMedia(this._buildAudioConstraints(cleanId));
+    } catch (err) {
+      const name = err?.name || '';
+      if (cleanId && cleanId !== 'default' && (name === 'OverconstrainedError' || name === 'NotFoundError' || name === 'DevicesNotFoundError')) {
+        this.inputDeviceId = '';
+        this._writeStorage('ciel_audio_input_id', '');
+        return navigator.mediaDevices.getUserMedia(this._buildAudioConstraints(''));
+      }
+      throw err;
+    }
+  }
+
+  _bindLocalStreamAnalyser(stream) {
+    if (this.localSource) {
+      try {
+        this.localSource.disconnect();
+      } catch {}
+      this.localSource = null;
+    }
+    if (!this.audioCtx || !stream || typeof this.audioCtx.createMediaStreamSource !== 'function') return;
+    this.localSource = this.audioCtx.createMediaStreamSource(stream);
+    if (!this.analyser && typeof this.audioCtx.createAnalyser === 'function') {
+      this.analyser = this.audioCtx.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.analyser.smoothingTimeConstant = 0.65;
+      this.vadBuffer = new Uint8Array(this.analyser.fftSize);
+    }
+    if (this.analyser) {
+      this.localSource.connect(this.analyser);
+    }
   }
 
   async _acquireMicrophone() {
@@ -182,14 +386,7 @@ export class ProximityVoiceChat {
 
     try {
       await this.ensureAudioContext();
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        },
-        video: false
-      });
+      this.localStream = await this._getStreamForDevice(this.inputDeviceId);
       this.localTrack = this.localStream.getAudioTracks()[0] || null;
       if (!this.localTrack) {
         this.permissionState = 'error';
@@ -203,17 +400,10 @@ export class ProximityVoiceChat {
         this.disableMicrophone();
       };
 
-      if (this.audioCtx) {
-        this.localSource = this.audioCtx.createMediaStreamSource(this.localStream);
-        this.analyser = this.audioCtx.createAnalyser();
-        this.analyser.fftSize = 512;
-        this.analyser.smoothingTimeConstant = 0.65;
-        this.localSource.connect(this.analyser);
-        this.vadBuffer = new Uint8Array(this.analyser.fftSize);
-      }
-
+      this._bindLocalStreamAnalyser(this.localStream);
       this.permissionState = 'granted';
       this.errorMessage = '';
+      this.refreshDevices().catch(() => {});
       return true;
     } catch (err) {
       const name = err?.name || '';
@@ -233,6 +423,307 @@ export class ProximityVoiceChat {
       this._emitState();
       return false;
     }
+  }
+
+  async setInputDevice(deviceId = '') {
+    const prevInputId = this.inputDeviceId;
+    const nextId = String(deviceId || '');
+    this.inputDeviceId = nextId;
+    this._writeStorage('ciel_audio_input_id', nextId);
+
+    const hasLiveStream = Boolean(
+      this.localStream && this.localTrack && this.localTrack.readyState !== 'ended'
+    );
+    if (!this.supported || (!this.micEnabled && !hasLiveStream)) {
+      if (this.meterActive) {
+        await this.startMicTest();
+      } else {
+        this._emitState();
+      }
+      return { switched: true, active: false, deviceId: this.inputDeviceId, replacedPeers: 0 };
+    }
+
+    let nextStream = null;
+    try {
+      await this.ensureAudioContext();
+      nextStream = await navigator.mediaDevices.getUserMedia(this._buildAudioConstraints(nextId));
+    } catch (err) {
+      this.inputDeviceId = prevInputId;
+      this._writeStorage('ciel_audio_input_id', prevInputId);
+      const msg =
+        err?.name === 'NotAllowedError'
+          ? 'Accès au microphone refusé.'
+          : 'Impossible de basculer sur le microphone sélectionné.';
+      this.errorMessage = msg;
+      this.onToast?.(msg, 'error');
+      this._emitState();
+      return { switched: false, active: true, error: err?.name || 'Error', deviceId: this.inputDeviceId };
+    }
+
+    const nextTrack = nextStream.getAudioTracks?.()[0] || null;
+    if (!nextTrack) {
+      for (const t of nextStream.getTracks?.() || []) t.stop();
+      this.inputDeviceId = prevInputId;
+      this._writeStorage('ciel_audio_input_id', prevInputId);
+      this._emitState();
+      return { switched: false, active: true, error: 'NoAudioTrack', deviceId: this.inputDeviceId };
+    }
+
+    const prevStream = this.localStream;
+    this.localStream = nextStream;
+    this.localTrack = nextTrack;
+    this.localTrack.enabled = this.isTransmitting();
+    this.localTrack.onended = () => {
+      if (this.localTrack === nextTrack) {
+        this.disableMicrophone();
+      }
+    };
+
+    this._bindLocalStreamAnalyser(nextStream);
+
+    let replacedPeers = 0;
+    for (const entry of this.peers.values()) {
+      const pc = entry?.pc;
+      if (!pc) continue;
+      const sender =
+        entry.audioTransceiver?.sender ||
+        pc.getSenders?.().find((s) => s.track?.kind === 'audio');
+      if (sender && typeof sender.replaceTrack === 'function') {
+        try {
+          await sender.replaceTrack(nextTrack);
+          replacedPeers += 1;
+        } catch {}
+      } else {
+        try {
+          await this._syncPeerLocalTrack(entry);
+          await this._negotiatePeer(entry);
+          replacedPeers += 1;
+        } catch {}
+      }
+    }
+
+    if (prevStream && prevStream !== nextStream) {
+      for (const t of prevStream.getTracks?.() || []) {
+        t.onended = null;
+        t.stop();
+      }
+    }
+
+    this.permissionState = 'granted';
+    this.errorMessage = '';
+    this.refreshDevices().catch(() => {});
+    this._emitState();
+    return { switched: true, active: true, deviceId: this.inputDeviceId, replacedPeers };
+  }
+
+  async _applySinkToElement(audioEl, targetId = '') {
+    if (!audioEl || typeof audioEl.setSinkId !== 'function') {
+      return { supported: false, applied: false };
+    }
+    try {
+      await audioEl.setSinkId(String(targetId || ''));
+      return { supported: true, applied: true };
+    } catch (err) {
+      if (targetId) {
+        try {
+          await audioEl.setSinkId('');
+        } catch {}
+      }
+      return { supported: true, applied: false, error: err?.name || 'SinkError' };
+    }
+  }
+
+  async _applySinkToAudioContext(targetId = '') {
+    if (!this.audioCtx) {
+      return { supported: this.isOutputSelectionSupported(), applied: false, deferred: true };
+    }
+    const cleanId = String(targetId || '');
+    if (typeof this.audioCtx.setSinkId === 'function') {
+      try {
+        await this.audioCtx.setSinkId(cleanId);
+        return { supported: true, applied: true };
+      } catch (err) {
+        if (cleanId) {
+          try {
+            await this.audioCtx.setSinkId('');
+          } catch {}
+        }
+        return { supported: true, applied: false, error: err?.name || 'SinkError' };
+      }
+    }
+
+    if (typeof document !== 'undefined' && typeof this.audioCtx.createMediaStreamDestination === 'function') {
+      if (!this.outputSinkEl) {
+        const el = document.createElement('audio');
+        el.autoplay = true;
+        el.playsInline = true;
+        this.outputSinkEl = el;
+      }
+      if (typeof this.outputSinkEl.setSinkId === 'function') {
+        if (!cleanId) {
+          if (this.usingStreamSink && this.masterGain) {
+            try {
+              this.masterGain.disconnect();
+            } catch {}
+            this.masterGain.connect(this.audioCtx.destination);
+            this.usingStreamSink = false;
+          }
+          try {
+            this.outputSinkEl.pause?.();
+          } catch {}
+          return { supported: true, applied: true };
+        }
+        try {
+          if (!this.outputSinkDest) {
+            this.outputSinkDest = this.audioCtx.createMediaStreamDestination();
+          }
+          if (this.masterGain && !this.usingStreamSink) {
+            try {
+              this.masterGain.disconnect();
+            } catch {}
+            this.masterGain.connect(this.outputSinkDest);
+            this.usingStreamSink = true;
+          }
+          this.outputSinkEl.srcObject = this.outputSinkDest.stream;
+          await this.outputSinkEl.setSinkId(cleanId);
+          this.outputSinkEl.play?.().catch(() => {});
+          return { supported: true, applied: true };
+        } catch (err) {
+          if (this.usingStreamSink && this.masterGain) {
+            try {
+              this.masterGain.disconnect();
+            } catch {}
+            this.masterGain.connect(this.audioCtx.destination);
+            this.usingStreamSink = false;
+          }
+          return { supported: true, applied: false, error: err?.name || 'SinkError' };
+        }
+      }
+    }
+
+    return { supported: false, applied: false };
+  }
+
+  async setOutputDevice(deviceId = '') {
+    const nextId = String(deviceId || '');
+    this.outputDeviceId = nextId;
+    this._writeStorage('ciel_audio_output_id', nextId);
+
+    let anySupported = this.isOutputSelectionSupported();
+    let anyApplied = false;
+    let lastErr = '';
+
+    for (const entry of this.peers.values()) {
+      if (entry?.audioEl) {
+        const res = await this._applySinkToElement(entry.audioEl, nextId);
+        if (res.supported) anySupported = true;
+        if (res.applied) anyApplied = true;
+        if (res.error) lastErr = res.error;
+      }
+    }
+
+    const ctxRes = await this._applySinkToAudioContext(nextId);
+    if (ctxRes.supported) anySupported = true;
+    if (ctxRes.applied) anyApplied = true;
+    if (ctxRes.error) lastErr = ctxRes.error;
+
+    this.sinkSupported = anySupported;
+    if (!anySupported && nextId) {
+      this.sinkStatusMessage = 'Sortie audio système utilisée (setSinkId non supporté par ce navigateur).';
+    } else if (lastErr) {
+      this.sinkStatusMessage = 'Périphérique de sortie indisponible : retour à la sortie système.';
+    } else {
+      this.sinkStatusMessage = '';
+    }
+
+    this._emitState();
+    return {
+      supported: anySupported,
+      applied: anyApplied || (!nextId && anySupported),
+      deviceId: this.outputDeviceId,
+      error: lastErr || undefined
+    };
+  }
+
+  async startMicTest() {
+    if (this.localStream && this.localTrack && this.localTrack.enabled && this.analyser) {
+      this.stopMicTest(false);
+      return { ok: true, mode: 'live' };
+    }
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      return { ok: false, reason: 'unsupported' };
+    }
+    this.stopMicTest(false);
+    try {
+      const ctx = await this.ensureAudioContext();
+      this.meterStream = await this._getStreamForDevice(this.inputDeviceId);
+      this.meterTrack = this.meterStream.getAudioTracks?.()[0] || null;
+      if (ctx && typeof ctx.createMediaStreamSource === 'function' && typeof ctx.createAnalyser === 'function') {
+        this.meterSource = ctx.createMediaStreamSource(this.meterStream);
+        this.meterAnalyser = ctx.createAnalyser();
+        this.meterAnalyser.fftSize = 256;
+        this.meterAnalyser.smoothingTimeConstant = 0.6;
+        this.meterSource.connect(this.meterAnalyser);
+        this.meterBuffer = new Uint8Array(this.meterAnalyser.fftSize);
+      }
+      this.meterActive = true;
+      this.refreshDevices().catch(() => {});
+      this._emitState();
+      return { ok: true, mode: 'preview' };
+    } catch (err) {
+      this.meterActive = false;
+      this._emitState();
+      return { ok: false, reason: err?.name || 'Error' };
+    }
+  }
+
+  stopMicTest(emit = true) {
+    if (this.meterStream) {
+      for (const t of this.meterStream.getTracks?.() || []) {
+        t.stop();
+      }
+    }
+    if (this.meterSource) {
+      try {
+        this.meterSource.disconnect();
+      } catch {}
+    }
+    if (this.meterAnalyser) {
+      try {
+        this.meterAnalyser.disconnect();
+      } catch {}
+    }
+    this.meterStream = null;
+    this.meterTrack = null;
+    this.meterSource = null;
+    this.meterAnalyser = null;
+    this.meterBuffer = null;
+    this.meterActive = false;
+    if (!this.isTransmitting()) {
+      this.micLevel = 0;
+      this.onMicLevel?.(0);
+    }
+    if (emit) this._emitState();
+  }
+
+  sampleMicLevel() {
+    if (this.isTransmitting() && this.analyser && this.vadBuffer) {
+      this.analyser.getByteTimeDomainData(this.vadBuffer);
+      const { level } = computeRmsMicLevel(this.vadBuffer);
+      this.micLevel = level;
+      this.onMicLevel?.(level);
+      return level;
+    }
+    if (this.meterActive && this.meterAnalyser && this.meterBuffer) {
+      this.meterAnalyser.getByteTimeDomainData(this.meterBuffer);
+      const { level } = computeRmsMicLevel(this.meterBuffer);
+      this.micLevel = level;
+      this.onMicLevel?.(level);
+      return level;
+    }
+    this.micLevel = 0;
+    this.onMicLevel?.(0);
+    return 0;
   }
 
   async enableMicrophone() {
@@ -394,6 +885,7 @@ export class ProximityVoiceChat {
 
   disconnect() {
     this.joined = false;
+    this.stopMicTest(false);
     this.disableMicrophone();
     if (this.localStream) {
       for (const t of this.localStream.getTracks()) {
@@ -410,11 +902,18 @@ export class ProximityVoiceChat {
         this.analyser.disconnect();
       } catch {}
     }
+    if (this.outputSinkEl) {
+      try {
+        this.outputSinkEl.pause?.();
+        this.outputSinkEl.srcObject = null;
+      } catch {}
+    }
     this.localStream = null;
     this.localTrack = null;
     this.localSource = null;
     this.analyser = null;
     this.vadBuffer = null;
+    this.micLevel = 0;
     this.remoteVoiceStates.clear();
     this.nearbySpeakers = [];
     this._lastSentState = null;
@@ -424,6 +923,21 @@ export class ProximityVoiceChat {
     }
     this.peers.clear();
     this._emitState();
+  }
+
+  dispose() {
+    this.disconnect();
+    this._unbindDeviceChangeListener();
+    if (this.audioCtx && typeof this.audioCtx.close === 'function') {
+      try {
+        this.audioCtx.close().catch?.(() => {});
+      } catch {}
+    }
+    this.audioCtx = null;
+    this.masterGain = null;
+    this.outputSinkDest = null;
+    this.outputSinkEl = null;
+    this.usingStreamSink = false;
   }
 
   _disposePeerEntry(entry) {
@@ -652,6 +1166,9 @@ export class ProximityVoiceChat {
         entry.audioEl = audio;
       }
       entry.audioEl.srcObject = stream;
+      if (this.outputDeviceId) {
+        this._applySinkToElement(entry.audioEl, this.outputDeviceId).catch(() => {});
+      }
       entry.audioEl.play().catch(() => {});
     }
 
@@ -688,6 +1205,10 @@ export class ProximityVoiceChat {
   _updateLocalVad(nowMs) {
     const transmitting = this.isTransmitting();
     if (!transmitting || !this.analyser || !this.vadBuffer) {
+      if (!this.meterActive) {
+        this.micLevel = 0;
+        this.onMicLevel?.(0);
+      }
       if (this.isSpeaking) {
         this.isSpeaking = false;
         this._sendVoiceStateIfChanged(true);
@@ -697,12 +1218,9 @@ export class ProximityVoiceChat {
     }
 
     this.analyser.getByteTimeDomainData(this.vadBuffer);
-    let sumSq = 0;
-    for (let i = 0; i < this.vadBuffer.length; i++) {
-      const norm = (this.vadBuffer[i] - 128) / 128;
-      sumSq += norm * norm;
-    }
-    const rms = Math.sqrt(sumSq / this.vadBuffer.length);
+    const { rms, level } = computeRmsMicLevel(this.vadBuffer);
+    this.micLevel = level;
+    this.onMicLevel?.(level);
     let nextSpeaking = this.isSpeaking;
     if (rms > 0.022) {
       this.lastVoiceSignalAt = nowMs;
@@ -786,7 +1304,15 @@ export class ProximityVoiceChat {
       volume: this.masterVolume,
       permissionState: this.permissionState,
       errorMessage: this.errorMessage,
-      nearbySpeakers: this.nearbySpeakers
+      nearbySpeakers: this.nearbySpeakers,
+      inputDeviceId: this.inputDeviceId,
+      outputDeviceId: this.outputDeviceId,
+      audioInputs: this.audioInputs,
+      audioOutputs: this.audioOutputs,
+      micLevel: this.micLevel,
+      meterActive: this.meterActive,
+      sinkSupported: this.sinkSupported,
+      sinkStatusMessage: this.sinkStatusMessage
     });
   }
 }

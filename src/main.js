@@ -162,6 +162,8 @@ const voiceChat = new ProximityVoiceChat(network, {
   mode: gameState.voiceMode,
   tpBehavior: gameState.voiceTpMode,
   volume: gameState.voiceVolume,
+  inputDeviceId: gameState.audioInputId,
+  outputDeviceId: gameState.audioOutputId,
   onToast: (msg, type) => hud?.toast?.(msg, type),
   onStateChange: (state) => {
     latestVoiceState = state || {};
@@ -173,6 +175,7 @@ const voiceChat = new ProximityVoiceChat(network, {
     });
   }
 });
+sfx.setOutputDevice?.(gameState.audioOutputId);
 
 vrManager = new VRManager(sceneMgr, player, {
   skin: gameState.skin,
@@ -1043,6 +1046,50 @@ hud = new HudManager(gameState, network, {
   onVoiceVolumeChange: (vol) => {
     voiceChat.setVolume(vol);
   },
+  onAudioPanelToggle: (open) => {
+    if (open) {
+      voiceChat.refreshDevices();
+      voiceChat.startMicTest();
+    } else {
+      voiceChat.stopMicTest();
+    }
+  },
+  onAudioRefreshDevices: () => {
+    voiceChat.refreshDevices();
+  },
+  onAudioInputChange: async (deviceId) => {
+    const res = await voiceChat.setInputDevice(deviceId);
+    if (res?.switched) {
+      hud?.toast?.(
+        deviceId ? '🎙️ Microphone mis à jour sans coupure.' : '🎙️ Microphone système par défaut actif.',
+        'success'
+      );
+    }
+  },
+  onAudioOutputChange: async (deviceId) => {
+    const [voiceRes, sfxRes] = await Promise.all([
+      voiceChat.setOutputDevice(deviceId),
+      sfx.setOutputDevice(deviceId)
+    ]);
+    const supported = Boolean(voiceRes?.supported || sfxRes?.supported);
+    if (!supported && deviceId) {
+      hud?.toast?.('Sortie audio gérée par le système (setSinkId non supporté).', 'info');
+    } else {
+      hud?.toast?.(
+        deviceId ? '🔊 Sortie audio mise à jour.' : '🔊 Sortie audio système par défaut.',
+        'success'
+      );
+    }
+  },
+  onAudioMicTestToggle: () => {
+    if (voiceChat.meterActive) {
+      voiceChat.stopMicTest();
+    } else {
+      voiceChat.startMicTest();
+    }
+  },
+  onSampleMicLevel: () => voiceChat.sampleMicLevel(),
+  onDebugToggleVrPanel: () => vrManager?.toggleDebugPanel?.(),
   onApplaud: () => {
     const cheers = [
       '👏🎉 Bravo Dieu CIEL 20/20 ! ⚡',
@@ -1292,6 +1339,7 @@ function returnToMainMenu(isLogout = false) {
   canvas.style.cursor = '';
   player.setSpeedMultiplier(1);
   player.setNoclip(false);
+  vrManager?.setPrivateDebug?.(false);
   hud?.setPrivateDebugMode?.(false);
   voiceChat.setInTp(false);
   voiceChat.disconnect();
@@ -2009,6 +2057,8 @@ function startGameSession(
 
   hud.show();
   hud.setPrivateDebugMode(isDebugRoom, cleanRoom);
+  vrManager?.setPrivateDebug?.(isDebugRoom);
+  hud?.syncDebugVrPanelBtn?.(Boolean(vrManager?.debugOverlayEnabled));
   player.setSpeedMultiplier(1);
   player.setNoclip(false);
   player.setAvatarVisible(true);

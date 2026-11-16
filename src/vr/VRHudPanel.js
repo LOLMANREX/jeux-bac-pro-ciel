@@ -377,8 +377,9 @@ export function createWristHudPanel(options = {}) {
   const worldQuat = new THREE.Quaternion();
   const forward = new THREE.Vector3();
   const toCam = new THREE.Vector3();
+  const camToWatch = new THREE.Vector3();
 
-  const updateVisibility = (cameraWorldPos, dt = 0.016, nowMs = Date.now()) => {
+  const updateVisibility = (cameraWorldPos, dt = 0.016, nowMs = Date.now(), cameraWorldDir = null) => {
     if (forceVisible) {
       group.visible = true;
       screenMat.opacity = 0.98;
@@ -393,7 +394,20 @@ export function createWristHudPanel(options = {}) {
     forward.set(0, 0, 1).applyQuaternion(worldQuat).normalize();
     toCam.copy(cameraWorldPos).sub(worldPos).normalize();
     const facing = forward.dot(toCam);
-    const shouldShow = facing > 0.24;
+    let camAlign = 1;
+    if (cameraWorldDir) {
+      camToWatch.copy(toCam).negate();
+      camAlign = cameraWorldDir.dot(camToWatch);
+    }
+    const shouldShow = hoveredBtnId
+      ? facing > 0.18
+      : cameraWorldDir
+        ? group.visible
+          ? facing > 0.24 && camAlign > 0.42
+          : facing > 0.34 && camAlign > 0.56
+        : group.visible
+          ? facing > 0.2
+          : facing > 0.26;
     if (shouldShow) {
       group.visible = true;
       screenMat.opacity += (0.98 - screenMat.opacity) * Math.min(1, dt * 12);
@@ -520,6 +534,8 @@ export function createWristHudPanel(options = {}) {
     group,
     screenMesh,
     statusRim,
+    screenWidth: 0.136,
+    screenHeight: 0.128,
     hitTestUv,
     setHovered,
     setMapData,
@@ -877,6 +893,7 @@ export function createVrDebugPanel() {
 
   const group = new THREE.Group();
   group.name = 'vr-debug-panel';
+  group.visible = false;
 
   const screenMat = new THREE.MeshBasicMaterial({
     map: texture,
@@ -1066,10 +1083,20 @@ export function createVrDebugPanel() {
       }
     }
     if (changed) dirty = true;
-    if (force || (dirty && nowMs - lastDrawMs >= 140)) {
+    if (group.visible && (force || (dirty && nowMs - lastDrawMs >= 140))) {
       lastDrawMs = nowMs;
       redraw();
     }
+  };
+
+  const setVisible = (visible) => {
+    const next = Boolean(visible);
+    group.visible = next;
+    if (next && dirty) {
+      lastDrawMs = Date.now();
+      redraw();
+    }
+    return group.visible;
   };
 
   const getState = () => ({
@@ -1086,6 +1113,7 @@ export function createVrDebugPanel() {
   return {
     group,
     screenMesh,
+    setVisible,
     updateTransform,
     updateState,
     getState,

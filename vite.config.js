@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.16 - Correctif Note 20/20 TP Brasure & Attribution Passe VIP Palier 7 à yanfufu'),
+    __APP_VERSION__: JSON.stringify('v4.17 - Ergonomie CIEL Watch VR, Masquage Panneau Debug, Fix Bras Croisés Multi & Sélecteur Audio'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

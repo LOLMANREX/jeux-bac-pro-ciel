@@ -492,6 +492,9 @@ test('v4.15 : pickLabInteractable et VRManager raycastent sans crash sur des bor
     assert.equal(vr.enterSimulationMode(), true);
     vr.update(0.016, 0.1, 100);
     assert.equal(vr.raycaster.camera, mockCam);
+    assert.equal(vr.debugPanel.group.visible, false);
+    vr.setDebugPanelEnabled(true);
+    vr.update(0.016, 0.12, 120);
     assert.equal(vr.debugPanel.group.visible, true);
     assert.ok(vr.debugPanel.getState().frameCount >= 1);
   } finally {
@@ -697,6 +700,8 @@ test('v4.15 : VRManager gère session WebXR local-floor (y=0), fallback local (y
     assert.equal(vr.vrRig.position.z, 0.65);
     assert.equal(mockCam.near, 0.05);
     assert.ok(mockCam.far >= 180);
+    assert.equal(vr.debugPanel.group.visible, false);
+    vr.setPrivateDebug(true);
     assert.equal(vr.debugPanel.group.visible, true);
     vr.update(0.016, 0.2, 200);
     const dbgState1 = vr.debugPanel.getState();
@@ -712,11 +717,15 @@ test('v4.15 : VRManager gère session WebXR local-floor (y=0), fallback local (y
     assert.equal(setSessionCalls, 1);
     assert.equal(vr.xrReferenceSpaceType, 'local');
     assert.equal(vr.vrRig.position.y, 1.65);
+    assert.equal(vr.debugPanel.group.visible, true);
     vr.update(0.016, 0.4, 400);
     assert.equal(vr.debugPanel.getState().referenceSpace, 'local');
     await vr.exitVr();
 
     const standaloneDebug = createVrDebugPanel();
+    assert.equal(standaloneDebug.group.visible, false);
+    standaloneDebug.setVisible(true);
+    assert.equal(standaloneDebug.group.visible, true);
     standaloneDebug.updateState({
       xrPresenting: true,
       referenceSpace: 'local-floor',
@@ -731,6 +740,114 @@ test('v4.15 : VRManager gère session WebXR local-floor (y=0), fallback local (y
     vr?.dispose?.();
     if (prevNav === undefined) delete globalThis.navigator;
     else globalThis.navigator = prevNav;
+    stubs.restore();
+  }
+});
+
+test('v4.17 : Bras VR multijoueur jamais croisés quel que soit le yaw & orientation ergonomique CIEL Watch + masquage debug', () => {
+  const stubs = createFakeDomStubs();
+  const mockScene = new THREE.Scene();
+  const mockCam = new THREE.PerspectiveCamera(72, 1.77, 0.1, 180);
+  const mockSceneMgr = {
+    scene: mockScene,
+    camera: mockCam,
+    renderer: null,
+    getFps: () => 60,
+    getXrErrors: () => [],
+    setVrPresentingState() {},
+    bindVrManager() {}
+  };
+
+  let vr = null;
+  let remoteMgr = null;
+  try {
+    const mapData = createDefaultMap();
+    const player = new PlayerController(mockCam, stubs.canvas, []);
+    player.setBounds(mapData.bounds);
+    vr = new VRManager(mockSceneMgr, player, {
+      playerName: 'WatchErgonomieVR',
+      mapData
+    });
+
+    assert.equal(vr.debugPanel.group.visible, false);
+    assert.equal(vr.enterSimulationMode(), true);
+    assert.equal(vr.debugPanel.group.visible, false);
+    assert.equal(vr.toggleDebugPanel(), true);
+    assert.equal(vr.debugPanel.group.visible, true);
+    assert.equal(vr.toggleDebugPanel(), false);
+    assert.equal(vr.debugPanel.group.visible, false);
+
+    assert.ok(vr.wristPanel.group.position.x > 0.02);
+    assert.ok(vr.wristPanel.group.position.y > 0.02);
+    assert.ok(vr.wristPanel.group.position.z > 0.04);
+
+    const watchNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(vr.wristPanel.group.quaternion);
+    const watchRight = new THREE.Vector3(1, 0, 0).applyQuaternion(vr.wristPanel.group.quaternion);
+    const radialAngleDeg = THREE.MathUtils.radToDeg(Math.atan2(watchNormal.x, watchNormal.y));
+    assert.ok(radialAngleDeg >= 35 && radialAngleDeg <= 46, `Angle radial attendu 35-46°, obtenu ${radialAngleDeg}`);
+    assert.ok(watchNormal.z > 0.15);
+    assert.ok(watchRight.z < -0.9);
+
+    vr.toggleWristWatchSim();
+    for (let i = 0; i < 20; i++) {
+      vr.update(0.05, i * 0.05, i * 50);
+    }
+    assert.equal(vr.wristPanel.group.visible, true);
+
+    vr.wristPanel.group.updateMatrixWorld(true);
+    const watchWorldPos = new THREE.Vector3();
+    const watchWorldNormal = new THREE.Vector3(0, 0, 1);
+    const watchWorldQuat = new THREE.Quaternion();
+    vr.wristPanel.screenMesh.getWorldPosition(watchWorldPos);
+    vr.wristPanel.screenMesh.getWorldQuaternion(watchWorldQuat);
+    watchWorldNormal.applyQuaternion(watchWorldQuat).normalize();
+    const rayOrigin = watchWorldPos.clone().addScaledVector(watchWorldNormal, 0.35);
+    const rayDir = watchWorldNormal.clone().negate();
+    const ray = new THREE.Raycaster(rayOrigin, rayDir, 0.01, 2);
+    ray.camera = mockCam;
+    const hits = ray.intersectObject(vr.wristPanel.screenMesh, false);
+    assert.equal(hits.length, 1);
+    assert.ok(hits[0].uv);
+
+    stubs.restore();
+    remoteMgr = new RemotePlayersManager(mockScene);
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2, 0.6]) {
+      const peerId = `vr-yaw-${yaw.toFixed(2)}`;
+      const leftRel = new THREE.Vector3(-0.3, 1.2, -0.38).applyAxisAngle(yAxis, yaw);
+      const rightRel = new THREE.Vector3(0.3, 1.2, -0.38).applyAxisAngle(yAxis, yaw);
+      remoteMgr.upsertPeer({
+        id: peerId,
+        name: 'Eleve_VR',
+        x: 0,
+        y: 0,
+        z: 0,
+        yaw,
+        vrData: {
+          active: true,
+          head: { px: 0, py: 1.65, pz: 0, qx: 0, qy: 0, qz: 0, qw: 1 },
+          leftHand: { px: leftRel.x, py: leftRel.y, pz: leftRel.z, qx: 0, qy: 0, qz: 0, qw: 1 },
+          rightHand: { px: rightRel.x, py: rightRel.y, pz: rightRel.z, qx: 0, qy: 0, qz: 0, qw: 1 }
+        }
+      });
+      const peer = remoteMgr.peers.get(peerId);
+      peer.group.rotation.y = yaw + Math.PI;
+      remoteMgr.update(0.05, 0.1);
+
+      const leftUpperInPlayerSpace = peer.vrTracker.leftArmSeg.upper.position.clone().applyAxisAngle(yAxis, -yaw);
+      const rightUpperInPlayerSpace = peer.vrTracker.rightArmSeg.upper.position.clone().applyAxisAngle(yAxis, -yaw);
+      const leftElbowInPlayerSpace = peer.vrTracker.leftArmSeg.elbow.position.clone().applyAxisAngle(yAxis, -yaw);
+      const rightElbowInPlayerSpace = peer.vrTracker.rightArmSeg.elbow.position.clone().applyAxisAngle(yAxis, -yaw);
+
+      assert.ok(leftUpperInPlayerSpace.x < -0.15, `Bras gauche croisé pour yaw=${yaw}: x=${leftUpperInPlayerSpace.x}`);
+      assert.ok(rightUpperInPlayerSpace.x > 0.15, `Bras droit croisé pour yaw=${yaw}: x=${rightUpperInPlayerSpace.x}`);
+      assert.ok(leftElbowInPlayerSpace.x < -0.15);
+      assert.ok(rightElbowInPlayerSpace.x > 0.15);
+      assert.ok(peer.vrTracker.remoteWatch.position.x > 0.015);
+    }
+  } finally {
+    remoteMgr?.clearAll?.();
+    vr?.dispose?.();
     stubs.restore();
   }
 });

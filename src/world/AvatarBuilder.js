@@ -2003,8 +2003,8 @@ export function attachRemoteVrVisuals(avatar, rawSkin = {}) {
   const watchFace = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.004, 0.038), watchScreenMat);
   watchFace.position.y = 0.006;
   remoteWatch.add(watchFace);
-  remoteWatch.position.set(-0.008, 0.022, 0.036);
-  remoteWatch.rotation.z = 0.22;
+  remoteWatch.position.set(0.026, 0.024, 0.048);
+  remoteWatch.rotation.set(0.18, 0, -0.73);
   leftHand.root.add(remoteWatch);
 
   let remoteVisorGroup = null;
@@ -2088,7 +2088,8 @@ export function attachRemoteVrVisuals(avatar, rawSkin = {}) {
   };
 
   const placeArmSpan = (armSeg, shoulderX, handRoot, sideSign) => {
-    shoulderLocal.set(shoulderX, 1.34, 0).applyAxisAngle(yAxis, avatar.group.rotation.y);
+    const bodyYaw = avatar.group.rotation.y - Math.PI;
+    shoulderLocal.set(shoulderX, 1.34, 0).applyAxisAngle(yAxis, bodyYaw);
     cuffOffset.set(0, 0, 0.068).applyQuaternion(handRoot.quaternion);
     wristLocal.copy(handRoot.position).add(cuffOffset);
     const totalLen = shoulderLocal.distanceTo(wristLocal);
@@ -2098,7 +2099,7 @@ export function attachRemoteVrVisuals(avatar, rawSkin = {}) {
       armSeg.elbow.visible = false;
       return;
     }
-    outDir.set(sideSign * 0.26, -0.38, -0.08).applyAxisAngle(yAxis, avatar.group.rotation.y).normalize();
+    outDir.set(sideSign * 0.26, -0.38, 0.14).applyAxisAngle(yAxis, bodyYaw).normalize();
     const bendAmt = Math.max(0.02, (0.64 - Math.min(0.64, totalLen)) * 0.35);
     elbowLocal.copy(shoulderLocal).lerp(wristLocal, 0.48).addScaledVector(outDir, bendAmt);
     armSeg.elbow.visible = true;
@@ -2210,7 +2211,18 @@ export function attachRemoteVrVisuals(avatar, rawSkin = {}) {
     });
   };
 
-  return { vrRoot, leftHand, rightHand, remoteWatch, remoteVisorGroup, update, applySkin, dispose };
+  return {
+    vrRoot,
+    leftHand,
+    rightHand,
+    leftArmSeg,
+    rightArmSeg,
+    remoteWatch,
+    remoteVisorGroup,
+    update,
+    applySkin,
+    dispose
+  };
 }
 
 export function animateAvatarLimbs(avatar, dt, { isMoving, isGrounded = true, speedRatio = 1 }) {

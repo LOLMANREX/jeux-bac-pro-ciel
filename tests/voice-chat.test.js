@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { WebSocket } from 'ws';
 import { createGameServer } from '../server/index.js';
-import { computeProximityAudioParams } from '../src/network/ProximityVoiceChat.js';
+import { SoundEngine } from '../src/core/audio.js';
+import {
+  computeProximityAudioParams,
+  computeRmsMicLevel,
+  ProximityVoiceChat
+} from '../src/network/ProximityVoiceChat.js';
 import {
   createVoiceIndicatorSprite,
   updateVoiceIndicatorSprite
@@ -205,5 +210,269 @@ test('Serveur WebSocket relaie voice_state, rtc_offer, rtc_answer et rtc_ice_can
   } finally {
     wsHub.close();
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('v4.17 : Sélecteur entrée/sortie audio, vu-mètre, bascule micro à chaud (replaceTrack), setSinkId et ondevicechange', async () => {
+  const prevWin = globalThis.window;
+  const prevDoc = globalThis.document;
+  const prevNav = globalThis.navigator;
+  const prevRtc = globalThis.RTCPeerConnection;
+  const prevStorage = globalThis.localStorage;
+  const prevHtmlAudio = globalThis.HTMLAudioElement;
+
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k)
+  };
+
+  let deviceList = [
+    { kind: 'audioinput', deviceId: 'mic-1', label: 'Micro Intégré' },
+    { kind: 'audioinput', deviceId: 'mic-2', label: 'Casque USB Logitech' },
+    { kind: 'audiooutput', deviceId: 'spk-1', label: 'Haut-parleurs PC' },
+    { kind: 'audiooutput', deviceId: 'headset-2', label: 'Casque Quest / USB' }
+  ];
+
+  const acquiredConstraints = [];
+  const createdTracks = [];
+  const createdAudioEls = [];
+  const ctxSinkCalls = [];
+  const replacedTracks = [];
+  let sampleValue = 165;
+
+  class FakeAudioContext {
+    constructor() {
+      this.currentTime = 0;
+      this.state = 'running';
+      this.destination = { id: 'dest' };
+    }
+    resume() {
+      return Promise.resolve();
+    }
+    close() {
+      return Promise.resolve();
+    }
+    createGain() {
+      return {
+        gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {}, setTargetAtTime() {} },
+        connect() {},
+        disconnect() {}
+      };
+    }
+    createOscillator() {
+      return {
+        type: 'sine',
+        frequency: { setValueAtTime() {} },
+        connect() {},
+        start() {},
+        stop() {}
+      };
+    }
+    createStereoPanner() {
+      return {
+        pan: { setTargetAtTime() {} },
+        connect() {},
+        disconnect() {}
+      };
+    }
+    createMediaStreamSource() {
+      return { connect() {}, disconnect() {} };
+    }
+    createAnalyser() {
+      return {
+        fftSize: 512,
+        smoothingTimeConstant: 0.65,
+        connect() {},
+        disconnect() {},
+        getByteTimeDomainData(arr) {
+          arr.fill(sampleValue);
+        }
+      };
+    }
+    async setSinkId(id) {
+      ctxSinkCalls.push(id);
+    }
+  }
+
+  class FakeHTMLAudioElement {
+    constructor() {
+      this.autoplay = false;
+      this.playsInline = false;
+      this.muted = false;
+      this.volume = 1;
+      this.srcObject = null;
+      this.sinkCalls = [];
+      createdAudioEls.push(this);
+    }
+    play() {
+      return Promise.resolve();
+    }
+    pause() {}
+    async setSinkId(id) {
+      this.sinkCalls.push(id);
+    }
+  }
+
+  class FakeRtcPeerConnection {
+    constructor() {
+      this.signalingState = 'stable';
+      this.connectionState = 'connected';
+      this.transceivers = [];
+    }
+    addTransceiver(track) {
+      const sender = {
+        track,
+        async replaceTrack(nextTrack) {
+          replacedTracks.push(nextTrack);
+          sender.track = nextTrack;
+        }
+      };
+      const t = { direction: 'sendrecv', sender, receiver: { track: { kind: 'audio' } } };
+      this.transceivers.push(t);
+      return t;
+    }
+    getTransceivers() {
+      return this.transceivers;
+    }
+    getSenders() {
+      return this.transceivers.map((t) => t.sender);
+    }
+    async createOffer() {
+      return { type: 'offer', sdp: 'fake-sdp' };
+    }
+    async setLocalDescription() {}
+    close() {}
+  }
+
+  globalThis.window = { AudioContext: FakeAudioContext };
+  globalThis.HTMLAudioElement = FakeHTMLAudioElement;
+  globalThis.RTCPeerConnection = FakeRtcPeerConnection;
+  globalThis.document = {
+    createElement(tag) {
+      if (tag === 'audio') return new FakeHTMLAudioElement();
+      return {};
+    }
+  };
+  globalThis.navigator = {
+    mediaDevices: {
+      ondevicechange: null,
+      async enumerateDevices() {
+        return deviceList;
+      },
+      async getUserMedia(constraints) {
+        acquiredConstraints.push(constraints);
+        const requestedId = constraints?.audio?.deviceId?.exact || 'default';
+        const track = {
+          kind: 'audio',
+          readyState: 'live',
+          enabled: true,
+          deviceId: requestedId,
+          stopped: false,
+          stop() {
+            this.stopped = true;
+            this.readyState = 'ended';
+          }
+        };
+        createdTracks.push(track);
+        return {
+          getAudioTracks: () => [track],
+          getTracks: () => [track]
+        };
+      }
+    }
+  };
+
+  let voiceChat = null;
+  try {
+    const sentVoiceStates = [];
+    const fakeNetwork = {
+      clientId: 'local-1',
+      sendVoiceState(mic, speaking) {
+        sentVoiceStates.push({ mic, speaking });
+      },
+      sendRtcOffer() {},
+      sendRtcAnswer() {},
+      sendRtcIceCandidate() {}
+    };
+
+    voiceChat = new ProximityVoiceChat(fakeNetwork);
+    assert.equal(typeof globalThis.navigator.mediaDevices.ondevicechange, 'function');
+
+    const devs1 = await voiceChat.refreshDevices();
+    assert.equal(devs1.audioInputs.length, 2);
+    assert.equal(devs1.audioOutputs.length, 2);
+
+    deviceList = [
+      ...deviceList,
+      { kind: 'audiooutput', deviceId: 'bt-3', label: 'Casque Bluetooth' }
+    ];
+    await globalThis.navigator.mediaDevices.ondevicechange();
+    assert.equal(voiceChat.audioOutputs.length, 3);
+
+    voiceChat.onRoomJoined([{ id: 'peer-2', name: 'Bob', micEnabled: true, isSpeaking: false }]);
+    assert.equal(await voiceChat.enableMicrophone(), true);
+    assert.equal(voiceChat.peers.size, 1);
+
+    const peerEntry = voiceChat.peers.get('peer-2');
+    await voiceChat._attachRemoteStream(peerEntry, { id: 'remote-stream-1' });
+    assert.ok(peerEntry.audioEl);
+
+    const hotSwap = await voiceChat.setInputDevice('mic-2');
+    assert.equal(hotSwap.switched, true);
+    assert.equal(hotSwap.active, true);
+    assert.equal(hotSwap.replacedPeers, 1);
+    assert.equal(voiceChat.joined, true);
+    assert.equal(voiceChat.peers.size, 1);
+    assert.equal(replacedTracks.length, 1);
+    assert.equal(replacedTracks[0].deviceId, 'mic-2');
+    assert.equal(acquiredConstraints.at(-1).audio.deviceId.exact, 'mic-2');
+    assert.equal(createdTracks[0].stopped, true);
+    assert.equal(store.get('ciel_audio_input_id'), 'mic-2');
+
+    const lvlLoud = voiceChat.sampleMicLevel();
+    assert.ok(lvlLoud > 0.5);
+    sampleValue = 128;
+    const lvlSilent = voiceChat.sampleMicLevel();
+    assert.equal(lvlSilent, 0);
+    assert.equal(computeRmsMicLevel(new Uint8Array([128, 128])).level, 0);
+
+    const outRes = await voiceChat.setOutputDevice('headset-2');
+    assert.equal(outRes.supported, true);
+    assert.equal(outRes.applied, true);
+    assert.equal(store.get('ciel_audio_output_id'), 'headset-2');
+    assert.ok(peerEntry.audioEl.sinkCalls.includes('headset-2'));
+    assert.ok(ctxSinkCalls.includes('headset-2'));
+
+    const engine = new SoundEngine();
+    engine.click();
+    const sfxRes = await engine.setOutputDevice('headset-2');
+    assert.equal(sfxRes.supported, true);
+    assert.equal(sfxRes.applied, true);
+    assert.ok(ctxSinkCalls.includes('headset-2'));
+
+    delete FakeAudioContext.prototype.setSinkId;
+    delete FakeHTMLAudioElement.prototype.setSinkId;
+    const fallbackOut = await voiceChat.setOutputDevice('bt-3');
+    assert.equal(fallbackOut.supported, false);
+    assert.equal(fallbackOut.applied, false);
+
+    voiceChat.dispose();
+    assert.equal(globalThis.navigator.mediaDevices.ondevicechange, null);
+  } finally {
+    voiceChat?.dispose?.();
+    if (prevWin === undefined) delete globalThis.window;
+    else globalThis.window = prevWin;
+    if (prevDoc === undefined) delete globalThis.document;
+    else globalThis.document = prevDoc;
+    if (prevNav === undefined) delete globalThis.navigator;
+    else globalThis.navigator = prevNav;
+    if (prevRtc === undefined) delete globalThis.RTCPeerConnection;
+    else globalThis.RTCPeerConnection = prevRtc;
+    if (prevStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prevStorage;
+    if (prevHtmlAudio === undefined) delete globalThis.HTMLAudioElement;
+    else globalThis.HTMLAudioElement = prevHtmlAudio;
   }
 });

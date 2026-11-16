@@ -30,6 +30,8 @@ export class VRManager {
     this.xrReferenceSpaceType = 'local-floor';
     this.simMode = false;
     this.active = false;
+    this.isPrivateDebug = Boolean(options.isPrivateDebug);
+    this.debugOverlayEnabled = Boolean(options.debugOverlayEnabled ?? this.isPrivateDebug);
     this.skin = options.skin || {};
 
     this.vrRig = new THREE.Group();
@@ -62,10 +64,29 @@ export class VRManager {
       name: options.playerName || 'Eleve_CIEL',
       mapData: options.mapData || null
     });
-    this.wristPanel.group.position.set(-0.01, 0.038, 0.036);
-    this.wristPanel.group.rotation.set(-1.12, 0.22, 0.28);
+    this.wristPanel.group.position.set(0.032, 0.036, 0.058);
+    const wristBasis = new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(0, 0, -1),
+      new THREE.Vector3(-1, 0, 0),
+      new THREE.Vector3(0, 1, 0)
+    );
+    const wristBaseQuat = new THREE.Quaternion().setFromRotationMatrix(wristBasis);
+    const wristRadialRoll = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 0, 1),
+      -THREE.MathUtils.degToRad(42)
+    );
+    const wristUserTilt = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      -THREE.MathUtils.degToRad(14)
+    );
+    this.wristPanel.group.quaternion
+      .copy(wristRadialRoll)
+      .multiply(wristBaseQuat)
+      .multiply(wristUserTilt);
     this.slots.left.hand.root.add(this.wristPanel.group);
     this.wristPanel.group.visible = false;
+    this.wristTouchPressed = false;
+    this.wristDirectTouchHovered = false;
 
     this.debugPanel = createVrDebugPanel();
     this.debugPanel.group.visible = false;
@@ -199,14 +220,14 @@ export class VRManager {
 
       ctrl.addEventListener('connected', (ev) => {
         const src = ev.data || null;
+        const otherSide = this.ctrlAssignments[1 - i];
+        const fallbackSide = otherSide === 'left' ? 'right' : otherSide === 'right' ? 'left' : i === 0 ? 'left' : 'right';
         const side =
           src?.handedness === 'left'
             ? 'left'
             : src?.handedness === 'right'
               ? 'right'
-              : i === 0
-                ? 'left'
-                : 'right';
+              : fallbackSide;
         this.ctrlAssignments[i] = side;
         const slot = this.slots[side];
         slot.inputSource = src;
@@ -289,6 +310,9 @@ export class VRManager {
       active: this.active,
       xrPresenting: Boolean(this.xrSession),
       simMode: this.simMode,
+      isPrivateDebug: this.isPrivateDebug,
+      debugOverlayEnabled: this.debugOverlayEnabled,
+      debugPanelVisible: Boolean(this.debugPanel?.group?.visible),
       referenceSpaceType: this.simMode ? 'sim' : this.xrReferenceSpaceType,
       rigPosition: {
         x: Number(this.vrRig.position.x.toFixed(2)),
@@ -298,6 +322,43 @@ export class VRManager {
       frameCount: this.frameCount,
       errors: this.getCapturedErrors()
     };
+  }
+
+  shouldShowDebugPanel() {
+    return Boolean(this.active && this.debugOverlayEnabled);
+  }
+
+  _applyDebugPanelVisibility() {
+    const show = this.shouldShowDebugPanel();
+    if (this.debugPanel?.setVisible) {
+      this.debugPanel.setVisible(show);
+    } else if (this.debugPanel?.group) {
+      this.debugPanel.group.visible = show;
+    }
+    if (show) {
+      this.vrRig?.updateMatrixWorld?.(true);
+      this.debugPanel.updateTransform(this.vrRig, this.camera, 1, true);
+      this._syncDebugPanel(true);
+    }
+  }
+
+  setPrivateDebug(enabled) {
+    this.isPrivateDebug = Boolean(enabled);
+    this.debugOverlayEnabled = this.isPrivateDebug;
+    this._applyDebugPanelVisibility();
+    this.options.onStateChange?.(this.getPublicState());
+    return this.isPrivateDebug;
+  }
+
+  setDebugPanelEnabled(enabled) {
+    this.debugOverlayEnabled = Boolean(enabled);
+    this._applyDebugPanelVisibility();
+    this.options.onStateChange?.(this.getPublicState());
+    return this.debugOverlayEnabled;
+  }
+
+  toggleDebugPanel() {
+    return this.setDebugPanelEnabled(!this.debugOverlayEnabled);
   }
 
   isVrActive() {
@@ -427,8 +488,7 @@ export class VRManager {
     this.sceneMgr?.setVrPresentingState?.(true);
     this._mountVrRigForWorld(false);
     this.wristPanel.setForceVisible(false);
-    this.debugPanel.group.visible = true;
-    this._syncDebugPanel(true);
+    this._applyDebugPanelVisibility();
     this.options.onEnterVr?.({ mode: 'xr', referenceSpaceType: refType });
     this.options.onStateChange?.(this.getPublicState());
     this.options.onToast?.(`🥽 Mode VR WebXR (Quest / ${refType}) activé !`, 'success');
@@ -440,8 +500,7 @@ export class VRManager {
       this._mountVrRigForWorld(false);
     }
     if (this.active) {
-      this.debugPanel.group.visible = true;
-      this._syncDebugPanel(true);
+      this._applyDebugPanelVisibility();
     }
   }
 
@@ -467,8 +526,7 @@ export class VRManager {
 
     this._mountVrRigForWorld(true);
     this.wristPanel.setForceVisible(false);
-    this.debugPanel.group.visible = true;
-    this._syncDebugPanel(true);
+    this._applyDebugPanelVisibility();
     this.options.onEnterVr?.({ mode: 'sim', referenceSpaceType: 'sim' });
     this.options.onStateChange?.(this.getPublicState());
     this.options.onToast?.(
@@ -543,7 +601,9 @@ export class VRManager {
 
     this.vrRig.add(this.debugPanel.group);
     this.vrRig.updateMatrixWorld(true);
-    this.debugPanel.updateTransform(this.vrRig, this.camera, 1, true);
+    if (this.shouldShowDebugPanel()) {
+      this.debugPanel.updateTransform(this.vrRig, this.camera, 1, true);
+    }
     this.camera.getWorldDirection(this.tempVecB);
     const flatLen = Math.hypot(this.tempVecB.x, this.tempVecB.z);
     if (flatLen > 0.08) {
@@ -584,7 +644,13 @@ export class VRManager {
     this.lastXrLocalXZ.set(0, 0);
     this.wristPanel.setForceVisible(false);
     this.wristPanel.group.visible = false;
-    this.debugPanel.group.visible = false;
+    this.wristTouchPressed = false;
+    this.wristDirectTouchHovered = false;
+    if (this.debugPanel?.setVisible) {
+      this.debugPanel.setVisible(false);
+    } else if (this.debugPanel?.group) {
+      this.debugPanel.group.visible = false;
+    }
     this.sceneMgr?.setVrPresentingState?.(false);
 
     if (this.sceneMgr?.scene && this.camera) {
@@ -961,7 +1027,7 @@ export class VRManager {
             if (btn.id === 'btn_vr_exit') this.exitVr();
           };
         }
-      } else {
+      } else if (!this.wristDirectTouchHovered) {
         this.wristPanel.setHovered(null);
       }
     }
@@ -1204,10 +1270,10 @@ export class VRManager {
 
     if (this.simMode) {
       const targetLeftPos = this.simWatchInspect
-        ? this.tempVecC.set(-0.15, -0.17, -0.31)
+        ? this.tempVecC.set(-0.14, -0.14, -0.34)
         : this.tempVecC.set(-0.26, -0.32, -0.42);
       const targetLeftRot = this.simWatchInspect
-        ? this.tempVecD.set(0.58, 0.45, -0.38)
+        ? this.tempVecD.set(-0.052, -1.187, -0.808)
         : this.tempVecD.set(0.22, -0.22, 0.18);
       const sm = Math.min(1, dt * 14);
       this.simLeftPivot.position.lerp(targetLeftPos, sm);
@@ -1381,6 +1447,41 @@ export class VRManager {
     );
   }
 
+  _updateWristDirectTouch() {
+    this.wristDirectTouchHovered = false;
+    const indexTip = this.slots.right?.hand?.fingers?.index?.tip;
+    if (!this.wristPanel.group.visible || !indexTip) {
+      this.wristTouchPressed = false;
+      return;
+    }
+    this.wristPanel.screenMesh.updateWorldMatrix(true, false);
+    indexTip.getWorldPosition(this.tempVecC);
+    this.wristPanel.screenMesh.worldToLocal(this.tempVecC);
+    const w = this.wristPanel.screenWidth || 0.136;
+    const h = this.wristPanel.screenHeight || 0.128;
+    const u = this.tempVecC.x / w + 0.5;
+    const v = this.tempVecC.y / h + 0.5;
+    if (u >= 0 && u <= 1 && v >= 0 && v <= 1 && this.tempVecC.z >= -0.015 && this.tempVecC.z <= 0.036) {
+      const btn = this.wristPanel.hitTestUv({ x: u, y: v });
+      if (btn) {
+        this.wristDirectTouchHovered = true;
+        this.wristPanel.setHovered(btn.id);
+        if (this.tempVecC.z <= 0.018 && !this.wristTouchPressed) {
+          this.wristTouchPressed = true;
+          this._pulseHaptic(this.slots.right, 0.55, 35);
+          if (btn.id === 'btn_mic') this.options.onToggleMic?.();
+          if (btn.id === 'btn_vr_exit') this.exitVr();
+        } else if (this.tempVecC.z > 0.024) {
+          this.wristTouchPressed = false;
+        }
+        return;
+      }
+    }
+    if (this.tempVecC.z > 0.024) {
+      this.wristTouchPressed = false;
+    }
+  }
+
   update(dt = 0.016, elapsed = 0, nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now()) {
     if (!this.active) return;
     this.frameCount += 1;
@@ -1409,11 +1510,17 @@ export class VRManager {
 
     if (this.camera) {
       this.camera.getWorldPosition(this.tempVecA);
-      this.wristPanel.updateVisibility(this.tempVecA, dt, nowMs);
-      this.debugPanel.updateTransform(this.vrRig, this.camera, dt);
+      this.camera.getWorldDirection(this.tempVecB);
+      this.wristPanel.updateVisibility(this.tempVecA, dt, nowMs, this.tempVecB);
+      if (this.debugPanel.group.visible) {
+        this.debugPanel.updateTransform(this.vrRig, this.camera, dt);
+      }
     }
-    this._syncDebugPanel(false, nowMs);
+    if (this.debugPanel.group.visible) {
+      this._syncDebugPanel(false, nowMs);
+    }
 
+    this._updateWristDirectTouch();
     this._updateSlotRayAndInteract(this.slots.left, leftState, dt, elapsed);
     this._updateSlotRayAndInteract(this.slots.right, rightState, dt, elapsed);
   }

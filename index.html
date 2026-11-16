@@ -366,6 +366,51 @@
               <span id="voice-btn-ico">🔇</span>
               <span id="voice-btn-label">Micro coupé</span>
             </button>
+            <div class="audio-settings-wrapper">
+              <button
+                type="button"
+                id="btn-audio-settings"
+                class="btn-hud btn-audio-settings"
+                title="Paramètres Audio : Micro (Entrée), Casque (Sortie) &amp; Vu-mètre"
+              >
+                <span>🎧</span>
+                <span>Audio</span>
+              </button>
+              <div id="audio-settings-popover" class="audio-settings-popover hidden" role="dialog" aria-label="Paramètres Audio">
+                <div class="audio-pop-header">
+                  <span>🎧 Paramètres Audio</span>
+                  <div class="audio-pop-head-actions">
+                    <button type="button" id="btn-audio-refresh" class="btn-hud btn-sm" title="Actualiser les périphériques">🔄</button>
+                    <button type="button" id="btn-audio-close" class="icon-close" title="Fermer">✕</button>
+                  </div>
+                </div>
+                <div class="audio-pop-field">
+                  <label for="audio-input-select">🎙️ Microphone (Entrée)</label>
+                  <select id="audio-input-select"></select>
+                </div>
+                <div class="audio-vu-block">
+                  <div class="audio-vu-head">
+                    <span>Niveau micro en direct</span>
+                    <button type="button" id="btn-audio-mic-test" class="btn-hud btn-sm">🎙️ Tester</button>
+                  </div>
+                  <div class="audio-vu-track" aria-label="Vu-mètre du microphone">
+                    <div id="audio-mic-meter-fill" class="audio-vu-fill"></div>
+                  </div>
+                  <div id="audio-mic-meter-label" class="audio-vu-hint">Inactif</div>
+                </div>
+                <div class="audio-pop-field">
+                  <label for="audio-output-select">🔊 Sortie Audio (Casque / Enceintes)</label>
+                  <select id="audio-output-select"></select>
+                  <div id="audio-output-status" class="audio-status-note"></div>
+                </div>
+                <div class="audio-pop-row">
+                  <label class="audio-pop-check">
+                    <input type="checkbox" id="audio-hud-sfx-toggle" checked />
+                    <span>Effets sonores (SFX)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
             <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur (Touche T)">
               💬 Chat <span id="chat-unread-badge" class="unread-badge hidden">0</span>
             </button>
@@ -551,6 +596,9 @@
               </button>
               <button type="button" id="btn-debug-reset-progress" class="dbg-btn dbg-btn-rose">
                 🔄 Réinitialiser progression
+              </button>
+              <button type="button" id="btn-debug-vr-panel" class="dbg-btn dbg-btn-cyan">
+                🩺 Panneau Debug VR 3D : ON
               </button>
             </div>
 

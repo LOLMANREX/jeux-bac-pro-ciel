@@ -1,7 +1,126 @@
-class SoundEngine {
+export class SoundEngine {
   constructor() {
     this.ctx = null;
+    this.masterGain = null;
+    this.sinkStreamDest = null;
+    this.sinkAudioEl = null;
+    this.usingStreamSink = false;
     this.muted = false;
+    this.sinkId = this._readSavedSinkId();
+  }
+
+  _readSavedSinkId() {
+    try {
+      return typeof localStorage !== 'undefined' ? localStorage.getItem('ciel_audio_output_id') || '' : '';
+    } catch {
+      return '';
+    }
+  }
+
+  isSinkSelectionSupported() {
+    if (typeof window === 'undefined') return false;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx?.prototype && typeof AudioCtx.prototype.setSinkId === 'function') {
+      return true;
+    }
+    if (typeof HTMLAudioElement !== 'undefined' && typeof HTMLAudioElement.prototype?.setSinkId === 'function') {
+      return true;
+    }
+    return false;
+  }
+
+  getOutputDeviceId() {
+    return this.sinkId;
+  }
+
+  _getOutputNode() {
+    return this.masterGain || this.ctx?.destination || null;
+  }
+
+  async _applySinkToContext(targetId = '') {
+    if (!this.ctx) {
+      return { supported: this.isSinkSelectionSupported(), applied: false, deferred: true };
+    }
+    const cleanId = String(targetId || '');
+    if (typeof this.ctx.setSinkId === 'function') {
+      try {
+        await this.ctx.setSinkId(cleanId);
+        return { supported: true, applied: true, deviceId: cleanId };
+      } catch (err) {
+        if (cleanId) {
+          try {
+            await this.ctx.setSinkId('');
+          } catch {}
+        }
+        return {
+          supported: true,
+          applied: false,
+          error: err?.name || 'SinkError',
+          deviceId: ''
+        };
+      }
+    }
+
+    if (typeof document !== 'undefined' && typeof this.ctx.createMediaStreamDestination === 'function') {
+      if (!this.sinkAudioEl) {
+        const el = document.createElement('audio');
+        el.autoplay = true;
+        el.playsInline = true;
+        this.sinkAudioEl = el;
+      }
+      if (typeof this.sinkAudioEl.setSinkId === 'function') {
+        if (!cleanId) {
+          if (this.usingStreamSink && this.masterGain) {
+            try {
+              this.masterGain.disconnect();
+            } catch {}
+            this.masterGain.connect(this.ctx.destination);
+            this.usingStreamSink = false;
+          }
+          try {
+            this.sinkAudioEl.pause?.();
+          } catch {}
+          return { supported: true, applied: true, deviceId: '' };
+        }
+        try {
+          if (!this.sinkStreamDest) {
+            this.sinkStreamDest = this.ctx.createMediaStreamDestination();
+          }
+          if (this.masterGain && !this.usingStreamSink) {
+            try {
+              this.masterGain.disconnect();
+            } catch {}
+            this.masterGain.connect(this.sinkStreamDest);
+            this.usingStreamSink = true;
+          }
+          this.sinkAudioEl.srcObject = this.sinkStreamDest.stream;
+          await this.sinkAudioEl.setSinkId(cleanId);
+          this.sinkAudioEl.play?.().catch(() => {});
+          return { supported: true, applied: true, deviceId: cleanId };
+        } catch (err) {
+          if (this.usingStreamSink && this.masterGain) {
+            try {
+              this.masterGain.disconnect();
+            } catch {}
+            this.masterGain.connect(this.ctx.destination);
+            this.usingStreamSink = false;
+          }
+          return {
+            supported: true,
+            applied: false,
+            error: err?.name || 'SinkError',
+            deviceId: ''
+          };
+        }
+      }
+    }
+
+    return { supported: false, applied: false, deviceId: '' };
+  }
+
+  async setOutputDevice(deviceId = '') {
+    this.sinkId = String(deviceId || '');
+    return this._applySinkToContext(this.sinkId);
   }
 
   _ensureCtx() {
@@ -10,7 +129,16 @@ class SoundEngine {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.connect(this.ctx.destination);
+        if (this.sinkId) {
+          this._applySinkToContext(this.sinkId).catch(() => {});
+        }
       }
+    }
+    if (this.ctx && !this.masterGain) {
+      this.masterGain = this.ctx.createGain();
+      this.masterGain.connect(this.ctx.destination);
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
@@ -41,7 +169,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(safeVol, startAt);
     gain.gain.exponentialRampToValueAtTime(0.001, startAt + safeDur);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this._getOutputNode());
     osc.start(startAt);
     osc.stop(startAt + safeDur);
   }
@@ -185,7 +313,7 @@ class SoundEngine {
     gain.gain.value = 0.05;
     noise.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this._getOutputNode());
     noise.start();
   }
 
@@ -219,7 +347,7 @@ class SoundEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, startAt + dur);
     src.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this._getOutputNode());
     src.start(startAt);
     src.stop(startAt + dur);
   }

@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.16 - Correctif Note 20/20 TP Brasure & Attribution Passe VIP Palier 7 à yanfufu';
+    : 'v4.17 - Ergonomie CIEL Watch VR, Masquage Panneau Debug, Fix Bras Croisés Multi & Sélecteur Audio';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,36 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.16 — Correctif Note 20/20 TP Brasure & Attribution Passe VIP Palier 7 à yanfufu',
+    version: 'v4.17 — Ergonomie CIEL Watch VR, Masquage Panneau Debug, Fix Bras Croisés Multi & Sélecteur Audio',
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'AUDIO MICRO/CASQUE',
+        title: 'Sélecteur d’Entrée / Sortie Audio, Vu-mètre & Changement à Chaud',
+        desc: 'Nouveau menu 🎧 Audio dans le HUD en jeu permettant de sélectionner le microphone et la sortie audio (casque / enceintes via setSinkId sur WebRTC spatial et effets Web Audio), avec vu-mètre temps réel, persistance localStorage, écoute automatique de ondevicechange et bascule de micro à chaud via RTCRtpSender.replaceTrack.'
+      },
+      {
+        badge: 'MULTIJOUEUR VR',
+        title: 'Correction des Bras Croisés sur les Avatars VR Distants',
+        desc: 'Alignement du repère d’épaules et de coudes dans AvatarBuilder.attachRemoteVrVisuals en tenant compte de la rotation de 180° entre le modèle avatar (+Z) et le repère caméra WebXR (-Z) afin que le bras gauche suive toujours la main gauche et le bras droit la main droite sans jamais se croiser.'
+      },
+      {
+        badge: 'CIEL WATCH VR',
+        title: 'Orientation Ergonomique Naturelle sur le Poignet Gauche',
+        desc: 'Repositionnement dorsal/radial de la montre CIEL Watch sur la main gauche (inclinaison naturelle ~42° autour de l’avant-bras vers le regard), affichage du texte parfaitement à l’endroit sans clipping, réveil intelligent au regard et interaction laser/tactile conservée sur Micro et Quitter VR.'
+      },
+      {
+        badge: 'CONFORT VR',
+        title: 'Masquage par Défaut du Panneau Flottant Debug WebXR',
+        desc: 'Le panneau 3D DEBUG WEBXR est désormais masqué par défaut en session VR standard pour dégager la vue dans l’atelier, et s’affiche automatiquement en Serveur Privé Debug ou via le bouton dédié des outils de debug.'
+      }
+    ]
+  },
+  {
+    version: 'v4.16 — Correctif Note 20/20 TP Brasure & Attribution Passe VIP Palier 7 à yanfufu',
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'TP BRASURE 20/20',

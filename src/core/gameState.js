@@ -255,6 +255,8 @@ export class GameState {
     const savedVoiceVol = Number(readStorage('ciel_voice_volume'));
     this.voiceVolume =
       Number.isFinite(savedVoiceVol) && savedVoiceVol >= 0 && savedVoiceVol <= 1.5 ? savedVoiceVol : 1.0;
+    this.audioInputId = readStorage('ciel_audio_input_id') || '';
+    this.audioOutputId = readStorage('ciel_audio_output_id') || '';
     try {
       const rawSkin = JSON.parse(readStorage('ciel_skin') || 'null');
       const loaded = rawSkin ? normalizeSkin({ ...DEFAULT_SKIN, ...rawSkin }) : { ...DEFAULT_SKIN };
@@ -794,6 +796,26 @@ export class GameState {
     const clamped = Math.max(0, Math.min(1.5, Number.isFinite(raw) ? Math.round(raw * 20) / 20 : 1.0));
     this.voiceVolume = clamped;
     writeStorage('ciel_voice_volume', String(clamped));
+    this.emit();
+  }
+
+  setAudioInputId(deviceId) {
+    this.audioInputId = String(deviceId || '');
+    if (this.audioInputId) {
+      writeStorage('ciel_audio_input_id', this.audioInputId);
+    } else {
+      removeStorage('ciel_audio_input_id');
+    }
+    this.emit();
+  }
+
+  setAudioOutputId(deviceId) {
+    this.audioOutputId = String(deviceId || '');
+    if (this.audioOutputId) {
+      writeStorage('ciel_audio_output_id', this.audioOutputId);
+    } else {
+      removeStorage('ciel_audio_output_id');
+    }
     this.emit();
   }
 
