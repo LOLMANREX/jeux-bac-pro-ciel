@@ -104,6 +104,7 @@ export class ProximityVoiceChat {
     this.meterBuffer = null;
     this.meterActive = false;
     this.micLevel = 0;
+    this.micRms = 0;
 
     this.peers = new Map();
     this.remoteVoiceStates = new Map();
@@ -701,26 +702,40 @@ export class ProximityVoiceChat {
     this.meterActive = false;
     if (!this.isTransmitting()) {
       this.micLevel = 0;
+      this.micRms = 0;
       this.onMicLevel?.(0);
     }
     if (emit) this._emitState();
   }
 
+  getMicMetrics() {
+    return {
+      micEnabled: Boolean(this.micEnabled),
+      transmitting: Boolean(this.isTransmitting()),
+      isSpeaking: Boolean(this.isSpeaking),
+      rms: Number(this.micRms) || 0,
+      level: Number(this.micLevel) || 0
+    };
+  }
+
   sampleMicLevel() {
     if (this.isTransmitting() && this.analyser && this.vadBuffer) {
       this.analyser.getByteTimeDomainData(this.vadBuffer);
-      const { level } = computeRmsMicLevel(this.vadBuffer);
+      const { rms, level } = computeRmsMicLevel(this.vadBuffer);
+      this.micRms = rms;
       this.micLevel = level;
       this.onMicLevel?.(level);
       return level;
     }
     if (this.meterActive && this.meterAnalyser && this.meterBuffer) {
       this.meterAnalyser.getByteTimeDomainData(this.meterBuffer);
-      const { level } = computeRmsMicLevel(this.meterBuffer);
+      const { rms, level } = computeRmsMicLevel(this.meterBuffer);
+      this.micRms = rms;
       this.micLevel = level;
       this.onMicLevel?.(level);
       return level;
     }
+    this.micRms = 0;
     this.micLevel = 0;
     this.onMicLevel?.(0);
     return 0;
@@ -1219,6 +1234,7 @@ export class ProximityVoiceChat {
 
     this.analyser.getByteTimeDomainData(this.vadBuffer);
     const { rms, level } = computeRmsMicLevel(this.vadBuffer);
+    this.micRms = rms;
     this.micLevel = level;
     this.onMicLevel?.(level);
     let nextSpeaking = this.isSpeaking;

@@ -653,6 +653,39 @@ export class NetworkClient {
     return this.send({ type: 'rtc_ice_candidate', targetId, candidate });
   }
 
+  sendSurvivalJoin() {
+    return this.send({ type: 'survival_join' });
+  }
+
+  sendSurvivalLeave() {
+    return this.send({ type: 'survival_leave' });
+  }
+
+  sendSurvivalReady(ready = true) {
+    return this.send({ type: 'survival_ready', ready: Boolean(ready) });
+  }
+
+  sendSurvivalHide(rackId = null) {
+    return this.send({ type: 'survival_hide', rackId: rackId || null });
+  }
+
+  sendSurvivalMic({ micEnabled = false, level = 0, rms = 0 } = {}) {
+    return this.send({
+      type: 'survival_mic',
+      micEnabled: Boolean(micEnabled),
+      level: Number(level) || 0,
+      rms: Number(rms) || 0
+    });
+  }
+
+  sendSurvivalTpDone(tpId, score = 20) {
+    return this.send({ type: 'survival_tp_done', tpId, score });
+  }
+
+  sendSurvivalDetentionSolved() {
+    return this.send({ type: 'survival_detention_solved' });
+  }
+
   async acceptQuest(name) {
     const sent = this.send({ type: 'accept_quest' });
     if (!sent) {

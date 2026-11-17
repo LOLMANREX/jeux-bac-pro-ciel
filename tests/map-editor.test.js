@@ -543,3 +543,21 @@ test('Aimantation murale des tableaux : détection 0.8m, face, rotation et exclu
   const tooFar = computeWallSnap({ px: -3.2, pz: 0.95, walls });
   assert.equal(tooFar, null);
 });
+
+test('Mode Survie v4.19 : Porte de Survie et Baies de Brassage dans MAP_ITEM_CATALOG et createDefaultMap', () => {
+  const doorDef = getCatalogItem('survival_door');
+  const rackDef = getCatalogItem('hiding_rack');
+  assert.ok(doorDef);
+  assert.ok(rackDef);
+  assert.equal(doorDef.category, 'stations');
+  assert.equal(rackDef.category, 'tech');
+  assert.equal(rackDef.isHidingSpot, true);
+
+  const defMap = createDefaultMap();
+  const doors = defMap.objects.filter((o) => o.type === 'survival_door');
+  const racks = defMap.objects.filter((o) => o.type === 'hiding_rack');
+  assert.ok(doors.length >= 1);
+  assert.ok(racks.length >= 4);
+
+  const colliders = getDynamicMapColliders(defMap);
+});

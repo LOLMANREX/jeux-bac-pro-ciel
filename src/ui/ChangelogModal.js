@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.18 - Adaptation Complète de Tous les TPs en VR WebXR & Panneaux Spatiaux Interactifs';
+    : 'v4.19 - Mode Survie Horreur : La Traque du Professeur CIEL, Baies de Brassage & Heure de Colle';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,36 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.18 — Adaptation Complète de Tous les TPs en VR WebXR & Panneaux Spatiaux Interactifs',
+    version: 'v4.19 — Mode Survie Horreur : La Traque du Professeur CIEL, Baies de Brassage & Heure de Colle',
     date: '16/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'ÉDITEUR & LOBBY 2+ JOUEURS',
+        title: 'Porte de Mini-Jeu Survie & Baies de Brassage (Cachettes) dans MapEditor',
+        desc: 'Ajout de deux nouveaux objets constructibles dans l’éditeur 3D (src/admin/MapEditor.js, mapSchema.js et LabBuilder.js) : la Porte de Survie menant au salon d’attente dédié (lancement automatique dès 2 joueurs minimum prêts) et les Baies de Brassage disséminées dans l’atelier pour se dissimuler.'
+      },
+      {
+        badge: 'IA & ÉCOUTE MICRO EN DIRECT',
+        title: 'Atmosphère Horrifique, Pathfinding A* & Traque du Professeur CIEL',
+        desc: 'Lumières vacillantes, brouillard oppressant, lampe torche, pas lourds et battements cardiaques. L’IA A* patrouille sans blocage dans les murs, analyse le volume RMS réel du microphone (ProximityVoiceChat) pour foncer vers les cris à travers les cloisons, et perd la trace si l’élève reste silencieux dans une Baie de Brassage.'
+      },
+      {
+        badge: 'JUMPSCARE & HEURE DE COLLE',
+        title: 'Capture, Salle de Détention, Tableaux de Variation & Caméras de Surveillance',
+        desc: 'En cas de capture : jumpscare immédiat visuel/sonore/haptique puis téléportation en Salle d’Heure de Colle. Les élèves collés résolvent en boucle des exercices de tableaux de variation de fonctions tout en observant la position en direct de leurs camarades survivants sur l’écran de vidéosurveillance.'
+      },
+      {
+        badge: 'COOP & 100 % VR WEBXR',
+        title: 'Cinématiques Victoire/Défaite & Support Total Meta Quest / Sim VR (F9)',
+        desc: 'Victoire coopérative si 100 % des TPs sont validés par les survivants (retour de toute la classe au hall) ou défaite si toute la classe finit en colle. Ensemble des mécaniques jouables au laser VR et au toucher spatial via les nouveaux panneaux 3D de VRHudPanel.'
+      }
+    ]
+  },
+  {
+    version: 'v4.18 — Adaptation Complète de Tous les TPs en VR WebXR & Panneaux Spatiaux Interactifs',
+    date: '16/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'TPS 100 % VR WEBXR',

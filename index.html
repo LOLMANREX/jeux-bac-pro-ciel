@@ -752,6 +752,28 @@
           </form>
         </aside>
 
+        <div id="survival-horror-vignette" class="survival-horror-vignette hidden" aria-hidden="true"></div>
+
+        <div id="survival-hud-bar" class="survival-hud-bar hidden">
+          <div class="survival-hud-left">
+            <span class="survival-hud-badge">☠️ MODE SURVIE</span>
+            <span id="survival-hud-tps" class="survival-hud-stat">TPs : 0 / 5</span>
+            <span id="survival-hud-players" class="survival-hud-stat">Survivants : 2 • Collés : 0</span>
+            <span id="survival-hud-ai" class="survival-hud-ai">IA : Patrouille</span>
+          </div>
+          <div class="survival-hud-right">
+            <div class="survival-mic-wrap" title="Volume micro capté par le Professeur CIEL">
+              <span>🎙️ Bruit</span>
+              <div class="survival-mic-track">
+                <div id="survival-hud-noise-fill" class="survival-mic-fill"></div>
+                <div class="survival-mic-threshold"></div>
+              </div>
+            </div>
+            <button type="button" id="survival-hud-mic-btn" class="btn-secondary btn-sm">🎙️ Micro</button>
+            <button type="button" id="survival-detention-open-btn" class="btn-primary btn-sm hidden">📝 Tableaux de Variation</button>
+          </div>
+        </div>
+
         <div class="hud-bottom-hint">
           <span>ZQSD : Bouger</span> •
           <span>Espace : Sauter</span> •
@@ -1192,6 +1214,115 @@
           <button type="button" id="pigeon-troll-close" class="pigeon-close-btn">
             Rouuu-rouuu, j’ai compris
           </button>
+        </div>
+      </div>
+
+      <div id="survival-lobby-modal" class="modal-backdrop survival-backdrop hidden">
+        <div class="survival-modal-card">
+          <div class="survival-modal-header">
+            <div>
+              <div class="survival-pill">SALON D’ATTENTE • COOPÉRATION HORREUR</div>
+              <h2>🚪 La Traque du Professeur CIEL</h2>
+            </div>
+            <button type="button" id="survival-lobby-close" class="icon-close" title="Quitter le salon">✕</button>
+          </div>
+          <p class="survival-brief">
+            Terminez <strong>100 % des TPs</strong> de l’atelier sans vous faire attraper par le Professeur CIEL.
+            Parler trop fort au micro l’attire à travers les cloisons ! Cachez-vous dans une <strong>Baie de Brassage</strong> et gardez le silence pour lui échapper.
+          </p>
+          <div id="survival-lobby-status" class="survival-lobby-status">
+            En attente de joueurs (minimum 2 joueurs prêts pour démarrer)...
+          </div>
+          <div id="survival-lobby-players" class="survival-lobby-players"></div>
+          <div class="survival-lobby-actions">
+            <button type="button" id="survival-lobby-ready-btn" class="btn-primary survival-ready-btn">⚔️ Je suis prêt !</button>
+            <button type="button" id="survival-lobby-mic-btn" class="btn-secondary">🎙️ Tester / Basculer Micro</button>
+            <button type="button" id="survival-lobby-leave-btn" class="btn-secondary">🚪 Retour au Hall</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="survival-hide-overlay" class="survival-hide-overlay hidden">
+        <div class="survival-rack-frame">
+          <div class="survival-rack-slats" aria-hidden="true">
+            <div class="survival-rack-slat"></div>
+            <div class="survival-rack-slat"></div>
+            <div class="survival-rack-slat"></div>
+            <div class="survival-rack-slat"></div>
+          </div>
+          <div class="survival-rack-panel">
+            <h3>🗄️ Caché dans la Baie de Brassage</h3>
+            <p id="survival-hide-status">Restez silencieux : le Professeur CIEL perd votre trace si votre micro reste calme.</p>
+            <div class="survival-hide-meter">
+              <span>Volume Micro RMS</span>
+              <div class="survival-mic-track wide">
+                <div id="survival-hide-noise-fill" class="survival-mic-fill"></div>
+                <div class="survival-mic-threshold"></div>
+              </div>
+              <span id="survival-hide-noise-pct">0%</span>
+            </div>
+            <div class="survival-hide-actions">
+              <button type="button" id="survival-hide-mic-btn" class="btn-secondary">🎙️ Couper / Activer Micro</button>
+              <button type="button" id="survival-hide-exit-btn" class="btn-primary">🚪 Sortir de la Baie [E]</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="survival-jumpscare-overlay" class="survival-jumpscare-overlay hidden" role="alertdialog" aria-live="assertive">
+        <div class="jumpscare-flash"></div>
+        <div class="jumpscare-entity">
+          <div class="jumpscare-face">
+            <div class="jumpscare-eyes">
+              <span class="jumpscare-eye"></span>
+              <span class="jumpscare-eye"></span>
+            </div>
+            <div class="jumpscare-mouth"></div>
+          </div>
+          <h2 id="jumpscare-title">☠️ ATTRAPÉ PAR LE PROFESSEUR CIEL !</h2>
+          <p id="jumpscare-sub">Téléportation immédiate en Salle d’Heure de Colle...</p>
+        </div>
+      </div>
+
+      <div id="survival-detention-modal" class="modal-backdrop survival-backdrop hidden">
+        <div class="survival-detention-card">
+          <div class="survival-modal-header">
+            <div>
+              <div class="survival-pill detention">SALLE D’HEURE DE COLLE • SURVEILLANCE</div>
+              <h2>📝 Tableaux de Variation en Boucle</h2>
+            </div>
+            <button type="button" id="survival-detention-minimize" class="btn-secondary btn-sm">📺 Regarder Écran Caméras</button>
+          </div>
+          <div class="survival-detention-grid">
+            <div class="detention-math-pane">
+              <div class="detention-stats-row">
+                <span id="detention-solved-badge">Résolus : 0</span>
+                <span id="detention-streak-badge">Série : 0</span>
+                <span id="detention-progress-badge">TPs Survie : 0 / 5</span>
+              </div>
+              <p id="detention-question" class="detention-question">Chargement du tableau de variations...</p>
+              <div id="detention-table-container"></div>
+              <div id="detention-options" class="detention-options"></div>
+              <div id="detention-feedback" class="detention-feedback">Résolvez des tableaux pour aider l’atelier via le signal radar !</div>
+            </div>
+            <div class="detention-cam-pane">
+              <div class="detention-cam-title">📹 CAMÉRAS SURVEILLANCE ATELIER U300</div>
+              <canvas id="detention-surveillance-canvas" width="320" height="300"></canvas>
+              <div id="detention-cam-legend" class="detention-cam-legend">
+                ● Vert : Survivants • ● Cyan : Cachés • ● Rouge : Professeur CIEL
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="survival-end-overlay" class="modal-backdrop survival-backdrop hidden">
+        <div id="survival-end-card" class="survival-end-card">
+          <div id="survival-end-icon" class="survival-end-icon">🏆</div>
+          <h2 id="survival-end-title">FIN DE LA PARTIE</h2>
+          <p id="survival-end-reason" class="survival-end-reason"></p>
+          <div id="survival-end-stats" class="survival-end-stats"></div>
+          <button type="button" id="survival-end-btn" class="btn-primary">🏫 Retourner au Hall Principal</button>
         </div>
       </div>
 

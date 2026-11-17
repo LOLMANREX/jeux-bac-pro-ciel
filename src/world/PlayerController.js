@@ -36,6 +36,7 @@ export class PlayerController {
     this.avatar = null;
     this.avatarVisible = false;
     this.vrModeActive = false;
+    this.movementLocked = false;
 
     this.camera.rotation.order = 'YXZ';
     this._applyCamera();
@@ -117,6 +118,13 @@ export class PlayerController {
     this.isGrounded = false;
     this.onJump?.();
     return true;
+  }
+
+  setMovementLocked(locked) {
+    this.movementLocked = Boolean(locked);
+    if (this.movementLocked) {
+      this.clearKeys();
+    }
   }
 
   setEnabled(enabled) {
@@ -341,7 +349,7 @@ export class PlayerController {
       (this.speedMultiplier || 1);
 
     const len = Math.hypot(forward, right);
-    if (len > 0.001) {
+    if (len > 0.001 && !this.movementLocked) {
       if (len > 1) {
         forward /= len;
         right /= len;
@@ -366,7 +374,7 @@ export class PlayerController {
       isMoving = moved;
     }
 
-    if (this.keys.has('Space')) {
+    if (this.keys.has('Space') && !this.movementLocked) {
       this.triggerJump();
     }
 

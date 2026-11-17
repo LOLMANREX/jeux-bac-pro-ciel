@@ -655,6 +655,66 @@ export class SceneManager {
     this.fill = new THREE.DirectionalLight('#f8fafc', 0.42);
     this.fill.position.set(-11, 8, -10);
     this.scene.add(this.fill);
+
+    this.flashlight = new THREE.SpotLight('#e2f1ff', 0, 18, Math.PI / 4.2, 0.52, 1.35);
+    this.flashlight.visible = false;
+    this.scene.add(this.flashlight);
+    this.scene.add(this.flashlight.target);
+    this.horrorMode = false;
+    this._horrorCamPos = new THREE.Vector3();
+    this._horrorCamDir = new THREE.Vector3();
+  }
+
+  setHorrorAtmosphere(active, threat = 0, flicker = 1) {
+    this.horrorMode = Boolean(active);
+    if (!this.horrorMode) {
+      this.scene.background = new THREE.Color('#cfe4f7');
+      if (this.scene.fog) {
+        this.scene.fog.color.set('#cfe4f7');
+        const diag = Math.hypot(this._worldWidth || 26, this._worldDepth || 24.4);
+        this.scene.fog.near = Math.max(38, diag * 0.82);
+        this.scene.fog.far = Math.max(105, diag * 1.85);
+      }
+      this.renderer?.setClearColor?.('#cfe4f7', 1);
+      if (this.ambient) this.ambient.intensity = 0.42;
+      if (this.hemi) this.hemi.intensity = 0.82;
+      if (this.sun) this.sun.intensity = 1.42;
+      if (this.fill) this.fill.intensity = 0.42;
+      this.scene.environmentIntensity = 0.65;
+      if (this.flashlight) {
+        this.flashlight.visible = false;
+        this.flashlight.intensity = 0;
+      }
+      return;
+    }
+
+    const flk = Math.max(0.15, Math.min(1.1, Number(flicker) || 1));
+    const thr = Math.max(0, Math.min(1, Number(threat) || 0));
+    const fogHex = thr > 0.5 ? '#16070d' : '#050814';
+    this.scene.background = new THREE.Color(fogHex);
+    if (this.scene.fog) {
+      this.scene.fog.color.set(fogHex);
+      this.scene.fog.near = 3.2;
+      this.scene.fog.far = 19.5;
+    }
+    this.renderer?.setClearColor?.(fogHex, 1);
+    if (this.ambient) this.ambient.intensity = 0.14 * flk;
+    if (this.hemi) this.hemi.intensity = 0.22 * flk;
+    if (this.sun) this.sun.intensity = 0.16 * flk;
+    if (this.fill) this.fill.intensity = 0.12 * flk;
+    this.scene.environmentIntensity = 0.16;
+
+    if (this.flashlight && this.camera) {
+      this.flashlight.visible = true;
+      this.flashlight.intensity = (2.8 + thr * 0.4) * (0.85 + flk * 0.15);
+      this.camera.getWorldPosition(this._horrorCamPos);
+      this.camera.getWorldDirection(this._horrorCamDir);
+      this.flashlight.position.copy(this._horrorCamPos);
+      this.flashlight.target.position
+        .copy(this._horrorCamPos)
+        .addScaledVector(this._horrorCamDir, 6);
+      this.flashlight.target.updateMatrixWorld();
+    }
   }
 
   getMaxAnisotropy() {
@@ -671,11 +731,13 @@ export class SceneManager {
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
     const diag = Math.hypot(width, depth);
+    this._worldWidth = width;
+    this._worldDepth = depth;
 
     this.camera.far = Math.max(180, diag * 1.8);
     this.camera.updateProjectionMatrix();
 
-    if (this.scene.fog) {
+    if (this.scene.fog && !this.horrorMode) {
       this.scene.fog.near = Math.max(38, diag * 0.82);
       this.scene.fog.far = Math.max(105, diag * 1.85);
     }
@@ -924,7 +986,7 @@ export class SceneManager {
         }
         if (isXr) {
           this.renderer.autoClear = true;
-          this.renderer.setClearColor?.('#cfe4f7', 1);
+          this.renderer.setClearColor?.(this.horrorMode ? '#050814' : '#cfe4f7', 1);
           const activeRt = this.renderer.getRenderTarget?.();
           if (activeRt && !activeRt.isXRRenderTarget) {
             this.renderer.setRenderTarget?.(null);

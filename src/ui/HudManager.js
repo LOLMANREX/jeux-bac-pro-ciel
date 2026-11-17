@@ -1,6 +1,6 @@
 import { sfx } from '../core/audio.js';
 import { getMention, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
-import { getStationTeleportInMap, getZoneAtPositionInMap } from '../world/mapSchema.js';
+import { getCatalogItem, getStationTeleportInMap, getZoneAtPositionInMap } from '../world/mapSchema.js';
 import {
   ASCENSION_SPECIALTIES,
   isCreatorLouis,
@@ -9,6 +9,16 @@ import {
 } from '../world/AvatarBuilder.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 import { PlateauMiniMap } from './PlateauMiniMap.js';
+import { renderVariationTableMarkup } from '../minigames/VariationTableGame.js';
+
+function escapeHtmlSafe(v) {
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
 
 export function formatWorldCelebrationBanner(playerName, tpLabel = 'Oscilloscope & Diagnostic 3D') {
   const cleanName = String(playerName || 'Élève').trim() || 'Élève';
@@ -210,6 +220,53 @@ export class HudManager {
     );
 
     this.toastContainer = document.getElementById('toast-container');
+
+    this.survivalVignetteEl = document.getElementById('survival-horror-vignette');
+    this.survivalHudBarEl = document.getElementById('survival-hud-bar');
+    this.survivalHudTpsEl = document.getElementById('survival-hud-tps');
+    this.survivalHudPlayersEl = document.getElementById('survival-hud-players');
+    this.survivalHudAiEl = document.getElementById('survival-hud-ai');
+    this.survivalHudNoiseFillEl = document.getElementById('survival-hud-noise-fill');
+    this.survivalHudMicBtn = document.getElementById('survival-hud-mic-btn');
+    this.survivalDetentionOpenBtn = document.getElementById('survival-detention-open-btn');
+
+    this.survivalLobbyModalEl = document.getElementById('survival-lobby-modal');
+    this.survivalLobbyStatusEl = document.getElementById('survival-lobby-status');
+    this.survivalLobbyPlayersEl = document.getElementById('survival-lobby-players');
+    this.survivalLobbyReadyBtn = document.getElementById('survival-lobby-ready-btn');
+    this.survivalLobbyMicBtn = document.getElementById('survival-lobby-mic-btn');
+    this.survivalLobbyLeaveBtn = document.getElementById('survival-lobby-leave-btn');
+    this.survivalLobbyCloseBtn = document.getElementById('survival-lobby-close');
+
+    this.survivalHideOverlayEl = document.getElementById('survival-hide-overlay');
+    this.survivalHideStatusEl = document.getElementById('survival-hide-status');
+    this.survivalHideNoiseFillEl = document.getElementById('survival-hide-noise-fill');
+    this.survivalHideNoisePctEl = document.getElementById('survival-hide-noise-pct');
+    this.survivalHideMicBtn = document.getElementById('survival-hide-mic-btn');
+    this.survivalHideExitBtn = document.getElementById('survival-hide-exit-btn');
+
+    this.survivalJumpscareEl = document.getElementById('survival-jumpscare-overlay');
+    this.survivalJumpscareTitleEl = document.getElementById('jumpscare-title');
+    this.survivalJumpscareSubEl = document.getElementById('jumpscare-sub');
+
+    this.survivalDetentionModalEl = document.getElementById('survival-detention-modal');
+    this.survivalDetentionMinBtn = document.getElementById('survival-detention-minimize');
+    this.detentionSolvedEl = document.getElementById('detention-solved-badge');
+    this.detentionStreakEl = document.getElementById('detention-streak-badge');
+    this.detentionProgressEl = document.getElementById('detention-progress-badge');
+    this.detentionQuestionEl = document.getElementById('detention-question');
+    this.detentionTableEl = document.getElementById('detention-table-container');
+    this.detentionOptionsEl = document.getElementById('detention-options');
+    this.detentionFeedbackEl = document.getElementById('detention-feedback');
+    this.detentionSurvCanvas = document.getElementById('detention-surveillance-canvas');
+
+    this.survivalEndOverlayEl = document.getElementById('survival-end-overlay');
+    this.survivalEndCardEl = document.getElementById('survival-end-card');
+    this.survivalEndIconEl = document.getElementById('survival-end-icon');
+    this.survivalEndTitleEl = document.getElementById('survival-end-title');
+    this.survivalEndReasonEl = document.getElementById('survival-end-reason');
+    this.survivalEndStatsEl = document.getElementById('survival-end-stats');
+    this.survivalEndBtn = document.getElementById('survival-end-btn');
 
     this.hudEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
@@ -1789,5 +1846,309 @@ export class HudManager {
       : supported
         ? 'Entrer en Réalité Virtuelle WebXR (Meta Quest)'
         : 'Activer la simulation VR PC (F9) : H Smartwatch • F Poing • Clic Laser';
+  }
+
+  bindSurvivalHandlers(callbacks = {}) {
+    this.survivalCallbacks = callbacks;
+    this.survivalLobbyReadyBtn?.addEventListener('click', () => this.survivalCallbacks?.onToggleReady?.());
+    this.survivalLobbyMicBtn?.addEventListener('click', () => this.survivalCallbacks?.onToggleMic?.());
+    this.survivalLobbyLeaveBtn?.addEventListener('click', () => this.survivalCallbacks?.onLeaveLobby?.());
+    this.survivalLobbyCloseBtn?.addEventListener('click', () => this.survivalCallbacks?.onLeaveLobby?.());
+    this.survivalHideMicBtn?.addEventListener('click', () => this.survivalCallbacks?.onToggleMic?.());
+    this.survivalHideExitBtn?.addEventListener('click', () => this.survivalCallbacks?.onExitRack?.());
+    this.survivalHudMicBtn?.addEventListener('click', () => this.survivalCallbacks?.onToggleMic?.());
+    this.survivalDetentionOpenBtn?.addEventListener('click', () => this.survivalCallbacks?.onOpenDetention?.());
+    this.survivalDetentionMinBtn?.addEventListener('click', () => this.survivalCallbacks?.onMinimizeDetention?.());
+    this.survivalEndBtn?.addEventListener('click', () => this.survivalCallbacks?.onCloseEnd?.());
+  }
+
+  showSurvivalLobby(snapshot = {}, localId = null, micEnabled = false) {
+    if (!this.survivalLobbyModalEl) return;
+    this.survivalLobbyModalEl.classList.remove('hidden');
+    const players = Array.isArray(snapshot.lobbyPlayers)
+      ? snapshot.lobbyPlayers
+      : Array.isArray(snapshot.players)
+        ? snapshot.players
+        : [];
+    const minP = Math.max(2, Number(snapshot.minPlayers) || 2);
+    const readyCount = players.filter((p) => p.ready).length;
+    const localPlayer = players.find((p) => p.id === localId);
+    const localReady = Boolean(localPlayer?.ready);
+
+    if (this.survivalLobbyStatusEl) {
+      if (players.length < minP) {
+        this.survivalLobbyStatusEl.textContent = `⏳ Joueurs dans le salon : ${players.length}/${minP} minimum requis pour lancer automatiquement la traque.`;
+      } else {
+        this.survivalLobbyStatusEl.textContent = `⚔️ ${readyCount}/${players.length} joueurs prêts — la partie démarre dès que tous les joueurs présents sont prêts !`;
+      }
+    }
+
+    if (this.survivalLobbyPlayersEl) {
+      this.survivalLobbyPlayersEl.innerHTML = players
+        .map(
+          (p) => `
+          <div class="survival-player-chip ${p.ready ? 'ready' : ''}">
+            <span>${escapeHtmlSafe(p.name || 'Élève')}${p.id === localId ? ' (Vous)' : ''}</span>
+            <span>${p.ready ? '✅ Prêt' : '⏳ Attente'}</span>
+          </div>`
+        )
+        .join('');
+    }
+
+    if (this.survivalLobbyReadyBtn) {
+      this.survivalLobbyReadyBtn.textContent = localReady ? '⏳ Annuler Prêt' : '⚔️ Je suis prêt !';
+    }
+    if (this.survivalLobbyMicBtn) {
+      this.survivalLobbyMicBtn.textContent = micEnabled ? '🎙️ Micro ON' : '🔇 Micro OFF';
+    }
+  }
+
+  hideSurvivalLobby() {
+    this.survivalLobbyModalEl?.classList.add('hidden');
+  }
+
+  updateSurvivalHud({
+    completedTps = 0,
+    totalTps = 5,
+    survivorsCount = 0,
+    detainedCount = 0,
+    aiState = 'patrol',
+    noiseLevel = 0,
+    micEnabled = false,
+    detained = false,
+    detentionMinimized = false
+  } = {}) {
+    this.survivalHudBarEl?.classList.remove('hidden');
+    this.survivalVignetteEl?.classList.remove('hidden');
+    this.survivalVignetteEl?.classList.toggle('chase', aiState === 'chase');
+
+    if (this.survivalHudTpsEl) {
+      this.survivalHudTpsEl.textContent = `TPs : ${completedTps} / ${totalTps}`;
+    }
+    if (this.survivalHudPlayersEl) {
+      this.survivalHudPlayersEl.textContent = `Survivants : ${survivorsCount} • Collés : ${detainedCount}`;
+    }
+    if (this.survivalHudAiEl) {
+      const label =
+        aiState === 'chase'
+          ? 'IA : 🚨 POURSUITE !'
+          : aiState === 'investigate'
+            ? 'IA : 👂 Alerte Bruit / Recherche'
+            : 'IA : 👣 Patrouille';
+      this.survivalHudAiEl.textContent = label;
+      this.survivalHudAiEl.classList.toggle('chase', aiState === 'chase');
+    }
+    const pct = Math.max(0, Math.min(100, Math.round((Number(noiseLevel) || 0) * 100)));
+    if (this.survivalHudNoiseFillEl) {
+      this.survivalHudNoiseFillEl.style.width = `${pct}%`;
+    }
+    if (this.survivalHudMicBtn) {
+      this.survivalHudMicBtn.textContent = micEnabled ? '🎙️ Micro ON' : '🔇 Micro OFF';
+    }
+    if (this.survivalDetentionOpenBtn) {
+      this.survivalDetentionOpenBtn.classList.toggle('hidden', !(detained && detentionMinimized));
+    }
+  }
+
+  hideSurvivalHud() {
+    this.survivalHudBarEl?.classList.add('hidden');
+    this.survivalVignetteEl?.classList.add('hidden');
+    this.survivalVignetteEl?.classList.remove('chase');
+    this.survivalDetentionOpenBtn?.classList.add('hidden');
+  }
+
+  showHidingOverlay({ noiseLevel = 0, micEnabled = false, aiState = 'patrol' } = {}) {
+    if (!this.survivalHideOverlayEl) return;
+    this.survivalHideOverlayEl.classList.remove('hidden');
+    const pct = Math.max(0, Math.min(100, Math.round((Number(noiseLevel) || 0) * 100)));
+    if (this.survivalHideNoiseFillEl) {
+      this.survivalHideNoiseFillEl.style.width = `${pct}%`;
+    }
+    if (this.survivalHideNoisePctEl) {
+      this.survivalHideNoisePctEl.textContent = `${pct}%`;
+    }
+    if (this.survivalHideMicBtn) {
+      this.survivalHideMicBtn.textContent = micEnabled ? '🎙️ Couper Micro (Silence)' : '🔇 Micro Coupé (Caché)';
+    }
+    if (this.survivalHideStatusEl) {
+      if (noiseLevel >= 0.28) {
+        this.survivalHideStatusEl.textContent =
+          '⚠️ Votre micro dépasse 28% ! Le Professeur CIEL vous entend à travers la baie de brassage !';
+      } else if (aiState === 'chase') {
+        this.survivalHideStatusEl.textContent =
+          '🚨 Chut ! Restez immobile et silencieux : le Professeur CIEL va perdre votre trace.';
+      } else {
+        this.survivalHideStatusEl.textContent =
+          '🤫 Vous êtes dissimulé dans la Baie de Brassage. Appuyez sur E pour en sortir.';
+      }
+    }
+  }
+
+  hideHidingOverlay() {
+    this.survivalHideOverlayEl?.classList.add('hidden');
+  }
+
+  triggerJumpscareOverlay(title = '☠️ ATTRAPÉ PAR LE PROFESSEUR CIEL !', sub = 'Téléportation immédiate en Salle d’Heure de Colle...') {
+    if (!this.survivalJumpscareEl) return;
+    if (this.survivalJumpscareTitleEl) this.survivalJumpscareTitleEl.textContent = title;
+    if (this.survivalJumpscareSubEl) this.survivalJumpscareSubEl.textContent = sub;
+    this.survivalJumpscareEl.classList.remove('hidden');
+  }
+
+  hideJumpscareOverlay() {
+    this.survivalJumpscareEl?.classList.add('hidden');
+  }
+
+  showDetentionModal(detentionSnapshot = {}) {
+    if (!this.survivalDetentionModalEl) return;
+    this.survivalDetentionModalEl.classList.remove('hidden');
+    const ex = detentionSnapshot.exercise;
+    if (this.detentionSolvedEl) {
+      this.detentionSolvedEl.textContent = `Résolus : ${detentionSnapshot.solvedCount || 0}`;
+    }
+    if (this.detentionStreakEl) {
+      this.detentionStreakEl.textContent = `Série : ${detentionSnapshot.streak || 0}`;
+    }
+    if (this.detentionProgressEl) {
+      this.detentionProgressEl.textContent = `TPs Survie : ${detentionSnapshot.completedTps || 0} / ${detentionSnapshot.totalTps || 5}`;
+    }
+    if (ex && this.detentionQuestionEl) {
+      this.detentionQuestionEl.textContent = ex.question || '';
+    }
+    if (ex && this.detentionTableEl) {
+      this.detentionTableEl.innerHTML = renderVariationTableMarkup(ex);
+    }
+    if (ex && this.detentionOptionsEl) {
+      const letters = ['A', 'B', 'C', 'D'];
+      this.detentionOptionsEl.innerHTML = (ex.options || [])
+        .map(
+          (opt, idx) =>
+            `<button type="button" class="detention-opt-btn" data-opt-idx="${idx}">${letters[idx]}) ${escapeHtmlSafe(opt)}</button>`
+        )
+        .join('');
+      this.detentionOptionsEl.querySelectorAll('.detention-opt-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = Number(btn.getAttribute('data-opt-idx'));
+          this.survivalCallbacks?.onDetentionOption?.(idx);
+        });
+      });
+    }
+    if (this.detentionFeedbackEl) {
+      this.detentionFeedbackEl.textContent =
+        detentionSnapshot.feedback || 'Résolvez des tableaux pour aider l’atelier via le signal radar !';
+      this.detentionFeedbackEl.classList.toggle('error', detentionSnapshot.lastCorrect === false);
+    }
+  }
+
+  updateDetentionSurveillance(snapshot = {}, mapData = null) {
+    const canvas = this.detentionSurvCanvas;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#020817';
+    ctx.fillRect(0, 0, w, h);
+
+    const bounds = mapData?.bounds || { minX: -13, maxX: 13, minZ: -12.2, maxZ: 12.2 };
+    const spanX = Math.max(1, bounds.maxX - bounds.minX);
+    const spanZ = Math.max(1, bounds.maxZ - bounds.minZ);
+    const toX = (x) => 16 + ((x - bounds.minX) / spanX) * (w - 32);
+    const toY = (z) => 16 + ((z - bounds.minZ) / spanZ) * (h - 32);
+
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(16, 16, w - 32, h - 32);
+    for (const wall of mapData?.walls || []) {
+      const wx = wall.cx ?? 0;
+      const wz = wall.cz ?? 0;
+      const ww = Math.max(2, ((wall.w || 0.3) / spanX) * (w - 32));
+      const wd = Math.max(2, ((wall.d || 0.3) / spanZ) * (h - 32));
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.36)';
+      ctx.fillRect(toX(wx) - ww / 2, toY(wz) - wd / 2, ww, wd);
+    }
+
+    const doneSet = new Set(snapshot.completedTps || []);
+    for (const obj of mapData?.objects || []) {
+      const cat = getCatalogItem(obj.type);
+      if (cat?.tpId) {
+        const px = toX(obj.x ?? 0);
+        const py = toY(obj.z ?? 0);
+        ctx.fillStyle = doneSet.has(cat.tpId) ? '#22c55e' : '#fbbf24';
+        ctx.fillRect(px - 4, py - 4, 8, 8);
+      } else if (obj.type === 'hiding_rack') {
+        const px = toX(obj.x ?? 0);
+        const py = toY(obj.z ?? 0);
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(px - 3, py - 3, 6, 6);
+      }
+    }
+
+    const parts = Array.isArray(snapshot.participants)
+      ? snapshot.participants
+      : Array.isArray(snapshot.players)
+        ? snapshot.players
+        : [];
+    for (const p of parts) {
+      if (p.status === 'detained' || p.detained) continue;
+      const px = toX(p.x ?? 0);
+      const py = toY(p.z ?? 0);
+      ctx.fillStyle = p.hiddenRackId ? '#22d3ee' : '#34d399';
+      ctx.beginPath();
+      ctx.arc(px, py, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText(String(p.name || '').slice(0, 10), px + 7, py + 3);
+    }
+
+    if (snapshot.ai) {
+      const ax = toX(snapshot.ai.x ?? 0);
+      const ay = toY(snapshot.ai.z ?? 0);
+      ctx.fillStyle = snapshot.ai.state === 'chase' ? '#ef4444' : '#fb923c';
+      ctx.beginPath();
+      ctx.arc(ax, ay, 7.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
+  hideDetentionModal() {
+    this.survivalDetentionModalEl?.classList.add('hidden');
+  }
+
+  showSurvivalEndOverlay({ victory = false, reason = '', completedTps = 0, totalTps = 5, survivorsCount = 0, detainedCount = 0, durationSec = 0 } = {}) {
+    if (!this.survivalEndOverlayEl) return;
+    this.survivalEndOverlayEl.classList.remove('hidden');
+    if (this.survivalEndCardEl) {
+      this.survivalEndCardEl.classList.toggle('victory', Boolean(victory));
+      this.survivalEndCardEl.classList.toggle('defeat', !victory);
+    }
+    if (this.survivalEndIconEl) this.survivalEndIconEl.textContent = victory ? '🏆' : '💀';
+    if (this.survivalEndTitleEl) {
+      this.survivalEndTitleEl.textContent = victory
+        ? 'VICTOIRE COOPÉRATIVE !'
+        : 'DÉFAITE — CLASSE EN HEURE DE COLLE';
+    }
+    if (this.survivalEndReasonEl) this.survivalEndReasonEl.textContent = reason || '';
+    if (this.survivalEndStatsEl) {
+      this.survivalEndStatsEl.textContent = `TPs terminés : ${completedTps}/${totalTps} • Survivants : ${survivorsCount} • Collés : ${detainedCount} • Durée : ${durationSec}s`;
+    }
+  }
+
+  hideSurvivalEndOverlay() {
+    this.survivalEndOverlayEl?.classList.add('hidden');
+  }
+
+  hideAllSurvivalUi() {
+    this.hideSurvivalLobby();
+    this.hideSurvivalHud();
+    this.hideHidingOverlay();
+    this.hideJumpscareOverlay();
+    this.hideDetentionModal();
+    this.hideSurvivalEndOverlay();
   }
 }

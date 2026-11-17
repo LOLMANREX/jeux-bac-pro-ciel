@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.18 - Adaptation Complète de Tous les TPs en VR WebXR & Panneaux Spatiaux Interactifs'),
+    __APP_VERSION__: JSON.stringify('v4.19 - Mode Survie Horreur : La Traque du Professeur CIEL, Baies de Brassage & Heure de Colle'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

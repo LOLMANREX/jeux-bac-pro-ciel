@@ -673,9 +673,13 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   const interactables = [];
   const solidWallMeshes = [];
   const teacherRefs = [];
+  const survivalDoors = [];
+  const hidingSpots = [];
+  let ceilingPanelsInst = null;
   const animatedRefs = {
     rings: [],
-    leds: []
+    leds: [],
+    survivalBeacons: []
   };
   let leaderboardBoards = [];
   let materialPack = null;
@@ -885,6 +889,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
       framesInst.instanceMatrix.needsUpdate = true;
       panelsInst.instanceMatrix.needsUpdate = true;
+      ceilingPanelsInst = panelsInst;
       worldGroup.add(framesInst);
       worldGroup.add(panelsInst);
     }
@@ -1050,6 +1055,181 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       grp.position.set(obj.x, 0, obj.z);
       grp.rotation.y = rotRad;
       worldGroup.add(grp);
+
+      if (obj.type === 'survival_door') {
+        const doorW = Math.max(1.2, w);
+        const doorH = 2.6;
+        const doorD = Math.max(0.28, d);
+        const frameMat = new THREE.MeshStandardMaterial({
+          color: '#1e293b',
+          roughness: 0.35,
+          metalness: 0.72,
+          emissive: '#000000',
+          emissiveIntensity: 0
+        });
+        const leftPost = new THREE.Mesh(new THREE.BoxGeometry(0.16, doorH, doorD), frameMat);
+        leftPost.position.set(-doorW / 2 + 0.08, doorH / 2, 0);
+        leftPost.castShadow = true;
+        grp.add(leftPost);
+
+        const rightPost = new THREE.Mesh(new THREE.BoxGeometry(0.16, doorH, doorD), frameMat);
+        rightPost.position.set(doorW / 2 - 0.08, doorH / 2, 0);
+        rightPost.castShadow = true;
+        grp.add(rightPost);
+
+        const topLintel = new THREE.Mesh(new THREE.BoxGeometry(doorW + 0.14, 0.24, doorD + 0.06), frameMat);
+        topLintel.position.set(0, doorH + 0.12, 0);
+        topLintel.castShadow = true;
+        grp.add(topLintel);
+
+        const portalMat = new THREE.MeshBasicMaterial({
+          color: obj.color || '#e11d48',
+          transparent: true,
+          opacity: 0.42,
+          side: THREE.DoubleSide
+        });
+        const portalPlane = new THREE.Mesh(
+          new THREE.PlaneGeometry(Math.max(0.8, doorW - 0.32), doorH - 0.08),
+          portalMat
+        );
+        portalPlane.position.set(0, (doorH - 0.08) / 2, 0);
+        grp.add(portalPlane);
+
+        const signTex = makeDoorSignTexture(obj.label || 'SURVIE HORREUR • TRAQUE CIEL', obj.color || '#e11d48');
+        const signMat = new THREE.MeshBasicMaterial({ map: signTex });
+        const signFront = new THREE.Mesh(new THREE.PlaneGeometry(doorW * 0.92, 0.26), signMat);
+        signFront.position.set(0, doorH + 0.12, (doorD + 0.06) / 2 + 0.005);
+        grp.add(signFront);
+        const signBack = new THREE.Mesh(new THREE.PlaneGeometry(doorW * 0.92, 0.26), signMat);
+        signBack.rotation.y = Math.PI;
+        signBack.position.set(0, doorH + 0.12, -(doorD + 0.06) / 2 - 0.005);
+        grp.add(signBack);
+
+        const beaconMat = new THREE.MeshBasicMaterial({ color: '#f43f5e' });
+        const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 12), beaconMat);
+        beacon.position.set(0, doorH + 0.34, 0);
+        grp.add(beacon);
+        animatedRefs.survivalBeacons.push({ mesh: beacon, portal: portalMat, phase: (obj.x + obj.z) * 0.3 });
+
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.75, 0.96, 32),
+          new THREE.MeshBasicMaterial({ color: obj.color || '#e11d48', side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.03;
+        grp.add(ring);
+
+        if (showSprites) {
+          const sprite = makeStationLabelSprite(obj.label || 'Mode Survie Horreur', '🚪', obj.color || '#e11d48');
+          sprite.position.set(0, doorH + 0.72, 0);
+          grp.add(sprite);
+        }
+
+        const doorEntry = {
+          id: obj.id,
+          type: 'survival_door',
+          label: `[E] 🚪 ${obj.label || 'Entrer — Mode Survie Horreur'}`,
+          position: new THREE.Vector3(obj.x, 0, obj.z),
+          rotation: rotRad,
+          interactRadius: cat.interactRadius || 2.6,
+          ring,
+          mesh: grp,
+          highlightMats: [frameMat]
+        };
+        survivalDoors.push(doorEntry);
+        interactables.push(doorEntry);
+        continue;
+      }
+
+      if (obj.type === 'hiding_rack') {
+        const rackH = 2.18;
+        const bodyMat = new THREE.MeshStandardMaterial({
+          color: '#0f172a',
+          roughness: 0.42,
+          metalness: 0.65,
+          emissive: '#000000',
+          emissiveIntensity: 0
+        });
+        const sideW = 0.08;
+        const leftWall = new THREE.Mesh(new THREE.BoxGeometry(sideW, rackH, d), bodyMat);
+        leftWall.position.set(-w / 2 + sideW / 2, rackH / 2, 0);
+        leftWall.castShadow = true;
+        grp.add(leftWall);
+
+        const rightWall = new THREE.Mesh(new THREE.BoxGeometry(sideW, rackH, d), bodyMat);
+        rightWall.position.set(w / 2 - sideW / 2, rackH / 2, 0);
+        rightWall.castShadow = true;
+        grp.add(rightWall);
+
+        const backWall = new THREE.Mesh(new THREE.BoxGeometry(w, rackH, 0.08), bodyMat);
+        backWall.position.set(0, rackH / 2, -d / 2 + 0.04);
+        backWall.castShadow = true;
+        grp.add(backWall);
+
+        const topCap = new THREE.Mesh(new THREE.BoxGeometry(w, 0.1, d), bodyMat);
+        topCap.position.set(0, rackH - 0.05, 0);
+        grp.add(topCap);
+
+        const doorMat = new THREE.MeshStandardMaterial({
+          color: '#1e293b',
+          roughness: 0.32,
+          metalness: 0.72,
+          transparent: true,
+          opacity: 0.84,
+          emissive: '#000000',
+          emissiveIntensity: 0
+        });
+        const doorMesh = new THREE.Mesh(new THREE.BoxGeometry(w - 0.14, rackH - 0.16, 0.04), doorMat);
+        doorMesh.position.set(0, rackH / 2, d / 2 - 0.03);
+        grp.add(doorMesh);
+
+        for (let sl = 0; sl < 5; sl++) {
+          const vent = new THREE.Mesh(new THREE.BoxGeometry(w * 0.68, 0.05, 0.02), mats.brushedMetalMat);
+          vent.position.set(0, 0.42 + sl * 0.34, d / 2 - 0.005);
+          grp.add(vent);
+        }
+
+        const statusLed = new THREE.Mesh(
+          new THREE.BoxGeometry(0.18, 0.045, 0.03),
+          new THREE.MeshBasicMaterial({ color: obj.color || '#38bdf8' })
+        );
+        statusLed.position.set(0, rackH - 0.14, d / 2 + 0.01);
+        grp.add(statusLed);
+        animatedRefs.leds.push({ mesh: statusLed, phase: obj.x * 0.4, alert: false });
+
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.62, 0.78, 28),
+          new THREE.MeshBasicMaterial({ color: obj.color || '#38bdf8', side: THREE.DoubleSide, transparent: true, opacity: 0.55 })
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(0, 0.028, d * 0.55);
+        grp.add(ring);
+
+        const exitDist = d * 0.5 + 0.68;
+        const hideEntry = {
+          id: obj.id,
+          hidingId: obj.id,
+          type: 'hiding_rack',
+          label: `[E] 🗄️ Se cacher — ${obj.label || 'Baie de Brassage'}`,
+          position: new THREE.Vector3(obj.x, 0, obj.z),
+          rotation: rotRad,
+          w,
+          d,
+          exitPos: new THREE.Vector3(
+            obj.x + Math.sin(rotRad) * exitDist,
+            0,
+            obj.z + Math.cos(rotRad) * exitDist
+          ),
+          interactRadius: cat.interactRadius || 2.3,
+          ring,
+          doorMesh,
+          mesh: grp,
+          highlightMats: [bodyMat, doorMat]
+        };
+        hidingSpots.push(hideEntry);
+        interactables.push(hideEntry);
+        continue;
+      }
 
       if (obj.type === 'spawn_point') {
         const pad = new THREE.Mesh(
@@ -1795,8 +1975,12 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     interactables.length = 0;
     solidWallMeshes.length = 0;
     teacherRefs.length = 0;
+    survivalDoors.length = 0;
+    hidingSpots.length = 0;
+    ceilingPanelsInst = null;
     animatedRefs.rings.length = 0;
     animatedRefs.leds.length = 0;
+    animatedRefs.survivalBeacons.length = 0;
     leaderboardBoards = [];
 
     disposeNodeTree(worldGroup);
@@ -1818,6 +2002,27 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     return currentMapData;
   }
 
+  function setTeacherVisible(visible) {
+    for (const tr of teacherRefs) {
+      if (tr?.root) tr.root.visible = Boolean(visible);
+    }
+  }
+
+  function setHorrorLighting(horrorActive, flickerStrength = 1) {
+    if (materialPack?.ledPanelMat) {
+      if (horrorActive) {
+        materialPack.ledPanelMat.emissiveIntensity = 0.08 * Math.max(0, flickerStrength);
+        materialPack.ledPanelMat.color.set(flickerStrength > 0.45 ? '#7f1d1d' : '#1e293b');
+      } else {
+        materialPack.ledPanelMat.emissiveIntensity = 1.0;
+        materialPack.ledPanelMat.color.set('#ffffff');
+      }
+    }
+    if (ceilingPanelsInst) {
+      ceilingPanelsInst.visible = !horrorActive || flickerStrength > 0.25;
+    }
+  }
+
   function update(elapsed, playerPos = null, diplomaEarned = false) {
     for (let i = 0; i < animatedRefs.rings.length; i++) {
       const r = animatedRefs.rings[i].ring;
@@ -1828,8 +2033,15 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       const blink = Math.sin(elapsed * (led.alert ? 9 : 4.5) + led.phase) > 0;
       led.mesh.visible = blink;
     }
+    for (const sb of animatedRefs.survivalBeacons) {
+      const pulse = 0.5 + 0.5 * Math.sin(elapsed * 4.5 + sb.phase);
+      sb.mesh.scale.setScalar(0.85 + pulse * 0.35);
+      sb.portal.opacity = 0.28 + pulse * 0.24;
+    }
     for (const tr of teacherRefs) {
-      tr.update(elapsed, playerPos, diplomaEarned);
+      if (tr.root?.visible !== false) {
+        tr.update(elapsed, playerPos, diplomaEarned);
+      }
     }
   }
 
@@ -1855,10 +2067,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     colliders,
     interactables,
     solidWallMeshes,
+    survivalDoors,
+    hidingSpots,
     get mapData() {
       return currentMapData;
     },
     teacherRefs,
+    setTeacherVisible,
+    setHorrorLighting,
     setHoveredInteractable,
     update,
     updateStationBadges,

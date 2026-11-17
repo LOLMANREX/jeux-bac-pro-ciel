@@ -157,7 +157,7 @@ export function createGameServer(options = {}) {
   });
 
   const server = http.createServer(app);
-  const wsHub = attachWsHub(server, store);
+  const wsHub = attachWsHub(server, store, mapStore, options.survivalOptions || {});
 
   app.get('/api/health', (_req, res) => {
     res.json({

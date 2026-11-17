@@ -23,6 +23,8 @@ import {
   normalizeMapData
 } from './world/mapSchema.js';
 import { buildLabWorld } from './world/LabBuilder.js';
+import { createHorrorTeacher } from './world/NpcTeacher.js';
+import { createSurvivalPocketRooms } from './world/SurvivalArena3D.js';
 import { PlayerController } from './world/PlayerController.js';
 import {
   createSpeechBubble,
@@ -57,6 +59,7 @@ import { PlatformModal } from './ui/PlatformModal.js';
 import { FaqModal } from './ui/FaqModal.js';
 import { BattlePassModal } from './ui/BattlePassModal.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
+import { VariationTableSession } from './minigames/VariationTableGame.js';
 import { createOscilloscopeGame } from './minigames/OscilloscopeGame.js';
 import { createSolderingGame } from './minigames/SolderingGame.js';
 import { createElectronicsGame } from './minigames/ElectronicsGame.js';
@@ -95,6 +98,8 @@ sceneMgr.setFov(gameState.fov);
 
 let currentMapData = createDefaultMap();
 const lab = buildLabWorld(sceneMgr.scene, currentMapData, { maxAnisotropy: sceneMgr.getMaxAnisotropy() });
+const survivalArena = createSurvivalPocketRooms(sceneMgr.scene, currentMapData);
+const horrorTeacher = createHorrorTeacher(sceneMgr.scene, { visible: false });
 sceneMgr.updateWorldBounds(currentMapData.bounds);
 
 const player = new PlayerController(sceneMgr.camera, canvas, lab.colliders, {
@@ -182,7 +187,7 @@ vrManager = new VRManager(sceneMgr, player, {
   skin: gameState.skin,
   playerName: gameState.profile?.name || 'Eleve_CIEL',
   mapData: currentMapData,
-  getInteractables: () => lab.interactables,
+  getInteractables: () => getActiveInteractables(),
   getOccluders: () => lab.solidWallMeshes,
   getNearestInteractable: () => nearestTarget,
   onHoverInteractable: (item) => lab.setHoveredInteractable?.(item),
@@ -201,6 +206,11 @@ vrManager = new VRManager(sceneMgr, player, {
     hud?.hideIntroCinematic?.();
     hud?.hideAscensionDialogue?.();
     hud?.closeAllModals?.();
+    hud?.hideSurvivalLobby?.();
+    hud?.hideHidingOverlay?.();
+    hud?.hideJumpscareOverlay?.();
+    hud?.hideDetentionModal?.();
+    hud?.hideSurvivalEndOverlay?.();
     if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
       miniGameModal.close();
     }
@@ -215,6 +225,7 @@ vrManager = new VRManager(sceneMgr, player, {
     touchControls?.setVisible(false);
     vrManager.setSkin(getEffectiveSessionSkin(gameState.skin));
     vrManager.setMapData(currentMapData);
+    syncSurvivalPanelMode();
     if (joined) {
       network.sendMove(player.position.x, 0, player.position.z, player.yaw, true, vrManager.getVrSyncPayload());
     }
@@ -231,6 +242,7 @@ vrManager = new VRManager(sceneMgr, player, {
     player.setEnabled(joined && !modalOpen);
     player._applyCamera?.();
     touchControls?.setVisible(joined && !modalOpen && gameState.touchMode);
+    syncSurvivalPanelMode();
     if (joined) {
       network.sendMove(player.position.x, 0, player.position.z, player.yaw, true, { active: false });
     }
@@ -244,6 +256,9 @@ sceneMgr.addAlwaysUpdater((dt, elapsed) => {
       syncVrWatchHud();
     }
     vrManager?.update(dt, elapsed);
+  }
+  if (joined) {
+    updateSurvivalLoop(dt, elapsed);
   }
 });
 
@@ -353,9 +368,651 @@ function clearVrAscCountdown() {
   }
 }
 
+const survivalState = {
+  phase: 'idle',
+  inWaitingRoom: false,
+  inActiveMatch: false,
+  detained: false,
+  hiddenRack: null,
+  hiddenSpot: null,
+  snapshot: null,
+  lobbyModalOpen: false,
+  detentionModalOpen: false,
+  detentionMinimized: false,
+  jumpscareUntil: 0,
+  jumpscareTimer: null,
+  endTimer: null,
+  variationSession: null,
+  announcedTps: new Set(),
+  lastStepSoundAt: 0,
+  lastHeartbeatAt: 0,
+  lastMicSentAt: 0,
+  noiseLevel: 0,
+  aiPrevState: 'patrol'
+};
+
+function getActiveInteractables() {
+  if (survivalState.detained) {
+    return survivalArena.getDetentionRoomConfig().interactables;
+  }
+  if (survivalState.inWaitingRoom && !survivalState.inActiveMatch) {
+    return survivalArena.getWaitingRoomConfig().interactables;
+  }
+  if (survivalState.hiddenRack) {
+    return [];
+  }
+  return lab.interactables;
+}
+
+function teleportWithWorldMode(pos, lookAt, mode = 'hall') {
+  if (mode === 'waiting') {
+    const cfg = survivalArena.getWaitingRoomConfig();
+    player.setColliders(cfg.colliders);
+    player.setBounds(cfg.bounds);
+    player.teleportTo(cfg.spawn, cfg.lookAt);
+    vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, player.yaw);
+    return;
+  }
+  if (mode === 'detention') {
+    const cfg = survivalArena.getDetentionRoomConfig();
+    player.setColliders(cfg.colliders);
+    player.setBounds(cfg.bounds);
+    player.teleportTo(cfg.spawn, cfg.lookAt);
+    vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, player.yaw);
+    return;
+  }
+  player.setColliders(lab.colliders);
+  player.setBounds(currentMapData.bounds);
+  const pose = pos ? { pos, lookAt: lookAt || { x: pos.x, z: pos.z - 4 } } : getSpawnPose(currentMapData);
+  player.teleportTo(pose.pos, pose.lookAt);
+  vrManager?.syncWorldTeleport?.(pose.pos.x, pose.pos.z, player.yaw);
+}
+
+function getLocalSurvivalParticipant(snap = survivalState.snapshot) {
+  if (!snap || !network.clientId) return null;
+  const parts = Array.isArray(snap.participants) ? snap.participants : [];
+  return parts.find((p) => p.id === network.clientId) || null;
+}
+
+function buildVrLobbyState(snap = survivalState.snapshot) {
+  const players = Array.isArray(snap?.lobbyPlayers) ? snap.lobbyPlayers : [];
+  const minP = Math.max(2, Number(snap?.minPlayers) || 2);
+  const readyCount = players.filter((p) => p.ready).length;
+  const me = players.find((p) => p.id === network.clientId);
+  return {
+    players,
+    minPlayers: minP,
+    readyCount,
+    playerCount: players.length,
+    localReady: Boolean(me?.ready),
+    micEnabled: Boolean(latestVoiceState.micEnabled),
+    statusText:
+      players.length < minP
+        ? `Salon d'attente : ${players.length}/${minP} joueurs minimum pour démarrer`
+        : `${readyCount}/${players.length} joueurs prêts — lancement imminent`,
+    onToggleReady: () => toggleSurvivalReady(),
+    onToggleMic: () => voiceChat.toggleMicrophone(),
+    onLeave: () => leaveSurvivalLobby()
+  };
+}
+
+function buildVrHiddenState(snap = survivalState.snapshot) {
+  const aiState = snap?.ai?.state || 'patrol';
+  const aiStateLabel =
+    aiState === 'chase' ? '🚨 POURSUITE' : aiState === 'investigate' ? '👂 Recherche bruit' : '👣 Patrouille';
+  return {
+    rackLabel: survivalState.hiddenRack?.label || 'Baie de Brassage (Cachette)',
+    micEnabled: Boolean(latestVoiceState.micEnabled),
+    noiseLevel: survivalState.noiseLevel || 0,
+    aiState,
+    aiStateLabel,
+    completedTps: snap?.completedTps?.length || 0,
+    totalTps: snap?.requiredTps?.length || TP_CATALOG.length,
+    alertText:
+      (survivalState.noiseLevel || 0) >= 0.28
+        ? '⚠️ Trop de bruit au micro ! Coupez votre micro !'
+        : '🤫 Silence maintenu — le Professeur CIEL ne vous voit pas.',
+    onToggleMic: () => voiceChat.toggleMicrophone(),
+    onExitRack: () => toggleHidingInRack(survivalState.hiddenRack)
+  };
+}
+
+function buildDetentionPayload(snap = survivalState.snapshot) {
+  if (!survivalState.variationSession) {
+    survivalState.variationSession = new VariationTableSession();
+  }
+  return survivalState.variationSession.getVrSnapshot({
+    completedTps: snap?.completedTps?.length || 0,
+    totalTps: snap?.requiredTps?.length || TP_CATALOG.length,
+    survivorsCount: snap?.aliveCount ?? 0,
+    detainedCount: snap?.detainedCount ?? 0,
+    aiState: snap?.ai?.state || 'patrol',
+    onSelectOption: (idx) => submitDetentionOption(idx),
+    onClose: () => minimizeDetentionTerminal()
+  });
+}
+
+function syncSurvivalPanelMode() {
+  if (!joined) return;
+  const vrOn = Boolean(vrManager?.isVrActive?.());
+  const snap = survivalState.snapshot;
+
+  if (survivalState.jumpscareUntil > Date.now()) {
+    if (vrOn) {
+      vrManager.openWorldSpatialPanel(
+        'jumpscare',
+        {
+          jumpscare: {
+            title: '☠️ PROFESSEUR CIEL VOUS A ATTRAPÉ !',
+            subtitle: 'Téléportation en Salle d’Heure de Colle...'
+          }
+        },
+        { dist: 0.72, yOffset: 0.02 }
+      );
+    } else {
+      hud?.triggerJumpscareOverlay?.();
+    }
+    return;
+  }
+
+  if (survivalState.inWaitingRoom && !survivalState.inActiveMatch) {
+    survivalState.lobbyModalOpen = true;
+    if (vrOn) {
+      hud?.hideSurvivalLobby?.();
+      vrManager.openWorldSpatialPanel('survival_lobby', { survivalLobby: buildVrLobbyState(snap) });
+    } else {
+      setModalActive(true, false, true);
+      hud?.showSurvivalLobby?.(snap || {}, network.clientId, Boolean(latestVoiceState.micEnabled));
+    }
+    return;
+  }
+
+  if (survivalState.hiddenRack && survivalState.inActiveMatch) {
+    if (vrOn) {
+      hud?.hideHidingOverlay?.();
+      vrManager.openWorldSpatialPanel('survival_hidden', { survivalHidden: buildVrHiddenState(snap) });
+    } else {
+      setModalActive(true, false, true);
+      hud?.showHidingOverlay?.({
+        noiseLevel: survivalState.noiseLevel,
+        micEnabled: Boolean(latestVoiceState.micEnabled),
+        aiState: snap?.ai?.state || 'patrol'
+      });
+    }
+    return;
+  }
+
+  if (survivalState.detained && survivalState.inActiveMatch && !survivalState.detentionMinimized) {
+    const payload = buildDetentionPayload(snap);
+    survivalState.detentionModalOpen = true;
+    if (vrOn) {
+      hud?.hideDetentionModal?.();
+      vrManager.openWorldSpatialPanel('detention', { detention: payload });
+    } else {
+      setModalActive(true, false, true);
+      hud?.showDetentionModal?.(payload);
+      hud?.updateDetentionSurveillance?.(snap || {}, currentMapData);
+    }
+  }
+}
+
+function enterSurvivalLobby() {
+  if (!joined || activeCinematic) return;
+  if (!network.connected) {
+    hud?.toast?.('⚠️ Connectez-vous au serveur multijoueur (min. 2 joueurs) pour le Mode Survie.', 'error');
+    return;
+  }
+  sfx.interact();
+  survivalState.inWaitingRoom = true;
+  survivalState.lobbyModalOpen = true;
+  teleportWithWorldMode(null, null, 'waiting');
+  network.sendSurvivalJoin();
+  network.sendActivity('Salon Survie Horreur');
+  survivalArena.updateWaitingBoard(survivalState.snapshot || { lobbyPlayers: [], minPlayers: 2 }, true);
+  syncSurvivalPanelMode();
+}
+
+function leaveSurvivalLobby() {
+  survivalState.inWaitingRoom = false;
+  survivalState.lobbyModalOpen = false;
+  hud?.hideSurvivalLobby?.();
+  if (vrManager?.isVrActive?.()) {
+    vrManager.closeWorldSpatialPanel?.();
+  }
+  setModalActive(false, false, false);
+  network.sendSurvivalLeave();
+  if (!survivalState.inActiveMatch) {
+    teleportWithWorldMode(null, null, 'hall');
+    network.sendActivity('Dans l’atelier');
+  }
+}
+
+function toggleSurvivalReady() {
+  const players = survivalState.snapshot?.lobbyPlayers || [];
+  const me = players.find((p) => p.id === network.clientId);
+  const nextReady = !Boolean(me?.ready);
+  sfx.click();
+  network.sendSurvivalReady(nextReady);
+}
+
+function toggleHidingInRack(target) {
+  if (!joined || activeCinematic || survivalState.detained) return;
+  if (!survivalState.inActiveMatch) {
+    hud?.toast?.('🗄️ Baie de Brassage (Cachette) : servez-vous en pendant la traque du Professeur CIEL !', 'info');
+    return;
+  }
+  if (survivalState.hiddenRack) {
+    const spot = survivalState.hiddenSpot;
+    sfx.playLockerDoorSound?.(false);
+    network.sendSurvivalHide(null);
+    survivalState.hiddenRack = null;
+    survivalState.hiddenSpot = null;
+    player.setMovementLocked(false);
+    hud?.hideHidingOverlay?.();
+    if (vrManager?.isVrActive?.()) {
+      vrManager.closeWorldSpatialPanel?.();
+    }
+    setModalActive(false, false, false);
+    if (spot) {
+      player.teleportTo({ x: spot.exitX, z: spot.exitZ }, { x: spot.exitX, z: spot.exitZ - 2 });
+      vrManager?.syncWorldTeleport?.(spot.exitX, spot.exitZ, player.yaw);
+    }
+    return;
+  }
+  const rackId = target?.id;
+  const spot = lab.hidingSpots?.find((s) => s.id === rackId) || null;
+  if (!spot) return;
+  sfx.playLockerDoorSound?.(true);
+  if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
+    miniGameModal.close();
+  }
+  survivalState.hiddenRack = target;
+  survivalState.hiddenSpot = spot;
+  player.setMovementLocked(true);
+  player.teleportTo({ x: spot.x, z: spot.z }, { x: spot.exitX, z: spot.exitZ });
+  vrManager?.syncWorldTeleport?.(spot.x, spot.z, player.yaw);
+  network.sendSurvivalHide(spot.id);
+  syncSurvivalPanelMode();
+}
+
+function openDetentionTerminal() {
+  if (!survivalState.detained) return;
+  sfx.interact();
+  survivalState.detentionMinimized = false;
+  survivalState.detentionModalOpen = true;
+  syncSurvivalPanelMode();
+}
+
+function minimizeDetentionTerminal() {
+  survivalState.detentionMinimized = true;
+  survivalState.detentionModalOpen = false;
+  hud?.hideDetentionModal?.();
+  if (vrManager?.isVrActive?.()) {
+    vrManager.closeWorldSpatialPanel?.();
+  }
+  setModalActive(false, false, false);
+  player.setMovementLocked(true);
+  hud?.toast?.('📺 Caméras de surveillance en direct devant vous (E ou bouton pour rouvrir les tableaux)', 'info');
+}
+
+function submitDetentionOption(optionIndex) {
+  if (!survivalState.variationSession) {
+    survivalState.variationSession = new VariationTableSession();
+  }
+  const res = survivalState.variationSession.submit(optionIndex);
+  if (res.correct) {
+    sfx.success?.();
+    network.sendSurvivalDetentionSolved();
+  } else {
+    sfx.error?.();
+  }
+  const payload = buildDetentionPayload(survivalState.snapshot);
+  if (vrManager?.isVrActive?.()) {
+    vrManager.updateWorldSpatialPanel?.({ detention: payload });
+  } else if (!survivalState.detentionMinimized) {
+    hud?.showDetentionModal?.(payload);
+  }
+}
+
+function startSurvivalMatchClient(snapshot) {
+  if (survivalState.endTimer) {
+    clearTimeout(survivalState.endTimer);
+    survivalState.endTimer = null;
+  }
+  if (survivalState.jumpscareTimer) {
+    clearTimeout(survivalState.jumpscareTimer);
+    survivalState.jumpscareTimer = null;
+  }
+  survivalState.snapshot = snapshot;
+  survivalState.phase = 'active';
+  survivalState.announcedTps = new Set(snapshot?.completedTps || []);
+  const isParticipant = Boolean(
+    survivalState.inWaitingRoom ||
+      (snapshot?.participants || []).some((p) => p.id === network.clientId)
+  );
+  survivalState.inWaitingRoom = false;
+  survivalState.lobbyModalOpen = false;
+  hud?.hideSurvivalLobby?.();
+  hud?.hideSurvivalEndOverlay?.();
+  if (!isParticipant) return;
+
+  survivalState.inActiveMatch = true;
+  survivalState.detained = false;
+  survivalState.hiddenRack = null;
+  survivalState.hiddenSpot = null;
+  survivalState.detentionModalOpen = false;
+  survivalState.detentionMinimized = false;
+  survivalState.jumpscareUntil = 0;
+  survivalState.variationSession = new VariationTableSession();
+  if (vrManager?.isVrActive?.()) {
+    vrManager.closeWorldSpatialPanel?.();
+  }
+  setModalActive(false, false, false);
+  player.setMovementLocked(false);
+  teleportWithWorldMode(null, null, 'hall');
+  lab.setTeacherVisible?.(false);
+  if (snapshot?.ai) {
+    horrorTeacher.snapTo(snapshot.ai.x, snapshot.ai.z, snapshot.ai.yaw || 0);
+  }
+  horrorTeacher.root.visible = true;
+  sceneMgr.setHorrorAtmosphere?.(true, 0.2, 1.0);
+  lab.setHorrorLighting?.(true, 1.0);
+  sfx.startHorrorAmbience?.();
+  network.sendActivity('Survie : Traque du Professeur CIEL');
+  hud?.toast?.('☠️ LA TRAQUE COMMENCE ! Terminez 100 % des TPs sans vous faire attraper !', 'error');
+  syncVrWatchHud();
+}
+
+function triggerLocalCaughtJumpscare(snapshot) {
+  if (!survivalState.inActiveMatch) return;
+  if (survivalState.jumpscareTimer) {
+    clearTimeout(survivalState.jumpscareTimer);
+  }
+  if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
+    miniGameModal.close();
+  }
+  survivalState.hiddenRack = null;
+  survivalState.hiddenSpot = null;
+  survivalState.detained = true;
+  survivalState.detentionMinimized = false;
+  survivalState.jumpscareUntil = Date.now() + 1750;
+  hud?.hideHidingOverlay?.();
+  sfx.playJumpscareSound?.();
+  vrManager?.pulseBothHands?.(1.0, 450);
+  player.setMovementLocked(true);
+  syncSurvivalPanelMode();
+
+  survivalState.jumpscareTimer = setTimeout(() => {
+    survivalState.jumpscareTimer = null;
+    survivalState.jumpscareUntil = 0;
+    hud?.hideJumpscareOverlay?.();
+    if (!survivalState.inActiveMatch || !joined) return;
+    teleportWithWorldMode(null, null, 'detention');
+    player.setMovementLocked(true);
+    network.sendActivity('En Heure de Colle (Tableaux de Variation)');
+    openDetentionTerminal();
+  }, 1750);
+}
+
+function endSurvivalMatchClient(ended, snapshot) {
+  if (survivalState.jumpscareTimer) {
+    clearTimeout(survivalState.jumpscareTimer);
+    survivalState.jumpscareTimer = null;
+  }
+  if (survivalState.endTimer) {
+    clearTimeout(survivalState.endTimer);
+    survivalState.endTimer = null;
+  }
+  const wasParticipating = survivalState.inActiveMatch || survivalState.detained || survivalState.inWaitingRoom;
+  survivalState.snapshot = snapshot || survivalState.snapshot;
+  survivalState.inActiveMatch = false;
+  survivalState.inWaitingRoom = false;
+  survivalState.lobbyModalOpen = false;
+  survivalState.hiddenRack = null;
+  survivalState.hiddenSpot = null;
+  survivalState.jumpscareUntil = 0;
+  survivalState.phase = 'ended';
+
+  sfx.stopHorrorAmbience?.();
+  sceneMgr.setHorrorAtmosphere?.(false, 0, 1);
+  lab.setHorrorLighting?.(false, 1);
+  if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
+    miniGameModal.close();
+  }
+  hud?.hideSurvivalLobby?.();
+  hud?.hideHidingOverlay?.();
+  hud?.hideJumpscareOverlay?.();
+  hud?.hideDetentionModal?.();
+  hud?.hideSurvivalHud?.();
+  player.setMovementLocked(false);
+
+  if (!wasParticipating) {
+    horrorTeacher.root.visible = false;
+    lab.setTeacherVisible?.(true);
+    survivalState.detained = false;
+    survivalState.phase = 'idle';
+    return;
+  }
+
+  const victory = ended?.outcome === 'victory';
+  const totalTps = snapshot?.requiredTps?.length || TP_CATALOG.length;
+  const completedTps = snapshot?.completedTps?.length || 0;
+  const survivorsCount = snapshot?.aliveCount ?? 0;
+  const detainedCount = snapshot?.detainedCount ?? 0;
+  const durationSec = Math.round(Number(ended?.durationSec) || 0);
+
+  if (victory) {
+    sfx.playHorrorVictory?.();
+    survivalState.detained = false;
+    horrorTeacher.root.visible = false;
+    lab.setTeacherVisible?.(true);
+    teleportWithWorldMode(null, null, 'hall');
+  } else {
+    sfx.playHorrorDefeat?.();
+    survivalState.detained = false;
+    const detCfg = survivalArena.getDetentionRoomConfig();
+    teleportWithWorldMode(detCfg.spawn, detCfg.teacherSpot, 'hall');
+    player.setBounds(detCfg.bounds);
+    player.setColliders(detCfg.colliders);
+    player.teleportTo(detCfg.spawn, detCfg.teacherSpot);
+    vrManager?.syncWorldTeleport?.(detCfg.spawn.x, detCfg.spawn.z, player.yaw);
+    lab.setTeacherVisible?.(false);
+    horrorTeacher.snapTo(detCfg.teacherSpot.x, detCfg.teacherSpot.z, -0.45);
+    horrorTeacher.setTargetState({ x: detCfg.teacherSpot.x, z: detCfg.teacherSpot.z, yaw: -0.45, state: 'chase' });
+    horrorTeacher.root.visible = true;
+  }
+
+  const endData = {
+    victory,
+    reason:
+      ended?.reason ||
+      (victory
+        ? 'Les survivants ont terminé 100 % des TPs ! Toute la classe est libérée.'
+        : 'Tous les élèves ont été attrapés et placés en heure de colle par le Professeur CIEL.'),
+    completedTps,
+    totalTps,
+    survivorsCount,
+    detainedCount,
+    durationSec,
+    onContinue: () => closeSurvivalEndCinematic()
+  };
+
+  if (vrManager?.isVrActive?.()) {
+    vrManager.openWorldSpatialPanel('survival_end', { survivalEnd: endData });
+  } else {
+    setModalActive(true, false, true);
+    hud?.showSurvivalEndOverlay?.(endData);
+  }
+  syncVrWatchHud();
+}
+
+function closeSurvivalEndCinematic() {
+  if (survivalState.endTimer) {
+    clearTimeout(survivalState.endTimer);
+    survivalState.endTimer = null;
+  }
+  hud?.hideSurvivalEndOverlay?.();
+  if (vrManager?.isVrActive?.()) {
+    vrManager.closeWorldSpatialPanel?.();
+  }
+  horrorTeacher.root.visible = false;
+  lab.setTeacherVisible?.(true);
+  survivalState.detained = false;
+  survivalState.inActiveMatch = false;
+  survivalState.inWaitingRoom = false;
+  survivalState.phase = 'idle';
+  player.setMovementLocked(false);
+  teleportWithWorldMode(null, null, 'hall');
+  setModalActive(false, false, false);
+  network.sendActivity('Dans l’atelier');
+}
+
+function resetSurvivalClientFull() {
+  if (survivalState.jumpscareTimer) {
+    clearTimeout(survivalState.jumpscareTimer);
+    survivalState.jumpscareTimer = null;
+  }
+  if (survivalState.endTimer) {
+    clearTimeout(survivalState.endTimer);
+    survivalState.endTimer = null;
+  }
+  survivalState.phase = 'idle';
+  survivalState.inWaitingRoom = false;
+  survivalState.inActiveMatch = false;
+  survivalState.detained = false;
+  survivalState.hiddenRack = null;
+  survivalState.hiddenSpot = null;
+  survivalState.snapshot = null;
+  survivalState.lobbyModalOpen = false;
+  survivalState.detentionModalOpen = false;
+  survivalState.detentionMinimized = false;
+  survivalState.jumpscareUntil = 0;
+  survivalState.variationSession = null;
+  sfx.stopHorrorAmbience?.();
+  sceneMgr.setHorrorAtmosphere?.(false, 0, 1);
+  lab.setHorrorLighting?.(false, 1);
+  lab.setTeacherVisible?.(true);
+  horrorTeacher.root.visible = false;
+  player.setMovementLocked(false);
+  player.setColliders(lab.colliders);
+  player.setBounds(currentMapData.bounds);
+  hud?.hideAllSurvivalUi?.();
+  if (vrManager?.isVrActive?.()) {
+    vrManager.closeWorldSpatialPanel?.();
+  }
+}
+
+function updateSurvivalLoop(dt, elapsed) {
+  if (survivalState.inWaitingRoom && !survivalState.inActiveMatch) {
+    survivalArena.updateWaitingBoard(survivalState.snapshot);
+    return;
+  }
+  if (!survivalState.inActiveMatch) return;
+
+  const snap = survivalState.snapshot;
+  const flicker =
+    Math.sin(elapsed * 19.3) * Math.sin(elapsed * 7.1) > 0.72
+      ? 0.34
+      : 0.86 + Math.sin(elapsed * 3.1) * 0.12;
+  const aiDist = Math.hypot(
+    (horrorTeacher.root.position.x || 0) - player.position.x,
+    (horrorTeacher.root.position.z || 0) - player.position.z
+  );
+  const aiState = snap?.ai?.state || 'patrol';
+  const threat = Math.max(
+    0,
+    Math.min(1, (14 - aiDist) / 12 + (aiState === 'chase' ? 0.42 : aiState === 'investigate' ? 0.18 : 0))
+  );
+
+  sceneMgr.setHorrorAtmosphere?.(true, survivalState.detained ? 0.15 : threat, flicker);
+  lab.setHorrorLighting?.(true, flicker);
+  horrorTeacher.update(dt, elapsed);
+  survivalArena.updateSurveillanceScreen(snap);
+
+  if (survivalState.detained && survivalState.detentionModalOpen && !survivalState.detentionMinimized) {
+    hud?.updateDetentionSurveillance?.(snap || {}, currentMapData);
+  }
+
+  if (!survivalState.detained && survivalState.jumpscareUntil <= Date.now()) {
+    const stepInterval = aiState === 'chase' ? 0.34 : aiState === 'investigate' ? 0.48 : 0.68;
+    if (aiDist < 18 && elapsed - survivalState.lastStepSoundAt >= stepInterval) {
+      survivalState.lastStepSoundAt = elapsed;
+      sfx.playHeavyFootstep?.(aiDist, 18);
+    }
+    const hbInterval = Math.max(0.28, 0.62 - threat * 0.3);
+    if ((aiDist < 12 || aiState === 'chase') && elapsed - survivalState.lastHeartbeatAt >= hbInterval) {
+      survivalState.lastHeartbeatAt = elapsed;
+      sfx.playHorrorHeartbeat?.(Math.max(0.25, threat));
+    }
+  }
+
+  voiceChat.sampleMicLevel?.();
+  const mic = voiceChat.getMicMetrics?.() || {
+    micEnabled: Boolean(latestVoiceState.micEnabled),
+    level: 0,
+    rms: 0
+  };
+  survivalState.noiseLevel = mic.level || 0;
+  if (elapsed - survivalState.lastMicSentAt >= 0.16 && !survivalState.detained) {
+    survivalState.lastMicSentAt = elapsed;
+    network.sendSurvivalMic?.({
+      micEnabled: Boolean(mic.micEnabled),
+      level: mic.level || 0,
+      rms: mic.rms || 0
+    });
+  }
+
+  const completedCnt = snap?.completedTps?.length || 0;
+  const totalCnt = snap?.requiredTps?.length || TP_CATALOG.length;
+  hud?.updateSurvivalHud?.({
+    completedTps: completedCnt,
+    totalTps: totalCnt,
+    survivorsCount: snap?.aliveCount ?? 0,
+    detainedCount: snap?.detainedCount ?? 0,
+    aiState,
+    noiseLevel: survivalState.noiseLevel,
+    micEnabled: Boolean(mic.micEnabled),
+    detained: survivalState.detained,
+    detentionMinimized: survivalState.detentionMinimized
+  });
+
+  if (survivalState.hiddenRack) {
+    if (vrManager?.isVrActive?.()) {
+      vrManager.updateWorldSpatialPanel?.({ survivalHidden: buildVrHiddenState(snap) });
+    } else {
+      hud?.showHidingOverlay?.({
+        noiseLevel: survivalState.noiseLevel,
+        micEnabled: Boolean(mic.micEnabled),
+        aiState
+      });
+    }
+  }
+}
+
 function syncVrWatchHud(extra = {}) {
   if (!vrManager?.isVrActive?.()) return;
   const zone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z);
+  const survSnap = survivalState.snapshot;
+  const survExtra = {};
+  if (survivalState.inActiveMatch) {
+    const done = survSnap?.completedTps?.length || 0;
+    const tot = survSnap?.requiredTps?.length || TP_CATALOG.length;
+    const st = survSnap?.ai?.state || 'patrol';
+    survExtra.survivalStatus = {
+      active: true,
+      phase: survivalState.phase,
+      completedTps: done,
+      totalTps: tot,
+      aiState: st,
+      noiseLevel: survivalState.noiseLevel || 0,
+      detained: survivalState.detained
+    };
+    if (!extra.targetHint) {
+      survExtra.targetHint = `☠️ ${done}/${tot} TPs • ${st === 'chase' ? 'POURSUITE !' : st === 'investigate' ? 'Bruit !' : 'Survie'}`;
+    }
+  } else {
+    survExtra.survivalStatus = null;
+  }
   vrManager.updateHudInfo({
     name: gameState.profile.name,
     zoneLabel: zone.badgeText,
@@ -370,6 +1027,7 @@ function syncVrWatchHud(extra = {}) {
     connectionState: hud?.lastConnectionState || (network.connected ? 'connected' : 'solo'),
     onlineCount: hud?.lastOnlineCount || 1,
     pingMs: network.lastPingMs,
+    ...survExtra,
     ...extra
   });
 }
@@ -860,10 +1518,13 @@ function applyMapData(rawMap, liveUpdate = false) {
   if (!rawMap) return;
   currentMapData = normalizeMapData(rawMap);
   lab.rebuildWorld(currentMapData);
+  survivalArena?.setMapData?.(currentMapData);
   lab.updateStationBadges(gameState.profile.grades);
   sceneMgr.updateWorldBounds(currentMapData.bounds);
-  player.setColliders(lab.colliders);
-  player.setBounds(currentMapData.bounds);
+  if (!survivalState.inWaitingRoom && !survivalState.detained) {
+    player.setColliders(lab.colliders);
+    player.setBounds(currentMapData.bounds);
+  }
   hud?.miniMap?.setMapData?.(currentMapData);
   hud?.setMapData?.(currentMapData);
   syncWallLeaderboard();
@@ -974,7 +1635,7 @@ async function openTp(tpId, stationItem = null) {
   sfx.interact();
   network.sendActivity(`En ${tp.shortTitle}`);
   voiceChat.setInTp(true);
-  setModalActive(true, true, true);
+  setModalActive(true, !survivalState.inActiveMatch, true);
 
   if (stationItem?.position && !vrManager?.isVrActive?.()) {
     const stPos = stationItem.position;
@@ -1015,6 +1676,13 @@ async function openTp(tpId, stationItem = null) {
       const allTpsAt20 = hasAllTpsAt20(p.grades, allTps);
       const firstTimeAllAt20 = !wasAllAt20 && allTpsAt20;
       network.submitScore(gameState.profile.name, doneId, safeScore, durationSec, gameState.skin);
+      if (
+        survivalState.inActiveMatch &&
+        safeScore >= 10 &&
+        !survivalState.snapshot?.completedTps?.includes(doneId)
+      ) {
+        network.sendSurvivalTpDone(doneId, safeScore);
+      }
       network.saveAccount({
         tpScores: p.grades,
         unlockedDivineSkins: gameState.unlockedDivineSkins,
@@ -1398,6 +2066,17 @@ hud = new HudManager(gameState, network, {
   }
 });
 
+hud?.bindSurvivalHandlers?.({
+  onToggleReady: () => toggleSurvivalReady(),
+  onLeaveLobby: () => leaveSurvivalLobby(),
+  onToggleMic: () => voiceChat.toggleMicrophone(),
+  onExitRack: () => toggleHidingInRack(survivalState.hiddenRack),
+  onDetentionOption: (idx) => submitDetentionOption(idx),
+  onMinimizeDetention: () => minimizeDetentionTerminal(),
+  onOpenDetention: () => openDetentionTerminal(),
+  onCloseEnd: () => closeSurvivalEndCinematic()
+});
+
 function toggleCameraMode() {
   sfx.click();
   const next = gameState.cameraMode === 'third' ? 'first' : 'third';
@@ -1458,6 +2137,7 @@ function returnToMainMenu(isLogout = false) {
   hud?.hideIntroCinematic?.();
   hud?.hideSecretSkinAnnouncement?.();
   endAscensionCinematic();
+  resetSurvivalClientFull();
   joined = false;
   modalOpen = false;
   subModalActive = false;
@@ -1523,6 +2203,10 @@ network.on('welcome', (msg) => {
   hud.clearChat();
   (msg.chatHistory || []).forEach((m) => hud.appendChatMessage(m, false));
   voiceChat.onRoomJoined(msg.peers || []);
+  if (msg.survivalState) {
+    survivalState.snapshot = msg.survivalState;
+    survivalState.phase = msg.survivalState.phase || 'idle';
+  }
   if (requestedName && msg.profile?.name && requestedName !== msg.profile.name) {
     hud.toast(`Multi-onglet détecté : connecté sous "${msg.profile.name}"`, 'info');
   }
@@ -1742,9 +2426,103 @@ network.on('chat_message', ({ message }) => {
   }
 });
 
+network.on('survival_state', ({ state }) => {
+  if (!state) return;
+  survivalState.snapshot = state;
+  survivalState.phase = state.phase || 'idle';
+  if (survivalState.inWaitingRoom && state.phase !== 'active') {
+    survivalArena.updateWaitingBoard(state, true);
+    if (vrManager?.isVrActive?.()) {
+      vrManager.updateWorldSpatialPanel?.({ survivalLobby: buildVrLobbyState(state) });
+    } else if (survivalState.lobbyModalOpen) {
+      hud?.showSurvivalLobby?.(state, network.clientId, Boolean(latestVoiceState.micEnabled));
+    }
+  }
+});
+
+network.on('survival_started', ({ state }) => {
+  if (!state) return;
+  startSurvivalMatchClient(state);
+});
+
+network.on('survival_tick', ({ state }) => {
+  if (!state) return;
+  survivalState.snapshot = state;
+  survivalState.phase = state.phase || 'active';
+  if (survivalState.inActiveMatch && state.ai) {
+    horrorTeacher.setTargetState({
+      x: state.ai.x,
+      z: state.ai.z,
+      yaw: state.ai.yaw,
+      state: state.ai.state
+    });
+    if (state.ai.state === 'chase' && survivalState.aiPrevState !== 'chase') {
+      sfx.playHorrorAlert?.();
+    }
+    survivalState.aiPrevState = state.ai.state;
+    if (survivalState.detained && !survivalState.detentionMinimized && vrManager?.isVrActive?.()) {
+      vrManager.updateWorldSpatialPanel?.({ detention: buildDetentionPayload(state) });
+    }
+  }
+});
+
+network.on('survival_noise_alert', ({ playerId, playerName, severity, state }) => {
+  if (state) survivalState.snapshot = state;
+  if (!survivalState.inActiveMatch) return;
+  if (playerId === network.clientId) {
+    hud?.toast?.(
+      severity === 'scream'
+        ? '🔊 CRI DÉTECTÉ ! Le Professeur CIEL fonce vers vous à travers les murs !'
+        : '👂 Bruit détecté au micro : le Professeur CIEL approche !',
+      'error'
+    );
+  } else if (playerName) {
+    hud?.toast?.(`⚠️ ${playerName} a fait du bruit au micro (${severity}) !`, 'info');
+  }
+});
+
+network.on('survival_caught', ({ playerId, playerName, state }) => {
+  if (state) survivalState.snapshot = state;
+  if (!survivalState.inActiveMatch) return;
+  if (playerId === network.clientId) {
+    triggerLocalCaughtJumpscare(state);
+  } else if (playerName) {
+    hud?.toast?.(`☠️ ${playerName} a été attrapé par le Professeur CIEL et envoyé en Heure de Colle !`, 'error');
+  }
+});
+
+network.on('survival_tp_completed', ({ tpId, playerName, state }) => {
+  if (state) survivalState.snapshot = state;
+  if (!survivalState.inActiveMatch) return;
+  const doneCnt = state?.completedTps?.length || 0;
+  const totalCnt = state?.requiredTps?.length || TP_CATALOG.length;
+  if (tpId && !survivalState.announcedTps.has(tpId)) {
+    survivalState.announcedTps.add(tpId);
+    sfx.success?.();
+    hud?.toast?.(`✅ ${playerName || 'Un élève'} a validé un TP Survie (${doneCnt}/${totalCnt}) !`, 'success');
+  }
+});
+
+network.on('survival_detention_pulse', ({ playerName, state }) => {
+  if (state) survivalState.snapshot = state;
+  if (!survivalState.inActiveMatch) return;
+  if (!survivalState.detained) {
+    hud?.toast?.(`📡 ${playerName || 'Un élève collé'} a résolu un tableau de variation : radar activé !`, 'info');
+  }
+});
+
+network.on('survival_ended', ({ ended, state }) => {
+  endSurvivalMatchClient(ended, state);
+});
+
 function interactWith(target) {
   if (!target) return;
   if (target.id === 'teacher') openTeacherDialogue(target.dialogue || '');
+  else if (target.type === 'survival_door') enterSurvivalLobby();
+  else if (target.type === 'hiding_rack') toggleHidingInRack(target);
+  else if (target.type === 'survival_lobby_console') toggleSurvivalReady();
+  else if (target.type === 'survival_lobby_exit') leaveSurvivalLobby();
+  else if (target.type === 'survival_detention_terminal') openDetentionTerminal();
   else openTp(target.tpId || target.id, target);
 }
 
@@ -1841,6 +2619,12 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (joined && !isTyping && survivalState.hiddenRack && e.code === 'KeyE' && !e.repeat) {
+    e.preventDefault();
+    toggleHidingInRack(survivalState.hiddenRack);
+    return;
+  }
+
   if (!joined || modalOpen || isTyping) return;
 
   if (e.code === 'KeyE' && nearestTarget) {
@@ -1906,7 +2690,7 @@ function getRayHitInteractable(clientX = null, clientY = null) {
     );
     raycaster.setFromCamera(ndc, sceneMgr.camera);
   }
-  return pickLabInteractable(raycaster, lab.interactables, lab.solidWallMeshes, 7.5);
+  return pickLabInteractable(raycaster, getActiveInteractables(), lab.solidWallMeshes, 7.5);
 }
 
 function setDesktopHoveredInteractable(item) {
@@ -2091,7 +2875,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
     let bestPrimaryDist = Infinity;
     let bestProp = null;
     let bestPropDist = Infinity;
-    for (const item of lab.interactables) {
+    for (const item of getActiveInteractables()) {
       const dx = player.position.x - item.position.x;
       const dz = player.position.z - item.position.z;
       const d = Math.hypot(dx, dz);

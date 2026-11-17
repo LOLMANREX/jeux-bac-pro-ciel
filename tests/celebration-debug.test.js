@@ -657,17 +657,17 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
   }
 });
 
-test('v4.12 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
-  assert.ok(APP_VERSION.startsWith('v4.18'));
-  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.18'));
+test('v4.19 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
+  assert.ok(APP_VERSION.startsWith('v4.19'));
+  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.19'));
   assert.equal(CHANGELOG_RELEASES[0].tag, 'DERNIÈRE MÀJ');
-  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.17'));
+  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.18'));
   assert.equal(CHANGELOG_RELEASES[1].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[2].version.startsWith('v4.16'));
+  assert.ok(CHANGELOG_RELEASES[2].version.startsWith('v4.17'));
   assert.equal(CHANGELOG_RELEASES[2].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[3].version.startsWith('v4.15'));
+  assert.ok(CHANGELOG_RELEASES[3].version.startsWith('v4.16'));
   assert.equal(CHANGELOG_RELEASES[3].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[4].version.startsWith('v4.14'));
+  assert.ok(CHANGELOG_RELEASES[4].version.startsWith('v4.15'));
   assert.equal(CHANGELOG_RELEASES[4].tag, 'HISTORIQUE');
 
   const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
@@ -731,7 +731,16 @@ test('v4.12 : DOM index.html, admin.html et ChangelogModal exposent tous les él
     'audio-settings-popover',
     'audio-input-select',
     'audio-output-select',
-    'audio-mic-meter-fill'
+    'audio-mic-meter-fill',
+    'survival-horror-vignette',
+    'survival-hud-bar',
+    'survival-lobby-modal',
+    'survival-lobby-ready-btn',
+    'survival-hide-overlay',
+    'survival-jumpscare-overlay',
+    'survival-detention-modal',
+    'detention-surveillance-canvas',
+    'survival-end-overlay'
   ]) {
     assert.ok(indexHtml.includes(`id="${id}"`), `ID manquant dans index.html: ${id}`);
   }

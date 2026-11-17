@@ -764,7 +764,7 @@ export class VRManager {
     return delta;
   }
 
-  openWorldSpatialPanel(mode = 'dialogue', state = {}) {
+  openWorldSpatialPanel(mode = 'dialogue', state = {}, opts = {}) {
     if (!this.active || !this.sceneMgr?.scene) return null;
     if (this.tpContext) {
       this.detachTpContext();
@@ -778,10 +778,45 @@ export class VRManager {
     this.sceneMgr.scene.add(this.worldPanel.group);
     if (this.camera) {
       this.camera.updateMatrixWorld(true);
-      this.worldPanel.placeRelativeToCamera(this.camera, 1.24, 0.04);
+      const dist = Number.isFinite(Number(opts?.dist)) ? Number(opts.dist) : 1.24;
+      const yOffset = Number.isFinite(Number(opts?.yOffset)) ? Number(opts.yOffset) : 0.04;
+      this.worldPanel.placeRelativeToCamera(this.camera, dist, yOffset);
     }
     this.worldPanel.updateState({ mode, ...state }, { immediate: true });
     return this.worldPanel;
+  }
+
+  pulseBothHands(intensity = 0.9, durationMs = 280) {
+    this._pulseHaptic(this.slots.left, intensity, durationMs);
+    this._pulseHaptic(this.slots.right, intensity, durationMs);
+  }
+
+  syncWorldTeleport(x, z, yaw = null) {
+    if (!this.active || !this.vrRig || !this.camera || this.tpContext) return false;
+    const nextYaw = Number.isFinite(Number(yaw)) ? Number(yaw) : Number(this.player?.yaw) || 0;
+    const groundY = this.worldFloorY;
+    if (this.simMode) {
+      this.vrRig.position.set(x, groundY, z);
+      this.vrRig.rotation.set(0, nextYaw, 0);
+      this.simLookYaw = 0;
+      this.vrRig.updateMatrixWorld(true);
+    } else {
+      const cosY = Math.cos(nextYaw);
+      const sinY = Math.sin(nextYaw);
+      const lx = Number.isFinite(this.camera.position.x) ? this.camera.position.x : 0;
+      const lz = Number.isFinite(this.camera.position.z) ? this.camera.position.z : 0;
+      const worldOffX = lx * cosY + lz * sinY;
+      const worldOffZ = -lx * sinY + lz * cosY;
+      this.vrRig.position.set(x - worldOffX, groundY + this.xrFloorFallbackOffset, z - worldOffZ);
+      this.vrRig.rotation.set(0, nextYaw, 0);
+      this.vrRig.updateMatrixWorld(true);
+    }
+    this.camera.getWorldDirection(this.tempVecB);
+    const flatLen = Math.hypot(this.tempVecB.x, this.tempVecB.z);
+    if (flatLen > 0.08) {
+      this.lastForwardDir.set(this.tempVecB.x / flatLen, 0, this.tempVecB.z / flatLen);
+    }
+    return true;
   }
 
   updateWorldSpatialPanel(state = {}) {
@@ -1555,7 +1590,7 @@ export class VRManager {
       }
     }
 
-    if (moveX || moveZ) {
+    if ((moveX || moveZ) && !this.player?.movementLocked) {
       this.camera.getWorldPosition(this.tempVecA);
       const curX = this.tempVecA.x;
       const curZ = this.tempVecA.z;

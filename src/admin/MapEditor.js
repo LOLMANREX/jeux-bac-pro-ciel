@@ -1512,10 +1512,19 @@ export class MapEditor {
     if (this.selected.kind === 'object') {
       const cat = getCatalogItem(ent.type);
       const isTeacher = ent.type === 'npc_teacher';
+      const isSurvivalDoor = ent.type === 'survival_door';
+      const isHidingRack = ent.type === 'hiding_rack';
       const b = this.mapData.bounds;
       const maxDim = Math.max(120, b.width, b.depth);
       this.els.inspBody.innerHTML = `
         <div class="me-insp-badge">${cat?.icon || ''} ${escapeHtml(cat?.label || ent.type)}</div>
+        ${
+          isSurvivalDoor
+            ? `<div class="me-shortcuts-box">🚪 <strong>Porte de Mini-Jeu Survie</strong> : téléporte les élèves dans le Salon d’Attente Survie (lancement auto dès 2 joueurs prêts).</div>`
+            : isHidingRack
+              ? `<div class="me-shortcuts-box">🗄️ <strong>Baie de Brassage (Cachette)</strong> : permet aux élèves de se cacher du Professeur CIEL s’ils restent silencieux au micro.</div>`
+              : ''
+        }
         <label class="me-field"><span>Libellé</span><input type="text" id="me-f-label" class="me-input" maxlength="80" value="${escapeHtml(ent.label || '')}" /></label>
         <div class="me-grid-2">
           <label class="me-field"><span>X (m)</span><input type="number" step="0.1" id="me-f-x" class="me-input" value="${ent.x}" /></label>

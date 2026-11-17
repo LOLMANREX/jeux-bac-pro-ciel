@@ -198,7 +198,8 @@ export function createWristHudPanel(options = {}) {
     playerPos: { x: -3.95, z: 0.65 },
     playerYaw: 0,
     currentZone: null,
-    peers: []
+    peers: [],
+    survivalStatus: null
   };
 
   const redraw = () => {
@@ -276,6 +277,16 @@ export function createWristHudPanel(options = {}) {
       ? String(state.targetHint).slice(0, 44)
       : String(state.zoneLabel || '📍 U300 - Couloir Central').slice(0, 44);
     ctx.fillText(subStatus, 34, 105);
+
+    if (state.survivalStatus?.active) {
+      const nl = Math.max(0, Math.min(1, Number(state.survivalStatus.noiseLevel) || 0));
+      roundRectPath(ctx, 290, 93, 186, 16, 8);
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      ctx.fill();
+      roundRectPath(ctx, 292, 95, Math.max(4, 182 * nl), 12, 6);
+      ctx.fillStyle = nl >= 0.45 ? '#ef4444' : nl >= 0.25 ? '#f59e0b' : '#22c55e';
+      ctx.fill();
+    }
 
     const mapX = 24;
     const mapY = 128;
@@ -647,6 +658,11 @@ export function createTpSpatialPanel() {
     result: null,
     dialogue: null,
     ascension: null,
+    survivalLobby: null,
+    survivalHidden: null,
+    jumpscare: null,
+    detention: null,
+    survivalEnd: null,
     onSelectStage: null,
     onSelectTool: null,
     onSelectCamera: null,
@@ -656,6 +672,11 @@ export function createTpSpatialPanel() {
   };
 
   const resolveActiveMode = () => {
+    if (state.jumpscare) return 'jumpscare';
+    if (state.detention) return 'detention';
+    if (state.survivalEnd) return 'survival_end';
+    if (state.survivalHidden) return 'survival_hidden';
+    if (state.survivalLobby) return 'survival_lobby';
     if (state.ascension) return 'ascension';
     if (state.dialogue) return 'dialogue';
     if (state.result) return 'result';
@@ -663,6 +684,22 @@ export function createTpSpatialPanel() {
   };
 
   const handleExitAction = (uv) => {
+    if (typeof state.survivalLobby?.onLeave === 'function') {
+      state.survivalLobby.onLeave(uv);
+      return;
+    }
+    if (typeof state.survivalHidden?.onExitRack === 'function') {
+      state.survivalHidden.onExitRack(uv);
+      return;
+    }
+    if (typeof state.detention?.onClose === 'function') {
+      state.detention.onClose(uv);
+      return;
+    }
+    if (typeof state.survivalEnd?.onContinue === 'function') {
+      state.survivalEnd.onContinue(uv);
+      return;
+    }
     if (typeof state.onExitTp === 'function') {
       state.onExitTp(uv);
       return;
@@ -896,15 +933,43 @@ export function createTpSpatialPanel() {
     const mode = resolveActiveMode();
 
     if (ctx) {
-      ctx.fillStyle = mode === 'ascension' ? '#fbbf24' : '#38bdf8';
+      const headerColor =
+        mode === 'jumpscare'
+          ? '#ef4444'
+          : mode === 'detention'
+            ? '#fb923c'
+            : mode === 'survival_hidden'
+              ? '#facc15'
+              : mode === 'survival_lobby'
+                ? '#f43f5e'
+                : mode === 'survival_end'
+                  ? state.survivalEnd?.victory
+                    ? '#34d399'
+                    : '#f87171'
+                  : mode === 'ascension'
+                    ? '#fbbf24'
+                    : '#38bdf8';
+      ctx.fillStyle = headerColor;
       ctx.font = 'bold 26px system-ui, sans-serif';
       const headerTitle =
         mode === 'dialogue'
           ? state.dialogue?.title || '👨‍🏫 ENTRETIEN PROFESSEUR CIEL'
           : mode === 'ascension'
             ? state.ascension?.title || '👑 CÉRÉMONIE D’ASCENSION BAC PRO CIEL'
-            : String(state.tpTitle || 'TP Atelier 3D');
-      ctx.fillText(headerTitle.slice(0, 44), 24, 46);
+            : mode === 'survival_lobby'
+              ? '☠️ SALON D’ATTENTE — MODE SURVIE HORREUR'
+              : mode === 'survival_hidden'
+                ? `🗄️ ${state.survivalHidden?.rackLabel || 'BAIE DE BRASSAGE (CACHÉ)'}`
+                : mode === 'jumpscare'
+                  ? '☠️ ALERTE CAPTURE — PROFESSEUR CIEL'
+                  : mode === 'detention'
+                    ? '📝 HEURE DE COLLE — TABLEAUX DE VARIATION'
+                    : mode === 'survival_end'
+                      ? state.survivalEnd?.victory
+                        ? '🏆 VICTOIRE COOPÉRATIVE — SURVIE CIEL'
+                        : '💀 DÉFAITE — CLASSE EN HEURE DE COLLE'
+                      : String(state.tpTitle || 'TP Atelier 3D');
+      ctx.fillText(headerTitle.slice(0, 46), 24, 46);
     }
 
     if (mode === 'workbench' || mode === 'result') {
@@ -925,13 +990,26 @@ export function createTpSpatialPanel() {
       }
     }
 
-    const exitLabel = mode === 'dialogue' || mode === 'ascension' ? '✕ Fermer' : '✕ Quitter le TP';
-    addBtn('vr_tp_exit', 1006, 16, 250, 44, exitLabel, {
-      danger: true,
-      maxChars: 20,
-      fontSize: 19,
-      onClick: handleExitAction
-    });
+    if (mode !== 'jumpscare') {
+      const exitLabel =
+        mode === 'survival_lobby'
+          ? '🚪 Quitter Salon'
+          : mode === 'survival_hidden'
+            ? '🚪 Sortir Baie'
+            : mode === 'detention'
+              ? '📺 Voir Caméras'
+              : mode === 'survival_end'
+                ? '🏫 Hall Principal'
+                : mode === 'dialogue' || mode === 'ascension'
+                  ? '✕ Fermer'
+                  : '✕ Quitter le TP';
+      addBtn('vr_tp_exit', 1006, 16, 250, 44, exitLabel, {
+        danger: true,
+        maxChars: 20,
+        fontSize: 19,
+        onClick: handleExitAction
+      });
+    }
 
     if (mode === 'dialogue' && state.dialogue) {
       const dlg = state.dialogue;
@@ -1181,6 +1259,416 @@ export function createTpSpatialPanel() {
         fontSize: 24,
         onClick: () => res.onExit?.()
       });
+      if (texture) texture.needsUpdate = true;
+      return;
+    }
+
+    if (mode === 'survival_lobby' && state.survivalLobby) {
+      const sl = state.survivalLobby;
+      const players = Array.isArray(sl.players) ? sl.players : [];
+      const minP = Math.max(2, Number(sl.minPlayers) || 2);
+      const readyCnt = Number(sl.readyCount) || 0;
+      const count = players.length;
+
+      if (ctx) {
+        roundRectPath(ctx, 36, 78, canvasW - 72, 560, 20);
+        ctx.fillStyle = 'rgba(24, 10, 18, 0.94)';
+        ctx.fill();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#e11d48';
+        ctx.stroke();
+
+        ctx.fillStyle = '#fda4af';
+        ctx.font = 'bold 24px system-ui, sans-serif';
+        ctx.fillText(
+          `Objectif : Terminer 100% des TPs sans vous faire attraper par le Professeur CIEL`,
+          64,
+          122
+        );
+
+        ctx.fillStyle = count >= minP ? '#6ee7b7' : '#fbbf24';
+        ctx.font = 'bold 22px system-ui, sans-serif';
+        ctx.fillText(
+          String(
+            sl.statusText ||
+              `Joueurs : ${count} (min. ${minP} requis) • Prêts : ${readyCnt}/${count}`
+          ).slice(0, 72),
+          64,
+          164
+        );
+
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '500 18px system-ui, sans-serif';
+        ctx.fillText(
+          'Attention : Le Professeur CIEL écoute votre microphone à travers les cloisons. Cachez-vous dans les baies de brassage.',
+          64,
+          198
+        );
+
+        players.slice(0, 6).forEach((pl, idx) => {
+          const col = idx % 2;
+          const row = Math.floor(idx / 2);
+          const bx = 64 + col * 586;
+          const by = 224 + row * 124;
+          roundRectPath(ctx, bx, by, 562, 106, 14);
+          ctx.fillStyle = pl.ready ? 'rgba(6, 78, 59, 0.85)' : 'rgba(30, 41, 59, 0.9)';
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = pl.ready ? '#34d399' : '#64748b';
+          ctx.stroke();
+
+          ctx.fillStyle = '#f8fafc';
+          ctx.font = 'bold 24px system-ui, sans-serif';
+          ctx.fillText(String(pl.name || 'Élève').slice(0, 22), bx + 24, by + 46);
+
+          ctx.fillStyle = pl.ready ? '#6ee7b7' : '#cbd5e1';
+          ctx.font = 'bold 20px system-ui, sans-serif';
+          ctx.fillText(pl.ready ? '✅ PRÊT POUR LA TRAQUE' : '⏳ EN ATTENTE', bx + 24, by + 82);
+        });
+      }
+
+      addBtn(
+        'vr_surv_ready',
+        36,
+        662,
+        460,
+        106,
+        sl.localReady ? '⏳ Annuler Prêt' : '⚔️ JE SUIS PRÊT !',
+        {
+          primary: !sl.localReady,
+          active: sl.localReady,
+          fontSize: 26,
+          onClick: () => sl.onToggleReady?.()
+        }
+      );
+      addBtn(
+        'vr_surv_mic',
+        516,
+        662,
+        350,
+        106,
+        sl.micEnabled ? '🎙️ Micro ON' : '🔇 Micro OFF',
+        {
+          active: sl.micEnabled,
+          fontSize: 23,
+          onClick: () => sl.onToggleMic?.()
+        }
+      );
+      addBtn('vr_surv_leave', 886, 662, 358, 106, '🚪 Retour Atelier', {
+        danger: true,
+        fontSize: 23,
+        onClick: () => sl.onLeave?.()
+      });
+
+      if (texture) texture.needsUpdate = true;
+      return;
+    }
+
+    if (mode === 'survival_hidden' && state.survivalHidden) {
+      const sh = state.survivalHidden;
+      const noise = Math.max(0, Math.min(1, Number(sh.noiseLevel) || 0));
+
+      if (ctx) {
+        roundRectPath(ctx, 36, 78, canvasW - 72, 560, 20);
+        ctx.fillStyle = 'rgba(8, 12, 20, 0.96)';
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = noise >= 0.28 ? '#ef4444' : '#334155';
+        ctx.stroke();
+
+        for (let s = 0; s < 5; s++) {
+          roundRectPath(ctx, 84, 108 + s * 22, canvasW - 168, 10, 5);
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+          ctx.fill();
+        }
+
+        ctx.textAlign = 'center';
+        ctx.fillStyle = noise >= 0.28 ? '#fca5a5' : '#e2e8f0';
+        ctx.font = 'bold 34px system-ui, sans-serif';
+        ctx.fillText(
+          noise >= 0.28
+            ? '⚠️ BRUIT MICRO DÉTECTÉ — LE PROFESSEUR APPROCHE !'
+            : '🤫 VOUS ÊTES CACHÉ DANS LA BAIE DE BRASSAGE',
+          canvasW / 2,
+          286
+        );
+
+        ctx.fillStyle = '#fbbf24';
+        ctx.font = 'bold 24px system-ui, sans-serif';
+        ctx.fillText(
+          `État Professeur CIEL : ${String(sh.aiStateLabel || sh.aiState || 'Patrouille')} • TPs : ${sh.completedTps || 0}/${sh.totalTps || 5}`,
+          canvasW / 2,
+          342
+        );
+
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font = 'bold 22px system-ui, sans-serif';
+        ctx.fillText(`Volume Microphone RMS : ${Math.round(noise * 100)}% (Seuil alerte : 28%)`, 120, 418);
+
+        roundRectPath(ctx, 120, 442, canvasW - 240, 46, 14);
+        ctx.fillStyle = '#0f172a';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#475569';
+        ctx.stroke();
+
+        const barW = Math.max(12, Math.round((canvasW - 248) * noise));
+        roundRectPath(ctx, 124, 446, barW, 38, 10);
+        ctx.fillStyle = noise >= 0.48 ? '#ef4444' : noise >= 0.28 ? '#f59e0b' : '#22c55e';
+        ctx.fill();
+
+        const threshX = 124 + Math.round((canvasW - 248) * 0.28);
+        ctx.strokeStyle = '#f87171';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(threshX, 434);
+        ctx.lineTo(threshX, 496);
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '500 20px system-ui, sans-serif';
+        ctx.fillText(
+          sh.alertText || 'Coupez votre microphone ou gardez le silence pour que le Professeur CIEL perde votre trace.',
+          canvasW / 2,
+          556
+        );
+        ctx.textAlign = 'left';
+      }
+
+      addBtn(
+        'vr_hide_mic',
+        84,
+        662,
+        540,
+        106,
+        sh.micEnabled ? '🎙️ Couper Micro (Silence)' : '🔇 Activer Micro',
+        {
+          primary: !sh.micEnabled,
+          danger: sh.micEnabled && noise >= 0.28,
+          fontSize: 25,
+          onClick: () => sh.onToggleMic?.()
+        }
+      );
+      addBtn('vr_hide_exit', 656, 662, 540, 106, '🚪 Sortir de la Baie de Brassage', {
+        primary: true,
+        fontSize: 25,
+        onClick: () => sh.onExitRack?.()
+      });
+
+      if (texture) texture.needsUpdate = true;
+      return;
+    }
+
+    if (mode === 'jumpscare') {
+      const js = state.jumpscare || {};
+      if (ctx) {
+        roundRectPath(ctx, 20, 74, canvasW - 40, canvasH - 96, 24);
+        ctx.fillStyle = '#2a0408';
+        ctx.fill();
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = '#ef4444';
+        ctx.stroke();
+
+        const cx = canvasW / 2;
+        const cy = 340;
+        ctx.fillStyle = '#f1f5f9';
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, 130, 165, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#09090b';
+        ctx.beginPath();
+        ctx.arc(cx - 48, cy - 34, 28, 0, Math.PI * 2);
+        ctx.arc(cx + 48, cy - 34, 28, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(cx - 48, cy - 34, 14, 0, Math.PI * 2);
+        ctx.arc(cx + 48, cy - 34, 14, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(cx - 48, cy - 34, 4, 0, Math.PI * 2);
+        ctx.arc(cx + 48, cy - 34, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#09090b';
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + 72, 62, 48, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fecaca';
+        ctx.font = 'bold 46px system-ui, sans-serif';
+        ctx.fillText(js.title || '☠️ PROFESSEUR CIEL VOUS A ATTRAPÉ !', cx, 610);
+        ctx.fillStyle = '#fbbf24';
+        ctx.font = 'bold 28px system-ui, sans-serif';
+        ctx.fillText(js.subtitle || 'Téléportation en Salle d’Heure de Colle...', cx, 672);
+        ctx.textAlign = 'left';
+      }
+      if (texture) texture.needsUpdate = true;
+      return;
+    }
+
+    if (mode === 'detention' && state.detention) {
+      const dtState = state.detention;
+      const ex = dtState.exercise || {};
+      const tbl = ex.table || {};
+      const xs = Array.isArray(tbl.xs) ? tbl.xs : ['-∞', '0', '+∞'];
+      const signs = Array.isArray(tbl.signs) ? tbl.signs : ['-', '0', '+'];
+      const arrows = Array.isArray(tbl.arrows) ? tbl.arrows : ['↘', '0', '↗'];
+      const opts = Array.isArray(ex.options) ? ex.options : [];
+
+      if (ctx) {
+        roundRectPath(ctx, 36, 76, canvasW - 72, 48, 12);
+        ctx.fillStyle = 'rgba(42, 18, 10, 0.94)';
+        ctx.fill();
+        ctx.fillStyle = '#fdba74';
+        ctx.font = 'bold 20px system-ui, sans-serif';
+        ctx.fillText(
+          `📝 Tableaux résolus : ${dtState.solvedCount || 0} • Survivants : ${dtState.survivorsCount ?? '?'} • Collés : ${dtState.detainedCount ?? '?'} • TPs : ${dtState.completedTps || 0}/${dtState.totalTps || 5}`,
+          56,
+          107
+        );
+
+        roundRectPath(ctx, 36, 136, canvasW - 72, 336, 18);
+        ctx.fillStyle = 'rgba(12, 24, 44, 0.95)';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#fb923c';
+        ctx.stroke();
+
+        ctx.fillStyle = '#fde68a';
+        ctx.font = 'bold 23px system-ui, sans-serif';
+        ctx.fillText(`${ex.fxLabel || 'f(x)'}   |   ${ex.fPrimeLabel || "f'(x)"}`, 60, 174);
+
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = 'bold 22px system-ui, sans-serif';
+        ctx.fillText(String(ex.question || 'Complétez le tableau de variations :').slice(0, 74), 60, 212);
+
+        const tx = 60;
+        const ty = 232;
+        const tw = canvasW - 120;
+        const colW = (tw - 130) / Math.max(1, xs.length);
+        const rowH = 54;
+
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(tx, ty, tw, rowH * 3);
+        ctx.beginPath();
+        ctx.moveTo(tx + 130, ty);
+        ctx.lineTo(tx + 130, ty + rowH * 3);
+        ctx.moveTo(tx, ty + rowH);
+        ctx.lineTo(tx + tw, ty + rowH);
+        ctx.moveTo(tx, ty + rowH * 2);
+        ctx.lineTo(tx + tw, ty + rowH * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#93c5fd';
+        ctx.font = 'bold 20px monospace';
+        ctx.fillText('x', tx + 44, ty + 35);
+        ctx.fillText("f'(x)", tx + 28, ty + rowH + 35);
+        ctx.fillText('f(x)', tx + 34, ty + rowH * 2 + 35);
+
+        ctx.textAlign = 'center';
+        xs.forEach((xv, i) => {
+          const cx = tx + 130 + colW * (i + 0.5);
+          ctx.fillStyle = '#f8fafc';
+          ctx.fillText(String(xv).slice(0, 8), cx, ty + 35);
+        });
+        const sStep = (tw - 130) / Math.max(1, signs.length);
+        signs.forEach((sv, i) => {
+          const cx = tx + 130 + sStep * (i + 0.5);
+          ctx.fillStyle = sv === '?' ? '#fbbf24' : sv === '+' ? '#34d399' : sv === '-' ? '#f87171' : '#cbd5e1';
+          ctx.fillText(String(sv).slice(0, 6), cx, ty + rowH + 35);
+        });
+        const aStep = (tw - 130) / Math.max(1, arrows.length);
+        arrows.forEach((av, i) => {
+          const cx = tx + 130 + aStep * (i + 0.5);
+          ctx.fillStyle = av === '?' ? '#fbbf24' : '#38bdf8';
+          ctx.fillText(String(av).slice(0, 8), cx, ty + rowH * 2 + 35);
+        });
+        ctx.textAlign = 'left';
+
+        ctx.fillStyle = dtState.lastCorrect === false ? '#fda4af' : '#6ee7b7';
+        ctx.font = 'bold 18px system-ui, sans-serif';
+        ctx.fillText(
+          String(
+            dtState.feedback ||
+              'Résolvez un tableau pour envoyer une impulsion radar aux survivants !'
+          ).slice(0, 88),
+          60,
+          444
+        );
+      }
+
+      opts.slice(0, 4).forEach((optText, idx) => {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const bx = 36 + col * 612;
+        const by = 492 + row * 142;
+        const letter = ['A', 'B', 'C', 'D'][idx];
+        addBtn(`vr_dt_opt_${idx}`, bx, by, 596, 126, `${letter}) ${String(optText)}`, {
+          primary: false,
+          maxChars: 72,
+          fontSize: 16,
+          onClick: () => dtState.onSelectOption?.(idx)
+        });
+      });
+
+      if (texture) texture.needsUpdate = true;
+      return;
+    }
+
+    if (mode === 'survival_end' && state.survivalEnd) {
+      const se = state.survivalEnd;
+      const win = Boolean(se.victory);
+      if (ctx) {
+        roundRectPath(ctx, 44, 78, canvasW - 88, 566, 22);
+        ctx.fillStyle = win ? 'rgba(6, 78, 59, 0.92)' : 'rgba(69, 10, 10, 0.94)';
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = win ? '#34d399' : '#f87171';
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.fillStyle = win ? '#fde68a' : '#fecaca';
+        ctx.font = 'bold 52px system-ui, sans-serif';
+        ctx.fillText(
+          win ? '🏆 TOUS LES TPs TERMINÉS !' : '💀 CLASSE EN HEURE DE COLLE',
+          canvasW / 2,
+          184
+        );
+
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = '600 28px system-ui, sans-serif';
+        ctx.fillText(String(se.reason || '').slice(0, 68), canvasW / 2, 256);
+
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font = 'bold 26px system-ui, sans-serif';
+        ctx.fillText(
+          `TPs complétés : ${se.completedTps || 0}/${se.totalTps || 5} • Durée : ${se.durationSec || 0}s`,
+          canvasW / 2,
+          346
+        );
+        ctx.fillText(
+          `Survivants : ${se.survivorsCount ?? 0} • Élèves collés : ${se.detainedCount ?? 0}`,
+          canvasW / 2,
+          404
+        );
+        ctx.textAlign = 'left';
+      }
+
+      addBtn('vr_surv_end_ok', 280, 666, canvasW - 560, 102, '🏫 Retourner au Hall Principal', {
+        primary: true,
+        fontSize: 28,
+        onClick: () => se.onContinue?.()
+      });
+
       if (texture) texture.needsUpdate = true;
       return;
     }
@@ -1595,6 +2083,14 @@ export function createTpSpatialPanel() {
   const updateState = (next = {}, options = {}) => {
     const prevMode = resolveActiveMode();
     let structuralChange = Boolean(options.immediate);
+    if (next.mode && next.mode !== prevMode) {
+      for (const sk of ['survivalLobby', 'survivalHidden', 'jumpscare', 'detention', 'survivalEnd']) {
+        if (!(sk in next) && state[sk]) {
+          state[sk] = null;
+          structuralChange = true;
+        }
+      }
+    }
     for (const [k, v] of Object.entries(next)) {
       if (v === undefined) continue;
       if (
@@ -1602,6 +2098,11 @@ export function createTpSpatialPanel() {
         k === 'result' ||
         k === 'dialogue' ||
         k === 'ascension' ||
+        k === 'survivalLobby' ||
+        k === 'survivalHidden' ||
+        k === 'jumpscare' ||
+        k === 'detention' ||
+        k === 'survivalEnd' ||
         k === 'tools' ||
         k === 'actions' ||
         k === 'stages' ||

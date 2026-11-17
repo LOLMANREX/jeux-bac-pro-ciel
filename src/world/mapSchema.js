@@ -318,6 +318,21 @@ export const MAP_ITEM_CATALOG = [
     collides: true
   },
   {
+    type: 'survival_door',
+    category: 'stations',
+    subGroup: 'Mode Survie Horreur',
+    label: 'Porte de Mini-Jeu Survie',
+    shortLabel: 'Porte Survie',
+    icon: '🚪',
+    interactRadius: 2.6,
+    defaultW: 1.7,
+    defaultD: 0.42,
+    defaultH: 2.7,
+    defaultColor: '#e11d48',
+    collides: false,
+    isSurvivalDoor: true
+  },
+  {
     type: 'chair_student',
     category: 'furniture',
     subGroup: 'Assises & Bureaux',
@@ -505,6 +520,21 @@ export const MAP_ITEM_CATALOG = [
     defaultH: 2.15,
     defaultColor: '#10b981',
     collides: true
+  },
+  {
+    type: 'hiding_rack',
+    category: 'tech',
+    subGroup: 'Mode Survie Horreur',
+    label: 'Baie de Brassage (Cachette)',
+    shortLabel: 'Baie Cachette',
+    icon: '🗄️',
+    interactRadius: 2.3,
+    defaultW: 1.1,
+    defaultD: 0.78,
+    defaultH: 2.2,
+    defaultColor: '#38bdf8',
+    collides: true,
+    isHidingSpot: true
   },
   {
     type: 'net_patch_wall',
@@ -1022,6 +1052,41 @@ export function createDefaultMap() {
     color: '#f43f5e',
     label: 'Mur SOC U305'
   });
+
+  objects.push({
+    id: 'obj-survival-door',
+    type: 'survival_door',
+    x: 0.6,
+    z: -1.85,
+    rotation: 180,
+    w: 1.7,
+    d: 0.42,
+    color: '#e11d48',
+    label: 'Porte Survie Horreur'
+  });
+
+  const hidingRacks = [
+    ['obj-hide-u301', -11.8, -4.0, 90, 'Baie Cachette U301'],
+    ['obj-hide-u302', 1.65, -4.1, 270, 'Baie Cachette U302'],
+    ['obj-hide-u303', 12.1, -4.1, 270, 'Baie Cachette U303'],
+    ['obj-hide-u304', 12.2, -2.4, 270, 'Baie Cachette U304'],
+    ['obj-hide-u305', 12.1, 4.5, 270, 'Baie Cachette U305'],
+    ['obj-hide-u306', -2.2, 4.5, 90, 'Baie Cachette U306'],
+    ['obj-hide-u307', -12.1, 11.4, 0, 'Baie Cachette U307']
+  ];
+  for (const [id, hx, hz, rot, label] of hidingRacks) {
+    objects.push({
+      id,
+      type: 'hiding_rack',
+      x: hx,
+      z: hz,
+      rotation: rot,
+      w: 1.1,
+      d: 0.78,
+      color: '#38bdf8',
+      label
+    });
+  }
 
   return normalizeMapData({
     version: 1,

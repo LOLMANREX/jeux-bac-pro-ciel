@@ -426,6 +426,146 @@ export class SoundEngine {
       this.playTone(n.f * 0.5, n.d, 'sine', 0.055, n.t);
     });
   }
+
+  startHorrorAmbience() {
+    const ctx = this._ensureCtx();
+    if (!ctx || this._horrorAmbience) return false;
+    try {
+      const droneA = ctx.createOscillator();
+      const droneB = ctx.createOscillator();
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      const master = ctx.createGain();
+
+      droneA.type = 'sawtooth';
+      droneA.frequency.value = 46;
+      droneB.type = 'triangle';
+      droneB.frequency.value = 51.5;
+
+      lfo.type = 'sine';
+      lfo.frequency.value = 0.28;
+      lfoGain.gain.value = 65;
+
+      filter.type = 'lowpass';
+      filter.frequency.value = 150;
+      filter.Q.value = 3.5;
+
+      master.gain.value = 0.032;
+
+      lfo.connect(lfoGain);
+      lfoGain.connect(filter.frequency);
+      droneA.connect(filter);
+      droneB.connect(filter);
+      filter.connect(master);
+      master.connect(this._getOutputNode());
+
+      droneA.start();
+      droneB.start();
+      lfo.start();
+      this._horrorAmbience = { droneA, droneB, lfo, lfoGain, filter, master };
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  stopHorrorAmbience() {
+    if (!this._horrorAmbience) return;
+    const amb = this._horrorAmbience;
+    this._horrorAmbience = null;
+    try {
+      amb.droneA?.stop?.();
+      amb.droneB?.stop?.();
+      amb.lfo?.stop?.();
+      amb.master?.disconnect?.();
+    } catch {}
+  }
+
+  playHeavyFootstep(distance = 8, maxRange = 20) {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    const dist = Math.max(0.5, Number(distance) || 8);
+    if (dist > maxRange) return;
+    const scale = Math.pow(Math.max(0, 1 - dist / maxRange), 1.4);
+    const vol = Math.max(0.015, Math.min(0.28, scale * 0.24));
+    const startAt = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(105, startAt);
+    osc.frequency.exponentialRampToValueAtTime(34, startAt + 0.16);
+    gain.gain.setValueAtTime(vol, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.18);
+    osc.connect(gain);
+    gain.connect(this._getOutputNode());
+    osc.start(startAt);
+    osc.stop(startAt + 0.19);
+  }
+
+  playHorrorHeartbeat(intensity = 0.5) {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    const vol = Math.max(0.02, Math.min(0.24, 0.05 + Number(intensity || 0) * 0.18));
+    this.playTone(62, 0.09, 'sine', vol, 0);
+    this.playTone(54, 0.11, 'sine', vol * 0.85, 0.14);
+  }
+
+  playHorrorAlert() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    this.playTone(290, 0.16, 'sawtooth', 0.08, 0);
+    this.playTone(415, 0.22, 'sawtooth', 0.09, 0.05);
+    this.playTone(155, 0.32, 'square', 0.07, 0.11);
+  }
+
+  playJumpscareSound() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    this.playTone(95, 0.55, 'sawtooth', 0.24, 0);
+    this.playTone(485, 0.42, 'square', 0.18, 0);
+    this.playTone(730, 0.36, 'sawtooth', 0.16, 0.04);
+    this.playTone(1180, 0.28, 'sawtooth', 0.12, 0.08);
+    try {
+      const len = Math.max(128, Math.floor(ctx.sampleRate * 0.42));
+      const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 0.65);
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      const gain = ctx.createGain();
+      gain.gain.value = 0.18;
+      src.connect(gain);
+      gain.connect(this._getOutputNode());
+      src.start();
+    } catch {}
+  }
+
+  playLockerDoorSound(entering = true) {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    if (entering) {
+      this.playTone(185, 0.08, 'triangle', 0.09, 0);
+      this.playTone(120, 0.12, 'square', 0.05, 0.05);
+    } else {
+      this.playTone(140, 0.07, 'square', 0.05, 0);
+      this.playTone(230, 0.09, 'triangle', 0.08, 0.04);
+    }
+  }
+
+  playHorrorVictory() {
+    this.playAscensionFanfare('cyber');
+  }
+
+  playHorrorDefeat() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    this.playTone(196, 0.35, 'sawtooth', 0.09, 0);
+    this.playTone(155.56, 0.42, 'sawtooth', 0.09, 0.22);
+    this.playTone(116.54, 0.68, 'triangle', 0.11, 0.44);
+  }
 }
 
 export const sfx = new SoundEngine();
