@@ -176,6 +176,7 @@ export function createWristHudPanel(options = {}) {
   let hitBoxes = [];
   let hoveredBtnId = null;
   let forceVisible = false;
+  let hudSuppressed = false;
   let dirty = true;
   let lastDrawMs = 0;
 
@@ -395,6 +396,11 @@ export function createWristHudPanel(options = {}) {
   const camToWatch = new THREE.Vector3();
 
   const updateVisibility = (cameraWorldPos, dt = 0.016, nowMs = Date.now(), cameraWorldDir = null) => {
+    if (hudSuppressed) {
+      group.visible = false;
+      screenMat.opacity = 0;
+      return false;
+    }
     if (forceVisible) {
       group.visible = true;
       screenMat.opacity = 0.98;
@@ -517,7 +523,24 @@ export function createWristHudPanel(options = {}) {
 
   const setForceVisible = (v) => {
     forceVisible = Boolean(v);
+    if (hudSuppressed) {
+      group.visible = false;
+      screenMat.opacity = 0;
+      return;
+    }
     if (forceVisible) {
+      group.visible = true;
+      screenMat.opacity = 0.98;
+      if (dirty) redraw();
+    }
+  };
+
+  const setHudSuppressed = (suppressed) => {
+    hudSuppressed = Boolean(suppressed);
+    if (hudSuppressed) {
+      group.visible = false;
+      screenMat.opacity = 0;
+    } else if (forceVisible) {
       group.visible = true;
       screenMat.opacity = 0.98;
       if (dirty) redraw();
@@ -557,6 +580,8 @@ export function createWristHudPanel(options = {}) {
     updateMiniMap,
     updateVisibility,
     setForceVisible,
+    setHudSuppressed,
+    isHudSuppressed: () => hudSuppressed,
     updateState,
     getState,
     hasMiniMapData: () => Boolean(currentMapData && Array.isArray(currentMapData.zones)),

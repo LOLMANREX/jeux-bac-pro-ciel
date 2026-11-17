@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.20 - Instance Isolée Survie, Cinématique Intro & Salle de Colle 3D POV Live';
+    : 'v4.21 - Salle de Colle Caméra Libre, Zéro ATH & Cinématique Anti-Murs';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.20 — Instance Isolée Survie, Cinématique Intro & Salle de Colle 3D POV Live',
+    version: 'v4.21 — Correctifs Salle de Colle 3D : Caméra Libre Assise, Zéro ATH & Cinématique d’Intro Sans Traversée de Murs',
     date: '17/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'CAMÉRA LIBRE ASSISE PC & VR',
+        title: 'Rotation 360° de la Tête sur Chaise en Salle d’Heure de Colle 3D',
+        desc: 'Déblocage complet de la rotation caméra en position assise : sur PC via souris / PointerLock, cliquer-glisser ou flèches directionnelles avec maintien du clic direct sur la feuille du bureau et ZQSD verrouillé sur la chaise ; en VR WebXR via positionnement exact du rig à hauteur assise face au bureau, suivi 6DoF libre, snap-turn au joystick droit et blocage du déplacement au joystick gauche.'
+      },
+      {
+        badge: 'IMMERSION ZÉRO ATH',
+        title: 'Masquage Intégral de Tout l’ATH (HUD) en Salle d’Heure de Colle',
+        desc: 'Dès l’entrée en Salle de Colle, la barre supérieure, la minimap, les notes, l’XP, le classement, les boutons audio/micro, les contrôles tactiles, la smartwatch VR et tous les panneaux flottants ou modales 2D sont intégralement masqués pour ne laisser visibles que la salle 3D, la feuille de maths et l’écran POV des coéquipiers, puis restaurés automatiquement au retour au hall.'
+      },
+      {
+        badge: 'CINÉMATIQUE ANTI-MURS',
+        title: 'Trajectoire d’Introduction Survie Horreur 100 % Dégagée dans le Hall U300',
+        desc: 'Placement dynamique du Professeur CIEL et de la caméra dans la même zone connectée et dégagée du plateau avec vérification de ligne de vue libre et garde-fou par collision/raycast (getDynamicMapColliders et grille navigable) à chaque frame du travelling sur PC et en VR.'
+      }
+    ]
+  },
+  {
+    version: 'v4.20 — Instance Isolée Survie, Cinématique Intro & Salle de Colle 3D POV Live',
+    date: '17/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'INSTANCE ISOLÉE & SOLO 1+ JOUEUR',

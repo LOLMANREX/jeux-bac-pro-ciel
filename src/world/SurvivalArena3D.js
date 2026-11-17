@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { drawVariationWorksheetCanvas, getVariationSheetHitBoxes } from '../minigames/VariationTableGame.js';
-import { getCatalogItem, getZonePolygonPoints, subtractDoorsFromWalls } from './mapSchema.js';
+import {
+  getCatalogItem,
+  getDynamicMapColliders,
+  getZonePolygonPoints,
+  subtractDoorsFromWalls
+} from './mapSchema.js';
+import { hasFullMapLineOfSight, pointCollidesWithColliders } from './SurvivalEngine.js';
 
 function makeRoomCanvasTexture(width, height, drawFn) {
   if (typeof document === 'undefined') return null;
@@ -109,102 +115,164 @@ function buildStudentDeskAndChair(parent, cx, cz, woodMat, metalMat, darkMat, se
   return grp;
 }
 
+function clampIntroCameraPos(
+  desiredX,
+  desiredZ,
+  anchorX,
+  anchorZ,
+  colliders = [],
+  bounds = null,
+  radius = 0.36
+) {
+  if (!Array.isArray(colliders) || colliders.length === 0) {
+    return { x: desiredX, z: desiredZ };
+  }
+  if (hasFullMapLineOfSight(anchorX, anchorZ, desiredX, desiredZ, colliders, bounds, radius, 0.14)) {
+    return { x: desiredX, z: desiredZ };
+  }
+  const dx = desiredX - anchorX;
+  const dz = desiredZ - anchorZ;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 0.05) {
+    return { x: anchorX, z: anchorZ };
+  }
+  const steps = Math.max(8, Math.ceil(dist / 0.12));
+  let safeX = anchorX;
+  let safeZ = anchorZ;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const px = anchorX + dx * t;
+    const pz = anchorZ + dz * t;
+    if (pointCollidesWithColliders(px, pz, colliders, bounds, radius)) {
+      break;
+    }
+    safeX = px;
+    safeZ = pz;
+  }
+  return { x: safeX, z: safeZ };
+}
+
 export function computeSurvivalIntroShot(
   progress = 0,
-  aiPos = { x: 1.8, z: -1.2 },
+  aiPos = { x: -4.95, z: -2.35 },
   spawnPos = { x: -3.95, z: 0.65 },
-  elapsed = 0
+  elapsed = 0,
+  mapContext = null
 ) {
   const p = Math.max(0, Math.min(1, Number(progress) || 0));
   const sx = Number.isFinite(Number(spawnPos?.x)) ? Number(spawnPos.x) : -3.95;
   const sz = Number.isFinite(Number(spawnPos?.z)) ? Number(spawnPos.z) : 0.65;
-  const ax = Number.isFinite(Number(aiPos?.x)) ? Number(aiPos.x) : 1.8;
-  const az = Number.isFinite(Number(aiPos?.z)) ? Number(aiPos.z) : -1.2;
+  const ax = Number.isFinite(Number(aiPos?.x)) ? Number(aiPos.x) : -4.95;
+  const az = Number.isFinite(Number(aiPos?.z)) ? Number(aiPos.z) : -2.35;
   const dx = ax - sx;
   const dz = az - sz;
-  const dist = Math.max(1, Math.hypot(dx, dz));
+  const dist = Math.max(1.2, Math.hypot(dx, dz));
   const ux = dx / dist;
   const uz = dz / dist;
+  const px = -uz;
+  const pz = ux;
+
+  const colliders = Array.isArray(mapContext?.colliders)
+    ? mapContext.colliders
+    : mapContext?.mapData
+      ? getDynamicMapColliders(mapContext.mapData)
+      : null;
+  const bounds = mapContext?.bounds || mapContext?.mapData?.bounds || null;
 
   const briefingText = 'Survivez, terminez tous les TPs et ne faites aucun bruit au micro...';
+  const phase0Forward = Math.min(0.55, dist * 0.2);
+  const closeStopDist = Math.min(dist * 0.62, Math.max(1.35, dist - 1.55));
+
+  const finalizeShot = (rawCamPos, camLook, phaseIndex, phaseLabel, flicker, redThreat) => {
+    let safeCam = { ...rawCamPos };
+    if (colliders) {
+      const clamped = clampIntroCameraPos(safeCam.x, safeCam.z, ax, az, colliders, bounds, 0.36);
+      safeCam.x = clamped.x;
+      safeCam.z = clamped.z;
+    }
+    return {
+      phaseIndex,
+      phaseLabel,
+      briefingText,
+      flicker,
+      redThreat,
+      camPos: safeCam,
+      camLook
+    };
+  };
 
   if (p < 0.28) {
     const localP = p / 0.28;
+    const ease = localP < 0.5 ? 2 * localP * localP : 1 - Math.pow(-2 * localP + 2, 2) / 2;
     const rawFlicker = Math.sin(elapsed * 42) * Math.cos(elapsed * 19);
     const flicker = localP < 0.35 ? (rawFlicker > 0.1 ? 0.92 : 0.22) : Math.max(0.14, 0.78 - localP * 0.55);
     const camPos = {
-      x: sx - ux * localP * 0.65,
-      y: 1.68 + Math.sin(localP * Math.PI) * 0.22,
-      z: sz - uz * localP * 0.65
+      x: sx + ux * phase0Forward * ease,
+      y: 1.66 + Math.sin(localP * Math.PI) * 0.08,
+      z: sz + uz * phase0Forward * ease
     };
     const camLook = {
-      x: (sx + ax) * 0.5,
-      y: 2.25 - localP * 0.7,
-      z: (sz + az) * 0.5
+      x: ax,
+      y: 1.65 - ease * 0.14,
+      z: az
     };
-    return {
-      phaseIndex: 0,
-      phaseLabel: '⚡ COUPURE ÉLECTRIQUE — ALERTE INTRUSION',
-      briefingText,
-      flicker,
-      redThreat: 0.28 + localP * 0.66,
+    return finalizeShot(
       camPos,
-      camLook
-    };
+      camLook,
+      0,
+      '⚡ COUPURE ÉLECTRIQUE — ALERTE INTRUSION',
+      flicker,
+      0.28 + localP * 0.66
+    );
   }
 
   if (p < 0.76) {
     const localP = (p - 0.28) / 0.48;
     const ease = localP < 0.5 ? 2 * localP * localP : 1 - Math.pow(-2 * localP + 2, 2) / 2;
-    const startX = (sx + ax) * 0.5;
-    const startZ = (sz + az) * 0.5;
-    const endX = ax - ux * 2.15;
-    const endZ = az - uz * 2.15;
+    const travelDist = phase0Forward + (closeStopDist - phase0Forward) * ease;
+    const swayAmt = Math.sin(localP * Math.PI) * 0.16;
     const camPos = {
-      x: startX + (endX - startX) * ease + Math.sin(localP * Math.PI) * 0.35,
-      y: 1.52 - ease * 0.22,
-      z: startZ + (endZ - startZ) * ease
+      x: sx + ux * travelDist + px * swayAmt,
+      y: 1.62 - ease * 0.16,
+      z: sz + uz * travelDist + pz * swayAmt
     };
     const camLook = {
       x: ax,
-      y: 1.48 + ease * 0.12,
+      y: 1.48 + ease * 0.1,
       z: az
     };
     const flicker = 0.72 + Math.sin(elapsed * 16) * 0.2;
-    return {
-      phaseIndex: 1,
-      phaseLabel: '👁️ PROFESSEUR CIEL EN MODE TRAQUE !',
-      briefingText,
-      flicker,
-      redThreat: 0.95,
+    return finalizeShot(
       camPos,
-      camLook
-    };
+      camLook,
+      1,
+      '👁️ PROFESSEUR CIEL EN MODE TRAQUE !',
+      flicker,
+      0.95
+    );
   }
 
   const localP = (p - 0.76) / 0.24;
   const ease = localP < 0.5 ? 2 * localP * localP : 1 - Math.pow(-2 * localP + 2, 2) / 2;
-  const fromX = ax - ux * 2.15;
-  const fromZ = az - uz * 2.15;
+  const travelDist = closeStopDist * (1 - ease);
   const camPos = {
-    x: fromX + (sx - fromX) * ease,
-    y: 1.3 + (1.68 - 1.3) * ease,
-    z: fromZ + (sz - fromZ) * ease
+    x: sx + ux * travelDist,
+    y: 1.46 + (1.68 - 1.46) * ease,
+    z: sz + uz * travelDist
   };
   const camLook = {
     x: ax,
     y: 1.56,
     z: az
   };
-  return {
-    phaseIndex: 2,
-    phaseLabel: '🔦 PRÉPAREZ-VOUS — LA TRAQUE COMMENCE',
-    briefingText,
-    flicker: 0.88,
-    redThreat: 0.72 * (1 - ease) + 0.18,
+  return finalizeShot(
     camPos,
-    camLook
-  };
+    camLook,
+    2,
+    '🔦 PRÉPAREZ-VOUS — LA TRAQUE COMMENCE',
+    0.88,
+    0.72 * (1 - ease) + 0.18
+  );
 }
 
 export function getDetentionCameraHitBoxes(width, height, kind = 'desk') {
@@ -1088,9 +1156,10 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
 
   function getDetentionRoomConfig() {
     return {
-      spawn: { x: detCenter.x, z: detCenter.z + 1.16 },
-      pcEye: { x: detCenter.x, y: 1.38, z: detCenter.z + 1.46 },
-      lookAt: { x: detCenter.x, y: 1.04, z: detCenter.z - 0.05 },
+      spawn: { x: detCenter.x, z: detCenter.z + 1.22 },
+      pcEye: { x: detCenter.x, y: 1.28, z: detCenter.z + 1.22 },
+      vrSeatEyeY: 1.28,
+      lookAt: { x: detCenter.x, y: 1.18, z: detCenter.z - 1.5 },
       teacherSpot: { x: detCenter.x + 2.4, z: detCenter.z - 2.4 },
       bounds: {
         minX: detCenter.x - 0.85,

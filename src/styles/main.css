@@ -5721,3 +5721,32 @@ body.vr-presenting #survival-detention-modal,
 body.vr-presenting #survival-end-overlay {
   display: none !important;
 }
+
+body.survival-detention-active #hud,
+body.survival-detention-active .hud-top,
+body.survival-detention-active .hud-left-stack,
+body.survival-detention-active .hud-bottom-hint,
+body.survival-detention-active .emote-bar,
+body.survival-detention-active .crosshair,
+body.survival-detention-active .interact-prompt,
+body.survival-detention-active .touch-controls,
+body.survival-detention-active .chat-drawer,
+body.survival-detention-active .debug-tools-panel,
+body.survival-detention-active .voice-nearby-bar,
+body.survival-detention-active .net-error-banner,
+body.survival-detention-active .orientation-hint,
+body.survival-detention-active .world-celebration-banner,
+body.survival-detention-active .secret-skin-banner,
+body.survival-detention-active .survival-horror-vignette,
+body.survival-detention-active .survival-hud-bar,
+body.survival-detention-active .survival-detention-3d-hud,
+body.survival-detention-active #survival-detention-modal,
+body.survival-detention-active #survival-detention-open-btn,
+body.survival-detention-active #leaderboard-modal,
+body.survival-detention-active #settings-modal,
+body.survival-detention-active #skin-modal,
+body.survival-detention-active #dialogue-modal,
+body.survival-detention-active #toast-container {
+  display: none !important;
+  pointer-events: none !important;
+}

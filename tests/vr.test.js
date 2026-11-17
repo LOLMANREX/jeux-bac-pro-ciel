@@ -13,6 +13,11 @@ import { PlayerController } from '../src/world/PlayerController.js';
 import { RemotePlayersManager } from '../src/world/RemotePlayers.js';
 import { SceneManager, pickLabInteractable } from '../src/world/SceneManager.js';
 import { createSurvivalPocketRooms, getDetentionCameraHitBoxes } from '../src/world/SurvivalArena3D.js';
+import {
+  hasFullMapLineOfSight,
+  pointCollidesWithColliders,
+  resolveSurvivalIntroPlacement
+} from '../src/world/SurvivalEngine.js';
 
 function waitForMsg(sock, predicate, timeoutMs = 2500) {
   return new Promise((resolve, reject) => {
@@ -1376,6 +1381,204 @@ test('VR WebXR v4.20 : renderToTarget POV Live sous WebXR, surfaces salle de col
     vr.worldPanel.getHitBoxes().find((b) => b.id === 'vr_surv_intro_skip')?.onClick?.();
     assert.equal(introSkipTriggered, true);
     vr.closeWorldSpatialPanel();
+  } finally {
+    pocket?.dispose?.();
+    vr?.dispose?.();
+    sm.dispose?.();
+    stubs.restore();
+  }
+});
+
+test('VR WebXR v4.21 : Salle de Colle hauteur assise, 6DoF libre, snap-turn joystick droit, joystick gauche bloqué, zéro ATH & intro sans murs', () => {
+  const noop = () => {};
+  const fakeCtx = {
+    fillStyle: '#000',
+    strokeStyle: '#000',
+    lineWidth: 1,
+    font: '12px sans-serif',
+    textAlign: 'left',
+    textBaseline: 'alphabetic',
+    lineCap: 'butt',
+    globalAlpha: 1,
+    save: noop,
+    restore: noop,
+    clip: noop,
+    clearRect: noop,
+    fillRect: noop,
+    strokeRect: noop,
+    fillText: noop,
+    strokeText: noop,
+    beginPath: noop,
+    closePath: noop,
+    rect: noop,
+    roundRect: noop,
+    moveTo: noop,
+    lineTo: noop,
+    quadraticCurveTo: noop,
+    bezierCurveTo: noop,
+    arc: noop,
+    arcTo: noop,
+    ellipse: noop,
+    fill: noop,
+    stroke: noop,
+    translate: noop,
+    rotate: noop,
+    scale: noop,
+    setLineDash: noop,
+    drawImage: noop,
+    createPattern: () => ({}),
+    createLinearGradient: () => ({ addColorStop: noop }),
+    createRadialGradient: () => ({ addColorStop: noop }),
+    measureText: (txt) => ({ width: String(txt || '').length * 8 }),
+    getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray((w || 4) * (h || 4) * 4) }),
+    putImageData: noop
+  };
+
+  const leftAxes = [0, 0, 0.85, -0.9];
+  const rightAxes = [0, 0, 0, 0];
+  const ctrlListeners = [new Map(), new Map()];
+  const mockControllers = [0, 1].map((idx) => {
+    const grp = new THREE.Group();
+    grp.addEventListener = (type, fn) => ctrlListeners[idx].set(type, fn);
+    return grp;
+  });
+  const mockGrips = [new THREE.Group(), new THREE.Group()];
+  const mockRenderer = {
+    xr: {
+      enabled: true,
+      isPresenting: true,
+      setReferenceSpaceType() {},
+      addEventListener() {},
+      removeEventListener() {},
+      getController(i) {
+        return mockControllers[i];
+      },
+      getControllerGrip(i) {
+        return mockGrips[i];
+      }
+    },
+    autoClear: true,
+    toneMapping: null,
+    toneMappingExposure: 1,
+    shadowMap: { enabled: false, autoUpdate: true, type: null },
+    setClearColor() {},
+    setPixelRatio() {},
+    setSize() {},
+    clear() {},
+    getRenderTarget() {
+      return null;
+    },
+    setRenderTarget() {},
+    setAnimationLoop() {},
+    render() {}
+  };
+
+  const stubs = createFakeDomStubs();
+  globalThis.document.createElement = (tag) =>
+    tag === 'canvas' ? { width: 256, height: 256, getContext: () => fakeCtx } : { addEventListener: noop };
+  const mapData = createDefaultMap();
+  const sm = new SceneManager(stubs.canvas, { renderer: mockRenderer, skipEnvironment: true });
+  let pocket = null;
+  let vr = null;
+
+  try {
+    pocket = createSurvivalPocketRooms(sm.scene, mapData);
+    const detCfg = pocket.getDetentionRoomConfig();
+    const player = new PlayerController(sm.camera, stubs.canvas, detCfg.colliders);
+    player.setBounds(detCfg.bounds);
+
+    vr = new VRManager(sm, player, {
+      playerName: 'TesterVR421',
+      mapData,
+      isPrivateDebug: true,
+      debugOverlayEnabled: true
+    });
+    vr.active = true;
+    vr.simMode = false;
+    vr.xrReferenceSpaceType = 'local-floor';
+    vr._mountVrRigForWorld(false);
+    ctrlListeners[0].get('connected')?.({ data: { handedness: 'left', gamepad: { buttons: [], axes: leftAxes } } });
+    ctrlListeners[1].get('connected')?.({ data: { handedness: 'right', gamepad: { buttons: [], axes: rightAxes } } });
+
+    const placement = resolveSurvivalIntroPlacement(mapData);
+    vr.applySurvivalIntroPose(placement.spawnPos.x, placement.spawnPos.z, placement.aiPos, {
+      colliders: placement.colliders,
+      bounds: placement.bounds
+    });
+    const introWorldPos = new THREE.Vector3();
+    sm.camera.getWorldPosition(introWorldPos);
+    assert.equal(
+      pointCollidesWithColliders(introWorldPos.x, introWorldPos.z, placement.colliders, placement.bounds, 0.32),
+      false
+    );
+    assert.equal(
+      hasFullMapLineOfSight(
+        introWorldPos.x,
+        introWorldPos.z,
+        placement.aiPos.x,
+        placement.aiPos.z,
+        placement.colliders,
+        placement.bounds,
+        0.2,
+        0.16
+      ),
+      true
+    );
+
+    sm.camera.position.set(0, 1.62, 0);
+    const seatY = detCfg.vrSeatEyeY || detCfg.pcEye.y;
+    vr.setSeatedMode(true, { x: detCfg.spawn.x, y: seatY, z: detCfg.spawn.z, yaw: 0 });
+    vr.setDetentionHudHidden(true);
+
+    vr.wristPanel.setForceVisible(true);
+    vr.update(0.016, 0.1, 100);
+    assert.equal(vr.wristPanel.group.visible, false);
+    assert.equal(vr.debugPanel.group.visible, false);
+
+    const headWorld = new THREE.Vector3();
+    sm.camera.getWorldPosition(headWorld);
+    assert.ok(Math.abs(headWorld.y - seatY) < 0.03);
+    const seatedX = headWorld.x;
+    const seatedZ = headWorld.z;
+
+    for (let f = 1; f <= 5; f++) {
+      vr.update(0.05, f * 0.05, 100 + f * 50);
+    }
+    sm.camera.getWorldPosition(headWorld);
+    assert.ok(Math.abs(headWorld.x - seatedX) < 0.01);
+    assert.ok(Math.abs(headWorld.z - seatedZ) < 0.01);
+
+    sm.camera.rotation.set(-0.42, 0.35, 0, 'YXZ');
+    vr.update(0.016, 0.4, 400);
+    assert.ok(Math.abs(sm.camera.rotation.x + 0.42) < 0.001);
+    assert.ok(Math.abs(sm.camera.rotation.y - 0.35) < 0.001);
+
+    const yawBeforeSnap = vr.vrRig.rotation.y;
+    rightAxes[2] = 0.92;
+    vr.update(0.016, 0.5, 500);
+    assert.notEqual(vr.vrRig.rotation.y, yawBeforeSnap);
+    rightAxes[2] = 0;
+
+    vr.setDetentionHudHidden(false);
+    vr.setSeatedMode(false);
+    vr.wristPanel.setForceVisible(true);
+    vr.update(0.016, 0.6, 600);
+    assert.equal(vr.wristPanel.group.visible, true);
+    assert.equal(vr.debugPanel.group.visible, true);
+
+    vr.enterSimulationMode();
+    vr.setSeatedMode(true, { x: detCfg.spawn.x, y: seatY, z: detCfg.spawn.z, yaw: 0 });
+    vr.setSimInput({ lx: 1, ly: -1 });
+    vr.update(0.1, 0.7, 700);
+    sm.camera.getWorldPosition(headWorld);
+    assert.ok(Math.abs(headWorld.y - seatY) < 0.03);
+    assert.ok(Math.abs(headWorld.x - detCfg.spawn.x) < 0.01);
+    assert.ok(Math.abs(headWorld.z - detCfg.spawn.z) < 0.01);
+
+    const simYawBefore = vr.vrRig.rotation.y;
+    vr.setSimInput({ lx: 0, ly: 0, rx: -0.95 });
+    vr.update(0.016, 0.8, 1200);
+    assert.notEqual(vr.vrRig.rotation.y, simYawBefore);
   } finally {
     pocket?.dispose?.();
     vr?.dispose?.();

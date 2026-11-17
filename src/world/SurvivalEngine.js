@@ -165,6 +165,163 @@ export function hasLineOfSight(x1, z1, x2, z2, wallColliders = [], stepSize = 0.
   return true;
 }
 
+export function hasFullMapLineOfSight(
+  x1,
+  z1,
+  x2,
+  z2,
+  colliders = [],
+  bounds = null,
+  clearance = 0.34,
+  stepSize = 0.2
+) {
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  const dist = Math.hypot(dx, dz);
+  if (pointCollidesWithColliders(x1, z1, colliders, bounds, clearance)) return false;
+  if (pointCollidesWithColliders(x2, z2, colliders, bounds, clearance)) return false;
+  if (dist < 0.2) return true;
+  const steps = Math.max(2, Math.ceil(dist / Math.max(0.08, stepSize)));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const px = x1 + dx * t;
+    const pz = z1 + dz * t;
+    if (pointCollidesWithColliders(px, pz, colliders, bounds, clearance)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function measureSegmentMinClearance(x1, z1, x2, z2, colliders = [], bounds = null) {
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  const dist = Math.hypot(dx, dz);
+  const steps = Math.max(2, Math.ceil(dist / 0.22));
+  let minClear = Infinity;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const px = x1 + dx * t;
+    const pz = z1 + dz * t;
+    if (bounds) {
+      minClear = Math.min(
+        minClear,
+        px - bounds.minX,
+        bounds.maxX - px,
+        pz - bounds.minZ,
+        bounds.maxZ - pz
+      );
+    }
+    for (const c of colliders) {
+      if (typeof c.cx === 'number') {
+        const vx = px - c.cx;
+        const vz = pz - c.cz;
+        const along = Math.abs(vx * c.ux + vz * c.uz) - c.hw;
+        const perp = Math.abs(-vx * c.uz + vz * c.ux) - c.hd;
+        const ox = Math.max(0, along);
+        const oz = Math.max(0, perp);
+        const d = along < 0 && perp < 0 ? Math.max(along, perp) : Math.hypot(ox, oz);
+        if (d < minClear) minClear = d;
+      } else {
+        const ox = px < c.minX ? c.minX - px : px > c.maxX ? px - c.maxX : 0;
+        const oz = pz < c.minZ ? c.minZ - pz : pz > c.maxZ ? pz - c.maxZ : 0;
+        const d =
+          ox === 0 && oz === 0
+            ? -Math.min(px - c.minX, c.maxX - px, pz - c.minZ, c.maxZ - pz)
+            : Math.hypot(ox, oz);
+        if (d < minClear) minClear = d;
+      }
+    }
+  }
+  return minClear;
+}
+
+export function resolveSurvivalIntroPlacement(mapData = null, desiredSpawn = null, prebuiltGrid = null) {
+  const src = mapData || createDefaultMap();
+  const bounds = src.bounds || { minX: -13, maxX: 13, minZ: -12.2, maxZ: 12.2, width: 26, depth: 24.4 };
+  const navGrid = prebuiltGrid || buildNavGrid(src, 0.45, 0.34);
+  const colliders = navGrid.colliders || getDynamicMapColliders(src);
+
+  const rawSp = desiredSpawn || src.spawn || { x: -3.95, z: 0.65 };
+  let sx = Number.isFinite(Number(rawSp.x)) ? Number(rawSp.x) : -3.95;
+  let sz = Number.isFinite(Number(rawSp.z)) ? Number(rawSp.z) : 0.65;
+
+  if (pointCollidesWithColliders(sx, sz, colliders, bounds, 0.4)) {
+    const safeCell = findNearestWalkableCell(navGrid, sx, sz, 10);
+    if (safeCell) {
+      const [wx, wz] = navGrid.toWorld(safeCell[0], safeCell[1]);
+      sx = wx;
+      sz = wz;
+    }
+  }
+
+  const candidates = [
+    { x: -4.95, z: -2.35, pref: 0.4 },
+    { x: -4.85, z: -2.25, pref: 0.35 },
+    { x: -4.65, z: -2.15, pref: 0.3 }
+  ];
+
+  const radii = [3.2, 2.8, 2.4, 2.0, 1.65];
+  for (const r of radii) {
+    for (let deg = 0; deg < 360; deg += 15) {
+      const rad = (deg * Math.PI) / 180;
+      const cx = Number((sx + Math.sin(rad) * r).toFixed(2));
+      const cz = Number((sz - Math.cos(rad) * r).toFixed(2));
+      const northPref = deg <= 45 || deg >= 315 ? 0.12 : 0;
+      candidates.push({ x: cx, z: cz, pref: northPref });
+    }
+  }
+
+  let best = null;
+  let bestScore = -Infinity;
+
+  for (const cand of candidates) {
+    if (
+      cand.x < bounds.minX + 0.55 ||
+      cand.x > bounds.maxX - 0.55 ||
+      cand.z < bounds.minZ + 0.55 ||
+      cand.z > bounds.maxZ - 0.55
+    ) {
+      continue;
+    }
+    const [gx, gz] = navGrid.toGrid(cand.x, cand.z);
+    if (!navGrid.isWalkable(gx, gz)) continue;
+    if (!hasFullMapLineOfSight(sx, sz, cand.x, cand.z, colliders, bounds, 0.38, 0.16)) {
+      continue;
+    }
+    const minClear = measureSegmentMinClearance(sx, sz, cand.x, cand.z, colliders, bounds);
+    if (minClear < 0.38) continue;
+    const dist = Math.hypot(cand.x - sx, cand.z - sz);
+    const distScore = 1 - Math.abs(dist - 3.0) * 0.22;
+    const score = Math.min(minClear, 1.4) * 2.2 + distScore + (cand.pref || 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = { x: cand.x, z: cand.z };
+    }
+  }
+
+  if (!best) {
+    const fallbackX = sx;
+    const fallbackZ = Math.max(bounds.minZ + 0.8, sz - 1.8);
+    const safeCell = findNearestWalkableCell(navGrid, fallbackX, fallbackZ, 8);
+    if (safeCell) {
+      const [wx, wz] = navGrid.toWorld(safeCell[0], safeCell[1]);
+      best = { x: wx, z: wz };
+    } else {
+      best = { x: sx, z: sz };
+    }
+  }
+
+  const aiYaw = Math.atan2(sx - best.x, sz - best.z);
+  return {
+    spawnPos: { x: Number(sx.toFixed(2)), z: Number(sz.toFixed(2)) },
+    aiPos: { x: Number(best.x.toFixed(2)), z: Number(best.z.toFixed(2)), yaw: Number(aiYaw.toFixed(3)) },
+    aiYaw: Number(aiYaw.toFixed(3)),
+    colliders,
+    bounds
+  };
+}
+
 export function buildNavGrid(mapData = null, desiredCellSize = 0.45, agentRadius = 0.3) {
   const src = mapData || createDefaultMap();
   const b = src.bounds || { minX: -13, maxX: 13, minZ: -12.2, maxZ: 12.2, width: 26, depth: 24.4 };
@@ -497,6 +654,7 @@ export class SurvivalMatchController {
     this.hidingSpots = [];
     this.waypoints = [];
     this.navGrid = null;
+    this.introPlacement = null;
     this.radarRevealUntil = 0;
     this.ai = {
       x: 7.5,
@@ -523,6 +681,7 @@ export class SurvivalMatchController {
     this.requiredTps = getSurvivalRequiredTps(this.mapData);
     this.hidingSpots = getSurvivalHidingSpots(this.mapData);
     this.waypoints = extractSurvivalWaypoints(this.mapData, this.navGrid);
+    this.introPlacement = resolveSurvivalIntroPlacement(this.mapData, this.mapData?.spawn, this.navGrid);
     if (this.phase === 'idle' || this.phase === 'lobby') {
       const spawnPt = this._pickInitialAiSpawn();
       this.ai.x = spawnPt.x;
@@ -619,7 +778,8 @@ export class SurvivalMatchController {
     this.participants.clear();
     this.radarRevealUntil = 0;
 
-    const sp = this.mapData?.spawn || { x: -3.95, z: 0.65 };
+    const sp = this.introPlacement?.spawnPos || this.mapData?.spawn || { x: -3.95, z: 0.65 };
+    this.introPlacement = resolveSurvivalIntroPlacement(this.mapData, sp, this.navGrid);
     for (const lp of this.lobbyPlayers.values()) {
       this.participants.set(lp.id, {
         id: lp.id,
@@ -1086,6 +1246,8 @@ export class SurvivalMatchController {
       graceActive: this.phase === 'active' && nowMs < this.aiGraceUntil,
       introDurationMs: this.introDurationMs,
       introActive: this.phase === 'active' && nowMs < this.startedAt + this.introDurationMs,
+      introAi: this.introPlacement?.aiPos || null,
+      introSpawn: this.introPlacement?.spawnPos || null,
       ai: {
         x: Number(this.ai.x.toFixed(2)),
         z: Number(this.ai.z.toFixed(2)),

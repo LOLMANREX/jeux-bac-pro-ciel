@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { pickLabInteractable } from '../world/SceneManager.js';
+import { hasFullMapLineOfSight, pointCollidesWithColliders } from '../world/SurvivalEngine.js';
 import { buildArticulatedVRHand } from './VRHandBuilder.js';
 import { createTpSpatialPanel, createVrDebugPanel, createWristHudPanel } from './VRHudPanel.js';
 
@@ -114,6 +115,11 @@ export class VRManager {
     this.simMouseTrigger = false;
     this.simLookPitch = -0.06;
     this.simLookYaw = 0;
+    this.seatedMode = false;
+    this.seatedPose = null;
+    this.seatedAnchorLocalY = 0;
+    this.seatedAnchorCaptured = false;
+    this.detentionHudHidden = false;
 
     this.raycaster = new THREE.Raycaster();
     this.tempMatrix = new THREE.Matrix4();
@@ -342,6 +348,8 @@ export class VRManager {
       isPrivateDebug: this.isPrivateDebug,
       debugOverlayEnabled: this.debugOverlayEnabled,
       debugPanelVisible: Boolean(this.debugPanel?.group?.visible),
+      seatedMode: this.seatedMode,
+      detentionHudHidden: this.detentionHudHidden,
       referenceSpaceType: this.simMode ? 'sim' : this.xrReferenceSpaceType,
       rigPosition: {
         x: Number(this.vrRig.position.x.toFixed(2)),
@@ -354,7 +362,7 @@ export class VRManager {
   }
 
   shouldShowDebugPanel() {
-    return Boolean(this.active && this.debugOverlayEnabled);
+    return Boolean(this.active && this.debugOverlayEnabled && !this.detentionHudHidden);
   }
 
   _applyDebugPanelVisibility() {
@@ -630,6 +638,9 @@ export class VRManager {
 
     this.vrRig.add(this.debugPanel.group);
     this.vrRig.updateMatrixWorld(true);
+    if (this.seatedMode && this.seatedPose) {
+      this.setSeatedMode(true, this.seatedPose);
+    }
     if (this.shouldShowDebugPanel()) {
       this.debugPanel.updateTransform(this.vrRig, this.camera, 1, true);
     }
@@ -679,6 +690,12 @@ export class VRManager {
     this.xrSession = null;
     this.xrFloorFallbackOffset = 0;
     this.lastXrLocalXZ.set(0, 0);
+    this.seatedMode = false;
+    this.seatedPose = null;
+    this.seatedAnchorLocalY = 0;
+    this.seatedAnchorCaptured = false;
+    this.detentionHudHidden = false;
+    this.wristPanel.setHudSuppressed?.(false);
     this.wristPanel.setForceVisible(false);
     this.wristPanel.group.visible = false;
     this.wristTouchPressed = false;
@@ -820,13 +837,126 @@ export class VRManager {
     return true;
   }
 
-  applySurvivalIntroPose(x, z, lookTarget = null) {
+  setDetentionHudHidden(hidden) {
+    this.detentionHudHidden = Boolean(hidden);
+    this.wristPanel?.setHudSuppressed?.(this.detentionHudHidden);
+    if (this.detentionHudHidden) {
+      this.closeWorldSpatialPanel();
+    }
+    this._applyDebugPanelVisibility();
+    this.options.onStateChange?.(this.getPublicState());
+    return this.detentionHudHidden;
+  }
+
+  setSeatedMode(active, pose = null) {
+    this.seatedMode = Boolean(active);
+    if (!this.seatedMode) {
+      this.seatedPose = null;
+      this.seatedAnchorLocalY = 0;
+      this.seatedAnchorCaptured = false;
+      if (this.active && this.simMode && this.camera) {
+        this.camera.position.set(0, 1.65, 0);
+        this.simHandsGroup.position.set(0, 1.65, 0);
+      }
+      if (this.active) {
+        this._stabilizeFloor();
+        this.vrRig?.updateMatrixWorld?.(true);
+      }
+      this.options.onStateChange?.(this.getPublicState());
+      return false;
+    }
+
+    const seatX = Number.isFinite(Number(pose?.x)) ? Number(pose.x) : Number(this.player?.position?.x) || 0;
+    const seatY = Number.isFinite(Number(pose?.y)) ? Number(pose.y) : 1.28;
+    const seatZ = Number.isFinite(Number(pose?.z)) ? Number(pose.z) : Number(this.player?.position?.z) || 0;
+    const nextYaw = Number.isFinite(Number(pose?.yaw)) ? Number(pose.yaw) : 0;
+    this.seatedPose = { x: seatX, y: seatY, z: seatZ, yaw: nextYaw };
+    this.seatedAnchorLocalY = 0;
+    this.seatedAnchorCaptured = false;
+
+    if (this.active && this.vrRig && this.camera) {
+      if (this.simMode) {
+        this.vrRig.position.set(seatX, this.worldFloorY, seatZ);
+        this.vrRig.rotation.set(0, nextYaw, 0);
+        this.simLookYaw = 0;
+        this.simLookPitch = Number.isFinite(Number(pose?.pitch)) ? Number(pose.pitch) : -0.08;
+        this.camera.position.set(0, seatY, 0);
+        this.camera.rotation.set(this.simLookPitch, 0, 0, 'YXZ');
+        this.simHandsGroup.position.set(0, seatY, 0);
+      } else {
+        const cosY = Math.cos(nextYaw);
+        const sinY = Math.sin(nextYaw);
+        const lx = Number.isFinite(this.camera.position?.x) ? this.camera.position.x : 0;
+        const lz = Number.isFinite(this.camera.position?.z) ? this.camera.position.z : 0;
+        const worldOffX = lx * cosY + lz * sinY;
+        const worldOffZ = -lx * sinY + lz * cosY;
+        const curLocalY = Number(this.camera.position?.y) || 0;
+        if (this.xrReferenceSpaceType === 'local') {
+          this.seatedAnchorLocalY = 0;
+          this.seatedAnchorCaptured = true;
+        } else if (Math.abs(curLocalY) > 0.15) {
+          this.seatedAnchorLocalY = curLocalY;
+          this.seatedAnchorCaptured = true;
+        }
+        const rigY = this.seatedAnchorCaptured ? seatY - this.seatedAnchorLocalY : seatY - 1.55;
+        this.vrRig.position.set(seatX - worldOffX, rigY, seatZ - worldOffZ);
+        this.vrRig.rotation.set(0, nextYaw, 0);
+      }
+      this.vrRig.updateMatrixWorld(true);
+      this.camera.getWorldDirection(this.tempVecB);
+      const flatLen = Math.hypot(this.tempVecB.x, this.tempVecB.z);
+      if (flatLen > 0.08) {
+        this.lastForwardDir.set(this.tempVecB.x / flatLen, 0, this.tempVecB.z / flatLen);
+      }
+    }
+    if (typeof this.player?.setVrPose === 'function') {
+      this.player.setVrPose({ x: seatX, z: seatZ, yaw: nextYaw });
+    }
+    this.options.onStateChange?.(this.getPublicState());
+    return true;
+  }
+
+  applySurvivalIntroPose(x, z, lookTarget = null, safetyCtx = null) {
     if (!this.active) return false;
+    let safeX = Number.isFinite(Number(x)) ? Number(x) : Number(this.player?.position?.x) || 0;
+    let safeZ = Number.isFinite(Number(z)) ? Number(z) : Number(this.player?.position?.z) || 0;
+    const colliders = Array.isArray(safetyCtx?.colliders) ? safetyCtx.colliders : null;
+    const bounds = safetyCtx?.bounds || this.player?.bounds || null;
+
+    if (lookTarget && Number.isFinite(Number(lookTarget.x)) && Number.isFinite(Number(lookTarget.z))) {
+      const tx = Number(lookTarget.x);
+      const tz = Number(lookTarget.z);
+      if (
+        colliders &&
+        (pointCollidesWithColliders(safeX, safeZ, colliders, bounds, 0.36) ||
+          !hasFullMapLineOfSight(tx, tz, safeX, safeZ, colliders, bounds, 0.32, 0.16))
+      ) {
+        const dx = safeX - tx;
+        const dz = safeZ - tz;
+        const dist = Math.hypot(dx, dz);
+        if (dist > 0.1) {
+          const steps = Math.max(6, Math.ceil(dist / 0.15));
+          let bestX = tx;
+          let bestZ = tz;
+          for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            const px = tx + dx * t;
+            const pz = tz + dz * t;
+            if (pointCollidesWithColliders(px, pz, colliders, bounds, 0.36)) break;
+            bestX = px;
+            bestZ = pz;
+          }
+          safeX = bestX;
+          safeZ = bestZ;
+        }
+      }
+    }
+
     let yaw = Number(this.player?.yaw) || 0;
     if (lookTarget && Number.isFinite(Number(lookTarget.x)) && Number.isFinite(Number(lookTarget.z))) {
-      yaw = Math.atan2(-(Number(lookTarget.x) - x), -(Number(lookTarget.z) - z));
+      yaw = Math.atan2(-(Number(lookTarget.x) - safeX), -(Number(lookTarget.z) - safeZ));
     }
-    const ok = this.syncWorldTeleport(x, z, yaw);
+    const ok = this.syncWorldTeleport(safeX, safeZ, yaw);
     if (ok && this.simMode) {
       this.simLookPitch = -0.04;
       this.camera?.rotation?.set(this.simLookPitch, 0, 0, 'YXZ');
@@ -1489,6 +1619,31 @@ export class VRManager {
   _stabilizeFloor() {
     if (!this.player || !this.camera || !this.vrRig) return;
     const floorY = this.worldFloorY;
+    if (this.seatedMode && this.seatedPose) {
+      if (this.simMode) {
+        this.vrRig.position.y = floorY;
+        this.camera.position.y = this.seatedPose.y;
+        this.simHandsGroup.position.y = this.seatedPose.y;
+      } else {
+        this.lastXrLocalXZ.set(this.camera.position.x, this.camera.position.z);
+        const localY = Number(this.camera.position.y) || 0;
+        if (!this.seatedAnchorCaptured) {
+          if (this.xrReferenceSpaceType === 'local') {
+            this.seatedAnchorLocalY = 0;
+            this.seatedAnchorCaptured = true;
+          } else if (Math.abs(localY) > 0.15) {
+            this.seatedAnchorLocalY = localY;
+            this.seatedAnchorCaptured = true;
+          }
+        }
+        this.vrRig.position.y = this.seatedAnchorCaptured
+          ? this.seatedPose.y - this.seatedAnchorLocalY
+          : this.seatedPose.y - 1.55;
+      }
+      this.player.position.y = Number.isFinite(Number(this.player.groundY)) ? this.player.groundY : floorY;
+      return;
+    }
+
     let rigY = floorY + this.xrFloorFallbackOffset;
 
     if (!this.simMode) {
@@ -1553,6 +1708,7 @@ export class VRManager {
 
     let moveX = 0;
     let moveZ = 0;
+    const lockedMove = Boolean(this.seatedMode || this.player?.movementLocked);
 
     if (this.simMode) {
       const targetLeftPos = this.simWatchInspect
@@ -1567,22 +1723,30 @@ export class VRManager {
       this.simLeftPivot.rotation.y += (targetLeftRot.y - this.simLeftPivot.rotation.y) * sm;
       this.simLeftPivot.rotation.z += (targetLeftRot.z - this.simLeftPivot.rotation.z) * sm;
 
-      let forward = -this.simStickState.ly;
-      let right = this.simStickState.lx;
       const hasKey = (code) => this.simKeys.has(code) || this.player.keys.has(code);
-      if (hasKey('KeyW') || hasKey('ArrowUp')) forward += 1;
-      if (hasKey('KeyS') || hasKey('ArrowDown')) forward -= 1;
-      if (hasKey('KeyD') || hasKey('ArrowRight')) right += 1;
-      if (hasKey('KeyA') || hasKey('ArrowLeft')) right -= 1;
+      if (!lockedMove) {
+        let forward = -this.simStickState.ly;
+        let right = this.simStickState.lx;
+        if (hasKey('KeyW') || hasKey('ArrowUp')) forward += 1;
+        if (hasKey('KeyS') || hasKey('ArrowDown')) forward -= 1;
+        if (hasKey('KeyD') || hasKey('ArrowRight')) right += 1;
+        if (hasKey('KeyA') || hasKey('ArrowLeft')) right -= 1;
 
-      const len = Math.hypot(forward, right);
-      if (len > 0.01) {
-        const clamped = Math.min(1, len);
-        const sprint =
-          hasKey('ShiftLeft') || hasKey('ShiftRight') || this.simStickState.sprint ? 1.4 : 1;
-        const speed = this.player.speed * (this.player.speedMultiplier || 1) * sprint * clamped * dt;
-        moveX = ((fwdX * forward + rightX * right) / len) * speed;
-        moveZ = ((fwdZ * forward + rightZ * right) / len) * speed;
+        const len = Math.hypot(forward, right);
+        if (len > 0.01) {
+          const clamped = Math.min(1, len);
+          const sprint =
+            hasKey('ShiftLeft') || hasKey('ShiftRight') || this.simStickState.sprint ? 1.4 : 1;
+          const speed = this.player.speed * (this.player.speedMultiplier || 1) * sprint * clamped * dt;
+          moveX = ((fwdX * forward + rightX * right) / len) * speed;
+          moveZ = ((fwdZ * forward + rightZ * right) / len) * speed;
+        }
+      } else if (this.seatedMode) {
+        const lookSpeed = 1.85;
+        if (hasKey('ArrowLeft')) this.simLookYaw += lookSpeed * dt;
+        if (hasKey('ArrowRight')) this.simLookYaw -= lookSpeed * dt;
+        if (hasKey('ArrowUp')) this.simLookPitch = Math.min(1.15, this.simLookPitch + lookSpeed * 0.85 * dt);
+        if (hasKey('ArrowDown')) this.simLookPitch = Math.max(-1.15, this.simLookPitch - lookSpeed * 0.85 * dt);
       }
 
       if (Math.abs(this.simStickState.rx) > 0.62) {
@@ -1595,21 +1759,25 @@ export class VRManager {
         this.snapNeedsRelease = false;
       }
 
+      const simHeadY = this.seatedMode && this.seatedPose ? this.seatedPose.y : 1.65;
+      this.camera.position.y = simHeadY;
       this.camera.rotation.set(this.simLookPitch, this.simLookYaw, 0, 'YXZ');
-      this.simHandsGroup.position.set(0, 1.65, 0);
+      this.simHandsGroup.position.set(0, simHeadY, 0);
       this.simHandsGroup.rotation.set(this.simLookPitch * 0.65, this.simLookYaw, 0, 'YXZ');
     } else {
-      const lStick = this._readThumbstick(leftState.axes);
-      const mag = Math.hypot(lStick.x, lStick.y);
-      const dead = 0.15;
-      if (mag > dead) {
-        const normMag = Math.min(1, (mag - dead) / (1 - dead));
-        const nx = lStick.x / mag;
-        const ny = -lStick.y / mag;
-        const sprint = leftState.sprintPressed ? 1.35 : 1;
-        const speed = this.player.speed * (this.player.speedMultiplier || 1) * sprint * normMag * dt;
-        moveX = (fwdX * ny + rightX * nx) * speed;
-        moveZ = (fwdZ * ny + rightZ * nx) * speed;
+      if (!lockedMove) {
+        const lStick = this._readThumbstick(leftState.axes);
+        const mag = Math.hypot(lStick.x, lStick.y);
+        const dead = 0.15;
+        if (mag > dead) {
+          const normMag = Math.min(1, (mag - dead) / (1 - dead));
+          const nx = lStick.x / mag;
+          const ny = -lStick.y / mag;
+          const sprint = leftState.sprintPressed ? 1.35 : 1;
+          const speed = this.player.speed * (this.player.speedMultiplier || 1) * sprint * normMag * dt;
+          moveX = (fwdX * ny + rightX * nx) * speed;
+          moveZ = (fwdZ * ny + rightZ * nx) * speed;
+        }
       }
 
       const rStick = this._readThumbstick(rightState.axes);
@@ -1624,7 +1792,7 @@ export class VRManager {
       }
     }
 
-    if ((moveX || moveZ) && !this.player?.movementLocked) {
+    if ((moveX || moveZ) && !lockedMove) {
       this.camera.getWorldPosition(this.tempVecA);
       const curX = this.tempVecA.x;
       const curZ = this.tempVecA.z;

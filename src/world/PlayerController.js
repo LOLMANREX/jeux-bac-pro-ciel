@@ -37,6 +37,8 @@ export class PlayerController {
     this.avatarVisible = false;
     this.vrModeActive = false;
     this.movementLocked = false;
+    this.seated = false;
+    this.seatedPose = null;
 
     this.camera.rotation.order = 'YXZ';
     this._applyCamera();
@@ -108,12 +110,13 @@ export class PlayerController {
 
   lookDelta(dx, dy) {
     if (!this.enabled) return;
+    const maxPitch = this.seated ? 1.15 : 1.1;
     this.yaw -= dx * 0.0052 * this.sensitivity;
-    this.pitch = Math.max(-1.1, Math.min(1.1, this.pitch - dy * 0.0052 * this.sensitivity));
+    this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.0052 * this.sensitivity));
   }
 
   triggerJump() {
-    if (!this.enabled || !this.isGrounded) return false;
+    if (!this.enabled || this.movementLocked || this.seated || !this.isGrounded) return false;
     this.velocityY = 6.2;
     this.isGrounded = false;
     this.onJump?.();
@@ -124,6 +127,49 @@ export class PlayerController {
     this.movementLocked = Boolean(locked);
     if (this.movementLocked) {
       this.clearKeys();
+    }
+  }
+
+  setSeated(seated, pose = null) {
+    this.seated = Boolean(seated);
+    if (this.seated) {
+      this.movementLocked = true;
+      this.clearKeys();
+      this.velocityY = 0;
+      this.isGrounded = true;
+      this.wasGrounded = true;
+      const sx = Number.isFinite(Number(pose?.x)) ? Number(pose.x) : this.position.x;
+      const sy = Number.isFinite(Number(pose?.y)) ? Number(pose.y) : 1.28;
+      const sz = Number.isFinite(Number(pose?.z)) ? Number(pose.z) : this.position.z;
+      this.seatedPose = { x: sx, y: sy, z: sz };
+      this.position.set(sx, sy, sz);
+      if (pose?.lookAt) {
+        const dx = Number(pose.lookAt.x) - sx;
+        const dy = (Number.isFinite(Number(pose.lookAt.y)) ? Number(pose.lookAt.y) : sy - 0.12) - sy;
+        const dz = Number(pose.lookAt.z) - sz;
+        const dist = Math.max(0.25, Math.hypot(dx, dz));
+        this.yaw = Math.atan2(-dx, -dz);
+        this.pitch = Math.max(-1.15, Math.min(1.15, Math.atan2(dy, dist)));
+      } else {
+        if (Number.isFinite(Number(pose?.yaw))) this.yaw = Number(pose.yaw);
+        if (Number.isFinite(Number(pose?.pitch))) {
+          this.pitch = Math.max(-1.15, Math.min(1.15, Number(pose.pitch)));
+        }
+      }
+      if (!this.vrModeActive) {
+        this._applyCamera();
+      }
+      return;
+    }
+    this.seatedPose = null;
+    this.movementLocked = false;
+    this.clearKeys();
+    this.position.y = this.groundY;
+    this.velocityY = 0;
+    this.isGrounded = true;
+    this.wasGrounded = true;
+    if (!this.vrModeActive) {
+      this._applyCamera();
     }
   }
 
@@ -156,7 +202,7 @@ export class PlayerController {
     });
 
     this.canvas.addEventListener('mousedown', (e) => {
-      if (!this.enabled || e.button !== 0) return;
+      if (!this.enabled || (e.button !== 0 && !(this.seated && e.button === 2))) return;
       this.dragging = true;
       this.lastMouse = { x: e.clientX, y: e.clientY };
     });
@@ -167,15 +213,16 @@ export class PlayerController {
 
     window.addEventListener('mousemove', (e) => {
       if (!this.enabled) return;
+      const maxPitch = this.seated ? 1.15 : 1.1;
       if (document.pointerLockElement === this.canvas) {
         this.yaw -= e.movementX * 0.0023 * this.sensitivity;
-        this.pitch = Math.max(-1.1, Math.min(1.1, this.pitch - e.movementY * 0.0023 * this.sensitivity));
+        this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - e.movementY * 0.0023 * this.sensitivity));
       } else if (this.dragging) {
         const dx = e.clientX - this.lastMouse.x;
         const dy = e.clientY - this.lastMouse.y;
         this.lastMouse = { x: e.clientX, y: e.clientY };
         this.yaw -= dx * 0.004 * this.sensitivity;
-        this.pitch = Math.max(-1.1, Math.min(1.1, this.pitch - dy * 0.004 * this.sensitivity));
+        this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.004 * this.sensitivity));
       }
     });
 
@@ -335,6 +382,26 @@ export class PlayerController {
   update(dt) {
     if (!this.enabled) return { isMoving: false, landed: false };
 
+    if (this.seated) {
+      const lookSpeed = 1.9 * Math.max(0.6, this.sensitivity || 1);
+      if (this.keys.has('ArrowLeft')) this.yaw += lookSpeed * dt;
+      if (this.keys.has('ArrowRight')) this.yaw -= lookSpeed * dt;
+      if (this.keys.has('ArrowUp')) this.pitch = Math.min(1.15, this.pitch + lookSpeed * 0.85 * dt);
+      if (this.keys.has('ArrowDown')) this.pitch = Math.max(-1.15, this.pitch - lookSpeed * 0.85 * dt);
+      if (this.seatedPose) {
+        this.position.set(this.seatedPose.x, this.seatedPose.y, this.seatedPose.z);
+      }
+      this.velocityY = 0;
+      this.isGrounded = true;
+      animateAvatarLimbs(this.avatar, dt, {
+        isMoving: false,
+        isGrounded: true,
+        speedRatio: 1
+      });
+      this._applyCamera();
+      return { isMoving: false, landed: false };
+    }
+
     let forward = this.virtualMove.forward;
     let right = this.virtualMove.right;
 
@@ -402,6 +469,15 @@ export class PlayerController {
   }
 
   _applyCamera() {
+    if (this.seated) {
+      if (this.avatar?.group) {
+        this.avatar.group.position.set(this.position.x, 0, this.position.z);
+        this.avatar.group.rotation.y = this.yaw + Math.PI;
+      }
+      this.camera.position.copy(this.position);
+      this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+      return;
+    }
     const jumpOffset = Math.max(0, this.position.y - this.groundY);
     if (this.avatar?.group) {
       this.avatar.group.position.set(this.position.x, jumpOffset, this.position.z);

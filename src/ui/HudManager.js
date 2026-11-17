@@ -190,6 +190,8 @@ export class HudManager {
     this.dbgTeleportGoBtn = document.getElementById('btn-debug-teleport-go');
     this.privateDebugActive = false;
     this.debugNoclipActive = false;
+    this.detentionHudHidden = false;
+    this.hudWasVisibleBeforeDetention = false;
     this.vrManager = null;
     this.lastConnectionState = 'solo';
     this.lastOnlineCount = 1;
@@ -446,6 +448,7 @@ export class HudManager {
     });
 
     const openSettings = () => {
+      if (this.detentionHudHidden) return;
       sfx.click();
       syncSettingsUi();
       this.settingsModal.classList.remove('hidden');
@@ -864,6 +867,7 @@ export class HudManager {
   }
 
   openSkinModal() {
+    if (this.detentionHudHidden) return;
     this._refreshInGameSkinUi();
     this.skinModal.classList.remove('hidden');
     this.skinPreview.setActive(true);
@@ -898,6 +902,7 @@ export class HudManager {
   }
 
   async openLeaderboard() {
+    if (this.detentionHudHidden) return;
     this.leaderboardModal.classList.remove('hidden');
     this.handlers.onModalOpen?.(true);
     if (this.gameState.leaderboard.length > 0) {
@@ -942,7 +947,7 @@ export class HudManager {
 
   toggleChat(forceOpen = null, focusInput = false) {
     const isClosed = this.chatDrawer.classList.contains('hidden');
-    const shouldOpen = forceOpen === null ? isClosed : Boolean(forceOpen);
+    const shouldOpen = this.detentionHudHidden ? false : forceOpen === null ? isClosed : Boolean(forceOpen);
     if (shouldOpen) {
       this.chatDrawer.classList.remove('hidden');
       this.unreadChat = 0;
@@ -954,7 +959,7 @@ export class HudManager {
       }
     } else {
       this.chatDrawer.classList.add('hidden');
-      this.chatInput.blur();
+      this.chatInput?.blur?.();
     }
   }
 
@@ -1100,6 +1105,10 @@ export class HudManager {
   }
 
   show() {
+    if (this.detentionHudHidden) {
+      this.hudWasVisibleBeforeDetention = true;
+      return;
+    }
     this.hudEl.classList.remove('hidden');
     this.chatRoomNameEl.textContent = this.gameState.room;
     if (this.netRoomTag) this.netRoomTag.textContent = this.gameState.room;
@@ -1400,8 +1409,9 @@ export class HudManager {
 
   setPrivateDebugMode(active, roomCode = '') {
     this.privateDebugActive = Boolean(active);
-    this.privateDebugBadgeEl?.classList.toggle('hidden', !this.privateDebugActive);
-    this.debugPanelEl?.classList.toggle('hidden', !this.privateDebugActive);
+    const showDbg = this.privateDebugActive && !this.detentionHudHidden;
+    this.privateDebugBadgeEl?.classList.toggle('hidden', !showDbg);
+    this.debugPanelEl?.classList.toggle('hidden', !showDbg);
     if (!this.privateDebugActive) {
       this.debugNoclipActive = false;
       if (this.dbgNoclipBtn) {
@@ -1497,7 +1507,7 @@ export class HudManager {
       this.netText.textContent = `Hors ligne${attemptTxt}`;
       const errDetail = status.error || 'Connexion WebSocket indisponible';
       this.netPill.title = errDetail;
-      if (this.netErrorBanner && this.netErrorText && status.state === 'reconnecting') {
+      if (this.netErrorBanner && this.netErrorText && status.state === 'reconnecting' && !this.detentionHudHidden) {
         const sec = Math.max(1, Math.round((status.delayMs || 2000) / 1000));
         this.netErrorText.textContent = `⚠️ ${errDetail} — Nouvelle tentative dans ${sec}s...`;
         this.netErrorBanner.classList.remove('hidden');
@@ -1558,7 +1568,7 @@ export class HudManager {
   }
 
   setInteractPrompt(target) {
-    if (!target) {
+    if (!target || this.detentionHudHidden) {
       this.interactPromptEl.classList.add('hidden');
       return;
     }
@@ -1690,6 +1700,7 @@ export class HudManager {
   }
 
   toast(message, type = 'info') {
+    if (this.detentionHudHidden) return;
     const el = document.createElement('div');
     el.className = `toast toast-${type}`;
     el.textContent = message;
@@ -1944,6 +1955,10 @@ export class HudManager {
     detained = false,
     detentionMinimized = false
   } = {}) {
+    if (this.detentionHudHidden || detained) {
+      this.hideSurvivalHud();
+      return;
+    }
     this.survivalHudBarEl?.classList.remove('hidden');
     this.survivalVignetteEl?.classList.remove('hidden');
     this.survivalVignetteEl?.classList.toggle('chase', aiState === 'chase');
@@ -2026,6 +2041,10 @@ export class HudManager {
   }
 
   showDetentionModal(detentionSnapshot = {}) {
+    if (this.detentionHudHidden) {
+      this.hideDetentionModal();
+      return;
+    }
     if (!this.survivalDetentionModalEl) return;
     this.survivalDetentionModalEl.classList.remove('hidden');
     const ex = detentionSnapshot.exercise;
@@ -2176,6 +2195,10 @@ export class HudManager {
   }
 
   showDetention3dHud(camInfo = {}) {
+    if (this.detentionHudHidden) {
+      this.hideDetention3dHud();
+      return;
+    }
     if (!this.survivalDetention3dHudEl) return;
     this.survivalDetention3dHudEl.classList.remove('hidden');
     if (this.detention3dCamLabelEl) {
@@ -2218,7 +2241,45 @@ export class HudManager {
     this.survivalEndOverlayEl?.classList.remove('is-compact');
   }
 
+  setDetentionHudHidden(hidden, { restoreHud = true } = {}) {
+    const next = Boolean(hidden);
+    if (next && !this.detentionHudHidden) {
+      this.hudWasVisibleBeforeDetention = Boolean(this.hudEl && !this.hudEl.classList.contains('hidden'));
+    }
+    this.detentionHudHidden = next;
+    if (typeof document !== 'undefined' && document.body?.classList) {
+      document.body.classList.toggle('survival-detention-active', next);
+    }
+    if (next) {
+      this.closeAllModals();
+      this.toggleChat(false);
+      this.creatorPowerPopover?.classList.add('hidden');
+      this.hideWorldCelebration();
+      this.hideSecretSkinAnnouncement();
+      this.hideSurvivalLobby();
+      this.hideSurvivalIntroOverlay();
+      this.hideSurvivalHud();
+      this.hideHidingOverlay();
+      this.hideDetentionModal();
+      this.hideDetention3dHud();
+      this.setInteractPrompt(null);
+      this.hudEl?.classList.add('hidden');
+      this.debugPanelEl?.classList.add('hidden');
+      this.privateDebugBadgeEl?.classList.add('hidden');
+      this.voiceNearbyBar?.classList.add('hidden');
+      this.orientationHintEl?.classList.add('hidden');
+      return true;
+    }
+    if (restoreHud && this.hudWasVisibleBeforeDetention) {
+      this.show();
+    }
+    this.hudWasVisibleBeforeDetention = false;
+    this.setPrivateDebugMode(this.privateDebugActive, this.gameState?.room || '');
+    return false;
+  }
+
   hideAllSurvivalUi() {
+    this.setDetentionHudHidden(false, { restoreHud: false });
     this.hideSurvivalLobby();
     this.hideSurvivalIntroOverlay();
     this.hideSurvivalHud();

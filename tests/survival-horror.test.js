@@ -8,9 +8,12 @@ import { WebSocket } from 'ws';
 import { createGameServer } from '../server/index.js';
 import { SURVIVAL_ROOM_PREFIX, isSurvivalRoom } from '../server/wsHub.js';
 import { sfx } from '../src/core/audio.js';
-import { createDefaultMap } from '../src/world/mapSchema.js';
+import { GameState } from '../src/core/gameState.js';
+import { HudManager } from '../src/ui/HudManager.js';
+import { createDefaultMap, getDynamicMapColliders } from '../src/world/mapSchema.js';
 import { buildLabWorld } from '../src/world/LabBuilder.js';
 import { createHorrorTeacher } from '../src/world/NpcTeacher.js';
+import { PlayerController } from '../src/world/PlayerController.js';
 import { RemotePlayersManager } from '../src/world/RemotePlayers.js';
 import { computeSurvivalIntroShot, createSurvivalPocketRooms, getDetentionCameraHitBoxes } from '../src/world/SurvivalArena3D.js';
 import {
@@ -25,7 +28,9 @@ import {
   getSurvivalDoors,
   getSurvivalHidingSpots,
   getSurvivalRequiredTps,
-  pointCollidesWithColliders
+  hasFullMapLineOfSight,
+  pointCollidesWithColliders,
+  resolveSurvivalIntroPlacement
 } from '../src/world/SurvivalEngine.js';
 import {
   VariationTableSession,
@@ -675,5 +680,430 @@ test('WebSocket wsHub v4.20 : lancement à 1 joueur minimum, isolation totale ho
     wsHub?.close?.();
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+function createHudDomMock() {
+  const prevWin = globalThis.window;
+  const prevDoc = globalThis.document;
+  const prevLoc = globalThis.localStorage;
+  const prevNav = globalThis.navigator;
+  const winListeners = new Map();
+  const docListeners = new Map();
+  const makeClassList = (initial = []) => {
+    const set = new Set(initial);
+    return {
+      add: (...cls) => cls.forEach((c) => set.add(c)),
+      remove: (...cls) => cls.forEach((c) => set.delete(c)),
+      toggle: (c, force) => {
+        if (force === undefined) {
+          if (set.has(c)) {
+            set.delete(c);
+            return false;
+          }
+          set.add(c);
+          return true;
+        }
+        if (force) set.add(c);
+        else set.delete(c);
+        return Boolean(force);
+      },
+      contains: (c) => set.has(c)
+    };
+  };
+
+  const elements = new Map();
+  const makeEl = (id = '', initialClasses = []) => {
+    const children = [];
+    const el = {
+      id,
+      tagName: 'DIV',
+      value: '',
+      textContent: '',
+      innerHTML: '',
+      title: '',
+      disabled: false,
+      checked: false,
+      width: 256,
+      height: 256,
+      style: {},
+      dataset: {},
+      classList: makeClassList(initialClasses),
+      children,
+      appendChild(child) {
+        children.push(child);
+        return child;
+      },
+      remove() {
+        const idx = children.indexOf(this);
+        if (idx >= 0) children.splice(idx, 1);
+      },
+      addEventListener() {},
+      removeEventListener() {},
+      focus() {},
+      blur() {},
+      querySelectorAll() {
+        return [];
+      },
+      querySelector() {
+        return null;
+      },
+      closest() {
+        return null;
+      },
+      getContext() {
+        const noop = () => {};
+        const grad = () => ({ addColorStop: noop });
+        return {
+          fillStyle: '#000',
+          strokeStyle: '#000',
+          lineWidth: 1,
+          font: '12px sans-serif',
+          textAlign: 'left',
+          textBaseline: 'alphabetic',
+          lineCap: 'butt',
+          globalAlpha: 1,
+          clearRect: noop,
+          fillRect: noop,
+          strokeRect: noop,
+          fillText: noop,
+          strokeText: noop,
+          beginPath: noop,
+          rect: noop,
+          roundRect: noop,
+          moveTo: noop,
+          lineTo: noop,
+          quadraticCurveTo: noop,
+          bezierCurveTo: noop,
+          arc: noop,
+          arcTo: noop,
+          ellipse: noop,
+          fill: noop,
+          stroke: noop,
+          translate: noop,
+          rotate: noop,
+          scale: noop,
+          setLineDash: noop,
+          drawImage: noop,
+          save: noop,
+          restore: noop,
+          clip: noop,
+          closePath: noop,
+          createPattern: () => ({}),
+          createLinearGradient: grad,
+          createRadialGradient: grad,
+          measureText: (txt) => ({ width: String(txt || '').length * 8 }),
+          getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray((w || 4) * (h || 4) * 4) }),
+          putImageData: noop
+        };
+      },
+      getBoundingClientRect() {
+        return { left: 0, top: 0, width: 1280, height: 720 };
+      }
+    };
+    if (id) elements.set(id, el);
+    return el;
+  };
+
+  const hiddenIds = [
+    'hud',
+    'net-error-banner',
+    'room-roster-popover',
+    'audio-settings-popover',
+    'btn-creator-power',
+    'creator-power-popover',
+    'world-celebration-banner',
+    'secret-skin-banner',
+    'intro-cinematic-overlay',
+    'ascension-cinematic-dialogue',
+    'hud-private-debug-badge',
+    'debug-tools-panel',
+    'leaderboard-modal',
+    'settings-modal',
+    'skin-modal',
+    'voice-nearby-bar',
+    'interact-prompt',
+    'orientation-hint',
+    'chat-drawer',
+    'survival-horror-vignette',
+    'survival-hud-bar',
+    'survival-detention-open-btn',
+    'survival-lobby-modal',
+    'survival-hide-overlay',
+    'survival-jumpscare-overlay',
+    'survival-detention-modal',
+    'survival-end-overlay',
+    'survival-intro-overlay',
+    'survival-detention-3d-hud'
+  ];
+  for (const id of hiddenIds) makeEl(id, ['hidden']);
+  const bodyEl = makeEl('body', []);
+
+  globalThis.localStorage = {
+    store: new Map(),
+    getItem(k) {
+      return this.store.get(k) ?? null;
+    },
+    setItem(k, v) {
+      this.store.set(k, String(v));
+    }
+  };
+  globalThis.window = {
+    innerWidth: 1280,
+    innerHeight: 720,
+    addEventListener(type, fn) {
+      if (!winListeners.has(type)) winListeners.set(type, []);
+      winListeners.get(type).push(fn);
+    },
+    removeEventListener() {}
+  };
+  globalThis.document = {
+    body: bodyEl,
+    pointerLockElement: null,
+    activeElement: null,
+    exitPointerLock() {
+      this.pointerLockElement = null;
+    },
+    getElementById(id) {
+      return elements.get(id) || makeEl(id, []);
+    },
+    createElement(tag) {
+      return makeEl('', [tag]);
+    },
+    querySelectorAll() {
+      return [];
+    },
+    addEventListener(type, fn) {
+      if (!docListeners.has(type)) docListeners.set(type, []);
+      docListeners.get(type).push(fn);
+    }
+  };
+  if (!globalThis.navigator) {
+    globalThis.navigator = { maxTouchPoints: 0 };
+  }
+
+  return {
+    elements,
+    bodyEl,
+    winListeners,
+    docListeners,
+    restore() {
+      if (prevWin === undefined) delete globalThis.window;
+      else globalThis.window = prevWin;
+      if (prevDoc === undefined) delete globalThis.document;
+      else globalThis.document = prevDoc;
+      if (prevLoc === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLoc;
+      if (prevNav === undefined) delete globalThis.navigator;
+      else globalThis.navigator = prevNav;
+    }
+  };
+}
+
+test('v4.21 : Cinématique intro Survie Horreur sans aucune traversée de murs (U300 & carte avec cloison)', () => {
+  const map = createDefaultMap();
+  const placement = resolveSurvivalIntroPlacement(map);
+  assert.ok(placement.spawnPos && placement.aiPos);
+  assert.equal(
+    hasFullMapLineOfSight(
+      placement.spawnPos.x,
+      placement.spawnPos.z,
+      placement.aiPos.x,
+      placement.aiPos.z,
+      placement.colliders,
+      placement.bounds,
+      0.36
+    ),
+    true
+  );
+
+  for (let i = 0; i <= 50; i++) {
+    const p = i / 50;
+    const shot = computeSurvivalIntroShot(p, placement.aiPos, placement.spawnPos, p * 5.6, {
+      colliders: placement.colliders,
+      bounds: placement.bounds
+    });
+    assert.equal(
+      pointCollidesWithColliders(shot.camPos.x, shot.camPos.z, placement.colliders, placement.bounds, 0.32),
+      false,
+      `Collision murale détectée à p=${p.toFixed(2)}`
+    );
+    assert.equal(
+      hasFullMapLineOfSight(
+        shot.camPos.x,
+        shot.camPos.z,
+        shot.camLook.x,
+        shot.camLook.z,
+        placement.colliders,
+        placement.bounds,
+        0.2,
+        0.16
+      ),
+      true,
+      `Ligne de vue obstruée à p=${p.toFixed(2)}`
+    );
+  }
+
+  const wallBlockMap = {
+    ...map,
+    walls: [
+      ...map.walls,
+      { id: 'w-test-block', kind: 'solid', x1: -2, z1: -0.5, x2: 2, z2: -0.5, thickness: 0.24, height: 4.2 }
+    ]
+  };
+  const customColliders = getDynamicMapColliders(wallBlockMap);
+  const blockedShot = computeSurvivalIntroShot(
+    0.55,
+    { x: 0, z: -2.5 },
+    { x: 0, z: 2.5 },
+    2.5,
+    { colliders: customColliders, bounds: wallBlockMap.bounds }
+  );
+  assert.equal(
+    pointCollidesWithColliders(blockedShot.camPos.x, blockedShot.camPos.z, customColliders, wallBlockMap.bounds, 0.32),
+    false
+  );
+  assert.equal(
+    hasFullMapLineOfSight(
+      blockedShot.camPos.x,
+      blockedShot.camPos.z,
+      blockedShot.camLook.x,
+      blockedShot.camLook.z,
+      customColliders,
+      wallBlockMap.bounds,
+      0.2,
+      0.16
+    ),
+    true
+  );
+});
+
+test('v4.21 : Salle de Colle PC — Caméra libre assise (souris, PointerLock, flèches), ZQSD bloqué, raycast feuille & Zéro ATH', () => {
+  const restoreCanvasDoc = installFakeCanvasDocument();
+  const mockDom = createHudDomMock();
+  const canvasListeners = new Map();
+  const fakeCanvas = {
+    width: 1280,
+    height: 720,
+    style: {},
+    addEventListener(type, fn) {
+      if (!canvasListeners.has(type)) canvasListeners.set(type, []);
+      canvasListeners.get(type).push(fn);
+    },
+    requestPointerLock() {
+      globalThis.document.pointerLockElement = fakeCanvas;
+    }
+  };
+
+  let pocket = null;
+  try {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.1, 140);
+    const map = createDefaultMap();
+    pocket = createSurvivalPocketRooms(scene, map);
+    const detCfg = pocket.getDetentionRoomConfig();
+
+    const player = new PlayerController(camera, fakeCanvas, detCfg.colliders);
+    player.setBounds(detCfg.bounds);
+    player.setEnabled(true);
+    player.setSeated(true, {
+      x: detCfg.pcEye.x,
+      y: detCfg.pcEye.y,
+      z: detCfg.pcEye.z,
+      lookAt: detCfg.lookAt
+    });
+
+    const startX = player.position.x;
+    const startY = player.position.y;
+    const startZ = player.position.z;
+    assert.equal(startY, detCfg.pcEye.y);
+
+    const onKeyDown = mockDom.winListeners.get('keydown') || [];
+    const onKeyUp = mockDom.winListeners.get('keyup') || [];
+    for (const code of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space']) {
+      onKeyDown.forEach((fn) => fn({ code, preventDefault() {} }));
+    }
+    player.update(0.15);
+    assert.equal(player.position.x, startX);
+    assert.equal(player.position.y, startY);
+    assert.equal(player.position.z, startZ);
+    for (const code of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space']) {
+      onKeyUp.forEach((fn) => fn({ code }));
+    }
+
+    const yaw0 = player.yaw;
+    const pitch0 = player.pitch;
+    onKeyDown.forEach((fn) => fn({ code: 'ArrowLeft', preventDefault() {} }));
+    onKeyDown.forEach((fn) => fn({ code: 'ArrowUp', preventDefault() {} }));
+    player.update(0.2);
+    assert.ok(player.yaw > yaw0);
+    assert.ok(player.pitch > pitch0);
+    onKeyUp.forEach((fn) => fn({ code: 'ArrowLeft' }));
+    onKeyUp.forEach((fn) => fn({ code: 'ArrowUp' }));
+
+    const onCanvasDown = canvasListeners.get('mousedown') || [];
+    const onWinMove = mockDom.winListeners.get('mousemove') || [];
+    const onWinUp = mockDom.winListeners.get('mouseup') || [];
+    onCanvasDown.forEach((fn) => fn({ button: 0, clientX: 500, clientY: 360 }));
+    onWinMove.forEach((fn) => fn({ clientX: 680, clientY: 500, movementX: 0, movementY: 0 }));
+    onWinUp.forEach((fn) => fn({ button: 0 }));
+    assert.notEqual(player.yaw, yaw0);
+
+    fakeCanvas.requestPointerLock();
+    const yawLocked = player.yaw;
+    onWinMove.forEach((fn) => fn({ movementX: -260, movementY: 180, clientX: 680, clientY: 500 }));
+    assert.ok(player.yaw > yawLocked);
+
+    pocket.mathSheetMesh.updateWorldMatrix(true, false);
+    const sheetWorld = new THREE.Vector3();
+    pocket.mathSheetMesh.getWorldPosition(sheetWorld);
+    camera.position.set(detCfg.pcEye.x, detCfg.pcEye.y, detCfg.pcEye.z);
+    camera.lookAt(sheetWorld);
+    camera.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const sheetHits = ray.intersectObject(pocket.mathSheetMesh, false);
+    assert.ok(sheetHits.length > 0 && sheetHits[0].uv);
+
+    player.setSeated(false);
+    assert.equal(player.seated, false);
+    assert.equal(player.position.y, player.groundY);
+
+    const gs = new GameState();
+    const dummyNet = {
+      wsUrl: '/ws',
+      lastPingMs: 8,
+      fetchLeaderboard: async () => [],
+      reconnectNow() {},
+      sendEmote() {},
+      sendChat() {}
+    };
+    const hud = new HudManager(gs, dummyNet, {});
+    hud.show();
+    assert.equal(mockDom.elements.get('hud').classList.contains('hidden'), false);
+
+    hud.setDetentionHudHidden(true);
+    assert.equal(mockDom.bodyEl.classList.contains('survival-detention-active'), true);
+    assert.equal(mockDom.elements.get('hud').classList.contains('hidden'), true);
+    assert.equal(mockDom.elements.get('survival-hud-bar').classList.contains('hidden'), true);
+    assert.equal(mockDom.elements.get('survival-detention-modal').classList.contains('hidden'), true);
+    assert.equal(mockDom.elements.get('survival-detention-3d-hud').classList.contains('hidden'), true);
+
+    hud.showDetention3dHud({ label: 'Bob' });
+    hud.updateSurvivalHud({ detained: true, detentionMinimized: true });
+    hud.showDetentionModal({});
+    hud.toast('Ne doit pas apparaître');
+    assert.equal(mockDom.elements.get('survival-detention-3d-hud').classList.contains('hidden'), true);
+    assert.equal(mockDom.elements.get('survival-hud-bar').classList.contains('hidden'), true);
+    assert.equal(mockDom.elements.get('survival-detention-modal').classList.contains('hidden'), true);
+    assert.equal(mockDom.elements.get('toast-container').children.length, 0);
+
+    hud.setDetentionHudHidden(false);
+    assert.equal(mockDom.bodyEl.classList.contains('survival-detention-active'), false);
+    assert.equal(mockDom.elements.get('hud').classList.contains('hidden'), false);
+  } finally {
+    pocket?.dispose?.();
+    mockDom.restore();
+    restoreCanvasDoc();
   }
 });

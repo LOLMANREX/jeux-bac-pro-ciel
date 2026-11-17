@@ -18,6 +18,7 @@ import { NetworkClient } from './core/network.js';
 import { SceneManager, computeAscensionGatheringLayout, pickLabInteractable } from './world/SceneManager.js';
 import {
   createDefaultMap,
+  getDynamicMapColliders,
   getStationTeleportInMap,
   getZoneAtPositionInMap,
   normalizeMapData
@@ -25,7 +26,7 @@ import {
 import { buildLabWorld } from './world/LabBuilder.js';
 import { createHorrorTeacher } from './world/NpcTeacher.js';
 import { computeSurvivalIntroShot, createSurvivalPocketRooms } from './world/SurvivalArena3D.js';
-import { SURVIVAL_MIN_PLAYERS } from './world/SurvivalEngine.js';
+import { SURVIVAL_MIN_PLAYERS, resolveSurvivalIntroPlacement } from './world/SurvivalEngine.js';
 import { PlayerController } from './world/PlayerController.js';
 import {
   createSpeechBubble,
@@ -232,7 +233,19 @@ vrManager = new VRManager(sceneMgr, player, {
     syncSurvivalPanelMode();
     if (survivalState.detained || survivalState.inDefeatDetention) {
       const detCfg = survivalArena.getDetentionRoomConfig();
-      vrManager.syncWorldTeleport?.(detCfg.spawn.x, detCfg.spawn.z, 0);
+      const seatEyeY = detCfg.vrSeatEyeY || detCfg.pcEye?.y || 1.28;
+      vrManager.setSeatedMode?.(true, {
+        x: detCfg.spawn.x,
+        y: seatEyeY,
+        z: detCfg.spawn.z,
+        yaw: 0,
+        pitch: -0.08
+      });
+      vrManager.setDetentionHudHidden?.(true);
+      hud?.setDetentionHudHidden?.(true);
+    } else {
+      vrManager.setSeatedMode?.(false);
+      vrManager.setDetentionHudHidden?.(false);
     }
     if (joined) {
       network.sendMove(player.position.x, 0, player.position.z, player.yaw, true, vrManager.getVrSyncPayload());
@@ -247,12 +260,15 @@ vrManager = new VRManager(sceneMgr, player, {
     }
     player.setVrMode?.(false);
     localAvatar?.setFirstPersonVrHidden?.(false);
+    vrManager.setSeatedMode?.(false);
+    vrManager.setDetentionHudHidden?.(false);
     const seatedDet = isDetentionSeatedActive();
-    player.setEnabled(joined && !modalOpen && !seatedDet);
+    player.setEnabled(joined && !modalOpen);
     if (seatedDet) {
       applyDetentionPcCamera();
-      hud?.showDetention3dHud?.(survivalState.activeCameraInfo || {});
+      hud?.setDetentionHudHidden?.(true);
     } else {
+      player.setSeated?.(false);
       player._applyCamera?.();
     }
     touchControls?.setVisible(joined && !modalOpen && !seatedDet && gameState.touchMode);
@@ -394,7 +410,8 @@ const survivalState = {
   introActive: false,
   introStartedAt: 0,
   introDurationMs: 5600,
-  introAiPos: { x: 1.8, z: -1.2, yaw: -Math.PI / 2 },
+  introAiPos: { x: -4.95, z: -2.35, yaw: 0.32 },
+  introMapContext: null,
   detained: false,
   inDefeatDetention: false,
   hiddenRack: null,
@@ -404,10 +421,6 @@ const survivalState = {
   detentionModalOpen: false,
   detentionMinimized: false,
   detentionCamIndex: 0,
-  detentionLookYaw: 0,
-  detentionLookPitch: 0,
-  detentionDraggingLook: false,
-  detentionDragLast: { x: 0, y: 0 },
   savedCameraMode: null,
   lastPovRenderAt: 0,
   activeCameraInfo: null,
@@ -470,26 +483,19 @@ function getActiveWorldSurfaces() {
 function applyDetentionPcCamera() {
   if (vrManager?.isVrActive?.()) return;
   const cfg = survivalArena.getDetentionRoomConfig();
-  const eye = cfg.pcEye || { x: cfg.spawn.x, y: 1.38, z: cfg.spawn.z + 0.3 };
-  const baseLook = cfg.lookAt || { x: cfg.spawn.x, y: 1.04, z: cfg.spawn.z - 1.2 };
-  sceneMgr.camera.position.set(eye.x, eye.y, eye.z);
-  const baseDx = baseLook.x - eye.x;
-  const baseDy = baseLook.y - eye.y;
-  const baseDz = baseLook.z - eye.z;
-  const baseDist = Math.max(0.5, Math.hypot(baseDx, baseDz));
-  const baseYaw = Math.atan2(-baseDx, -baseDz);
-  const basePitch = Math.atan2(baseDy, baseDist);
-  sceneMgr.camera.rotation.order = 'YXZ';
-  sceneMgr.camera.rotation.set(
-    Math.max(-0.62, Math.min(0.45, basePitch + survivalState.detentionLookPitch)),
-    baseYaw + survivalState.detentionLookYaw,
-    0,
-    'YXZ'
-  );
+  const eye = cfg.pcEye || { x: cfg.spawn.x, y: 1.28, z: cfg.spawn.z };
+  player.setSeated?.(true, {
+    x: eye.x,
+    y: eye.y,
+    z: eye.z,
+    lookAt: cfg.lookAt
+  });
 }
 
 function teleportWithWorldMode(pos, lookAt, mode = 'hall') {
   if (mode === 'waiting') {
+    player.setSeated?.(false);
+    vrManager?.setSeatedMode?.(false);
     const cfg = survivalArena.getWaitingRoomConfig();
     player.setColliders(cfg.colliders);
     player.setBounds(cfg.bounds);
@@ -499,15 +505,31 @@ function teleportWithWorldMode(pos, lookAt, mode = 'hall') {
   }
   if (mode === 'detention') {
     const cfg = survivalArena.getDetentionRoomConfig();
+    const seatEyeY = cfg.vrSeatEyeY || cfg.pcEye?.y || 1.28;
     player.setColliders(cfg.colliders);
     player.setBounds(cfg.bounds);
     player.teleportTo(cfg.spawn, cfg.lookAt);
-    vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, 0);
-    if (!vrManager?.isVrActive?.()) {
+    if (vrManager?.isVrActive?.()) {
+      player.setSeated?.(true, {
+        x: cfg.spawn.x,
+        y: seatEyeY,
+        z: cfg.spawn.z,
+        lookAt: cfg.lookAt
+      });
+      vrManager.setSeatedMode?.(true, {
+        x: cfg.spawn.x,
+        y: seatEyeY,
+        z: cfg.spawn.z,
+        yaw: 0,
+        pitch: -0.08
+      });
+    } else {
       applyDetentionPcCamera();
     }
     return;
   }
+  player.setSeated?.(false);
+  vrManager?.setSeatedMode?.(false);
   player.setColliders(lab.colliders);
   player.setBounds(currentMapData.bounds);
   const pose = pos ? { pos, lookAt: lookAt || { x: pos.x, z: pos.z - 4 } } : getSpawnPose(currentMapData);
@@ -661,9 +683,6 @@ function cycleDetentionCamera(delta = 1) {
   const info = buildDetentionCameraInfo(survivalState.snapshot);
   survivalState.activeCameraInfo = info;
   survivalArena.updateDetentionCameraBar(info, true);
-  if (!vrManager?.isVrActive?.()) {
-    hud?.showDetention3dHud?.(info);
-  }
 }
 
 const _povLookTmp = new THREE.Vector3();
@@ -681,9 +700,7 @@ function renderDetentionLivePov(_dt, elapsed) {
   const info = buildDetentionCameraInfo(snap);
   survivalState.activeCameraInfo = info;
   survivalArena.updateDetentionCameraBar(info, false);
-  if (!vrManager?.isVrActive?.() && !survivalState.inDefeatDetention) {
-    hud?.showDetention3dHud?.(info);
-  }
+  hud?.hideDetention3dHud?.();
 
   if (!survivalArena.povRenderTarget) {
     survivalArena.setLivePovActive(false);
@@ -817,9 +834,6 @@ function enterDetentionClassroom3D(isDefeat = false) {
   if (!survivalState.savedCameraMode) {
     survivalState.savedCameraMode = gameState.cameraMode;
   }
-  survivalState.detentionLookYaw = 0;
-  survivalState.detentionLookPitch = 0;
-  survivalState.detentionDraggingLook = false;
   survivalState.lastPovRenderAt = 0;
   survivalState.detained = !isDefeat;
   survivalState.inDefeatDetention = Boolean(isDefeat);
@@ -832,11 +846,16 @@ function enterDetentionClassroom3D(isDefeat = false) {
   if (!vrManager?.isVrActive?.() && gameState.cameraMode !== 'first') {
     player.setCameraMode('first');
   }
+  dialogueModal?.close?.();
+  if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
+    miniGameModal.close();
+  }
   setModalActive(false, false, false);
-  player.setEnabled(false);
-  player.setMovementLocked(true);
   touchControls?.setVisible(false);
+  hud?.setDetentionHudHidden?.(true);
+  vrManager?.setDetentionHudHidden?.(true);
   teleportWithWorldMode(null, null, 'detention');
+  player.setEnabled(joined && !modalOpen && !vrManager?.isVrActive?.());
 
   const payload = buildDetentionPayload(survivalState.snapshot);
   survivalArena.updateDetentionMathSheet(payload, true);
@@ -849,9 +868,7 @@ function enterDetentionClassroom3D(isDefeat = false) {
     vrManager.closeWorldSpatialPanel?.();
   } else {
     hud?.hideDetentionModal?.();
-    if (!isDefeat) {
-      hud?.showDetention3dHud?.(camInfo);
-    }
+    hud?.hideDetention3dHud?.();
   }
 }
 
@@ -885,11 +902,16 @@ function syncSurvivalPanelMode() {
     );
     if (vrOn) {
       hud?.hideSurvivalIntroOverlay?.();
-      vrManager.applySurvivalIntroPose?.(player.position.x, player.position.z, survivalState.introAiPos);
+      vrManager.applySurvivalIntroPose?.(
+        player.position.x,
+        player.position.z,
+        survivalState.introAiPos,
+        survivalState.introMapContext
+      );
       vrManager.openWorldSpatialPanel(
         'survival_intro',
         { survivalIntro: buildVrIntroState(progress) },
-        { dist: 1.48, yOffset: -0.22 }
+        { dist: 1.38, yOffset: -0.32 }
       );
     } else {
       hud?.showSurvivalIntroOverlay?.({ progress });
@@ -936,6 +958,10 @@ function enterSurvivalLobby() {
     return;
   }
   sfx.interact();
+  player.setSeated?.(false);
+  vrManager?.setSeatedMode?.(false);
+  vrManager?.setDetentionHudHidden?.(false);
+  hud?.setDetentionHudHidden?.(false);
   survivalState.inWaitingRoom = true;
   survivalState.lobbyModalOpen = true;
   teleportWithWorldMode(null, null, 'waiting');
@@ -1109,6 +1135,10 @@ function startSurvivalMatchClient(snapshot) {
   survivalState.variationSession = new VariationTableSession();
   applyRoomInstanceFilter(gameState.room, snapshot);
 
+  player.setSeated?.(false);
+  vrManager?.setSeatedMode?.(false);
+  vrManager?.setDetentionHudHidden?.(false);
+  hud?.setDetentionHudHidden?.(false);
   if (vrManager?.isVrActive?.()) {
     vrManager.closeWorldSpatialPanel?.();
   }
@@ -1117,8 +1147,21 @@ function startSurvivalMatchClient(snapshot) {
   player.setMovementLocked(true);
   lab.setTeacherVisible?.(false);
 
-  const introAi = { x: 1.8, z: -1.2, yaw: -Math.PI / 2 };
+  const introPlacement = resolveSurvivalIntroPlacement(
+    currentMapData,
+    snapshot?.introSpawn || player.position
+  );
+  if (introPlacement?.spawnPos) {
+    player.teleportTo(introPlacement.spawnPos, introPlacement.aiPos);
+    vrManager?.syncWorldTeleport?.(introPlacement.spawnPos.x, introPlacement.spawnPos.z, player.yaw);
+  }
+  const introAi = introPlacement?.aiPos || { x: -4.95, z: -2.35, yaw: 0.32 };
   survivalState.introAiPos = introAi;
+  survivalState.introMapContext = {
+    colliders: introPlacement?.colliders || getDynamicMapColliders(currentMapData),
+    bounds: introPlacement?.bounds || currentMapData.bounds,
+    mapData: currentMapData
+  };
   horrorTeacher.snapTo(introAi.x, introAi.z, introAi.yaw);
   horrorTeacher.setTargetState({ ...introAi, state: 'chase' });
   horrorTeacher.root.visible = true;
@@ -1228,6 +1271,10 @@ function endSurvivalMatchClient(ended, snapshot) {
     survivalState.detained = false;
     survivalState.inDefeatDetention = false;
     survivalState.phase = 'idle';
+    player.setSeated?.(false);
+    vrManager?.setSeatedMode?.(false);
+    vrManager?.setDetentionHudHidden?.(false);
+    hud?.setDetentionHudHidden?.(false);
     player.setMovementLocked(false);
     return;
   }
@@ -1272,8 +1319,14 @@ function endSurvivalMatchClient(ended, snapshot) {
       player.setCameraMode(survivalState.savedCameraMode);
       survivalState.savedCameraMode = null;
     }
+    player.setSeated?.(false);
+    vrManager?.setSeatedMode?.(false);
+    vrManager?.setDetentionHudHidden?.(false);
+    hud?.setDetentionHudHidden?.(false);
     player.setMovementLocked(false);
     teleportWithWorldMode(null, null, 'hall');
+    player.setEnabled(joined && !modalOpen && !vrManager?.isVrActive?.());
+    touchControls?.setVisible(joined && !modalOpen && !vrManager?.isVrActive?.() && gameState.touchMode);
     showSurvivalEndUi(endData);
     return;
   }
@@ -1343,6 +1396,10 @@ function closeSurvivalEndCinematic({ skipSendReturn = false } = {}) {
     player.setCameraMode(survivalState.savedCameraMode);
     survivalState.savedCameraMode = null;
   }
+  player.setSeated?.(false);
+  vrManager?.setSeatedMode?.(false);
+  vrManager?.setDetentionHudHidden?.(false);
+  hud?.setDetentionHudHidden?.(false);
   player.setMovementLocked(false);
   teleportWithWorldMode(null, null, 'hall');
   setModalActive(false, false, false);
@@ -1370,6 +1427,7 @@ function resetSurvivalClientFull() {
   survivalState.hiddenRack = null;
   survivalState.hiddenSpot = null;
   survivalState.snapshot = null;
+  survivalState.introMapContext = null;
   survivalState.lobbyModalOpen = false;
   survivalState.detentionModalOpen = false;
   survivalState.detentionMinimized = false;
@@ -1385,6 +1443,9 @@ function resetSurvivalClientFull() {
   lab.setHorrorLighting?.(false, 1);
   lab.setTeacherVisible?.(true);
   horrorTeacher.root.visible = false;
+  player.setSeated?.(false);
+  vrManager?.setSeatedMode?.(false);
+  vrManager?.setDetentionHudHidden?.(false);
   player.setMovementLocked(false);
   player.setColliders(lab.colliders);
   player.setBounds(currentMapData.bounds);
@@ -1418,7 +1479,13 @@ function updateSurvivalLoop(dt, elapsed) {
       1,
       Math.max(0, (performance.now() - survivalState.introStartedAt) / Math.max(1, survivalState.introDurationMs))
     );
-    const shot = computeSurvivalIntroShot(progress, survivalState.introAiPos, player.position, elapsed);
+    const shot = computeSurvivalIntroShot(
+      progress,
+      survivalState.introAiPos,
+      player.position,
+      elapsed,
+      survivalState.introMapContext
+    );
     sceneMgr.setHorrorAtmosphere?.(true, shot.redThreat, shot.flicker);
     lab.setHorrorLighting?.(true, shot.flicker);
     horrorTeacher.update(dt, elapsed);
@@ -1463,7 +1530,7 @@ function updateSurvivalLoop(dt, elapsed) {
   horrorTeacher.update(dt, elapsed);
   survivalArena.updateDetentionClock?.(elapsed);
 
-  if (survivalState.detained && !vrManager?.isVrActive?.()) {
+  if (survivalState.detained) {
     const payload = buildDetentionPayload(snap);
     survivalArena.updateDetentionMathSheet(payload, false);
   }
@@ -1499,17 +1566,21 @@ function updateSurvivalLoop(dt, elapsed) {
 
   const completedCnt = snap?.completedTps?.length || 0;
   const totalCnt = snap?.requiredTps?.length || TP_CATALOG.length;
-  hud?.updateSurvivalHud?.({
-    completedTps: completedCnt,
-    totalTps: totalCnt,
-    survivorsCount: snap?.aliveCount ?? 0,
-    detainedCount: snap?.detainedCount ?? 0,
-    aiState,
-    noiseLevel: survivalState.noiseLevel,
-    micEnabled: Boolean(mic.micEnabled),
-    detained: survivalState.detained,
-    detentionMinimized: survivalState.detentionMinimized
-  });
+  if (!survivalState.detained && !survivalState.inDefeatDetention) {
+    hud?.updateSurvivalHud?.({
+      completedTps: completedCnt,
+      totalTps: totalCnt,
+      survivorsCount: snap?.aliveCount ?? 0,
+      detainedCount: snap?.detainedCount ?? 0,
+      aiState,
+      noiseLevel: survivalState.noiseLevel,
+      micEnabled: Boolean(mic.micEnabled),
+      detained: survivalState.detained,
+      detentionMinimized: survivalState.detentionMinimized
+    });
+  } else {
+    hud?.hideSurvivalHud?.();
+  }
 
   if (survivalState.hiddenRack) {
     if (vrManager?.isVrActive?.()) {
@@ -2054,6 +2125,13 @@ function applyMapData(rawMap, liveUpdate = false) {
   currentMapData = normalizeMapData(rawMap);
   lab.rebuildWorld(currentMapData);
   survivalArena?.setMapData?.(currentMapData);
+  if (survivalState.introMapContext) {
+    survivalState.introMapContext = {
+      colliders: getDynamicMapColliders(currentMapData),
+      bounds: currentMapData.bounds,
+      mapData: currentMapData
+    };
+  }
   lab.updateStationBadges(gameState.profile.grades);
   sceneMgr.updateWorldBounds(currentMapData.bounds);
   if (!survivalState.inWaitingRoom && !survivalState.detained) {
@@ -2111,7 +2189,7 @@ function setModalActive(active, pauseScene = false, lockActivity = false) {
   }
   const vrOn = Boolean(vrManager?.isVrActive?.());
   player.setEnabled(joined && !active && !vrOn);
-  touchControls?.setVisible(joined && !active && !vrOn && gameState.touchMode);
+  touchControls?.setVisible(joined && !active && !vrOn && !isDetentionSeatedActive() && gameState.touchMode);
   sceneMgr.setPaused(pauseScene);
 }
 
@@ -2317,7 +2395,7 @@ hud = new HudManager(gameState, network, {
   },
   onTouchModeChange: (active) => {
     player.setTouchMode(active);
-    touchControls?.setVisible(joined && !modalOpen && active);
+    touchControls?.setVisible(joined && !modalOpen && !vrManager?.isVrActive?.() && !isDetentionSeatedActive() && active);
     mainMenu?.updatePlatformButton?.(active);
     platformModal?.syncActiveChoice?.(active);
   },
@@ -2612,13 +2690,9 @@ hud?.bindSurvivalHandlers?.({
   onSkipSurvivalIntro: () => finishSurvivalIntroCinematic(),
   onPrevDetentionCamera: () => cycleDetentionCamera(-1),
   onNextDetentionCamera: () => cycleDetentionCamera(1),
-  onToggleEndInspect: (compact) => {
+  onToggleEndInspect: () => {
     if (survivalState.inDefeatDetention) {
-      if (compact) {
-        hud?.showDetention3dHud?.(survivalState.activeCameraInfo || {});
-      } else {
-        hud?.hideDetention3dHud?.();
-      }
+      hud?.hideDetention3dHud?.();
     }
   },
   onCloseEnd: () => closeSurvivalEndCinematic()
@@ -3171,7 +3245,7 @@ window.addEventListener('keydown', (e) => {
     }
   }
 
-  if (e.code === 'Tab' && joined && !subModalActive && !isTyping) {
+  if (e.code === 'Tab' && joined && !subModalActive && !isTyping && !isDetentionSeatedActive()) {
     if (
       !hud.isSettingsOpen() &&
       !hud.isSkinOpen() &&
@@ -3198,12 +3272,12 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (joined && !isTyping && isDetentionSeatedActive()) {
-    if (e.code === 'ArrowLeft') {
+    if (e.code === 'BracketLeft') {
       e.preventDefault();
       cycleDetentionCamera(-1);
       return;
     }
-    if (e.code === 'ArrowRight') {
+    if (e.code === 'BracketRight') {
       e.preventDefault();
       cycleDetentionCamera(1);
       return;
@@ -3311,17 +3385,21 @@ function tryRaycastInteract(clientX, clientY) {
   return true;
 }
 
-function pickDetentionSurfaceAt(clientX, clientY) {
+function pickDetentionSurfaceAt(clientX = null, clientY = null) {
   if (!joined || !isDetentionSeatedActive() || vrManager?.isVrActive?.()) return null;
   const surfaces = getActiveWorldSurfaces();
   if (!surfaces.length) return null;
-  const rect = canvas.getBoundingClientRect();
-  if (!rect.width || !rect.height) return null;
-  const ndc = new THREE.Vector2(
-    ((clientX - rect.left) / rect.width) * 2 - 1,
-    -((clientY - rect.top) / rect.height) * 2 + 1
-  );
-  raycaster.setFromCamera(ndc, sceneMgr.camera);
+  if (document.pointerLockElement === canvas || clientX === null || clientY === null) {
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), sceneMgr.camera);
+  } else {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    raycaster.setFromCamera(ndc, sceneMgr.camera);
+  }
   let best = null;
   for (const surf of surfaces) {
     if (!surf?.mesh || surf.mesh.visible === false) continue;
@@ -3337,14 +3415,14 @@ function pickDetentionSurfaceAt(clientX, clientY) {
   return best;
 }
 
-function updateDetentionSurfaceHover(clientX, clientY) {
+function updateDetentionSurfaceHover(clientX = null, clientY = null) {
   const surfaces = getActiveWorldSurfaces();
   const hit = pickDetentionSurfaceAt(clientX, clientY);
   for (const surf of surfaces) {
     surf.setHovered?.(hit && hit.surf === surf ? hit.btn.id : null);
   }
   if (!vrManager?.isVrActive?.() && isDetentionSeatedActive()) {
-    canvas.style.cursor = hit ? 'pointer' : '';
+    canvas.style.cursor = hit && document.pointerLockElement !== canvas ? 'pointer' : '';
   }
   return hit;
 }
@@ -3352,26 +3430,19 @@ function updateDetentionSurfaceHover(clientX, clientY) {
 let downPos = { x: 0, y: 0 };
 canvas.addEventListener('mousedown', (e) => {
   downPos = { x: e.clientX, y: e.clientY };
-  if (isDetentionSeatedActive() && !vrManager?.isVrActive?.() && e.button === 2) {
-    survivalState.detentionDraggingLook = true;
-    survivalState.detentionDragLast = { x: e.clientX, y: e.clientY };
-    return;
-  }
   if (vrManager?.isVrActive?.() && vrManager.simMode && e.button === 0) {
     vrManager.setSimInput({ mouseTrigger: true });
   }
 });
 canvas.addEventListener('mousemove', (e) => {
   if (isDetentionSeatedActive() && !vrManager?.isVrActive?.()) {
-    if (survivalState.detentionDraggingLook) {
-      const dx = e.clientX - survivalState.detentionDragLast.x;
-      const dy = e.clientY - survivalState.detentionDragLast.y;
-      survivalState.detentionDragLast = { x: e.clientX, y: e.clientY };
-      survivalState.detentionLookYaw = Math.max(-0.55, Math.min(0.55, survivalState.detentionLookYaw - dx * 0.004));
-      survivalState.detentionLookPitch = Math.max(-0.45, Math.min(0.4, survivalState.detentionLookPitch - dy * 0.004));
-      applyDetentionPcCamera();
+    if (document.pointerLockElement === canvas) {
+      updateDetentionSurfaceHover(null, null);
     } else {
-      updateDetentionSurfaceHover(e.clientX, e.clientY);
+      lastCursorPos = { x: e.clientX, y: e.clientY };
+      if (!player.dragging) {
+        updateDetentionSurfaceHover(e.clientX, e.clientY);
+      }
     }
     return;
   }
@@ -3385,14 +3456,12 @@ canvas.addEventListener('mousemove', (e) => {
 });
 canvas.addEventListener('mouseleave', () => {
   lastCursorPos = null;
-  survivalState.detentionDraggingLook = false;
   if (!vrManager?.isVrActive?.()) {
     setDesktopHoveredInteractable(null);
   }
 });
 window.addEventListener('blur', () => {
   lastCursorPos = null;
-  survivalState.detentionDraggingLook = false;
   setDesktopHoveredInteractable(null);
 });
 canvas.addEventListener('contextmenu', (e) => {
@@ -3407,20 +3476,20 @@ window.addEventListener('mousemove', (e) => {
   }
 });
 window.addEventListener('mouseup', (e) => {
-  if (e.button === 2) {
-    survivalState.detentionDraggingLook = false;
-  }
   if (vrManager?.simMode && e.button === 0) {
     vrManager.setSimInput({ mouseTrigger: false });
   }
 });
 canvas.addEventListener('mouseup', (e) => {
   if (isDetentionSeatedActive() && !vrManager?.isVrActive?.() && e.button === 0) {
-    const dragDist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
-    if (dragDist <= 8) {
-      const hit = pickDetentionSurfaceAt(e.clientX, e.clientY);
+    const isLocked = document.pointerLockElement === canvas;
+    const dragDist = isLocked ? 0 : Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+    if (dragDist <= 6) {
+      const hit = pickDetentionSurfaceAt(isLocked ? null : e.clientX, isLocked ? null : e.clientY);
       if (hit?.btn) {
         hit.btn.onClick?.(hit.uv);
+      } else if (!isLocked && !gameState.touchMode) {
+        player.requestPointerLock();
       }
     }
     return;
@@ -3437,6 +3506,62 @@ canvas.addEventListener('mouseup', (e) => {
     player.requestPointerLock();
   }
 });
+
+let detTouchId = null;
+let detTouchLast = { x: 0, y: 0 };
+let detTouchMoved = 0;
+canvas.addEventListener(
+  'touchstart',
+  (e) => {
+    if (!joined || !isDetentionSeatedActive() || vrManager?.isVrActive?.()) return;
+    const t = e.changedTouches[0];
+    if (!t || detTouchId !== null) return;
+    e.preventDefault();
+    detTouchId = t.identifier;
+    detTouchLast = { x: t.clientX, y: t.clientY };
+    detTouchMoved = 0;
+  },
+  { passive: false }
+);
+canvas.addEventListener(
+  'touchmove',
+  (e) => {
+    if (detTouchId === null) return;
+    if (!isDetentionSeatedActive() || vrManager?.isVrActive?.()) {
+      detTouchId = null;
+      return;
+    }
+    for (const t of e.changedTouches) {
+      if (t.identifier === detTouchId) {
+        e.preventDefault();
+        const dx = t.clientX - detTouchLast.x;
+        const dy = t.clientY - detTouchLast.y;
+        detTouchLast = { x: t.clientX, y: t.clientY };
+        detTouchMoved += Math.hypot(dx, dy);
+        player.lookDelta(dx, dy);
+        break;
+      }
+    }
+  },
+  { passive: false }
+);
+const endDetTouch = (e) => {
+  if (detTouchId === null) return;
+  for (const t of e.changedTouches) {
+    if (t.identifier === detTouchId) {
+      detTouchId = null;
+      if (detTouchMoved < 10 && isDetentionSeatedActive() && !vrManager?.isVrActive?.()) {
+        const hit = pickDetentionSurfaceAt(t.clientX, t.clientY);
+        if (hit?.btn) {
+          hit.btn.onClick?.(hit.uv);
+        }
+      }
+      break;
+    }
+  }
+};
+canvas.addEventListener('touchend', endDetTouch);
+canvas.addEventListener('touchcancel', endDetTouch);
 
 let lastZoneId = '';
 let lastMiniMapDrawAt = 0;
@@ -3466,10 +3591,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
     vrManager.update(dt, elapsed);
   }
   const seatedDet = isDetentionSeatedActive();
-  const step = vrOn || activeCinematic || survivalState.introActive || seatedDet ? null : player.update(dt);
-  if (seatedDet && !vrOn) {
-    applyDetentionPcCamera();
-  }
+  const step = vrOn || activeCinematic || survivalState.introActive ? null : player.update(dt);
   if (activeCinematic && !vrOn) {
     if (activeCinematic.phase === 'intro') {
       const stepProgress = Math.min(
@@ -3567,7 +3689,14 @@ sceneMgr.addUpdater((dt, elapsed) => {
     const best = bestPrimary || bestProp;
     nearestTarget = best;
 
-    if (!vrOn && !gameState.touchMode && !seatedDet && !survivalState.introActive && elapsed - lastHoverPollAt >= 0.08) {
+    if (!vrOn && seatedDet && elapsed - lastHoverPollAt >= 0.08) {
+      lastHoverPollAt = elapsed;
+      if (document.pointerLockElement === canvas) {
+        updateDetentionSurfaceHover(null, null);
+      } else if (lastCursorPos && !player.dragging) {
+        updateDetentionSurfaceHover(lastCursorPos.x, lastCursorPos.y);
+      }
+    } else if (!vrOn && !gameState.touchMode && !seatedDet && !survivalState.introActive && elapsed - lastHoverPollAt >= 0.08) {
       lastHoverPollAt = elapsed;
       if (document.pointerLockElement === canvas) {
         setDesktopHoveredInteractable(getRayHitInteractable(null, null));

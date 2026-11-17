@@ -657,20 +657,22 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
   }
 });
 
-test('v4.20 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
-  assert.ok(APP_VERSION.startsWith('v4.20'));
-  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.20'));
+test('v4.21 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
+  assert.ok(APP_VERSION.startsWith('v4.21'));
+  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.21'));
   assert.equal(CHANGELOG_RELEASES[0].tag, 'DERNIÈRE MÀJ');
-  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.19'));
+  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.20'));
   assert.equal(CHANGELOG_RELEASES[1].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[2].version.startsWith('v4.18'));
+  assert.ok(CHANGELOG_RELEASES[2].version.startsWith('v4.19'));
   assert.equal(CHANGELOG_RELEASES[2].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[3].version.startsWith('v4.17'));
+  assert.ok(CHANGELOG_RELEASES[3].version.startsWith('v4.18'));
   assert.equal(CHANGELOG_RELEASES[3].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[4].version.startsWith('v4.16'));
+  assert.ok(CHANGELOG_RELEASES[4].version.startsWith('v4.17'));
   assert.equal(CHANGELOG_RELEASES[4].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[5].version.startsWith('v4.15'));
+  assert.ok(CHANGELOG_RELEASES[5].version.startsWith('v4.16'));
   assert.equal(CHANGELOG_RELEASES[5].tag, 'HISTORIQUE');
+  assert.ok(CHANGELOG_RELEASES[6].version.startsWith('v4.15'));
+  assert.equal(CHANGELOG_RELEASES[6].tag, 'HISTORIQUE');
 
   const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
   for (const id of [
