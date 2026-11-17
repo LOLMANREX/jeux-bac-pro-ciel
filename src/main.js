@@ -24,7 +24,8 @@ import {
 } from './world/mapSchema.js';
 import { buildLabWorld } from './world/LabBuilder.js';
 import { createHorrorTeacher } from './world/NpcTeacher.js';
-import { createSurvivalPocketRooms } from './world/SurvivalArena3D.js';
+import { computeSurvivalIntroShot, createSurvivalPocketRooms } from './world/SurvivalArena3D.js';
+import { SURVIVAL_MIN_PLAYERS } from './world/SurvivalEngine.js';
 import { PlayerController } from './world/PlayerController.js';
 import {
   createSpeechBubble,
@@ -188,6 +189,7 @@ vrManager = new VRManager(sceneMgr, player, {
   playerName: gameState.profile?.name || 'Eleve_CIEL',
   mapData: currentMapData,
   getInteractables: () => getActiveInteractables(),
+  getWorldInteractiveSurfaces: () => getActiveWorldSurfaces(),
   getOccluders: () => lab.solidWallMeshes,
   getNearestInteractable: () => nearestTarget,
   onHoverInteractable: (item) => lab.setHoveredInteractable?.(item),
@@ -207,9 +209,11 @@ vrManager = new VRManager(sceneMgr, player, {
     hud?.hideAscensionDialogue?.();
     hud?.closeAllModals?.();
     hud?.hideSurvivalLobby?.();
+    hud?.hideSurvivalIntroOverlay?.();
     hud?.hideHidingOverlay?.();
     hud?.hideJumpscareOverlay?.();
     hud?.hideDetentionModal?.();
+    hud?.hideDetention3dHud?.();
     hud?.hideSurvivalEndOverlay?.();
     if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
       miniGameModal.close();
@@ -226,6 +230,10 @@ vrManager = new VRManager(sceneMgr, player, {
     vrManager.setSkin(getEffectiveSessionSkin(gameState.skin));
     vrManager.setMapData(currentMapData);
     syncSurvivalPanelMode();
+    if (survivalState.detained || survivalState.inDefeatDetention) {
+      const detCfg = survivalArena.getDetentionRoomConfig();
+      vrManager.syncWorldTeleport?.(detCfg.spawn.x, detCfg.spawn.z, 0);
+    }
     if (joined) {
       network.sendMove(player.position.x, 0, player.position.z, player.yaw, true, vrManager.getVrSyncPayload());
     }
@@ -239,9 +247,15 @@ vrManager = new VRManager(sceneMgr, player, {
     }
     player.setVrMode?.(false);
     localAvatar?.setFirstPersonVrHidden?.(false);
-    player.setEnabled(joined && !modalOpen);
-    player._applyCamera?.();
-    touchControls?.setVisible(joined && !modalOpen && gameState.touchMode);
+    const seatedDet = isDetentionSeatedActive();
+    player.setEnabled(joined && !modalOpen && !seatedDet);
+    if (seatedDet) {
+      applyDetentionPcCamera();
+      hud?.showDetention3dHud?.(survivalState.activeCameraInfo || {});
+    } else {
+      player._applyCamera?.();
+    }
+    touchControls?.setVisible(joined && !modalOpen && !seatedDet && gameState.touchMode);
     syncSurvivalPanelMode();
     if (joined) {
       network.sendMove(player.position.x, 0, player.position.z, player.yaw, true, { active: false });
@@ -249,6 +263,11 @@ vrManager = new VRManager(sceneMgr, player, {
   },
   onStateChange: (st) => hud?.syncVrUi?.(st),
   onToast: (msg, type) => hud?.toast?.(msg, type)
+});
+sceneMgr.addBeforeRender((dt, elapsed) => {
+  if (joined) {
+    renderDetentionLivePov(dt, elapsed);
+  }
 });
 sceneMgr.addAlwaysUpdater((dt, elapsed) => {
   if (!joined || sceneMgr.paused) {
@@ -372,13 +391,26 @@ const survivalState = {
   phase: 'idle',
   inWaitingRoom: false,
   inActiveMatch: false,
+  introActive: false,
+  introStartedAt: 0,
+  introDurationMs: 5600,
+  introAiPos: { x: 1.8, z: -1.2, yaw: -Math.PI / 2 },
   detained: false,
+  inDefeatDetention: false,
   hiddenRack: null,
   hiddenSpot: null,
   snapshot: null,
   lobbyModalOpen: false,
   detentionModalOpen: false,
   detentionMinimized: false,
+  detentionCamIndex: 0,
+  detentionLookYaw: 0,
+  detentionLookPitch: 0,
+  detentionDraggingLook: false,
+  detentionDragLast: { x: 0, y: 0 },
+  savedCameraMode: null,
+  lastPovRenderAt: 0,
+  activeCameraInfo: null,
   jumpscareUntil: 0,
   jumpscareTimer: null,
   endTimer: null,
@@ -391,9 +423,31 @@ const survivalState = {
   aiPrevState: 'patrol'
 };
 
+function isSurvivalInstanceRoom(roomId = gameState.room) {
+  return String(roomId || '').trim().toLowerCase().startsWith('survival-game-');
+}
+
+function isDetentionSeatedActive() {
+  return Boolean(
+    (survivalState.detained || survivalState.inDefeatDetention) &&
+      survivalState.jumpscareUntil <= Date.now()
+  );
+}
+
+function applyRoomInstanceFilter(roomId = gameState.room, snap = survivalState.snapshot) {
+  if (survivalState.inActiveMatch && Array.isArray(snap?.participants)) {
+    const allowedIds = snap.participants.map((p) => p.id).filter(Boolean);
+    remotePlayers.setInstanceFilter(allowedIds);
+    return;
+  }
+  if (!isSurvivalInstanceRoom(roomId)) {
+    remotePlayers.setInstanceFilter(null);
+  }
+}
+
 function getActiveInteractables() {
-  if (survivalState.detained) {
-    return survivalArena.getDetentionRoomConfig().interactables;
+  if (survivalState.detained || survivalState.inDefeatDetention || survivalState.introActive) {
+    return [];
   }
   if (survivalState.inWaitingRoom && !survivalState.inActiveMatch) {
     return survivalArena.getWaitingRoomConfig().interactables;
@@ -402,6 +456,36 @@ function getActiveInteractables() {
     return [];
   }
   return lab.interactables;
+}
+
+function getActiveWorldSurfaces() {
+  if (!isDetentionSeatedActive()) return [];
+  return survivalArena.getDetentionInteractiveSurfaces({
+    onSelectOption: (idx) => submitDetentionOption(idx),
+    onPrevCamera: () => cycleDetentionCamera(-1),
+    onNextCamera: () => cycleDetentionCamera(1)
+  });
+}
+
+function applyDetentionPcCamera() {
+  if (vrManager?.isVrActive?.()) return;
+  const cfg = survivalArena.getDetentionRoomConfig();
+  const eye = cfg.pcEye || { x: cfg.spawn.x, y: 1.38, z: cfg.spawn.z + 0.3 };
+  const baseLook = cfg.lookAt || { x: cfg.spawn.x, y: 1.04, z: cfg.spawn.z - 1.2 };
+  sceneMgr.camera.position.set(eye.x, eye.y, eye.z);
+  const baseDx = baseLook.x - eye.x;
+  const baseDy = baseLook.y - eye.y;
+  const baseDz = baseLook.z - eye.z;
+  const baseDist = Math.max(0.5, Math.hypot(baseDx, baseDz));
+  const baseYaw = Math.atan2(-baseDx, -baseDz);
+  const basePitch = Math.atan2(baseDy, baseDist);
+  sceneMgr.camera.rotation.order = 'YXZ';
+  sceneMgr.camera.rotation.set(
+    Math.max(-0.62, Math.min(0.45, basePitch + survivalState.detentionLookPitch)),
+    baseYaw + survivalState.detentionLookYaw,
+    0,
+    'YXZ'
+  );
 }
 
 function teleportWithWorldMode(pos, lookAt, mode = 'hall') {
@@ -418,7 +502,10 @@ function teleportWithWorldMode(pos, lookAt, mode = 'hall') {
     player.setColliders(cfg.colliders);
     player.setBounds(cfg.bounds);
     player.teleportTo(cfg.spawn, cfg.lookAt);
-    vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, player.yaw);
+    vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, 0);
+    if (!vrManager?.isVrActive?.()) {
+      applyDetentionPcCamera();
+    }
     return;
   }
   player.setColliders(lab.colliders);
@@ -436,7 +523,7 @@ function getLocalSurvivalParticipant(snap = survivalState.snapshot) {
 
 function buildVrLobbyState(snap = survivalState.snapshot) {
   const players = Array.isArray(snap?.lobbyPlayers) ? snap.lobbyPlayers : [];
-  const minP = Math.max(2, Number(snap?.minPlayers) || 2);
+  const minP = Math.max(SURVIVAL_MIN_PLAYERS, Number(snap?.minPlayers) || SURVIVAL_MIN_PLAYERS);
   const readyCount = players.filter((p) => p.ready).length;
   const me = players.find((p) => p.id === network.clientId);
   return {
@@ -448,11 +535,20 @@ function buildVrLobbyState(snap = survivalState.snapshot) {
     micEnabled: Boolean(latestVoiceState.micEnabled),
     statusText:
       players.length < minP
-        ? `Salon d'attente : ${players.length}/${minP} joueurs minimum pour démarrer`
-        : `${readyCount}/${players.length} joueurs prêts — lancement imminent`,
+        ? `Instance Survie : ${players.length}/${minP} joueur minimum pour démarrer`
+        : `${readyCount}/${players.length} joueur(s) prêt(s) — lancement imminent`,
     onToggleReady: () => toggleSurvivalReady(),
     onToggleMic: () => voiceChat.toggleMicrophone(),
     onLeave: () => leaveSurvivalLobby()
+  };
+}
+
+function buildVrIntroState(progress = 0, phaseLabel = '⚡ COUPURE ÉLECTRIQUE — ALERTE INTRUSION') {
+  return {
+    phaseLabel,
+    briefingText: 'Survivez, terminez tous les TPs et ne faites aucun bruit au micro...',
+    progress,
+    onSkip: () => finishSurvivalIntroCinematic()
   };
 }
 
@@ -477,19 +573,286 @@ function buildVrHiddenState(snap = survivalState.snapshot) {
   };
 }
 
+function getDetentionCameraTargets(snap = survivalState.snapshot) {
+  const parts = Array.isArray(snap?.participants) ? snap.participants : [];
+  const aliveTeammates = parts.filter((p) => p.id !== network.clientId && p.status === 'alive');
+  if (aliveTeammates.length > 0) {
+    return aliveTeammates.map((p) => ({
+      kind: 'peer',
+      id: p.id,
+      name: p.name || 'Coéquipier',
+      participant: p
+    }));
+  }
+  return [
+    { kind: 'ai_patrol', id: 'ai_patrol', name: 'Professeur CIEL (Patrouille)' },
+    { kind: 'cctv_u300', id: 'cctv_u300', name: 'Caméra Surveillance Atelier U300' }
+  ];
+}
+
+function buildDetentionCameraInfo(snap = survivalState.snapshot) {
+  const targets = getDetentionCameraTargets(snap);
+  const idx = ((survivalState.detentionCamIndex % targets.length) + targets.length) % targets.length;
+  const target = targets[idx];
+  const completedTps = snap?.completedTps?.length || 0;
+  const totalTps = snap?.requiredTps?.length || TP_CATALOG.length;
+  const aliveCount = snap?.aliveCount ?? 0;
+
+  if (target.kind === 'peer') {
+    const p = target.participant;
+    const peerPose = remotePlayers.getPeerPoseForPov(target.id);
+    const zoneLabel = peerPose?.zoneLabel || 'Atelier U300';
+    const act = peerPose?.activity || 'Dans l’atelier';
+    const status = p.hiddenRackId
+      ? `🟡 CACHÉ EN BAIE • ${zoneLabel}`
+      : act && act !== 'Dans l’atelier'
+        ? `🔧 ${act} • ${zoneLabel}`
+        : `🟢 EN VIE • ${zoneLabel}`;
+    return {
+      target,
+      label: target.name,
+      status,
+      camIndex: idx,
+      camCount: targets.length,
+      completedTps,
+      totalTps,
+      aliveCount
+    };
+  }
+
+  if (target.kind === 'ai_patrol') {
+    const aiSt = snap?.ai?.state || 'patrol';
+    const stText =
+      aiSt === 'chase'
+        ? '🚨 POURSUITE ACTIVE'
+        : aiSt === 'investigate'
+          ? '👂 ENQUÊTE BRUIT'
+          : '👁️ PATROUILLE U300';
+    return {
+      target,
+      label: 'Professeur CIEL',
+      status: `${stText} • ${snap?.ai?.zoneCode || 'U300'}`,
+      camIndex: idx,
+      camCount: targets.length,
+      completedTps,
+      totalTps,
+      aliveCount
+    };
+  }
+
+  return {
+    target,
+    label: 'Caméra Hall U300',
+    status: '📹 BALAYAGE AUTO ATELIER',
+    camIndex: idx,
+    camCount: targets.length,
+    completedTps,
+    totalTps,
+    aliveCount
+  };
+}
+
+function cycleDetentionCamera(delta = 1) {
+  const targets = getDetentionCameraTargets(survivalState.snapshot);
+  if (targets.length === 0) return;
+  survivalState.detentionCamIndex =
+    (((survivalState.detentionCamIndex + delta) % targets.length) + targets.length) % targets.length;
+  sfx.click();
+  const info = buildDetentionCameraInfo(survivalState.snapshot);
+  survivalState.activeCameraInfo = info;
+  survivalArena.updateDetentionCameraBar(info, true);
+  if (!vrManager?.isVrActive?.()) {
+    hud?.showDetention3dHud?.(info);
+  }
+}
+
+const _povLookTmp = new THREE.Vector3();
+const _povDirTmp = new THREE.Vector3();
+const _povQuatTmp = new THREE.Quaternion();
+
+function renderDetentionLivePov(_dt, elapsed) {
+  if (!isDetentionSeatedActive()) return;
+  if (!survivalArena?.povCamera) return;
+  survivalArena.updateDetentionClock?.(elapsed);
+  if (elapsed - survivalState.lastPovRenderAt < 0.032) return;
+  survivalState.lastPovRenderAt = elapsed;
+
+  const snap = survivalState.snapshot;
+  const info = buildDetentionCameraInfo(snap);
+  survivalState.activeCameraInfo = info;
+  survivalArena.updateDetentionCameraBar(info, false);
+  if (!vrManager?.isVrActive?.() && !survivalState.inDefeatDetention) {
+    hud?.showDetention3dHud?.(info);
+  }
+
+  if (!survivalArena.povRenderTarget) {
+    survivalArena.setLivePovActive(false);
+    survivalArena.updateSurveillanceScreen(snap || {});
+    return;
+  }
+  survivalArena.setLivePovActive(true);
+
+  const povCam = survivalArena.povCamera;
+  const hiddenObjects = [];
+  if (localAvatar?.group) hiddenObjects.push(localAvatar.group);
+  if (vrManager?.vrRig) hiddenObjects.push(vrManager.vrRig);
+
+  let povPeerHiddenId = null;
+  let ambientBoost = 0.24;
+  let flashColor = '#e2f1ff';
+  let flashIntensity = 3.5;
+
+  const target = info.target;
+  if (target.kind === 'peer') {
+    const p = target.participant;
+    const peerPose = remotePlayers.getPeerPoseForPov(target.id);
+    povPeerHiddenId = target.id;
+    remotePlayers.setPeerPovHidden(povPeerHiddenId, true);
+
+    if (p.hiddenRackId) {
+      const rack = (lab.hidingSpots || []).find((s) => s.id === p.hiddenRackId);
+      if (rack) {
+        const fx = Math.sin(rack.rad);
+        const fz = Math.cos(rack.rad);
+        const camX = rack.x + fx * ((rack.d || 0.78) * 0.5 + 0.14);
+        const camZ = rack.z + fz * ((rack.d || 0.78) * 0.5 + 0.14);
+        povCam.position.set(camX, 1.44, camZ);
+        povCam.lookAt(camX + fx * 6, 1.32, camZ + fz * 6);
+      } else {
+        const px = peerPose ? peerPose.position.x : p.x || 0;
+        const pz = peerPose ? peerPose.position.z : p.z || 0;
+        povCam.position.set(px, 1.48, pz);
+        povCam.rotation.set(-0.06, p.yaw || 0, 0, 'YXZ');
+      }
+    } else if (peerPose?.vrData?.active && peerPose.vrData.head) {
+      const h = peerPose.vrData.head;
+      povCam.position.set(
+        peerPose.position.x + (Number(h.px) || 0),
+        Math.max(0.7, Number(h.py) || 1.62),
+        peerPose.position.z + (Number(h.pz) || 0)
+      );
+      _povQuatTmp.set(h.qx || 0, h.qy || 0, h.qz || 0, h.qw ?? 1);
+      povCam.quaternion.copy(_povQuatTmp);
+    } else {
+      const px = peerPose ? peerPose.position.x : Number(p.x) || 0;
+      const py = peerPose ? peerPose.position.y : 0;
+      const pz = peerPose ? peerPose.position.z : Number(p.z) || 0;
+      const yaw = peerPose ? peerPose.yaw : Number(p.yaw) || 0;
+      povCam.position.set(px, py + 1.62, pz);
+      povCam.rotation.order = 'YXZ';
+      povCam.rotation.set(-0.06, yaw, 0, 'YXZ');
+    }
+  } else if (target.kind === 'ai_patrol') {
+    const aiPose = snap?.ai || {
+      x: horrorTeacher.root.position.x,
+      z: horrorTeacher.root.position.z,
+      yaw: horrorTeacher.root.rotation.y
+    };
+    const aiYaw = Number(aiPose.yaw) || 0;
+    const fx = Math.sin(aiYaw);
+    const fz = Math.cos(aiYaw);
+    const ax = Number(aiPose.x) || 0;
+    const az = Number(aiPose.z) || 0;
+    povCam.position.set(ax + fx * 0.36, 1.72, az + fz * 0.36);
+    povCam.lookAt(ax + fx * 6, 1.54, az + fz * 6);
+    if (horrorTeacher?.root) hiddenObjects.push(horrorTeacher.root);
+    flashColor = '#fecaca';
+    flashIntensity = 3.8;
+    ambientBoost = 0.28;
+  } else {
+    povCam.position.set(-3.8, 3.35, -1.8);
+    povCam.rotation.order = 'YXZ';
+    povCam.rotation.set(-0.34, Math.sin(elapsed * 0.52) * 1.1, 0, 'YXZ');
+    ambientBoost = 0.38;
+    flashIntensity = 4.2;
+  }
+
+  povCam.updateMatrixWorld(true);
+  povCam.getWorldDirection(_povDirTmp);
+  _povLookTmp.copy(povCam.position).addScaledVector(_povDirTmp, 7);
+
+  try {
+    sceneMgr.renderToTarget(survivalArena.povRenderTarget, povCam, {
+      hiddenObjects,
+      ambientBoost,
+      fogFar: 28,
+      flashlightPose: {
+        position: povCam.position.clone(),
+        target: _povLookTmp.clone(),
+        intensity: flashIntensity,
+        color: flashColor
+      }
+    });
+  } finally {
+    if (povPeerHiddenId) {
+      remotePlayers.setPeerPovHidden(povPeerHiddenId, false);
+    }
+  }
+}
+
 function buildDetentionPayload(snap = survivalState.snapshot) {
   if (!survivalState.variationSession) {
     survivalState.variationSession = new VariationTableSession();
   }
+  const camInfo = buildDetentionCameraInfo(snap);
   return survivalState.variationSession.getVrSnapshot({
     completedTps: snap?.completedTps?.length || 0,
     totalTps: snap?.requiredTps?.length || TP_CATALOG.length,
     survivorsCount: snap?.aliveCount ?? 0,
     detainedCount: snap?.detainedCount ?? 0,
     aiState: snap?.ai?.state || 'patrol',
+    camLabel: camInfo.label,
+    camStatus: camInfo.status,
+    camIndex: camInfo.camIndex,
+    camCount: camInfo.camCount,
+    onPrevCamera: () => cycleDetentionCamera(-1),
+    onNextCamera: () => cycleDetentionCamera(1),
     onSelectOption: (idx) => submitDetentionOption(idx),
     onClose: () => minimizeDetentionTerminal()
   });
+}
+
+function enterDetentionClassroom3D(isDefeat = false) {
+  if (!joined) return;
+  if (!survivalState.savedCameraMode) {
+    survivalState.savedCameraMode = gameState.cameraMode;
+  }
+  survivalState.detentionLookYaw = 0;
+  survivalState.detentionLookPitch = 0;
+  survivalState.detentionDraggingLook = false;
+  survivalState.lastPovRenderAt = 0;
+  survivalState.detained = !isDefeat;
+  survivalState.inDefeatDetention = Boolean(isDefeat);
+  survivalState.detentionMinimized = true;
+  survivalState.detentionModalOpen = false;
+
+  if (document.pointerLockElement === canvas) {
+    document.exitPointerLock?.();
+  }
+  if (!vrManager?.isVrActive?.() && gameState.cameraMode !== 'first') {
+    player.setCameraMode('first');
+  }
+  setModalActive(false, false, false);
+  player.setEnabled(false);
+  player.setMovementLocked(true);
+  touchControls?.setVisible(false);
+  teleportWithWorldMode(null, null, 'detention');
+
+  const payload = buildDetentionPayload(survivalState.snapshot);
+  survivalArena.updateDetentionMathSheet(payload, true);
+  const camInfo = buildDetentionCameraInfo(survivalState.snapshot);
+  survivalState.activeCameraInfo = camInfo;
+  survivalArena.updateDetentionCameraBar(camInfo, true);
+  survivalArena.setLivePovActive(Boolean(survivalArena.povRenderTarget));
+
+  if (vrManager?.isVrActive?.()) {
+    vrManager.closeWorldSpatialPanel?.();
+  } else {
+    hud?.hideDetentionModal?.();
+    if (!isDefeat) {
+      hud?.showDetention3dHud?.(camInfo);
+    }
+  }
 }
 
 function syncSurvivalPanelMode() {
@@ -511,6 +874,25 @@ function syncSurvivalPanelMode() {
       );
     } else {
       hud?.triggerJumpscareOverlay?.();
+    }
+    return;
+  }
+
+  if (survivalState.introActive && survivalState.inActiveMatch) {
+    const progress = Math.min(
+      1,
+      Math.max(0, (performance.now() - survivalState.introStartedAt) / Math.max(1, survivalState.introDurationMs))
+    );
+    if (vrOn) {
+      hud?.hideSurvivalIntroOverlay?.();
+      vrManager.applySurvivalIntroPose?.(player.position.x, player.position.z, survivalState.introAiPos);
+      vrManager.openWorldSpatialPanel(
+        'survival_intro',
+        { survivalIntro: buildVrIntroState(progress) },
+        { dist: 1.48, yOffset: -0.22 }
+      );
+    } else {
+      hud?.showSurvivalIntroOverlay?.({ progress });
     }
     return;
   }
@@ -542,24 +924,15 @@ function syncSurvivalPanelMode() {
     return;
   }
 
-  if (survivalState.detained && survivalState.inActiveMatch && !survivalState.detentionMinimized) {
-    const payload = buildDetentionPayload(snap);
-    survivalState.detentionModalOpen = true;
-    if (vrOn) {
-      hud?.hideDetentionModal?.();
-      vrManager.openWorldSpatialPanel('detention', { detention: payload });
-    } else {
-      setModalActive(true, false, true);
-      hud?.showDetentionModal?.(payload);
-      hud?.updateDetentionSurveillance?.(snap || {}, currentMapData);
-    }
+  if ((survivalState.detained && survivalState.inActiveMatch) || survivalState.inDefeatDetention) {
+    enterDetentionClassroom3D(survivalState.inDefeatDetention);
   }
 }
 
 function enterSurvivalLobby() {
   if (!joined || activeCinematic) return;
   if (!network.connected) {
-    hud?.toast?.('⚠️ Connectez-vous au serveur multijoueur (min. 2 joueurs) pour le Mode Survie.', 'error');
+    hud?.toast?.('⚠️ Connectez-vous au serveur pour lancer le Mode Survie Horreur.', 'error');
     return;
   }
   sfx.interact();
@@ -568,7 +941,10 @@ function enterSurvivalLobby() {
   teleportWithWorldMode(null, null, 'waiting');
   network.sendSurvivalJoin();
   network.sendActivity('Salon Survie Horreur');
-  survivalArena.updateWaitingBoard(survivalState.snapshot || { lobbyPlayers: [], minPlayers: 2 }, true);
+  survivalArena.updateWaitingBoard(
+    survivalState.snapshot || { lobbyPlayers: [], minPlayers: SURVIVAL_MIN_PLAYERS },
+    true
+  );
   syncSurvivalPanelMode();
 }
 
@@ -596,7 +972,7 @@ function toggleSurvivalReady() {
 }
 
 function toggleHidingInRack(target) {
-  if (!joined || activeCinematic || survivalState.detained) return;
+  if (!joined || activeCinematic || survivalState.detained || survivalState.introActive) return;
   if (!survivalState.inActiveMatch) {
     hud?.toast?.('🗄️ Baie de Brassage (Cachette) : servez-vous en pendant la traque du Professeur CIEL !', 'info');
     return;
@@ -638,9 +1014,7 @@ function toggleHidingInRack(target) {
 function openDetentionTerminal() {
   if (!survivalState.detained) return;
   sfx.interact();
-  survivalState.detentionMinimized = false;
-  survivalState.detentionModalOpen = true;
-  syncSurvivalPanelMode();
+  enterDetentionClassroom3D(false);
 }
 
 function minimizeDetentionTerminal() {
@@ -652,7 +1026,6 @@ function minimizeDetentionTerminal() {
   }
   setModalActive(false, false, false);
   player.setMovementLocked(true);
-  hud?.toast?.('📺 Caméras de surveillance en direct devant vous (E ou bouton pour rouvrir les tableaux)', 'info');
 }
 
 function submitDetentionOption(optionIndex) {
@@ -662,16 +1035,44 @@ function submitDetentionOption(optionIndex) {
   const res = survivalState.variationSession.submit(optionIndex);
   if (res.correct) {
     sfx.success?.();
-    network.sendSurvivalDetentionSolved();
+    if (survivalState.detained && survivalState.inActiveMatch) {
+      network.sendSurvivalDetentionSolved();
+    }
   } else {
     sfx.error?.();
   }
   const payload = buildDetentionPayload(survivalState.snapshot);
-  if (vrManager?.isVrActive?.()) {
+  survivalArena.updateDetentionMathSheet(payload, true);
+  if (vrManager?.isVrActive?.() && vrManager.worldPanel) {
     vrManager.updateWorldSpatialPanel?.({ detention: payload });
-  } else if (!survivalState.detentionMinimized) {
-    hud?.showDetentionModal?.(payload);
   }
+}
+
+function finishSurvivalIntroCinematic() {
+  if (!survivalState.introActive) return;
+  survivalState.introActive = false;
+  hud?.hideSurvivalIntroOverlay?.();
+  if (vrManager?.isVrActive?.()) {
+    vrManager.closeWorldSpatialPanel?.();
+  }
+  setModalActive(false, false, false);
+  player.setMovementLocked(false);
+  player.setEnabled(!vrManager?.isVrActive?.());
+  teleportWithWorldMode(null, null, 'hall');
+  const aiSnap = survivalState.snapshot?.ai;
+  if (aiSnap) {
+    horrorTeacher.snapTo(aiSnap.x, aiSnap.z, aiSnap.yaw || 0);
+    horrorTeacher.setTargetState({
+      x: aiSnap.x,
+      z: aiSnap.z,
+      yaw: aiSnap.yaw || 0,
+      state: aiSnap.state || 'patrol'
+    });
+  }
+  sceneMgr.setHorrorAtmosphere?.(true, 0.2, 1.0);
+  lab.setHorrorLighting?.(true, 1.0);
+  hud?.toast?.('☠️ LA TRAQUE COMMENCE ! Terminez 100 % des TPs sans vous faire attraper !', 'error');
+  syncVrWatchHud();
 }
 
 function startSurvivalMatchClient(snapshot) {
@@ -698,28 +1099,40 @@ function startSurvivalMatchClient(snapshot) {
 
   survivalState.inActiveMatch = true;
   survivalState.detained = false;
+  survivalState.inDefeatDetention = false;
   survivalState.hiddenRack = null;
   survivalState.hiddenSpot = null;
   survivalState.detentionModalOpen = false;
   survivalState.detentionMinimized = false;
+  survivalState.detentionCamIndex = 0;
   survivalState.jumpscareUntil = 0;
   survivalState.variationSession = new VariationTableSession();
+  applyRoomInstanceFilter(gameState.room, snapshot);
+
   if (vrManager?.isVrActive?.()) {
     vrManager.closeWorldSpatialPanel?.();
   }
   setModalActive(false, false, false);
-  player.setMovementLocked(false);
   teleportWithWorldMode(null, null, 'hall');
+  player.setMovementLocked(true);
   lab.setTeacherVisible?.(false);
-  if (snapshot?.ai) {
-    horrorTeacher.snapTo(snapshot.ai.x, snapshot.ai.z, snapshot.ai.yaw || 0);
-  }
+
+  const introAi = { x: 1.8, z: -1.2, yaw: -Math.PI / 2 };
+  survivalState.introAiPos = introAi;
+  horrorTeacher.snapTo(introAi.x, introAi.z, introAi.yaw);
+  horrorTeacher.setTargetState({ ...introAi, state: 'chase' });
   horrorTeacher.root.visible = true;
-  sceneMgr.setHorrorAtmosphere?.(true, 0.2, 1.0);
-  lab.setHorrorLighting?.(true, 1.0);
+
+  survivalState.introActive = true;
+  survivalState.introStartedAt = performance.now();
+  survivalState.introDurationMs = Math.max(2500, Number(snapshot?.introDurationMs) || 5600);
+
+  sceneMgr.setHorrorAtmosphere?.(true, 0.35, 0.9);
+  lab.setHorrorLighting?.(true, 0.85);
+  sfx.playSurvivalIntroAlarm?.();
   sfx.startHorrorAmbience?.();
   network.sendActivity('Survie : Traque du Professeur CIEL');
-  hud?.toast?.('☠️ LA TRAQUE COMMENCE ! Terminez 100 % des TPs sans vous faire attraper !', 'error');
+  syncSurvivalPanelMode();
   syncVrWatchHud();
 }
 
@@ -731,10 +1144,13 @@ function triggerLocalCaughtJumpscare(snapshot) {
   if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
     miniGameModal.close();
   }
+  survivalState.introActive = false;
+  hud?.hideSurvivalIntroOverlay?.();
   survivalState.hiddenRack = null;
   survivalState.hiddenSpot = null;
   survivalState.detained = true;
-  survivalState.detentionMinimized = false;
+  survivalState.inDefeatDetention = false;
+  survivalState.detentionMinimized = true;
   survivalState.jumpscareUntil = Date.now() + 1750;
   hud?.hideHidingOverlay?.();
   sfx.playJumpscareSound?.();
@@ -746,51 +1162,73 @@ function triggerLocalCaughtJumpscare(snapshot) {
     survivalState.jumpscareTimer = null;
     survivalState.jumpscareUntil = 0;
     hud?.hideJumpscareOverlay?.();
-    if (!survivalState.inActiveMatch || !joined) return;
-    teleportWithWorldMode(null, null, 'detention');
-    player.setMovementLocked(true);
-    network.sendActivity('En Heure de Colle (Tableaux de Variation)');
-    openDetentionTerminal();
+    if (!joined) return;
+    if (survivalState.inActiveMatch) {
+      network.sendActivity('En Salle de Colle 3D (Maths & POV)');
+      enterDetentionClassroom3D(false);
+    } else if (survivalState.inDefeatDetention) {
+      enterDetentionClassroom3D(true);
+    }
   }, 1750);
 }
 
-function endSurvivalMatchClient(ended, snapshot) {
-  if (survivalState.jumpscareTimer) {
-    clearTimeout(survivalState.jumpscareTimer);
-    survivalState.jumpscareTimer = null;
+function showSurvivalEndUi(endData) {
+  if (vrManager?.isVrActive?.()) {
+    vrManager.openWorldSpatialPanel('survival_end', { survivalEnd: endData });
+  } else {
+    if (endData.victory) {
+      setModalActive(true, false, true);
+    }
+    hud?.showSurvivalEndOverlay?.(endData);
   }
+  syncVrWatchHud();
+}
+
+function endSurvivalMatchClient(ended, snapshot) {
   if (survivalState.endTimer) {
     clearTimeout(survivalState.endTimer);
     survivalState.endTimer = null;
   }
-  const wasParticipating = survivalState.inActiveMatch || survivalState.detained || survivalState.inWaitingRoom;
+  const wasParticipating =
+    survivalState.inActiveMatch ||
+    survivalState.detained ||
+    survivalState.inWaitingRoom ||
+    survivalState.inDefeatDetention;
   survivalState.snapshot = snapshot || survivalState.snapshot;
+  survivalState.introActive = false;
   survivalState.inActiveMatch = false;
   survivalState.inWaitingRoom = false;
   survivalState.lobbyModalOpen = false;
   survivalState.hiddenRack = null;
   survivalState.hiddenSpot = null;
-  survivalState.jumpscareUntil = 0;
   survivalState.phase = 'ended';
 
   sfx.stopHorrorAmbience?.();
-  sceneMgr.setHorrorAtmosphere?.(false, 0, 1);
-  lab.setHorrorLighting?.(false, 1);
   if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
     miniGameModal.close();
   }
   hud?.hideSurvivalLobby?.();
+  hud?.hideSurvivalIntroOverlay?.();
   hud?.hideHidingOverlay?.();
-  hud?.hideJumpscareOverlay?.();
   hud?.hideDetentionModal?.();
+  hud?.hideDetention3dHud?.();
   hud?.hideSurvivalHud?.();
-  player.setMovementLocked(false);
 
   if (!wasParticipating) {
+    if (survivalState.jumpscareTimer) {
+      clearTimeout(survivalState.jumpscareTimer);
+      survivalState.jumpscareTimer = null;
+    }
+    survivalState.jumpscareUntil = 0;
+    hud?.hideJumpscareOverlay?.();
+    sceneMgr.setHorrorAtmosphere?.(false, 0, 1);
+    lab.setHorrorLighting?.(false, 1);
     horrorTeacher.root.visible = false;
     lab.setTeacherVisible?.(true);
     survivalState.detained = false;
+    survivalState.inDefeatDetention = false;
     survivalState.phase = 'idle';
+    player.setMovementLocked(false);
     return;
   }
 
@@ -800,27 +1238,6 @@ function endSurvivalMatchClient(ended, snapshot) {
   const survivorsCount = snapshot?.aliveCount ?? 0;
   const detainedCount = snapshot?.detainedCount ?? 0;
   const durationSec = Math.round(Number(ended?.durationSec) || 0);
-
-  if (victory) {
-    sfx.playHorrorVictory?.();
-    survivalState.detained = false;
-    horrorTeacher.root.visible = false;
-    lab.setTeacherVisible?.(true);
-    teleportWithWorldMode(null, null, 'hall');
-  } else {
-    sfx.playHorrorDefeat?.();
-    survivalState.detained = false;
-    const detCfg = survivalArena.getDetentionRoomConfig();
-    teleportWithWorldMode(detCfg.spawn, detCfg.teacherSpot, 'hall');
-    player.setBounds(detCfg.bounds);
-    player.setColliders(detCfg.colliders);
-    player.teleportTo(detCfg.spawn, detCfg.teacherSpot);
-    vrManager?.syncWorldTeleport?.(detCfg.spawn.x, detCfg.spawn.z, player.yaw);
-    lab.setTeacherVisible?.(false);
-    horrorTeacher.snapTo(detCfg.teacherSpot.x, detCfg.teacherSpot.z, -0.45);
-    horrorTeacher.setTargetState({ x: detCfg.teacherSpot.x, z: detCfg.teacherSpot.z, yaw: -0.45, state: 'chase' });
-    horrorTeacher.root.visible = true;
-  }
 
   const endData = {
     victory,
@@ -837,33 +1254,101 @@ function endSurvivalMatchClient(ended, snapshot) {
     onContinue: () => closeSurvivalEndCinematic()
   };
 
-  if (vrManager?.isVrActive?.()) {
-    vrManager.openWorldSpatialPanel('survival_end', { survivalEnd: endData });
-  } else {
-    setModalActive(true, false, true);
-    hud?.showSurvivalEndOverlay?.(endData);
+  if (victory) {
+    if (survivalState.jumpscareTimer) {
+      clearTimeout(survivalState.jumpscareTimer);
+      survivalState.jumpscareTimer = null;
+    }
+    survivalState.jumpscareUntil = 0;
+    hud?.hideJumpscareOverlay?.();
+    sceneMgr.setHorrorAtmosphere?.(false, 0, 1);
+    lab.setHorrorLighting?.(false, 1);
+    sfx.playHorrorVictory?.();
+    survivalState.detained = false;
+    survivalState.inDefeatDetention = false;
+    horrorTeacher.root.visible = false;
+    lab.setTeacherVisible?.(true);
+    if (survivalState.savedCameraMode) {
+      player.setCameraMode(survivalState.savedCameraMode);
+      survivalState.savedCameraMode = null;
+    }
+    player.setMovementLocked(false);
+    teleportWithWorldMode(null, null, 'hall');
+    showSurvivalEndUi(endData);
+    return;
   }
-  syncVrWatchHud();
+
+  sfx.playHorrorDefeat?.();
+  survivalState.detained = false;
+  survivalState.inDefeatDetention = true;
+  sceneMgr.setHorrorAtmosphere?.(true, 0.22, 0.9, 26);
+  lab.setHorrorLighting?.(true, 0.85);
+  lab.setTeacherVisible?.(false);
+  if (snapshot?.ai) {
+    horrorTeacher.snapTo(snapshot.ai.x, snapshot.ai.z, snapshot.ai.yaw || 0);
+    horrorTeacher.setTargetState({
+      x: snapshot.ai.x,
+      z: snapshot.ai.z,
+      yaw: snapshot.ai.yaw || 0,
+      state: snapshot.ai.state || 'patrol'
+    });
+  }
+  horrorTeacher.root.visible = true;
+
+  const remainingJumpscare = survivalState.jumpscareUntil - Date.now();
+  if (remainingJumpscare > 50) {
+    survivalState.endTimer = setTimeout(() => {
+      survivalState.endTimer = null;
+      survivalState.jumpscareUntil = 0;
+      hud?.hideJumpscareOverlay?.();
+      if (!joined || !survivalState.inDefeatDetention) return;
+      enterDetentionClassroom3D(true);
+      showSurvivalEndUi(endData);
+    }, remainingJumpscare);
+  } else {
+    survivalState.jumpscareUntil = 0;
+    hud?.hideJumpscareOverlay?.();
+    enterDetentionClassroom3D(true);
+    showSurvivalEndUi(endData);
+  }
 }
 
-function closeSurvivalEndCinematic() {
+function closeSurvivalEndCinematic({ skipSendReturn = false } = {}) {
   if (survivalState.endTimer) {
     clearTimeout(survivalState.endTimer);
     survivalState.endTimer = null;
   }
+  if (survivalState.jumpscareTimer) {
+    clearTimeout(survivalState.jumpscareTimer);
+    survivalState.jumpscareTimer = null;
+  }
   hud?.hideSurvivalEndOverlay?.();
+  hud?.hideDetention3dHud?.();
   if (vrManager?.isVrActive?.()) {
     vrManager.closeWorldSpatialPanel?.();
   }
+  sceneMgr.setHorrorAtmosphere?.(false, 0, 1);
+  lab.setHorrorLighting?.(false, 1);
   horrorTeacher.root.visible = false;
   lab.setTeacherVisible?.(true);
   survivalState.detained = false;
+  survivalState.inDefeatDetention = false;
   survivalState.inActiveMatch = false;
   survivalState.inWaitingRoom = false;
+  survivalState.introActive = false;
+  survivalState.jumpscareUntil = 0;
   survivalState.phase = 'idle';
+  remotePlayers.setInstanceFilter(null);
+  if (survivalState.savedCameraMode) {
+    player.setCameraMode(survivalState.savedCameraMode);
+    survivalState.savedCameraMode = null;
+  }
   player.setMovementLocked(false);
   teleportWithWorldMode(null, null, 'hall');
   setModalActive(false, false, false);
+  if (!skipSendReturn && isSurvivalInstanceRoom(gameState.room)) {
+    network.sendSurvivalReturn?.();
+  }
   network.sendActivity('Dans l’atelier');
 }
 
@@ -879,7 +1364,9 @@ function resetSurvivalClientFull() {
   survivalState.phase = 'idle';
   survivalState.inWaitingRoom = false;
   survivalState.inActiveMatch = false;
+  survivalState.introActive = false;
   survivalState.detained = false;
+  survivalState.inDefeatDetention = false;
   survivalState.hiddenRack = null;
   survivalState.hiddenSpot = null;
   survivalState.snapshot = null;
@@ -888,6 +1375,11 @@ function resetSurvivalClientFull() {
   survivalState.detentionMinimized = false;
   survivalState.jumpscareUntil = 0;
   survivalState.variationSession = null;
+  remotePlayers.setInstanceFilter(null);
+  if (survivalState.savedCameraMode) {
+    player.setCameraMode(survivalState.savedCameraMode);
+    survivalState.savedCameraMode = null;
+  }
   sfx.stopHorrorAmbience?.();
   sceneMgr.setHorrorAtmosphere?.(false, 0, 1);
   lab.setHorrorLighting?.(false, 1);
@@ -907,9 +1399,46 @@ function updateSurvivalLoop(dt, elapsed) {
     survivalArena.updateWaitingBoard(survivalState.snapshot);
     return;
   }
+
+  if (survivalState.inDefeatDetention) {
+    const snap = survivalState.snapshot;
+    sceneMgr.setHorrorAtmosphere?.(true, 0.22, 0.9, 26);
+    lab.setHorrorLighting?.(true, 0.85);
+    horrorTeacher.update(dt, elapsed);
+    survivalArena.updateDetentionClock?.(elapsed);
+    return;
+  }
+
   if (!survivalState.inActiveMatch) return;
 
   const snap = survivalState.snapshot;
+
+  if (survivalState.introActive) {
+    const progress = Math.min(
+      1,
+      Math.max(0, (performance.now() - survivalState.introStartedAt) / Math.max(1, survivalState.introDurationMs))
+    );
+    const shot = computeSurvivalIntroShot(progress, survivalState.introAiPos, player.position, elapsed);
+    sceneMgr.setHorrorAtmosphere?.(true, shot.redThreat, shot.flicker);
+    lab.setHorrorLighting?.(true, shot.flicker);
+    horrorTeacher.update(dt, elapsed);
+    if (vrManager?.isVrActive?.()) {
+      vrManager.updateWorldSpatialPanel?.({ survivalIntro: buildVrIntroState(progress, shot.phaseLabel) });
+    } else {
+      sceneMgr.camera.position.set(shot.camPos.x, shot.camPos.y, shot.camPos.z);
+      sceneMgr.camera.lookAt(shot.camLook.x, shot.camLook.y, shot.camLook.z);
+      hud?.updateSurvivalIntroOverlay?.({
+        phaseLabel: shot.phaseLabel,
+        briefingText: shot.briefingText,
+        progress
+      });
+    }
+    if (progress >= 1) {
+      finishSurvivalIntroCinematic();
+    }
+    return;
+  }
+
   const flicker =
     Math.sin(elapsed * 19.3) * Math.sin(elapsed * 7.1) > 0.72
       ? 0.34
@@ -924,13 +1453,19 @@ function updateSurvivalLoop(dt, elapsed) {
     Math.min(1, (14 - aiDist) / 12 + (aiState === 'chase' ? 0.42 : aiState === 'investigate' ? 0.18 : 0))
   );
 
-  sceneMgr.setHorrorAtmosphere?.(true, survivalState.detained ? 0.15 : threat, flicker);
+  sceneMgr.setHorrorAtmosphere?.(
+    true,
+    survivalState.detained ? 0.12 : threat,
+    survivalState.detained ? 0.92 : flicker,
+    survivalState.detained ? 26 : null
+  );
   lab.setHorrorLighting?.(true, flicker);
   horrorTeacher.update(dt, elapsed);
-  survivalArena.updateSurveillanceScreen(snap);
+  survivalArena.updateDetentionClock?.(elapsed);
 
-  if (survivalState.detained && survivalState.detentionModalOpen && !survivalState.detentionMinimized) {
-    hud?.updateDetentionSurveillance?.(snap || {}, currentMapData);
+  if (survivalState.detained && !vrManager?.isVrActive?.()) {
+    const payload = buildDetentionPayload(snap);
+    survivalArena.updateDetentionMathSheet(payload, false);
   }
 
   if (!survivalState.detained && survivalState.jumpscareUntil <= Date.now()) {
@@ -2074,6 +2609,18 @@ hud?.bindSurvivalHandlers?.({
   onDetentionOption: (idx) => submitDetentionOption(idx),
   onMinimizeDetention: () => minimizeDetentionTerminal(),
   onOpenDetention: () => openDetentionTerminal(),
+  onSkipSurvivalIntro: () => finishSurvivalIntroCinematic(),
+  onPrevDetentionCamera: () => cycleDetentionCamera(-1),
+  onNextDetentionCamera: () => cycleDetentionCamera(1),
+  onToggleEndInspect: (compact) => {
+    if (survivalState.inDefeatDetention) {
+      if (compact) {
+        hud?.showDetention3dHud?.(survivalState.activeCameraInfo || {});
+      } else {
+        hud?.hideDetention3dHud?.();
+      }
+    }
+  },
   onCloseEnd: () => closeSurvivalEndCinematic()
 });
 
@@ -2184,6 +2731,7 @@ network.on('pong', ({ onlineCount }) => {
 network.on('welcome', (msg) => {
   const requestedName = gameState.profile.name;
   notifiedNetError = false;
+  gameState.room = msg.room || gameState.room;
   gameState.setProfile(msg.profile);
   sessionDivineSpecialty = gameState.skin?.secretSkin
     ? ULTIMATE_SECRET_SKIN_ID
@@ -2194,6 +2742,7 @@ network.on('welcome', (msg) => {
   mainMenu?.renderSkinUi?.();
   hud?._refreshInGameSkinUi?.();
   lab.updateStationBadges(msg.profile.grades);
+  remotePlayers.setInstanceFilter(null);
   remotePlayers.setPeers(msg.peers);
   gameState.setRoomRoster(msg.roomRoster || []);
   gameState.setLeaderboard(msg.leaderboard || []);
@@ -2211,6 +2760,38 @@ network.on('welcome', (msg) => {
     hud.toast(`Multi-onglet détecté : connecté sous "${msg.profile.name}"`, 'info');
   }
   hud.toast(`Connecté en ${msg.room} (${msg.onlineCount} élève(s) en ligne)`, 'success');
+});
+
+network.on('room_switched', (msg) => {
+  if (!msg?.room) return;
+  gameState.room = msg.room;
+  if (msg.survivalState) {
+    survivalState.snapshot = msg.survivalState;
+    survivalState.phase = msg.survivalState.phase || 'idle';
+  }
+  if (!isSurvivalInstanceRoom(msg.room)) {
+    remotePlayers.setInstanceFilter(null);
+    if (survivalState.phase === 'ended' || survivalState.inDefeatDetention) {
+      closeSurvivalEndCinematic({ skipSendReturn: true });
+    }
+  }
+  remotePlayers.setPeers(msg.peers || []);
+  remotePlayers.syncLeaderboardRanks(gameState.leaderboard || []);
+  gameState.setRoomRoster(msg.roomRoster || []);
+  hud.setNetworkStatus({ state: 'connected', connected: true }, msg.onlineCount);
+  hud.clearChat();
+  (msg.chatHistory || []).forEach((m) => hud.appendChatMessage(m, false));
+  voiceChat.onRoomJoined(msg.peers || []);
+  if (survivalState.inWaitingRoom && msg.survivalState) {
+    survivalArena.updateWaitingBoard(msg.survivalState, true);
+    syncSurvivalPanelMode();
+  }
+  syncVrWatchHud();
+  if (isSurvivalInstanceRoom(msg.room)) {
+    hud.toast('🔒 Instance Survie isolée prête (participants uniquement).', 'info');
+  } else {
+    hud.toast(`🏫 Retour dans la salle principale ${msg.room} !`, 'success');
+  }
 });
 
 network.on('profile_updated', ({ profile }) => {
@@ -2449,7 +3030,7 @@ network.on('survival_tick', ({ state }) => {
   if (!state) return;
   survivalState.snapshot = state;
   survivalState.phase = state.phase || 'active';
-  if (survivalState.inActiveMatch && state.ai) {
+  if (survivalState.inActiveMatch && state.ai && !survivalState.introActive) {
     horrorTeacher.setTargetState({
       x: state.ai.x,
       z: state.ai.z,
@@ -2460,9 +3041,6 @@ network.on('survival_tick', ({ state }) => {
       sfx.playHorrorAlert?.();
     }
     survivalState.aiPrevState = state.ai.state;
-    if (survivalState.detained && !survivalState.detentionMinimized && vrManager?.isVrActive?.()) {
-      vrManager.updateWorldSpatialPanel?.({ detention: buildDetentionPayload(state) });
-    }
   }
 });
 
@@ -2619,13 +3197,34 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (joined && !isTyping && isDetentionSeatedActive()) {
+    if (e.code === 'ArrowLeft') {
+      e.preventDefault();
+      cycleDetentionCamera(-1);
+      return;
+    }
+    if (e.code === 'ArrowRight') {
+      e.preventDefault();
+      cycleDetentionCamera(1);
+      return;
+    }
+    if (e.code.startsWith('Digit') || e.code.startsWith('Numpad')) {
+      const optNum = Number(e.code.replace('Digit', '').replace('Numpad', ''));
+      if (optNum >= 1 && optNum <= 4) {
+        e.preventDefault();
+        submitDetentionOption(optNum - 1);
+        return;
+      }
+    }
+  }
+
   if (joined && !isTyping && survivalState.hiddenRack && e.code === 'KeyE' && !e.repeat) {
     e.preventDefault();
     toggleHidingInRack(survivalState.hiddenRack);
     return;
   }
 
-  if (!joined || modalOpen || isTyping) return;
+  if (!joined || modalOpen || isTyping || isDetentionSeatedActive() || survivalState.introActive) return;
 
   if (e.code === 'KeyE' && nearestTarget) {
     e.preventDefault();
@@ -2712,14 +3311,70 @@ function tryRaycastInteract(clientX, clientY) {
   return true;
 }
 
+function pickDetentionSurfaceAt(clientX, clientY) {
+  if (!joined || !isDetentionSeatedActive() || vrManager?.isVrActive?.()) return null;
+  const surfaces = getActiveWorldSurfaces();
+  if (!surfaces.length) return null;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const ndc = new THREE.Vector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1
+  );
+  raycaster.setFromCamera(ndc, sceneMgr.camera);
+  let best = null;
+  for (const surf of surfaces) {
+    if (!surf?.mesh || surf.mesh.visible === false) continue;
+    surf.mesh.updateWorldMatrix(true, false);
+    const hits = raycaster.intersectObject(surf.mesh, false);
+    if (hits.length > 0 && hits[0].uv) {
+      const btn = surf.hitTestUv?.(hits[0].uv);
+      if (btn && (!best || hits[0].distance < best.distance)) {
+        best = { surf, btn, uv: hits[0].uv, distance: hits[0].distance };
+      }
+    }
+  }
+  return best;
+}
+
+function updateDetentionSurfaceHover(clientX, clientY) {
+  const surfaces = getActiveWorldSurfaces();
+  const hit = pickDetentionSurfaceAt(clientX, clientY);
+  for (const surf of surfaces) {
+    surf.setHovered?.(hit && hit.surf === surf ? hit.btn.id : null);
+  }
+  if (!vrManager?.isVrActive?.() && isDetentionSeatedActive()) {
+    canvas.style.cursor = hit ? 'pointer' : '';
+  }
+  return hit;
+}
+
 let downPos = { x: 0, y: 0 };
 canvas.addEventListener('mousedown', (e) => {
   downPos = { x: e.clientX, y: e.clientY };
+  if (isDetentionSeatedActive() && !vrManager?.isVrActive?.() && e.button === 2) {
+    survivalState.detentionDraggingLook = true;
+    survivalState.detentionDragLast = { x: e.clientX, y: e.clientY };
+    return;
+  }
   if (vrManager?.isVrActive?.() && vrManager.simMode && e.button === 0) {
     vrManager.setSimInput({ mouseTrigger: true });
   }
 });
 canvas.addEventListener('mousemove', (e) => {
+  if (isDetentionSeatedActive() && !vrManager?.isVrActive?.()) {
+    if (survivalState.detentionDraggingLook) {
+      const dx = e.clientX - survivalState.detentionDragLast.x;
+      const dy = e.clientY - survivalState.detentionDragLast.y;
+      survivalState.detentionDragLast = { x: e.clientX, y: e.clientY };
+      survivalState.detentionLookYaw = Math.max(-0.55, Math.min(0.55, survivalState.detentionLookYaw - dx * 0.004));
+      survivalState.detentionLookPitch = Math.max(-0.45, Math.min(0.4, survivalState.detentionLookPitch - dy * 0.004));
+      applyDetentionPcCamera();
+    } else {
+      updateDetentionSurfaceHover(e.clientX, e.clientY);
+    }
+    return;
+  }
   if (document.pointerLockElement === canvas) return;
   lastCursorPos = { x: e.clientX, y: e.clientY };
   if (!joined || modalOpen || gameState.touchMode || vrManager?.isVrActive?.()) {
@@ -2730,16 +3385,18 @@ canvas.addEventListener('mousemove', (e) => {
 });
 canvas.addEventListener('mouseleave', () => {
   lastCursorPos = null;
+  survivalState.detentionDraggingLook = false;
   if (!vrManager?.isVrActive?.()) {
     setDesktopHoveredInteractable(null);
   }
 });
 window.addEventListener('blur', () => {
   lastCursorPos = null;
+  survivalState.detentionDraggingLook = false;
   setDesktopHoveredInteractable(null);
 });
 canvas.addEventListener('contextmenu', (e) => {
-  if (vrManager?.isVrActive?.() && vrManager.simMode) {
+  if ((vrManager?.isVrActive?.() && vrManager.simMode) || isDetentionSeatedActive()) {
     e.preventDefault();
   }
 });
@@ -2750,11 +3407,24 @@ window.addEventListener('mousemove', (e) => {
   }
 });
 window.addEventListener('mouseup', (e) => {
+  if (e.button === 2) {
+    survivalState.detentionDraggingLook = false;
+  }
   if (vrManager?.simMode && e.button === 0) {
     vrManager.setSimInput({ mouseTrigger: false });
   }
 });
 canvas.addEventListener('mouseup', (e) => {
+  if (isDetentionSeatedActive() && !vrManager?.isVrActive?.() && e.button === 0) {
+    const dragDist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+    if (dragDist <= 8) {
+      const hit = pickDetentionSurfaceAt(e.clientX, e.clientY);
+      if (hit?.btn) {
+        hit.btn.onClick?.(hit.uv);
+      }
+    }
+    return;
+  }
   if (!joined || modalOpen || e.button !== 0 || gameState.touchMode) return;
   if (vrManager?.isVrActive?.() && vrManager.simMode) return;
   const isLocked = document.pointerLockElement === canvas;
@@ -2795,7 +3465,11 @@ sceneMgr.addUpdater((dt, elapsed) => {
   if (vrOn) {
     vrManager.update(dt, elapsed);
   }
-  const step = vrOn || activeCinematic ? null : player.update(dt);
+  const seatedDet = isDetentionSeatedActive();
+  const step = vrOn || activeCinematic || survivalState.introActive || seatedDet ? null : player.update(dt);
+  if (seatedDet && !vrOn) {
+    applyDetentionPcCamera();
+  }
   if (activeCinematic && !vrOn) {
     if (activeCinematic.phase === 'intro') {
       const stepProgress = Math.min(
@@ -2893,26 +3567,28 @@ sceneMgr.addUpdater((dt, elapsed) => {
     const best = bestPrimary || bestProp;
     nearestTarget = best;
 
-    if (!vrOn && !gameState.touchMode && elapsed - lastHoverPollAt >= 0.08) {
+    if (!vrOn && !gameState.touchMode && !seatedDet && !survivalState.introActive && elapsed - lastHoverPollAt >= 0.08) {
       lastHoverPollAt = elapsed;
       if (document.pointerLockElement === canvas) {
         setDesktopHoveredInteractable(getRayHitInteractable(null, null));
       } else if (lastCursorPos) {
         setDesktopHoveredInteractable(getRayHitInteractable(lastCursorPos.x, lastCursorPos.y));
       }
-    } else if (vrOn || gameState.touchMode) {
+    } else if (vrOn || gameState.touchMode || seatedDet || survivalState.introActive) {
       hoveredInteractable = null;
-      canvas.style.cursor = '';
+      if (!seatedDet) {
+        canvas.style.cursor = '';
+      }
     }
 
-    const promptTarget = activeCinematic
+    const promptTarget = activeCinematic || seatedDet || survivalState.introActive
       ? null
       : (!vrOn && document.pointerLockElement === canvas && hoveredInteractable)
         ? hoveredInteractable
         : best;
     hud?.setInteractPrompt?.(promptTarget);
-    crosshairEl?.classList.toggle('interact-ready', Boolean(!activeCinematic && (hoveredInteractable || best)));
-    touchControls?.setInteractTarget?.(activeCinematic ? null : best);
+    crosshairEl?.classList.toggle('interact-ready', Boolean(!activeCinematic && !seatedDet && !survivalState.introActive && (hoveredInteractable || best)));
+    touchControls?.setInteractTarget?.(activeCinematic || seatedDet || survivalState.introActive ? null : best);
   }
 });
 

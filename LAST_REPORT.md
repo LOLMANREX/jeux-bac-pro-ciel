@@ -1,100 +1,127 @@
-# 📋 Rapport Technique — Atelier CIEL 3D `v4.18`
+# Rapport Technique — Mise à jour v4.20 : Instance Isolée Survie Horreur, Cinématique d'Intro & Salle de Colle 3D avec Feuille Interactive et Caméra POV Coéquipiers Live
 
-**Mise à jour :** `v4.18 - Adaptation Complète de Tous les TPs en VR WebXR & Panneaux Spatiaux Interactifs`  
-**Date :** 16/11/2026  
-**Objectifs :**
-1. Auditer tous les Travaux Pratiques (`oscilloscope`, `soldering`, `electronics`, `antivirus`, `vmvlan`, `patchrack`, `hardware`, `audiovisual`, `studio`) ainsi que le dialogue du Professeur CIEL et lever tous les blocages/pauses VR.
-2. Déployer un système complet de **panneaux spatiaux 3D interactifs** (`createTpSpatialPanel` / `createVRStationTerminalPanel`) haute lisibilité (1280×800), utilisable au **rayon laser des contrôleurs (`selectstart`)** ET par **toucher direct avec les mains articulées (`hand-tracking`)**, avec clavier virtuel AZERTY 3D, presets CLI, sliders tactiles/laser, vues caméra/zoom/pivot VR et bouton permanent **`✕ Quitter le TP`**.
-3. Optimiser l'ergonomie et la précision 3D de chaque établi en VR (sérigraphie des pastilles/points de test directement sur les cartes PCB 3D, maintien de gâchette sans surcharge de rendu, potentiomètre thermique, hitboxes élargies sur baie RJ45 24 ports, synchronisation bidirectionnelle faders DMX/Studio).
-4. Garantir la sauvegarde immédiate des notes jusqu'à `20/20` (`POST /api/account/save` et WebSocket), la mise à jour de la **CIEL Watch** (moyenne `/20` et TPs validés), ainsi que la **Cinématique d'Ascension « Dieu du Bac Pro CIEL »**, le choix de spécialité divine en VR, le Cycle de Prestige et le déblocage du Skin Secret Ultime (`architecte_supreme`).
-5. Mettre à jour le versionning (`vite.config.js`, `src/ui/ChangelogModal.js`), enrichir `tests/vr.test.js`, `tests/minigame-logic.test.js` et `tests/celebration-debug.test.js`, valider tous les tests et le build Vite sans erreur, puis publier sur `origin main`.
+## 1. Diagnostic
 
----
+En v4.19, le mode Survie Horreur fonctionnait directement à l'intérieur de la salle publique `plateau-u300`, imposait un minimum de 2 joueurs pour lancer une partie, démarrait la traque sans phase d'introduction dédiée, et basculait les joueurs capturés dans une modale 2D bloquante affichant uniquement un plan radar simplifié.
 
-## 🔍 1. Diagnostic & Causes Identifiées
+Quatre limites principales ont été identifiées et corrigées dans cette mise à jour v4.20 :
 
-### 1.1 Blocages explicites des TPs et du Professeur CIEL en VR (`src/main.js`, `src/world/SceneManager.js`)
-- `openTp()` (`src/main.js`) et `interactWith()` (`src/main.js`) court-circuitaient l'ouverture des ateliers et du dialogue Professeur CIEL dès que `vrManager?.isVrActive?.()` retournait `true`.
-- Dans `SceneManager.start()`, la condition `if (this.customRenderScene && !isXr)` empêchait tout rendu des scènes d'établis 3D (`customRenderScene`) pendant une session WebXR (`renderer.xr.isPresenting || this.vrPresenting`).
+1. **Absence d'isolation d'instance et impossibilité de lancer en solo** :
+   - `server/wsHub.js` gérait la partie Survie dans le salon courant (`plateau-u300`), rendant visibles et audibles les joueurs hors mini-jeu.
+   - `SURVIVAL_MIN_PLAYERS` était fixé à `2` dans `src/world/SurvivalEngine.js` et `server/wsHub.js`, bloquant le lancement et le test à 1 joueur.
+   - Aucune bascule automatique de salle (`room_switched` -> `survival-game-...` puis retour vers `plateau-u300`) n'isolait la session Survie ni ne filtrait les pairs sur le client (`src/world/RemotePlayers.js`, `src/main.js`).
 
-### 1.2 Limites du panneau spatial TP et des interactions WebXR (`src/vr/VRHudPanel.js`, `src/vr/VRManager.js`, `src/minigames/Workbench3DHost.js`)
-- `createTpSpatialPanel()` plafonnait les outils à 5 (masquant les outils 6 et 7 de `PcHardwareGame`), plafonnait `drawerControls` à 8 boutons (coupant le 9e bouton d'`AntivirusGame`, les presets de `VlanConfigGame` et tous les sliders audio/DMX/studio), ignorait `[data-slot]` (`PatchPanelGame`) et `[data-sel]` (`DmxLightingGame`), et sautait la génération des `hitBoxes` sans `<canvas>` DOM.
-- Aucune prise en charge de saisie texte/CLI (`<input type="text">`) ni de sliders continus draggables au laser ou au doigt n'était disponible en VR.
-- `VRManager._initXrControllers()` ne souscrivait pas aux événements WebXR `selectstart` / `selectend`, ne gérait pas le toucher direct sur les panneaux spatiaux TP/Dialogue/Ascension (`_updateSpatialPanelDirectTouch`), et `Workbench3DHost.destroy()` parcourait toute la scène sans exclure explicitement la sous-arborescence `vr-rig`.
+2. **Démarrage abrupt sans mise en scène horrifique PC / VR** :
+   - Aucune cinématique d'introduction horrifique ne précédait la reprise de contrôle au point d'apparition (coupure brutale d'éclairage, grésillements électriques et alarme, cadrage progressif sur le Professeur CIEL, briefing Survie).
+   - En WebXR, la caméra d'un casque ne pouvant pas être déplacée arbitrairement avec un travelling classique sans risque de nausée, un cadrage spatial dédié et un panneau 3D `survival_intro` étaient nécessaires.
 
-### 1.3 Modales HTML/DOM invisibles dans le casque (`src/ui/DialogueModal.js`, `src/main.js`, `src/minigames/MiniGameModal.js`)
-- Sous `body.vr-presenting`, les modales DOM (`DialogueModal`, dialogue d'Ascension `ascension-cinematic-dialogue`, tags flottants HTML des PCBs) sont masquées ou illisibles dans le casque.
-- Un enchaînement de fermeture dans `MiniGameModal.finishTp()` pouvait afficher l'écran de résultat par-dessus une fermeture immédiate déclenchée par l'Ascension solo 20/20.
+3. **Salle d'heure de colle limitée à une fenêtre 2D et sans vraie vue subjective** :
+   - La détention utilisait `#survival-detention-modal` en 2D par-dessus la scène 3D au lieu de placer physiquement l'élève à un bureau 3D face à un tableau.
+   - Les exercices de tableaux de variation (`src/minigames/VariationTableGame.js`) n'étaient pas rendus sur une feuille 3D interactive posée sur le bureau ni interactifs au pointeur/doigt en VR.
+   - L'écran de surveillance de la salle de colle n'affichait qu'une minimap 2D de points au lieu d'un vrai flux temps réel à la première personne (POV) rendu par `THREE.WebGLRenderTarget` depuis la position et la rotation du coéquipier survivant (avec bascule Caméra Précédente / Suivante).
+
+4. **Compatibilité WebXR du rendu hors-écran (`WebGLRenderTarget`)** :
+   - Sous WebXR (`renderer.xr.enabled = true && isPresenting`), Three.js force la caméra XR lors d'un appel `renderer.render()`. Sans désactivation temporaire de `renderer.xr.enabled` dans un `renderToTarget` sécurisé (`src/world/SceneManager.js`), le rendu POV sur la texture du tableau noir échouait ou cassait le framebuffer VR.
 
 ---
 
-## 🛠️ 2. Modifications Fichier par Fichier
+## 2. Modifications fichier par fichier
 
-### [`src/vr/VRHudPanel.js`](file:///opt/atelier-dev/src/vr/VRHudPanel.js)
-- **`createWristHudPanel` :** Ajout de `completedCount` et `totalTps` dans l'état et affichage permanent `${avgDisplay} • ${doneCnt}/${totalCnt} • ${xp} XP` sur la montre **CIEL Watch**.
-- **`createTpSpatialPanel` / `createVRStationTerminalPanel` :**
-  - Passage en canvas haute netteté **`1280×800`** (`1.38m × 0.86m`), découplage total des `hitBoxes` vis-à-vis de `ctx` (fonctionnement complet sous Node.js), et coalescence des redessins non structurels (>= 45 ms).
-  - Support complet de 4 modes spatiaux : **`workbench`**, **`result`**, **`dialogue`** (Professeur CIEL + bulletin de notes 3×3 + jusqu'à 6 choix) et **`ascension`** (discours solennel, collection des 5 voies divines, compte à rebours, 5 boutons de spécialité, bouton Applaudir).
-  - Barre caméra VR intégrée (`📷 Vue`, `🔍−`, `🔍+`, `↻ Pivot`), grille outils multi-lignes jusqu'à 10 outils, actions, pagination `◀ / ▶`, **sliders interactifs à piste glissable**, onglets **`🎛️ Contrôles`** / **`⌨️ Clavier / CLI`** avec clavier virtuel AZERTY complet, presets rapides et journal terminal, plus bouton permanent **`✕ Quitter le TP`** / **`✕ Fermer`**.
-  - Ajout de `placeRelativeToCamera(camera, dist, yOffset)`.
+### Serveur & Synchronisation Temps Réel
+- **`server/wsHub.js`** :
+  - Export de `SURVIVAL_ROOM_PREFIX = 'survival-game-'` et `isSurvivalRoom(rawRoom)`.
+  - Ajout de `pendingSurvivalByOrigin`, `resolveOrCreatePendingSurvivalRoom(originRoom)`, `moveClientToRoom(ws, state, targetRoom)` (diffusion `player_left` dans l'ancienne salle, `room_switched` au client déplacé avec `originRoom`, `peers`, `roomRoster`, `chatHistory` et `survivalState`, puis `player_joined` dans la nouvelle salle), `returnClientFromSurvival(ws, state)` et `cleanupEmptySurvivalRoom(roomId)`.
+  - Passage du défaut `minPlayers` de `getSurvivalController()` à `1`, `graceMs` à `6500` ms et `introDurationMs` à `5600` ms.
+  - Mise à jour de `survival_join`, `survival_leave`, `survival_ready`, ajout du message `survival_return`, retour automatique de tous les clients vers `originRoom || 'plateau-u300'` dans `finishSurvivalMatchInRoom()` après le délai de fin de partie (15 000 ms par défaut), nettoyage à la déconnexion (`ws.on('close')`), et exclusion des salles `survival-game-*` dans `getRoomsSummary()`.
+- **`src/core/network.js`** :
+  - Mise à jour de `room_switched` pour synchroniser `this.pendingJoin.room = msg.room` lors des bascules automatiques vers/depuis l'instance Survie.
+  - Ajout de `sendSurvivalReturn()` émettant `{ type: 'survival_return' }`.
 
-### [`src/world/SceneManager.js`](file:///opt/atelier-dev/src/world/SceneManager.js)
-- Suppression du blocage `!isXr` sur `if (this.customRenderScene)` dans `start()`, exécution isolée de `alwaysUpdaters`, protection `autoClear`, `setClearColor` et réinitialisation de `RenderTarget` non-XR avant `renderer.render(this.customRenderScene, this.camera)`.
+### Logique Survie, Isolation Client & Cinématique d'Introduction
+- **`src/world/SurvivalEngine.js`** :
+  - Passage de `SURVIVAL_MIN_PLAYERS` de `2` à `1`.
+  - Ajout de `introDurationMs` (5600 ms par défaut, configurable via options) dans `SurvivalMatchController` avec exposition de `introDurationMs` et `introActive` dans `getPublicSnapshot(nowMs)`.
+- **`src/world/RemotePlayers.js`** :
+  - Ajout de `setInstanceFilter(allowedIds)` (filtre et purge immédiatement les pairs absents de l'instance Survie dans `upsertPeer`/`movePeer`).
+  - Ajout de `getPeerPoseForPov(id)` (expose position, yaw, `vrData`, activité et `zoneLabel`) et `setPeerPovHidden(id, hidden)` (masque proprement l'avatar observé pendant le rendu de sa propre caméra POV sans altérer son état normal).
+- **`src/core/audio.js`** :
+  - Ajout de `playElectricCrackle(delaySec, duration, volume)` (bruit blanc filtré passe-bande pour grésillements électriques).
+  - Ajout de `playSurvivalIntroAlarm()` (chute d'alimentation, salves de grésillements électriques, impulsions d'alarme bitonale et impact sub-grave).
+- **`src/world/SceneManager.js`** :
+  - Ajout de `beforeRenderCallbacks`, `addBeforeRender(fn)`, `removeBeforeRender(fn)` exécutés juste avant le rendu principal dans `start()`.
+  - Ajout de `renderToTarget(renderTarget, virtualCamera, opts)` gérant la sauvegarde/restauration de `renderer.getRenderTarget()`, `renderer.xr.enabled = false`, `renderer.shadowMap.autoUpdate = false`, `hiddenObjects`, l'éclairage (`ambientBoost`, `flashlightPose`) et `fogFar` dans un bloc `try ... finally`.
+  - Amélioration de `setHorrorAtmosphere(active, threat, flicker, fogFarOverride)` pour l'éclairage rouge/tamisé progressif.
 
-### [`src/minigames/Workbench3DHost.js`](file:///opt/atelier-dev/src/minigames/Workbench3DHost.js)
-- Enrichissement de `extractDrawerControls()` pour capturer `<button>`, `[data-slot]`, `[data-sel]`, `[data-fix-card]`, `[data-cmd]`, transformer les `<input type="range">` en sliders VR continus (`kind: 'slider'`) et exposer `<input type="text">` / `<form>` vers le clavier spatial VR (`textInput`) avec journal `#cli-history`.
-- Ajout de `setVrExtras(...)`, transmission des vues caméra (`setCameras`, `setCameraView`, `resetCameraView` via `vrBridge.onCameraPresetChange`) et protection du sous-arbre `vr-rig` / `__isVrRig` lors du `destroy()`.
+### Salle de Colle 3D, Feuille Interactive & Caméra POV Live
+- **`src/minigames/VariationTableGame.js`** :
+  - Ajout de `getVariationSheetHitBoxes(width, height)` et `drawVariationWorksheetCanvas(ctx, width, height, detentionSnapshot, hoveredId)` dessinant une feuille A4 haute résolution sur le pupitre 3D avec énoncé, tableau de variation vectoriel et 4 boutons de choix (`sheet_opt_0`..`sheet_opt_3`) + état de survol.
+- **`src/world/SurvivalArena3D.js`** :
+  - Export de `computeSurvivalIntroShot(progress, aiPos, spawnPos, elapsed)` calculant l'interpolation caméra PC (cadre d'alarme initial -> travelling vers le Professeur CIEL -> retour sur le point d'apparition), le niveau de scintillement/teinte rouge et le texte de briefing.
+  - Export de `getDetentionCameraHitBoxes(width, height, kind)` pour les consoles de changement de caméra sur le bureau (`desk`) et sur le tableau (`board`).
+  - Reconstruction complète de `detGroup` (`detention-classroom-3d`) en véritable salle d'heure de colle 3D : sol, plinthes, 3 pupitres et chaises d'élèves, lampe de bureau allumée, horloge murale animée (`updateDetentionClock`), fenêtre à barreaux, grand tableau avant avec craies/brosse.
+  - Intégration sur le pupitre du joueur de `mathSheetMesh` (feuille interactive inclinée) et `deskCamMesh` (pupitre caméra `◀ / ▶`), et sur le tableau du grand écran `survMonitor` alimenté en direct par `povRenderTarget = new THREE.WebGLRenderTarget(640, 360)` et `povCamera` (basculable avec `setLivePovActive`) ainsi que du bandeau interactif `boardCamMesh`.
+  - Exposition de `updateDetentionMathSheet`, `updateDetentionCameraBar`, `getDetentionInteractiveSurfaces(handlers)` et `getDetentionRoomConfig()` (avec `spawn` assis devant le pupitre et `pcEye`).
 
-### [`src/vr/VRManager.js`](file:///opt/atelier-dev/src/vr/VRManager.js)
-- Ajout des écouteurs XR **`selectstart`** / **`selectend`** sur les contrôleurs avec file de clic sous-trame (`xrSelectPressed` / `xrSelectQueued`).
-- Amélioration de `attachTpContext()`, `_applyTpCameraPose()`, `adjustTpZoom()`, `adjustTpOrbit()`, `applyTpCameraPose()` : positionnement confortable face au joueur (~1.24 m au-dessus de la ligne de visée de l'établi) sans occlure la paillasse, et inspection zoom/orbite via boutons ou joysticks VR.
-- Support du **drag continu de sliders au rayon laser** (`panelDrag`) et du **toucher direct par index des deux mains** (`_updateSpatialPanelDirectTouch`) sur `tpPanel` et `worldPanel`.
-- Ajout de `openWorldSpatialPanel()`, `updateWorldSpatialPanel()` et `closeWorldSpatialPanel()` pour le Professeur CIEL et l'Ascension.
+### VR WebXR, HUD & Orchestration Client
+- **`src/vr/VRHudPanel.js`** :
+  - Ajout du mode `survival_intro` avec barre de progression, consigne horreur et bouton `vr_surv_intro_skip`.
+  - Mise à jour de `survival_lobby` pour `minPlayers` à `1`.
+  - Enrichissement du mode `detention` avec affichage `camLabel` et boutons interactifs `vr_dt_cam_prev` / `vr_dt_cam_next`.
+- **`src/vr/VRManager.js`** :
+  - Support de `options.getWorldInteractiveSurfaces` dans `_updateSlotRayAndInteract` (raycast laser + gâchette `selectstart`) et via `_updateWorldSurfacesDirectTouch` (toucher direct du bout de l'index en hand-tracking dans l'espace local du mesh 3D).
+  - Ajout de `applySurvivalIntroPose(x, z, lookTarget)` pour aligner la posture VR en sécurité face au Professeur CIEL sans travelling brutal.
+- **`index.html`**, **`src/styles/main.css`**, **`src/ui/HudManager.js`** :
+  - Ajout de `#survival-intro-overlay` (`#survival-intro-skip-btn`), `#survival-detention-3d-hud` (`#detention-3d-cam-prev`, `#detention-3d-cam-next`), `#survival-end-inspect-btn` (toggle vue compacte `.is-compact`) et mise à jour des libellés lobby à 1 joueur minimum tout en conservant `#survival-detention-modal` et `#detention-surveillance-canvas`.
+  - Méthodes `HudManager`: `showSurvivalIntroOverlay`, `updateSurvivalIntroOverlay`, `hideSurvivalIntroOverlay`, `showDetention3dHud`, `hideDetention3dHud`.
+- **`src/main.js`** :
+  - Gestion de `room_switched` et `applyRoomInstanceFilter` (synchronisation stricte des pairs et de la voix de proximité avec les participants de l'instance Survie courante).
+  - Pilotage de la cinématique d'intro dans `startSurvivalMatchClient` et `updateSurvivalLoop` (`sfx.playSurvivalIntroAlarm()`, chute lumineuse, travelling PC / `applySurvivalIntroPose` + panneau spatial `survival_intro` VR).
+  - Pilotage de la salle de colle 3D via `enterDetentionClassroom3D`, `renderDetentionLivePov` (enregistré via `sceneMgr.addBeforeRender` pour rendre le POV temps réel du coéquipier survivant ciblé, ou du Professeur CIEL / caméra rotative U300 en solo), raycasting souris PC + raccourcis clavier `1..4` / `ArrowLeft` / `ArrowRight` / clic-droit pour regarder autour depuis le bureau, et envoi de `network.sendSurvivalReturn()` en sortie de partie.
 
-### [`src/minigames/MiniGameModal.js`](file:///opt/atelier-dev/src/minigames/MiniGameModal.js) & [`src/ui/DialogueModal.js`](file:///opt/atelier-dev/src/ui/DialogueModal.js)
-- **`MiniGameModal.js` :** Garde `_isOpen` dans `finishTp()` / `close()`, transmission de `onCameraPresetChange` et `tpId` dans `__vrBridge`, et extraction des lignes de synthèse (`summaryLines`) pour l'écran de résultat VR.
-- **`DialogueModal.js` :** Support natif VR via `vrManager.openWorldSpatialPanel('dialogue', ...)` pour tous les nœuds (accueil, conseils techniques, téléportation vers atelier, bulletin détaillé `vrGrades`).
-
-### Adaptation des Établis 3D (`src/minigames/*.js`)
-- **[`SolderingGame.js`](file:///opt/atelier-dev/src/minigames/SolderingGame.js) :** Sérigraphie 3D des pastilles directement sur `pcbCanvas`, limitation de cadence `refreshHud()` dans `onHoldTick`, et `setVrExtras` avec potentiomètre `260–420 °C` et statut des pastilles.
-- **[`OscilloscopeGame.js`](file:///opt/atelier-dev/src/minigames/OscilloscopeGame.js) :** Sérigraphie `GND / TP1 / TP2 / TP3` sur le PCB, `dragPlane` frontal sur les molettes, et `setVrExtras` (sliders Trigger/VOLTS-DIV/TIME-DIV + sélecteurs de sondage).
-- **[`PcHardwareGame.js`](file:///opt/atelier-dev/src/minigames/PcHardwareGame.js) :** Nettoyage strict des timers de séquence POST à la destruction/reset (`clearPostTimers`, garde `destroyed`) et contrôles rapides VR (`setVrExtras`).
-- **[`PatchPanelGame.js`](file:///opt/atelier-dev/src/minigames/PatchPanelGame.js) :** Hitboxes 3D élargies sur les 24 ports panneau et 24 ports switch pour le laser VR, libellés T568B actifs et raccourcis du cahier de brassage via `setVrExtras`.
-- **[`VlanConfigGame.js`](file:///opt/atelier-dev/src/minigames/VlanConfigGame.js) :** Correction des IDs caméra (`'overview'`, `'campus'`), marquage `data-active` des boutons CLI et presets/historique CLI via `setVrExtras`.
-- **[`DmxLightingGame.js`](file:///opt/atelier-dev/src/minigames/DmxLightingGame.js) & [`StudioRegieGame.js`](file:///opt/atelier-dev/src/minigames/StudioRegieGame.js) :** Synchronisation en temps réel de `refreshDrawerControls()` depuis `syncLiveUiWithoutRebuild()`, métadonnées `data-vr-label` / `data-vr-unit` / `data-active` et bannière d'état Audio/Cue.
-
-### [`src/main.js`](file:///opt/atelier-dev/src/main.js)
-- Suppression des blocages temporaires VR dans `openTp()` et `interactWith()`.
-- Injection de `vrManager` dans `openTeacherDialogue()`, ajout de `syncVrWatchHud()` (actualisé dans la boucle en jeu, en pause TP et sur `score_recorded`, `profile_updated`, `profile_reset`).
-- Câblage complet en VR spatial de `runWorldCelebration()`, `runAscensionPhase()`, `endAscensionCinematic()` et `secret_skin_unlocked` (sans lévitation caméra dans le casque).
-
-### Versionning, Changelog & Tests ([`vite.config.js`](file:///opt/atelier-dev/vite.config.js), [`src/ui/ChangelogModal.js`](file:///opt/atelier-dev/src/ui/ChangelogModal.js), `tests/`)
-- Mise à jour vers **`v4.18 - Adaptation Complète de Tous les TPs en VR WebXR & Panneaux Spatiaux Interactifs`**, ajout de l'entrée datée `v4.18` en haut de `CHANGELOG_RELEASES` et passage de `v4.17` en `'HISTORIQUE'`.
-- Ajout des tests VR et logiques dans [`tests/vr.test.js`](file:///opt/atelier-dev/tests/vr.test.js), [`tests/minigame-logic.test.js`](file:///opt/atelier-dev/tests/minigame-logic.test.js) et mise à jour des assertions de version dans [`tests/celebration-debug.test.js`](file:///opt/atelier-dev/tests/celebration-debug.test.js).
+### Versioning, Changelog & Tests
+- **`vite.config.js`** et **`src/ui/ChangelogModal.js`** :
+  - Passage de `__APP_VERSION__` et `APP_VERSION` à `v4.20 - Instance Isolée Survie, Cinématique Intro & Salle de Colle 3D POV Live`.
+  - Ajout de l'entrée datée `17/11/2026` (`tag: 'DERNIÈRE MÀJ'`) tout en haut de `CHANGELOG_RELEASES` et passage de `v4.19` à `'HISTORIQUE'`.
+- **`tests/celebration-debug.test.js`** :
+  - Mise à jour de l'assertion de version vers `v4.20` et vérification de présence des nouveaux IDs DOM (`survival-intro-overlay`, `survival-intro-skip-btn`, `survival-detention-3d-hud`, `detention-3d-cam-prev`, `detention-3d-cam-next`, `survival-end-inspect-btn`).
+- **`tests/survival-horror.test.js`** :
+  - Mise à jour des assertions `SURVIVAL_MIN_PLAYERS === 1` et ajout des tests pour le lancement solo 1 joueur, `introDurationMs` / `introActive`, l'isolation WebSocket totale entre `survival-game-*` et `plateau-u300`, le retour manuel (`survival_return`) et automatique (`postEndResetMs`), `computeSurvivalIntroShot`, `drawVariationWorksheetCanvas` / `getVariationSheetHitBoxes`, les surfaces 3D de la salle de colle, `RemotePlayersManager.setInstanceFilter` / `getPeerPoseForPov` / `setPeerPovHidden`, `sfx.playSurvivalIntroAlarm`, et `VRHudPanel` modes `survival_intro` & `detention`.
+- **`tests/vr.test.js`** :
+  - Ajout du test `VR WebXR v4.20` validant `SceneManager.renderToTarget` pendant une session WebXR active (`xr.enabled` / `xr.isPresenting`), la sélection laser contrôleur + toucher direct main articulée sur les surfaces 3D de la salle de colle, `applySurvivalIntroPose` et le panneau spatial `survival_intro`.
 
 ---
 
-## 🧪 3. Résultats des Tests & Build
+## 3. Résultats tests/build
 
-Vérifications exécutées après la dernière modification de code :
-- **`node --test --test-force-exit tests/*.test.js` :** `exit code 0` — **66 tests**, **66 réussis**, **0 échec**, 0 ignoré (`10557.46ms`).
-- **`npm test` :** `exit code 0` — **66 tests**, **66 réussis**, **0 échec**, 0 ignoré (`10783.07ms`, sans `--test-force-exit`, aucun timer ni socket ouvert).
-- **`npm run build` (`vite v6.4.6`) :** `exit code 0` — **51 modules transformés**, build `dist/` terminé en `11.38s` (`dist/admin.html` `15.26 kB`, `dist/index.html` `58.73 kB`, `dist/assets/admin-BzkkMmhh.css` `20.00 kB`, `dist/assets/main-DglBUtOS.css` `96.27 kB`, `dist/assets/admin-Df5uDrLp.js` `93.98 kB`, `dist/assets/LabBuilder-D3undD6i.js` `168.18 kB`, `dist/assets/three-CFxLWJhX.js` `523.72 kB`, `dist/assets/main-BimI_ES1.js` `638.38 kB`).
-- **Contrôles de conformité :** `0` occurrence de `"Fortin"`, `0` commentaire ajouté en JS/CSS/HTML, `server/data/map.json`, `server/data/db.json` et `server/data/accounts.json` intacts.
+- **`node --test --test-force-exit tests/*.test.js`** : **75 tests, 75 réussis (`pass 75`), 0 échec (`fail 0`)** en ~12,68 s.
+- **`npm test`** (`node --test tests/*.test.js`, sans `--test-force-exit`) : **75 tests, 75 réussis (`pass 75`), 0 échec (`fail 0`)** en ~13,05 s, confirmant l'absence de tout socket ou timer resté ouvert.
+- **`npm run build`** (`vite build`, v6.4.6) : **succès complet** en 12,00 s (`54 modules transformed`), sortie générée :
+  - `dist/admin.html` : 15.26 kB (`gzip: 3.76 kB`)
+  - `dist/index.html` : 67.84 kB (`gzip: 14.13 kB`)
+  - `dist/assets/admin-BzkkMmhh.css` : 20.00 kB (`gzip: 4.69 kB`)
+  - `dist/assets/main-B6QfIY3X.css` : 107.51 kB (`gzip: 21.77 kB`)
+  - `dist/assets/admin-P9AsDWA1.js` : 94.42 kB (`gzip: 25.54 kB`)
+  - `dist/assets/LabBuilder-BmQVUnlH.js` : 177.25 kB (`gzip: 53.22 kB`)
+  - `dist/assets/three-_5pHxIMn.js` : 523.73 kB (`gzip: 132.75 kB`)
+  - `dist/assets/main-DU7fLssM.js` : 752.17 kB (`gzip: 230.32 kB`)
+- **Conformité du dépôt** :
+  - Recherche `fortin` (insensible à la casse) : 0 occurrence.
+  - Vérification commentaires ajoutés dans `git diff` (`index.html`, `server/`, `src/`, `tests/`, `vite.config.js`) : 0 occurrence (`COMMENT_HITS: 0`).
+  - Fichiers de données `server/data/map.json`, `server/data/db.json` et `server/data/accounts.json` non modifiés.
 
 ---
 
-## 🎯 4. Guide de Vérification
+## 4. Guide de vérification
 
-1. **Dialogue Professeur CIEL & Lancement des TPs en VR :**
-   - Activer le mode VR (Meta Quest Browser ou Simulation PC via **`F9`**), approcher le **Professeur CIEL** ou n'importe quel établi 3D et appuyer sur la gâchette.
-   - Vérifier l'ouverture du panneau spatial 3D sans aucune modale HTML bloquante, tester la navigation par choix jusqu'au bulletin de notes, puis lancer chaque TP (`Oscilloscope`, `Brasure PCB`, `Électronique`, `Cybersécurité SOC`, `VLAN CLI`, `Brassage Baie 19"`, `Hardware PC`, `DMX`, `Studio Régie`).
-2. **Interaction Laser, Hand-Tracking, Sliders, Clavier VR & Caméra :**
-   - Vérifier la manipulation directe des sliders (Température Fer `260–420 °C`, Volts/Time/Trigger Oscillo, Faders DMX & Studio) au rayon laser et au toucher direct de l'index.
-   - Ouvrir l'onglet **`⌨️ Clavier / CLI`** dans le TP Réseaux VLAN, taper `ping` sur le clavier virtuel 3D et valider avec **`ENTRÉE ↵`**.
-   - Tester les boutons **`📷 Vue`**, **`🔍−`**, **`🔍+`**, **`↻ Pivot`** et **`✕ Quitter le TP`** en vérifiant le retour immédiat à la locomotion aux joysticks.
-3. **TP Brasure PCB 3D jusqu'à `20/20` :**
-   - Activer l'extracteur, régler la station à `350 °C` via le slider spatial, nettoyer les 2 ponts U2/U3 à la tresse cuivre, braser les 8 pastilles sérigraphiées en maintenant la gâchette dans la zone optimale, puis tester en `5V` pour valider `20/20`.
-4. **Sauvegarde Compte, CIEL Watch & Ascension VR :**
-   - Vérifier sur la **CIEL Watch** (poignet gauche) la mise à jour instantanée de la moyenne `/20` et du compteur de TPs validés (`x/5`), ainsi que la persistance sur reconnexion (`accounts.json` via `POST /api/account/save`).
-   - À `20/20` sur l'ensemble des TPs, vérifier l'ouverture du panneau spatial d'Ascension **« Dieu du Bac Pro CIEL »**, le choix interactif du Skin Divin en VR, le Cycle de Prestige et le déblocage du Skin Secret Ultime.
+1. **Test en solo & isolation d'instance (1 joueur minimum)** :
+   - Ouvrir un navigateur A connecté dans `plateau-u300` et un navigateur B resté dans `plateau-u300`.
+   - Dans le navigateur A, franchir la **Porte de Survie Horreur** pour rejoindre le salon d'attente : le client A bascule dans une instance `survival-game-*` et disparaît immédiatement de l'écran/vocal du joueur B sur `plateau-u300`.
+   - Cliquer sur **Prêt** dans le salon avec seulement 1 joueur : la partie démarre immédiatement.
+2. **Test coopératif & cinématique d'introduction (PC et VR WebXR)** :
+   - Avec 2+ joueurs prêts dans la même instance, vérifier au lancement l'extinction des lumières, l'alarme et les grésillements électriques, le cadrage du Professeur CIEL avec le briefing Survie, puis la reprise de contrôle au spawn (sur PC : travelling caméra ; en VR / Simulateur VR `F9` : posture orientée sans nausée + panneau spatial 3D avec bouton **Passer**).
+3. **Test Salle de Colle 3D, Feuille de Maths & Caméra POV Coéquipiers Live** :
+   - Se faire capturer par le Professeur CIEL : après le jumpscare, le joueur est placé à son pupitre dans la salle de colle 3D face au grand tableau.
+   - Cliquer directement à la souris (PC) ou au laser/doigt (VR) sur les choix `A/B/C/D` (ou touches `1-4`) de la **feuille posée sur le bureau** pour résoudre les tableaux de variation en boucle.
+   - Observer sur l'écran du tableau la vue POV temps réel du coéquipier survivant en mouvement, puis tester les boutons **Caméra Précédente / Suivante** (sur le bureau 3D, le bandeau du tableau, le HUD PC ou le panneau VR) pour alterner entre coéquipiers vivants, Professeur CIEL en patrouille et caméra de surveillance du plateau U300.
+4. **Retour automatique vers `plateau-u300`** :
+   - Terminer tous les TPs ou attendre la fin de partie : tous les joueurs sont ramenés dans `plateau-u300` et redeviennent visibles pour le joueur B.

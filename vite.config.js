@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.19 - Mode Survie Horreur : La Traque du Professeur CIEL, Baies de Brassage & Heure de Colle'),
+    __APP_VERSION__: JSON.stringify('v4.20 - Instance Isolée Survie, Cinématique Intro & Salle de Colle 3D POV Live'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

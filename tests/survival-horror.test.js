@@ -6,10 +6,13 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { WebSocket } from 'ws';
 import { createGameServer } from '../server/index.js';
+import { SURVIVAL_ROOM_PREFIX, isSurvivalRoom } from '../server/wsHub.js';
+import { sfx } from '../src/core/audio.js';
 import { createDefaultMap } from '../src/world/mapSchema.js';
 import { buildLabWorld } from '../src/world/LabBuilder.js';
 import { createHorrorTeacher } from '../src/world/NpcTeacher.js';
-import { createSurvivalPocketRooms } from '../src/world/SurvivalArena3D.js';
+import { RemotePlayersManager } from '../src/world/RemotePlayers.js';
+import { computeSurvivalIntroShot, createSurvivalPocketRooms, getDetentionCameraHitBoxes } from '../src/world/SurvivalArena3D.js';
 import {
   SURVIVAL_CAPTURE_RADIUS,
   SURVIVAL_MIC_NOISE_THRESHOLD,
@@ -27,7 +30,9 @@ import {
 import {
   VariationTableSession,
   checkVariationAnswer,
+  drawVariationWorksheetCanvas,
   generateVariationExercise,
+  getVariationSheetHitBoxes,
   renderVariationTableMarkup
 } from '../src/minigames/VariationTableGame.js';
 import { createTpSpatialPanel } from '../src/vr/VRHudPanel.js';
@@ -91,11 +96,27 @@ test('SurvivalEngine : A* pathfinding contourne les murs sans traverser ni boucl
   assert.ok(getSurvivalRequiredTps(map).length >= 5);
 });
 
-test('SurvivalEngine : écoute micro RMS à travers les murs, cachette Baie de Brassage & capture -> défaite', () => {
+test('SurvivalEngine : lancement dès 1 joueur, intro horrifique, écoute micro RMS, cachette Baie de Brassage & capture -> défaite', () => {
   const map = createDefaultMap();
-  const ctrl = new SurvivalMatchController(map, { roomId: 'test-surv', graceMs: 0, captureRadius: 1.35 });
+  assert.equal(SURVIVAL_MIN_PLAYERS, 1);
 
-  assert.equal(SURVIVAL_MIN_PLAYERS, 2);
+  const soloCtrl = new SurvivalMatchController(map, { roomId: 'test-solo', graceMs: 0, introDurationMs: 4200 });
+  soloCtrl.joinLobby({ id: 'solo1', name: 'SoloAlice' });
+  const rSolo = soloCtrl.setReady('solo1', true, 1000);
+  assert.equal(rSolo.autoStarted, true);
+  assert.equal(soloCtrl.phase, 'active');
+  const soloSnapDuringIntro = soloCtrl.getPublicSnapshot(1500);
+  assert.equal(soloSnapDuringIntro.minPlayers, 1);
+  assert.equal(soloSnapDuringIntro.introActive, true);
+  const soloSnapAfterIntro = soloCtrl.getPublicSnapshot(5300);
+  assert.equal(soloSnapAfterIntro.introActive, false);
+
+  const ctrl = new SurvivalMatchController(map, {
+    roomId: 'test-surv',
+    minPlayers: 2,
+    graceMs: 0,
+    captureRadius: 1.35
+  });
 
   ctrl.joinLobby({ id: 'p1', name: 'Alice' });
   const r1 = ctrl.setReady('p1', true, 1000);
@@ -285,22 +306,132 @@ test('3D & VR : LabBuilder, NpcTeacher Horreur, SurvivalArena3D et VRHudPanel mo
 
     const pocket = createSurvivalPocketRooms(scene, map);
     assert.ok(pocket.getWaitingRoomConfig().interactables.length >= 2);
-    assert.ok(pocket.getDetentionRoomConfig().interactables.length >= 1);
-    pocket.updateWaitingBoard({ lobbyPlayers: [], minPlayers: 2 }, true);
+    const detCfg = pocket.getDetentionRoomConfig();
+    assert.ok(detCfg.interactables.length >= 1);
+    assert.ok(detCfg.pcEye && Number.isFinite(detCfg.pcEye.y));
+    assert.ok(pocket.mathSheetMesh);
+    assert.ok(pocket.deskCamMesh);
+    assert.ok(pocket.boardCamMesh);
+    assert.ok(pocket.survMonitor);
+    assert.ok(pocket.povRenderTarget);
+    assert.ok(pocket.povCamera && pocket.povCamera.isPerspectiveCamera);
+
+    pocket.updateWaitingBoard({ lobbyPlayers: [], minPlayers: 1 }, true);
     pocket.updateSurveillanceScreen(
       { completedTps: ['oscilloscope'], requiredTps: ['oscilloscope'], participants: [], ai: { x: 0, z: 0, state: 'patrol' } },
       true
     );
+    pocket.setLivePovActive(true);
+    assert.equal(pocket.survMonitor.material.map, pocket.povRenderTarget.texture);
+    pocket.setLivePovActive(false);
+
+    const introShot = computeSurvivalIntroShot(0.35, { x: 2, z: -1 }, { x: -7, z: -2 }, 1.25);
+    assert.ok(introShot.briefingText.includes('Survivez'));
+    assert.ok(introShot.briefingText.includes('micro'));
+    assert.ok(introShot.camPos && introShot.camLook);
+
+    const vt = new VariationTableSession();
+    const dtSnapDesk = vt.getVrSnapshot({});
+    const sheetCanvas = globalThis.document.createElement('canvas');
+    sheetCanvas.width = 1024;
+    sheetCanvas.height = 768;
+    const sheetRender = drawVariationWorksheetCanvas(sheetCanvas.getContext('2d'), 1024, 768, dtSnapDesk, 'sheet_opt_1');
+    assert.equal(sheetRender.hitBoxes.length, 4);
+    assert.equal(getVariationSheetHitBoxes(1024, 768).length, 4);
+    assert.equal(getDetentionCameraHitBoxes(512, 340, 'desk').length, 2);
+    assert.equal(getDetentionCameraHitBoxes(1024, 122, 'board').length, 2);
+
+    let deskSelected = -1;
+    let camDelta = 0;
+    const surfaces = pocket.getDetentionInteractiveSurfaces({
+      onSelectOption: (idx) => {
+        deskSelected = idx;
+      },
+      onPrevCamera: () => {
+        camDelta -= 1;
+      },
+      onNextCamera: () => {
+        camDelta += 1;
+      }
+    });
+    assert.equal(surfaces.length, 3);
+    const mathSurf = surfaces.find((s) => s.id === 'detention_math_sheet');
+    const sheetBox2 = getVariationSheetHitBoxes(1024, 768)[2];
+    const mathHit = mathSurf.hitTestUv({
+      x: (sheetBox2.x + sheetBox2.w / 2) / 1024,
+      y: 1 - (sheetBox2.y + sheetBox2.h / 2) / 768
+    });
+    assert.ok(mathHit);
+    mathHit.onClick();
+    assert.equal(deskSelected, 2);
+
+    const boardSurf = surfaces.find((s) => s.id === 'detention_board_cam_bar');
+    const boardNextBox = getDetentionCameraHitBoxes(1024, 122, 'board').find((b) => b.id === 'cam_next');
+    const boardHit = boardSurf.hitTestUv({
+      x: (boardNextBox.x + boardNextBox.w / 2) / 1024,
+      y: 1 - (boardNextBox.y + boardNextBox.h / 2) / 122
+    });
+    assert.ok(boardHit);
+    boardHit.onClick();
+    assert.equal(camDelta, 1);
+
+    pocket.updateDetentionMathSheet(dtSnapDesk, true);
+    pocket.updateDetentionCameraBar({ modeLabel: 'COÉQUIPIER LIVE', targetName: 'Bob', aliveCount: 1, totalSurvivors: 2 }, true);
+    pocket.updateDetentionClock(25);
     pocket.dispose();
 
+    const remoteMgr = new RemotePlayersManager(scene);
+    remoteMgr.upsertPeer({ id: 'p1', name: 'Surv_1', x: 2, y: 0, z: -3, yaw: 0.7 });
+    remoteMgr.upsertPeer({ id: 'p2', name: 'Public_2', x: 5, y: 0, z: 4, yaw: -0.4 });
+    assert.equal(remoteMgr.peers.size, 2);
+    remoteMgr.setInstanceFilter(['p1']);
+    assert.equal(remoteMgr.peers.has('p1'), true);
+    assert.equal(remoteMgr.peers.has('p2'), false);
+    remoteMgr.upsertPeer({ id: 'p2', name: 'Public_2', x: 5, y: 0, z: 4, yaw: -0.4 });
+    assert.equal(remoteMgr.peers.has('p2'), false);
+    const povPose = remoteMgr.getPeerPoseForPov('p1');
+    assert.equal(povPose.name, 'Surv_1');
+    remoteMgr.setPeerPovHidden('p1', true);
+    assert.equal(remoteMgr.peers.get('p1').group.visible, false);
+    remoteMgr.setPeerPovHidden('p1', false);
+    assert.equal(remoteMgr.peers.get('p1').group.visible, true);
+    remoteMgr.setInstanceFilter(null);
+    remoteMgr.clearAll();
+
+    assert.doesNotThrow(() => {
+      sfx.playElectricCrackle(0, 0.05, 0.08);
+      sfx.playSurvivalIntroAlarm();
+    });
+
     const panel = createTpSpatialPanel();
+    let skippedIntro = false;
+    panel.updateState(
+      {
+        mode: 'survival_intro',
+        survivalIntro: {
+          title: 'TRAQUE DU PROFESSEUR CIEL',
+          subtitle: introShot.phaseLabel,
+          briefing: introShot.briefingText,
+          progress: 0.4,
+          onSkip: () => {
+            skippedIntro = true;
+          }
+        }
+      },
+      { immediate: true }
+    );
+    const skipIntroBtn = panel.getHitBoxes().find((b) => b.id === 'vr_surv_intro_skip');
+    assert.ok(skipIntroBtn);
+    skipIntroBtn.onClick?.();
+    assert.equal(skippedIntro, true);
+
     let toggledReady = false;
     panel.updateState(
       {
         mode: 'survival_lobby',
         survivalLobby: {
           players: [{ id: 'a', name: 'Alice', ready: false }],
-          minPlayers: 2,
+          minPlayers: 1,
           localReady: false,
           onToggleReady: () => {
             toggledReady = true;
@@ -317,13 +448,21 @@ test('3D & VR : LabBuilder, NpcTeacher Horreur, SurvivalArena3D et VRHudPanel mo
     assert.equal(toggledReady, true);
 
     let selectedOpt = -1;
-    const vt = new VariationTableSession();
+    let camPrevClicked = false;
+    let camNextClicked = false;
     panel.updateState(
       {
         mode: 'detention',
         detention: vt.getVrSnapshot({
+          camLabel: 'COÉQUIPIER — Bob',
           onSelectOption: (idx) => {
             selectedOpt = idx;
+          },
+          onPrevCamera: () => {
+            camPrevClicked = true;
+          },
+          onNextCamera: () => {
+            camNextClicked = true;
           },
           onClose: () => {}
         })
@@ -334,6 +473,10 @@ test('3D & VR : LabBuilder, NpcTeacher Horreur, SurvivalArena3D et VRHudPanel mo
     assert.ok(optBtn);
     optBtn.onClick?.();
     assert.equal(selectedOpt, 2);
+    panel.getHitBoxes().find((b) => b.id === 'vr_dt_cam_prev')?.onClick?.();
+    panel.getHitBoxes().find((b) => b.id === 'vr_dt_cam_next')?.onClick?.();
+    assert.equal(camPrevClicked, true);
+    assert.equal(camNextClicked, true);
 
     panel.updateState({ mode: 'jumpscare', jumpscare: { title: 'Test', subtitle: 'Sub' } }, { immediate: true });
     panel.updateState(
@@ -350,9 +493,9 @@ test('3D & VR : LabBuilder, NpcTeacher Horreur, SurvivalArena3D et VRHudPanel mo
   }
 });
 
-test('WebSocket wsHub : matchmaking 2 joueurs minimum, alerte micro & victoire survie sans fuite de ressources', async () => {
+test('WebSocket wsHub : matchmaking 2 joueurs, instance isolée, alerte micro & victoire survie sans fuite de ressources', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-survival-ws-'));
-  const { server, wsHub, store } = createGameServer({
+  const { server, wsHub } = createGameServer({
     dbPath: null,
     accountsPath: path.join(tmpDir, 'accounts.json'),
     mapPath: null,
@@ -376,18 +519,23 @@ test('WebSocket wsHub : matchmaking 2 joueurs minimum, alerte micro & victoire s
     ws2.send(JSON.stringify({ type: 'join', name: 'Surv_Bob', room: 'surv-room' }));
     await w2;
 
+    const switched1 = waitForMessage(ws1, (m) => m.type === 'room_switched');
     const joinState1 = waitForMessage(ws1, (m) => m.type === 'survival_state' && m.state.lobbyCount === 1);
     ws1.send(JSON.stringify({ type: 'survival_join' }));
-    await joinState1;
+    const [sw1] = await Promise.all([switched1, joinState1]);
+    assert.equal(isSurvivalRoom(sw1.room), true);
+    assert.ok(sw1.room.startsWith(SURVIVAL_ROOM_PREFIX));
 
     const ready1 = waitForMessage(ws1, (m) => m.type === 'survival_state' && m.state.readyCount === 1);
     ws1.send(JSON.stringify({ type: 'survival_ready', ready: true }));
     const readySnap1 = await ready1;
     assert.equal(readySnap1.state.phase, 'lobby');
 
+    const switched2 = waitForMessage(ws2, (m) => m.type === 'room_switched');
     const joinState2 = waitForMessage(ws2, (m) => m.type === 'survival_state' && m.state.lobbyCount === 2);
     ws2.send(JSON.stringify({ type: 'survival_join' }));
-    await joinState2;
+    const [sw2] = await Promise.all([switched2, joinState2]);
+    assert.equal(sw2.room, sw1.room);
 
     const startedP1 = waitForMessage(ws1, (m) => m.type === 'survival_started');
     const startedP2 = waitForMessage(ws2, (m) => m.type === 'survival_started');
@@ -424,9 +572,106 @@ test('WebSocket wsHub : matchmaking 2 joueurs minimum, alerte micro & victoire s
     }
     const endMsg = await endPromise;
     assert.equal(endMsg.ended.outcome, 'victory');
+
+    const ret1 = waitForMessage(ws1, (m) => m.type === 'room_switched' && m.room === 'surv-room');
+    ws1.send(JSON.stringify({ type: 'survival_return' }));
+    const retMsg1 = await ret1;
+    assert.equal(retMsg1.room, 'surv-room');
   } finally {
     if (ws1 && ws1.readyState <= 1) ws1.close();
     if (ws2 && ws2.readyState <= 1) ws2.close();
+    wsHub?.close?.();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('WebSocket wsHub v4.20 : lancement à 1 joueur minimum, isolation totale hors plateau-u300 & retour automatique', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-survival-solo-iso-'));
+  const { server, wsHub } = createGameServer({
+    dbPath: null,
+    accountsPath: path.join(tmpDir, 'accounts.json'),
+    mapPath: null,
+    survivalOptions: { graceMs: 0, introDurationMs: 2800, postEndResetMs: 180 }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const wsUrl = `ws://127.0.0.1:${port}/ws`;
+
+  let wsSolo = null;
+  let wsPublic = null;
+  try {
+    wsPublic = await openWs(wsUrl);
+    const wPub = waitForMessage(wsPublic, (m) => m.type === 'welcome');
+    wsPublic.send(JSON.stringify({ type: 'join', name: 'PublicWatcher', room: 'plateau-u300' }));
+    await wPub;
+
+    wsSolo = await openWs(wsUrl);
+    const wSolo = waitForMessage(wsSolo, (m) => m.type === 'welcome');
+    const pubSawSolo = waitForMessage(wsPublic, (m) => m.type === 'player_joined' && m.player?.name === 'SoloRunner');
+    wsSolo.send(JSON.stringify({ type: 'join', name: 'SoloRunner', room: 'plateau-u300' }));
+    const [welcomeSolo, joinedMsg] = await Promise.all([wSolo, pubSawSolo]);
+    assert.equal(welcomeSolo.survivalState.minPlayers, 1);
+    const soloId = joinedMsg.player.id;
+
+    const leakedToPublic = [];
+    wsPublic.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (
+          msg.type === 'survival_started' ||
+          msg.type === 'survival_state' ||
+          msg.type === 'survival_ended' ||
+          msg.type === 'survival_noise_alert' ||
+          (msg.type === 'player_moved' && msg.id === soloId)
+        ) {
+          leakedToPublic.push(msg.type);
+        }
+      } catch {
+        return;
+      }
+    });
+
+    const pubLeftPromise = waitForMessage(wsPublic, (m) => m.type === 'player_left' && m.id === soloId);
+    const soloSwitchPromise = waitForMessage(wsSolo, (m) => m.type === 'room_switched');
+    wsSolo.send(JSON.stringify({ type: 'survival_join' }));
+    const [, soloSwitched] = await Promise.all([pubLeftPromise, soloSwitchPromise]);
+    assert.equal(isSurvivalRoom(soloSwitched.room), true);
+    assert.equal(soloSwitched.originRoom, 'plateau-u300');
+    assert.equal(soloSwitched.peers.length, 0);
+
+    const summaryRooms = wsHub.getRoomsSummary();
+    assert.equal(summaryRooms.some((r) => isSurvivalRoom(r.room)), false);
+
+    const soloStartedPromise = waitForMessage(wsSolo, (m) => m.type === 'survival_started');
+    wsSolo.send(JSON.stringify({ type: 'survival_ready', ready: true }));
+    const soloStarted = await soloStartedPromise;
+    assert.equal(soloStarted.state.phase, 'active');
+    assert.equal(soloStarted.state.minPlayers, 1);
+    assert.equal(soloStarted.state.introDurationMs, 2800);
+    assert.equal(soloStarted.state.participants.length, 1);
+
+    wsSolo.send(JSON.stringify({ type: 'move', x: 3.5, y: 0, z: -2.5, yaw: 1.1 }));
+
+    const soloEndedPromise = waitForMessage(wsSolo, (m) => m.type === 'survival_ended');
+    const autoReturnPromise = waitForMessage(wsSolo, (m) => m.type === 'room_switched' && m.room === 'plateau-u300');
+    const pubRejoinPromise = waitForMessage(wsPublic, (m) => m.type === 'player_joined' && m.player?.id === soloId);
+
+    for (const tpId of soloStarted.state.requiredTps) {
+      wsSolo.send(JSON.stringify({ type: 'survival_tp_done', tpId, score: 20 }));
+    }
+    const soloEnded = await soloEndedPromise;
+    assert.equal(soloEnded.ended.outcome, 'victory');
+    assert.deepEqual(leakedToPublic, []);
+
+    const [retSwitched, rejoinedPub] = await Promise.all([autoReturnPromise, pubRejoinPromise]);
+    assert.equal(retSwitched.room, 'plateau-u300');
+    assert.equal(retSwitched.peers.length, 1);
+    assert.equal(retSwitched.peers[0].name, 'PublicWatcher');
+    assert.equal(rejoinedPub.player.name, 'SoloRunner');
+  } finally {
+    if (wsSolo && wsSolo.readyState <= 1) wsSolo.close();
+    if (wsPublic && wsPublic.readyState <= 1) wsPublic.close();
     wsHub?.close?.();
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(tmpDir, { recursive: true, force: true });

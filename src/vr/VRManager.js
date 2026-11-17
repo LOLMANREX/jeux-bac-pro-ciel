@@ -189,6 +189,7 @@ export class VRManager {
       panelDrag: null,
       tpPanelTouchPressed: false,
       worldPanelTouchPressed: false,
+      worldSurfTouchPressed: false,
       fingerPose: { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 }
     };
     this._applySlotHandOffset(slot, 'controller');
@@ -819,6 +820,20 @@ export class VRManager {
     return true;
   }
 
+  applySurvivalIntroPose(x, z, lookTarget = null) {
+    if (!this.active) return false;
+    let yaw = Number(this.player?.yaw) || 0;
+    if (lookTarget && Number.isFinite(Number(lookTarget.x)) && Number.isFinite(Number(lookTarget.z))) {
+      yaw = Math.atan2(-(Number(lookTarget.x) - x), -(Number(lookTarget.z) - z));
+    }
+    const ok = this.syncWorldTeleport(x, z, yaw);
+    if (ok && this.simMode) {
+      this.simLookPitch = -0.04;
+      this.camera?.rotation?.set(this.simLookPitch, 0, 0, 'YXZ');
+    }
+    return ok;
+  }
+
   updateWorldSpatialPanel(state = {}) {
     if (!this.worldPanel) return;
     this.worldPanel.updateState(state);
@@ -1294,6 +1309,25 @@ export class VRManager {
     }
 
     let hoveredLabItem = null;
+    if (!hitKey && !this.tpContext && !this.worldPanel && typeof this.options.getWorldInteractiveSurfaces === 'function') {
+      const surfaces = this.options.getWorldInteractiveSurfaces() || [];
+      for (const surf of surfaces) {
+        if (!surf?.mesh || surf.mesh.visible === false) continue;
+        surf.mesh.updateWorldMatrix?.(true, false);
+        const sHits = this.raycaster.intersectObject(surf.mesh, false);
+        if (sHits.length > 0 && sHits[0].uv) {
+          const btn = surf.hitTestUv?.(sHits[0].uv);
+          if (btn) {
+            this._worldSurfHoverThisFrame?.set(surf, btn.id);
+            hitKey = `surf:${surf.id}:${btn.id}`;
+            hitDist = sHits[0].distance;
+            hitAction = () => btn.onClick?.(sHits[0].uv);
+            break;
+          }
+        }
+      }
+    }
+
     if (!hitKey && !this.tpContext && this.options.getInteractables) {
       const list = this.options.getInteractables() || [];
       const occluders = this.options.getOccluders ? this.options.getOccluders() : [];
@@ -1738,6 +1772,45 @@ export class VRManager {
     }
   }
 
+  _updateWorldSurfacesDirectTouch(slot) {
+    const indexTip = slot?.hand?.fingers?.index?.tip;
+    if (!indexTip || typeof this.options.getWorldInteractiveSurfaces !== 'function') {
+      if (slot) slot.worldSurfTouchPressed = false;
+      return;
+    }
+    const surfaces = this.options.getWorldInteractiveSurfaces() || [];
+    let touchedAny = false;
+    for (const surf of surfaces) {
+      if (!surf?.mesh || surf.mesh.visible === false) continue;
+      surf.mesh.updateWorldMatrix(true, false);
+      indexTip.getWorldPosition(this.tempVecC);
+      surf.mesh.worldToLocal(this.tempVecC);
+      const w = surf.width || 0.8;
+      const h = surf.height || 0.6;
+      const u = this.tempVecC.x / w + 0.5;
+      const v = this.tempVecC.y / h + 0.5;
+      if (u >= 0 && u <= 1 && v >= 0 && v <= 1 && this.tempVecC.z >= -0.03 && this.tempVecC.z <= 0.055) {
+        const uv = { x: u, y: v };
+        const btn = surf.hitTestUv?.(uv);
+        if (btn) {
+          touchedAny = true;
+          this._worldSurfHoverThisFrame?.set(surf, btn.id);
+          if (this.tempVecC.z <= 0.024 && !slot.worldSurfTouchPressed) {
+            slot.worldSurfTouchPressed = true;
+            this._pulseHaptic(slot, 0.55, 35);
+            btn.onClick?.(uv);
+          } else if (this.tempVecC.z > 0.034) {
+            slot.worldSurfTouchPressed = false;
+          }
+          break;
+        }
+      }
+    }
+    if (!touchedAny && this.tempVecC.z > 0.034) {
+      slot.worldSurfTouchPressed = false;
+    }
+  }
+
   _updateWristDirectTouch() {
     this.wristDirectTouchHovered = false;
     const indexTip = this.slots.right?.hand?.fingers?.index?.tip;
@@ -1812,15 +1885,25 @@ export class VRManager {
     }
 
     this._updateWristDirectTouch();
+    this._worldSurfHoverThisFrame = new Map();
     if (this.tpContext && this.tpPanel) {
       this._updateSpatialPanelDirectTouch(this.tpPanel, this.slots.right, 'tpPanelTouchPressed');
       this._updateSpatialPanelDirectTouch(this.tpPanel, this.slots.left, 'tpPanelTouchPressed');
     } else if (this.worldPanel) {
       this._updateSpatialPanelDirectTouch(this.worldPanel, this.slots.right, 'worldPanelTouchPressed');
       this._updateSpatialPanelDirectTouch(this.worldPanel, this.slots.left, 'worldPanelTouchPressed');
+    } else if (typeof this.options.getWorldInteractiveSurfaces === 'function') {
+      this._updateWorldSurfacesDirectTouch(this.slots.right);
+      this._updateWorldSurfacesDirectTouch(this.slots.left);
     }
     this._updateSlotRayAndInteract(this.slots.left, leftState, dt, elapsed);
     this._updateSlotRayAndInteract(this.slots.right, rightState, dt, elapsed);
+    if (typeof this.options.getWorldInteractiveSurfaces === 'function') {
+      const surfaces = this.options.getWorldInteractiveSurfaces() || [];
+      for (const surf of surfaces) {
+        surf.setHovered?.(this._worldSurfHoverThisFrame.get(surf) || null);
+      }
+    }
   }
 
   dispose() {

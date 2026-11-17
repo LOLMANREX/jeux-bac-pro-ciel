@@ -758,7 +758,7 @@
           <div class="survival-hud-left">
             <span class="survival-hud-badge">☠️ MODE SURVIE</span>
             <span id="survival-hud-tps" class="survival-hud-stat">TPs : 0 / 5</span>
-            <span id="survival-hud-players" class="survival-hud-stat">Survivants : 2 • Collés : 0</span>
+            <span id="survival-hud-players" class="survival-hud-stat">Survivants : 1 • Collés : 0</span>
             <span id="survival-hud-ai" class="survival-hud-ai">IA : Patrouille</span>
           </div>
           <div class="survival-hud-right">
@@ -1231,7 +1231,7 @@
             Parler trop fort au micro l’attire à travers les cloisons ! Cachez-vous dans une <strong>Baie de Brassage</strong> et gardez le silence pour lui échapper.
           </p>
           <div id="survival-lobby-status" class="survival-lobby-status">
-            En attente de joueurs (minimum 2 joueurs prêts pour démarrer)...
+            En attente (minimum 1 joueur prêt pour démarrer — solo ou coop)...
           </div>
           <div id="survival-lobby-players" class="survival-lobby-players"></div>
           <div class="survival-lobby-actions">
@@ -1316,13 +1316,44 @@
         </div>
       </div>
 
+      <div id="survival-intro-overlay" class="survival-intro-overlay hidden" role="dialog" aria-live="polite">
+        <div class="survival-intro-card">
+          <div class="survival-intro-top">
+            <span id="survival-intro-phase" class="survival-intro-phase">⚡ COUPURE ÉLECTRIQUE — ALERTE INTRUSION</span>
+            <button type="button" id="survival-intro-skip-btn" class="btn-secondary btn-sm">⏭️ Passer</button>
+          </div>
+          <h2 id="survival-intro-title">☠️ LA TRAQUE DU PROFESSEUR CIEL</h2>
+          <p id="survival-intro-briefing" class="survival-intro-briefing">
+            « Survivez, terminez tous les TPs et ne faites aucun bruit au micro... »
+          </p>
+          <div class="survival-intro-progress-track">
+            <div id="survival-intro-progress-fill" class="survival-intro-progress-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="survival-detention-3d-hud" class="survival-detention-3d-hud hidden">
+        <div class="detention-3d-hint">
+          <span class="detention-3d-badge">📝 SALLE DE COLLE 3D</span>
+          <span>Cliquez directement sur la feuille du bureau (ou touches <strong>1-4</strong>) • Clic-droit pour regarder</span>
+        </div>
+        <div class="detention-3d-cam-controls">
+          <button type="button" id="detention-3d-cam-prev" class="btn-secondary btn-sm">◀ Cam. Préc.</button>
+          <span id="detention-3d-cam-label" class="detention-3d-cam-label">📹 Caméra POV</span>
+          <button type="button" id="detention-3d-cam-next" class="btn-secondary btn-sm">Cam. Suiv. ▶</button>
+        </div>
+      </div>
+
       <div id="survival-end-overlay" class="modal-backdrop survival-backdrop hidden">
         <div id="survival-end-card" class="survival-end-card">
           <div id="survival-end-icon" class="survival-end-icon">🏆</div>
           <h2 id="survival-end-title">FIN DE LA PARTIE</h2>
           <p id="survival-end-reason" class="survival-end-reason"></p>
           <div id="survival-end-stats" class="survival-end-stats"></div>
-          <button type="button" id="survival-end-btn" class="btn-primary">🏫 Retourner au Hall Principal</button>
+          <div class="survival-end-actions">
+            <button type="button" id="survival-end-inspect-btn" class="btn-secondary hidden">👀 Observer Salle de Colle 3D</button>
+            <button type="button" id="survival-end-btn" class="btn-primary">🏫 Retourner au Hall Principal</button>
+          </div>
         </div>
       </div>
 

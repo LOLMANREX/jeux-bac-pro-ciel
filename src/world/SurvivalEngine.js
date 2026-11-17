@@ -7,7 +7,7 @@ import {
   subtractDoorsFromWalls
 } from './mapSchema.js';
 
-export const SURVIVAL_MIN_PLAYERS = 2;
+export const SURVIVAL_MIN_PLAYERS = 1;
 export const SURVIVAL_MIC_NOISE_THRESHOLD = 0.28;
 export const SURVIVAL_MIC_SCREAM_THRESHOLD = 0.48;
 export const SURVIVAL_MIC_HEAR_RANGE = 18;
@@ -476,8 +476,11 @@ export function evaluateMicVolumeForAI({
 export class SurvivalMatchController {
   constructor(mapData = null, options = {}) {
     this.roomId = options.roomId || 'plateau-u300';
-    this.minPlayers = Math.max(2, Number(options.minPlayers) || SURVIVAL_MIN_PLAYERS);
-    this.graceMs = Number.isFinite(Number(options.graceMs)) ? Number(options.graceMs) : 1800;
+    this.minPlayers = Math.max(1, Number(options.minPlayers) || SURVIVAL_MIN_PLAYERS);
+    this.graceMs = Number.isFinite(Number(options.graceMs)) ? Number(options.graceMs) : 6500;
+    this.introDurationMs = Number.isFinite(Number(options.introDurationMs))
+      ? Math.max(0, Number(options.introDurationMs))
+      : 5600;
     this.captureRadius = Number.isFinite(Number(options.captureRadius))
       ? Number(options.captureRadius)
       : SURVIVAL_CAPTURE_RADIUS;
@@ -1081,6 +1084,8 @@ export class SurvivalMatchController {
       radarActive: nowMs < this.radarRevealUntil,
       radarRevealUntil: this.radarRevealUntil,
       graceActive: this.phase === 'active' && nowMs < this.aiGraceUntil,
+      introDurationMs: this.introDurationMs,
+      introActive: this.phase === 'active' && nowMs < this.startedAt + this.introDurationMs,
       ai: {
         x: Number(this.ai.x.toFixed(2)),
         z: Number(this.ai.z.toFixed(2)),

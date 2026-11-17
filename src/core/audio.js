@@ -566,6 +566,70 @@ export class SoundEngine {
     this.playTone(155.56, 0.42, 'sawtooth', 0.09, 0.22);
     this.playTone(116.54, 0.68, 'triangle', 0.11, 0.44);
   }
+
+  playElectricCrackle(delaySec = 0, duration = 0.14, volume = 0.08) {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    try {
+      const startAt = ctx.currentTime + Math.max(0, Number(delaySec) || 0);
+      const dur = Math.max(0.03, Math.min(0.6, Number(duration) || 0.14));
+      const len = Math.max(64, Math.floor((ctx.sampleRate || 44100) * dur));
+      const buffer = ctx.createBuffer(1, len, ctx.sampleRate || 44100);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        const spike = i % 19 < 4 ? 1.0 : 0.25;
+        data[i] = (Math.random() * 2 - 1) * spike * Math.pow(1 - i / len, 0.45);
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(2400, startAt);
+      filter.Q.setValueAtTime(1.4, startAt);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(Math.max(0.01, Math.min(0.25, Number(volume) || 0.08)), startAt);
+      gain.gain.exponentialRampToValueAtTime(0.001, startAt + dur);
+      src.connect(filter);
+      filter.connect(gain);
+      gain.connect(this._getOutputNode());
+      src.start(startAt);
+      src.stop(startAt + dur);
+    } catch {}
+  }
+
+  playSurvivalIntroAlarm() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return false;
+    try {
+      const t0 = ctx.currentTime;
+      const dropOsc = ctx.createOscillator();
+      const dropGain = ctx.createGain();
+      dropOsc.type = 'sawtooth';
+      dropOsc.frequency.setValueAtTime(220, t0);
+      dropOsc.frequency.exponentialRampToValueAtTime(42, t0 + 0.92);
+      dropGain.gain.setValueAtTime(0.11, t0);
+      dropGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.96);
+      dropOsc.connect(dropGain);
+      dropGain.connect(this._getOutputNode());
+      dropOsc.start(t0);
+      dropOsc.stop(t0 + 0.98);
+    } catch {}
+
+    this.playElectricCrackle(0.04, 0.16, 0.09);
+    this.playElectricCrackle(0.24, 0.12, 0.075);
+    this.playElectricCrackle(0.52, 0.18, 0.09);
+    this.playElectricCrackle(0.84, 0.14, 0.07);
+    this.playElectricCrackle(1.18, 0.12, 0.06);
+
+    [0.75, 1.85, 2.95].forEach((offset) => {
+      this.playTone(540, 0.28, 'sawtooth', 0.065, offset);
+      this.playTone(360, 0.32, 'square', 0.055, offset + 0.24);
+    });
+
+    this.playTone(72, 0.65, 'sawtooth', 0.12, 1.9);
+    this.playTone(138, 0.48, 'triangle', 0.08, 1.95);
+    return true;
+  }
 }
 
 export const sfx = new SoundEngine();

@@ -13,6 +13,7 @@ import { sanitizeName, sanitizeSkin, ALL_TP_IDS, TP_IDS, TP_LABELS } from './sto
 
 const DEFAULT_ROOMS = ['plateau-u300', 'salle-reseau'];
 export const PRIVATE_DEBUG_PREFIX = 'priv-debug';
+export const SURVIVAL_ROOM_PREFIX = 'survival-game-';
 export { ASCENSION_SPECIALTIES, resolveAscensionSpecialty };
 
 export function isPrivateDebugRoom(rawRoom) {
@@ -20,6 +21,13 @@ export function isPrivateDebugRoom(rawRoom) {
     .trim()
     .toLowerCase()
     .startsWith(PRIVATE_DEBUG_PREFIX);
+}
+
+export function isSurvivalRoom(rawRoom) {
+  return String(rawRoom || '')
+    .trim()
+    .toLowerCase()
+    .startsWith(SURVIVAL_ROOM_PREFIX);
 }
 
 export function isCreatorPseudo(rawName) {
@@ -90,6 +98,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
   const roomChats = new Map();
   const roomCelebrations = new Map();
   const roomSurvivals = new Map();
+  const pendingSurvivalByOrigin = new Map();
   const survivalResetTimers = new Set();
   let survivalTickInterval = null;
   let lastSurvivalTickMs = Date.now();
@@ -102,8 +111,9 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
         cleanRoom,
         new SurvivalMatchController(mapData, {
           roomId: cleanRoom,
-          minPlayers: survivalOptions.minPlayers ?? 2,
-          graceMs: survivalOptions.graceMs ?? 1800,
+          minPlayers: survivalOptions.minPlayers ?? 1,
+          graceMs: survivalOptions.graceMs ?? 6500,
+          introDurationMs: survivalOptions.introDurationMs ?? 5600,
           captureRadius: survivalOptions.captureRadius
         })
       );
@@ -111,8 +121,129 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
     return roomSurvivals.get(cleanRoom);
   }
 
+  function clearPendingSurvivalRoom(survivalRoomId) {
+    for (const [orig, sRoom] of pendingSurvivalByOrigin.entries()) {
+      if (sRoom === survivalRoomId) {
+        pendingSurvivalByOrigin.delete(orig);
+      }
+    }
+  }
+
+  function cleanupEmptySurvivalRoom(roomId) {
+    if (!isSurvivalRoom(roomId)) return;
+    if (getRoomPeers(roomId, null).length > 0) return;
+    clearPendingSurvivalRoom(roomId);
+    const ctrl = roomSurvivals.get(roomId);
+    if (ctrl) {
+      ctrl.lobbyPlayers.clear();
+      ctrl.resetToIdle();
+      roomSurvivals.delete(roomId);
+    }
+    roomChats.delete(roomId);
+    roomCelebrations.delete(roomId);
+  }
+
+  function resolveOrCreatePendingSurvivalRoom(originRoom) {
+    const cleanOrigin = sanitizeRoom(originRoom || 'plateau-u300');
+    const existing = pendingSurvivalByOrigin.get(cleanOrigin);
+    if (existing) {
+      const ctrl = roomSurvivals.get(existing);
+      if (ctrl && (ctrl.phase === 'idle' || ctrl.phase === 'lobby')) {
+        return existing;
+      }
+      pendingSurvivalByOrigin.delete(cleanOrigin);
+    }
+    const nextRoom = sanitizeRoom(`${SURVIVAL_ROOM_PREFIX}${crypto.randomUUID().slice(0, 8)}`);
+    pendingSurvivalByOrigin.set(cleanOrigin, nextRoom);
+    getSurvivalController(nextRoom);
+    return nextRoom;
+  }
+
+  function moveClientToRoom(ws, state, targetRoom) {
+    if (!state?.name || ws.readyState !== 1) return false;
+    const prevRoom = state.room;
+    const nextRoom = sanitizeRoom(targetRoom || 'plateau-u300');
+    if (prevRoom === nextRoom) return false;
+
+    if (state.micEnabled || state.isSpeaking) {
+      broadcastToRoom(
+        prevRoom,
+        {
+          type: 'voice_state',
+          id: state.id,
+          micEnabled: false,
+          isSpeaking: false
+        },
+        ws
+      );
+    }
+
+    if (!isSurvivalRoom(prevRoom) && isSurvivalRoom(nextRoom)) {
+      state.originRoom = prevRoom;
+    } else if (!isSurvivalRoom(nextRoom)) {
+      state.originRoom = null;
+    }
+
+    state.room = nextRoom;
+    const prevRoster = getRoomRoster(prevRoom);
+    broadcastToRoom(
+      prevRoom,
+      {
+        type: 'player_left',
+        id: state.id,
+        name: state.name,
+        onlineCount: prevRoster.length,
+        roomRoster: prevRoster
+      },
+      ws
+    );
+
+    const peers = getRoomPeers(nextRoom, ws).map(({ state: p }) => {
+      const pProfile = store.getPublicProfile(p.name.toLowerCase());
+      return buildPeerPayload(p, pProfile);
+    });
+    const nextRoster = getRoomRoster(nextRoom);
+    const profile = store.getPublicProfile(state.name.toLowerCase()) || store.getOrCreatePlayer(state.name, state.skin);
+
+    ws.send(
+      JSON.stringify({
+        type: 'room_switched',
+        room: nextRoom,
+        previousRoom: prevRoom,
+        originRoom: state.originRoom || 'plateau-u300',
+        peers,
+        roomRoster: nextRoster,
+        onlineCount: peers.length + 1,
+        chatHistory: roomChats.get(nextRoom) || [],
+        survivalState: getSurvivalController(nextRoom).getPublicSnapshot()
+      })
+    );
+
+    broadcastToRoom(
+      nextRoom,
+      {
+        type: 'player_joined',
+        player: buildPeerPayload(state, profile),
+        onlineCount: peers.length + 1,
+        roomRoster: nextRoster
+      },
+      ws
+    );
+
+    cleanupEmptySurvivalRoom(prevRoom);
+    return true;
+  }
+
+  function returnClientFromSurvival(ws, state) {
+    if (!state?.name || !isSurvivalRoom(state.room)) return false;
+    const targetRoom =
+      state.originRoom && !isSurvivalRoom(state.originRoom) ? state.originRoom : 'plateau-u300';
+    return moveClientToRoom(ws, state, targetRoom);
+  }
+
   function finishSurvivalMatchInRoom(roomId, ctrl, ended) {
     if (!ended) return;
+    clearPendingSurvivalRoom(roomId);
     broadcastToRoom(roomId, {
       type: 'survival_ended',
       ended,
@@ -120,15 +251,23 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
     });
     const resetDelay = Number.isFinite(Number(survivalOptions.postEndResetMs))
       ? Number(survivalOptions.postEndResetMs)
-      : 6500;
+      : 15000;
     const t = setTimeout(() => {
       survivalResetTimers.delete(t);
-      ctrl.lobbyPlayers.clear();
-      ctrl.resetToIdle();
-      broadcastToRoom(roomId, {
-        type: 'survival_state',
-        state: ctrl.getPublicSnapshot()
-      });
+      if (isSurvivalRoom(roomId)) {
+        const remaining = getRoomPeers(roomId, null);
+        for (const { sock, state: s } of remaining) {
+          returnClientFromSurvival(sock, s);
+        }
+        cleanupEmptySurvivalRoom(roomId);
+      } else {
+        ctrl.lobbyPlayers.clear();
+        ctrl.resetToIdle();
+        broadcastToRoom(roomId, {
+          type: 'survival_state',
+          state: ctrl.getPublicSnapshot()
+        });
+      }
     }, resetDelay);
     t.unref?.();
     survivalResetTimers.add(t);
@@ -878,6 +1017,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
       id: clientId,
       name: null,
       room: 'plateau-u300',
+      originRoom: null,
       x: -3.95,
       y: 0,
       z: 0.65,
@@ -917,6 +1057,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           state.skin = skin;
           state.color = skin.outfitColor || profile.color;
           state.room = room;
+          state.originRoom = null;
           state.activity = 'Dans l’atelier';
           state.zoneId = String(msg.zoneId || 'U300').slice(0, 16);
           state.zoneLabel = String(msg.zoneLabel || 'U300 - Couloir Central').slice(0, 34);
@@ -1122,9 +1263,15 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
 
         case 'survival_join': {
           if (!state.name) return;
-          const ctrl = getSurvivalController(state.room);
+          const survRoom = isSurvivalRoom(state.room)
+            ? state.room
+            : resolveOrCreatePendingSurvivalRoom(state.room);
+          if (survRoom !== state.room) {
+            moveClientToRoom(ws, state, survRoom);
+          }
+          const ctrl = getSurvivalController(survRoom);
           ctrl.joinLobby({ id: state.id, name: state.name, color: state.color });
-          broadcastToRoom(state.room, {
+          broadcastToRoom(survRoom, {
             type: 'survival_state',
             state: ctrl.getPublicSnapshot()
           });
@@ -1133,17 +1280,39 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
 
         case 'survival_leave': {
           if (!state.name) return;
-          const ctrl = getSurvivalController(state.room);
+          const prevRoom = state.room;
+          const ctrl = getSurvivalController(prevRoom);
           const leaveRes = ctrl.leaveLobby(state.id);
           const snap = ctrl.getPublicSnapshot();
-          broadcastToRoom(state.room, {
-            type: 'survival_state',
-            state: snap
-          });
-          if (leaveRes.endedOutcome) {
-            finishSurvivalMatchInRoom(state.room, ctrl, leaveRes.endedOutcome);
+          if (isSurvivalRoom(prevRoom)) {
+            returnClientFromSurvival(ws, state);
+            if (getRoomPeers(prevRoom, null).length > 0) {
+              broadcastToRoom(prevRoom, {
+                type: 'survival_state',
+                state: snap
+              });
+              if (leaveRes.endedOutcome) {
+                finishSurvivalMatchInRoom(prevRoom, ctrl, leaveRes.endedOutcome);
+              }
+            } else {
+              cleanupEmptySurvivalRoom(prevRoom);
+            }
+          } else {
+            broadcastToRoom(prevRoom, {
+              type: 'survival_state',
+              state: snap
+            });
+            if (leaveRes.endedOutcome) {
+              finishSurvivalMatchInRoom(prevRoom, ctrl, leaveRes.endedOutcome);
+            }
           }
           syncSurvivalTimer();
+          break;
+        }
+
+        case 'survival_return': {
+          if (!state.name) return;
+          returnClientFromSurvival(ws, state);
           break;
         }
 
@@ -1153,8 +1322,10 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           const res = ctrl.setReady(state.id, Boolean(msg.ready), Date.now());
           const snap = ctrl.getPublicSnapshot();
           if (res.autoStarted) {
+            clearPendingSurvivalRoom(state.room);
             broadcastToRoom(state.room, {
               type: 'survival_started',
+              introDurationMs: snap.introDurationMs,
               state: snap
             });
             syncSurvivalTimer();
@@ -1522,6 +1693,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           onlineCount: roomRoster.length,
           roomRoster
         });
+        cleanupEmptySurvivalRoom(leaving.room);
         broadcastLeaderboard();
       }
     });
@@ -1535,7 +1707,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
         map.set(def, { room: def, count: 0, players: [] });
       }
       for (const s of clients.values()) {
-        if (!s.name || isPrivateDebugRoom(s.room)) continue;
+        if (!s.name || isPrivateDebugRoom(s.room) || isSurvivalRoom(s.room)) continue;
         if (!map.has(s.room)) map.set(s.room, { room: s.room, count: 0, players: [] });
         const entry = map.get(s.room);
         entry.count++;

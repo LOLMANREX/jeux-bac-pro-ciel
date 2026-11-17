@@ -266,7 +266,20 @@ export class HudManager {
     this.survivalEndTitleEl = document.getElementById('survival-end-title');
     this.survivalEndReasonEl = document.getElementById('survival-end-reason');
     this.survivalEndStatsEl = document.getElementById('survival-end-stats');
+    this.survivalEndInspectBtn = document.getElementById('survival-end-inspect-btn');
     this.survivalEndBtn = document.getElementById('survival-end-btn');
+
+    this.survivalIntroOverlayEl = document.getElementById('survival-intro-overlay');
+    this.survivalIntroPhaseEl = document.getElementById('survival-intro-phase');
+    this.survivalIntroTitleEl = document.getElementById('survival-intro-title');
+    this.survivalIntroBriefingEl = document.getElementById('survival-intro-briefing');
+    this.survivalIntroProgressEl = document.getElementById('survival-intro-progress-fill');
+    this.survivalIntroSkipBtn = document.getElementById('survival-intro-skip-btn');
+
+    this.survivalDetention3dHudEl = document.getElementById('survival-detention-3d-hud');
+    this.detention3dCamPrevBtn = document.getElementById('detention-3d-cam-prev');
+    this.detention3dCamLabelEl = document.getElementById('detention-3d-cam-label');
+    this.detention3dCamNextBtn = document.getElementById('detention-3d-cam-next');
 
     this.hudEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
@@ -1859,6 +1872,19 @@ export class HudManager {
     this.survivalHudMicBtn?.addEventListener('click', () => this.survivalCallbacks?.onToggleMic?.());
     this.survivalDetentionOpenBtn?.addEventListener('click', () => this.survivalCallbacks?.onOpenDetention?.());
     this.survivalDetentionMinBtn?.addEventListener('click', () => this.survivalCallbacks?.onMinimizeDetention?.());
+    this.survivalIntroSkipBtn?.addEventListener('click', () => this.survivalCallbacks?.onSkipSurvivalIntro?.());
+    this.detention3dCamPrevBtn?.addEventListener('click', () => this.survivalCallbacks?.onPrevDetentionCamera?.());
+    this.detention3dCamNextBtn?.addEventListener('click', () => this.survivalCallbacks?.onNextDetentionCamera?.());
+    this.survivalEndInspectBtn?.addEventListener('click', () => {
+      const nextCompact = !this.survivalEndOverlayEl?.classList.contains('is-compact');
+      this.survivalEndOverlayEl?.classList.toggle('is-compact', nextCompact);
+      if (this.survivalEndInspectBtn) {
+        this.survivalEndInspectBtn.textContent = nextCompact
+          ? '📋 Agrandir Bilan'
+          : '👀 Observer Salle de Colle 3D';
+      }
+      this.survivalCallbacks?.onToggleEndInspect?.(nextCompact);
+    });
     this.survivalEndBtn?.addEventListener('click', () => this.survivalCallbacks?.onCloseEnd?.());
   }
 
@@ -1870,16 +1896,16 @@ export class HudManager {
       : Array.isArray(snapshot.players)
         ? snapshot.players
         : [];
-    const minP = Math.max(2, Number(snapshot.minPlayers) || 2);
+    const minP = Math.max(1, Number(snapshot.minPlayers) || 1);
     const readyCount = players.filter((p) => p.ready).length;
     const localPlayer = players.find((p) => p.id === localId);
     const localReady = Boolean(localPlayer?.ready);
 
     if (this.survivalLobbyStatusEl) {
       if (players.length < minP) {
-        this.survivalLobbyStatusEl.textContent = `⏳ Joueurs dans le salon : ${players.length}/${minP} minimum requis pour lancer automatiquement la traque.`;
+        this.survivalLobbyStatusEl.textContent = `⏳ Joueurs dans l’instance : ${players.length}/${minP} minimum requis pour démarrer.`;
       } else {
-        this.survivalLobbyStatusEl.textContent = `⚔️ ${readyCount}/${players.length} joueurs prêts — la partie démarre dès que tous les joueurs présents sont prêts !`;
+        this.survivalLobbyStatusEl.textContent = `⚔️ ${readyCount}/${players.length} joueur(s) prêt(s) — la partie démarre dès que tout le monde est prêt (solo ou coop) !`;
       }
     }
 
@@ -2120,9 +2146,53 @@ export class HudManager {
     this.survivalDetentionModalEl?.classList.add('hidden');
   }
 
+  showSurvivalIntroOverlay({
+    phaseLabel = '⚡ COUPURE ÉLECTRIQUE — ALERTE INTRUSION',
+    briefingText = '« Survivez, terminez tous les TPs et ne faites aucun bruit au micro... »',
+    progress = 0
+  } = {}) {
+    if (!this.survivalIntroOverlayEl) return;
+    this.survivalIntroOverlayEl.classList.remove('hidden');
+    this.updateSurvivalIntroOverlay({ phaseLabel, briefingText, progress });
+  }
+
+  updateSurvivalIntroOverlay({ phaseLabel, briefingText, progress = 0 } = {}) {
+    if (phaseLabel && this.survivalIntroPhaseEl) {
+      this.survivalIntroPhaseEl.textContent = phaseLabel;
+    }
+    if (briefingText && this.survivalIntroBriefingEl) {
+      this.survivalIntroBriefingEl.textContent = briefingText.startsWith('«')
+        ? briefingText
+        : `« ${briefingText} »`;
+    }
+    if (this.survivalIntroProgressEl) {
+      const pct = Math.max(0, Math.min(100, Math.round((Number(progress) || 0) * 100)));
+      this.survivalIntroProgressEl.style.width = `${pct}%`;
+    }
+  }
+
+  hideSurvivalIntroOverlay() {
+    this.survivalIntroOverlayEl?.classList.add('hidden');
+  }
+
+  showDetention3dHud(camInfo = {}) {
+    if (!this.survivalDetention3dHudEl) return;
+    this.survivalDetention3dHudEl.classList.remove('hidden');
+    if (this.detention3dCamLabelEl) {
+      const idx = Math.max(1, (Number(camInfo.camIndex) || 0) + 1);
+      const cnt = Math.max(1, Number(camInfo.camCount) || 1);
+      this.detention3dCamLabelEl.textContent = `📹 [${idx}/${cnt}] ${camInfo.label || 'Caméra POV'}`;
+    }
+  }
+
+  hideDetention3dHud() {
+    this.survivalDetention3dHudEl?.classList.add('hidden');
+  }
+
   showSurvivalEndOverlay({ victory = false, reason = '', completedTps = 0, totalTps = 5, survivorsCount = 0, detainedCount = 0, durationSec = 0 } = {}) {
     if (!this.survivalEndOverlayEl) return;
     this.survivalEndOverlayEl.classList.remove('hidden');
+    this.survivalEndOverlayEl.classList.remove('is-compact');
     if (this.survivalEndCardEl) {
       this.survivalEndCardEl.classList.toggle('victory', Boolean(victory));
       this.survivalEndCardEl.classList.toggle('defeat', !victory);
@@ -2137,18 +2207,25 @@ export class HudManager {
     if (this.survivalEndStatsEl) {
       this.survivalEndStatsEl.textContent = `TPs terminés : ${completedTps}/${totalTps} • Survivants : ${survivorsCount} • Collés : ${detainedCount} • Durée : ${durationSec}s`;
     }
+    if (this.survivalEndInspectBtn) {
+      this.survivalEndInspectBtn.classList.toggle('hidden', Boolean(victory));
+      this.survivalEndInspectBtn.textContent = '👀 Observer Salle de Colle 3D';
+    }
   }
 
   hideSurvivalEndOverlay() {
     this.survivalEndOverlayEl?.classList.add('hidden');
+    this.survivalEndOverlayEl?.classList.remove('is-compact');
   }
 
   hideAllSurvivalUi() {
     this.hideSurvivalLobby();
+    this.hideSurvivalIntroOverlay();
     this.hideSurvivalHud();
     this.hideHidingOverlay();
     this.hideJumpscareOverlay();
     this.hideDetentionModal();
+    this.hideDetention3dHud();
     this.hideSurvivalEndOverlay();
   }
 }

@@ -5557,10 +5557,165 @@ body.vr-presenting .ascension-dialogue-overlay {
   color: #fde68a;
 }
 
+.survival-intro-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 66;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 24px 18px 34px;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0) 46%, rgba(127, 29, 29, 0.48) 100%);
+}
+
+.survival-intro-card {
+  pointer-events: auto;
+  width: min(760px, 95vw);
+  padding: 16px 22px;
+  border-radius: 18px;
+  background: linear-gradient(155deg, rgba(16, 4, 10, 0.94), rgba(15, 23, 42, 0.94));
+  border: 2px solid rgba(244, 63, 94, 0.78);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85), 0 0 32px rgba(239, 68, 68, 0.25);
+  color: #f8fafc;
+}
+
+.survival-intro-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.survival-intro-phase {
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #fda4af;
+  background: rgba(225, 29, 72, 0.22);
+  border: 1px solid rgba(244, 63, 94, 0.55);
+  padding: 4px 11px;
+  border-radius: 999px;
+}
+
+.survival-intro-card h2 {
+  margin: 0 0 6px;
+  font-size: clamp(1.15rem, 2.5vw, 1.55rem);
+  color: #fecdd3;
+}
+
+.survival-intro-briefing {
+  margin: 0 0 12px;
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: #fde68a;
+  line-height: 1.45;
+}
+
+.survival-intro-progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  overflow: hidden;
+}
+
+.survival-intro-progress-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #ef4444, #fbbf24);
+  transition: width 0.08s linear;
+}
+
+.survival-detention-3d-hud {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 44;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  width: min(1020px, 95vw);
+  padding: 9px 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(12, 18, 32, 0.92), rgba(24, 14, 10, 0.92));
+  border: 1.5px solid rgba(251, 146, 60, 0.65);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
+  color: #f8fafc;
+}
+
+.detention-3d-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.84rem;
+  color: #e2e8f0;
+}
+
+.detention-3d-badge {
+  background: rgba(234, 88, 12, 0.28);
+  border: 1px solid #fb923c;
+  color: #fed7aa;
+  font-weight: 900;
+  font-size: 0.76rem;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.detention-3d-cam-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.detention-3d-cam-label {
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: #7dd3fc;
+  min-width: 170px;
+  text-align: center;
+}
+
+.survival-end-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.survival-backdrop.is-compact {
+  background: transparent;
+  pointer-events: none;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 78px 18px 18px;
+}
+
+.survival-backdrop.is-compact .survival-end-card {
+  pointer-events: auto;
+  width: min(390px, 92vw);
+  padding: 14px 18px;
+}
+
+.survival-backdrop.is-compact .survival-end-icon {
+  font-size: 2rem;
+  margin-bottom: 4px;
+}
+
 body.vr-presenting .survival-horror-vignette,
 body.vr-presenting .survival-hud-bar,
 body.vr-presenting .survival-hide-overlay,
 body.vr-presenting .survival-jumpscare-overlay,
+body.vr-presenting .survival-intro-overlay,
+body.vr-presenting .survival-detention-3d-hud,
 body.vr-presenting #survival-lobby-modal,
 body.vr-presenting #survival-detention-modal,
 body.vr-presenting #survival-end-overlay {

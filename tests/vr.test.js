@@ -8,9 +8,11 @@ import { createTpSpatialPanel, createVrDebugPanel, createWristHudPanel } from '.
 import { VRManager } from '../src/vr/VRManager.js';
 import { attachRemoteVrVisuals, buildStudentAvatarMesh } from '../src/world/AvatarBuilder.js';
 import { createDefaultMap } from '../src/world/mapSchema.js';
+import { VariationTableSession, getVariationSheetHitBoxes } from '../src/minigames/VariationTableGame.js';
 import { PlayerController } from '../src/world/PlayerController.js';
 import { RemotePlayersManager } from '../src/world/RemotePlayers.js';
 import { SceneManager, pickLabInteractable } from '../src/world/SceneManager.js';
+import { createSurvivalPocketRooms, getDetentionCameraHitBoxes } from '../src/world/SurvivalArena3D.js';
 
 function waitForMsg(sock, predicate, timeoutMs = 2500) {
   return new Promise((resolve, reject) => {
@@ -1131,6 +1133,251 @@ test('v4.18 : SceneManager WebXR autorise customRenderScene + VRManager selectst
     assert.equal(dlgChoiceClicked, true);
     vr.closeWorldSpatialPanel();
   } finally {
+    vr?.dispose?.();
+    sm.dispose?.();
+    stubs.restore();
+  }
+});
+
+test('VR WebXR v4.20 : renderToTarget POV Live sous WebXR, surfaces salle de colle 3D (laser + toucher main) & intro survie', () => {
+  const noop = () => {};
+  const fakeGrad = () => ({ addColorStop: noop });
+  const fakeCtx = {
+    fillStyle: '#000',
+    strokeStyle: '#000',
+    lineWidth: 1,
+    font: '12px sans-serif',
+    textAlign: 'left',
+    textBaseline: 'alphabetic',
+    lineCap: 'butt',
+    globalAlpha: 1,
+    save: noop,
+    restore: noop,
+    clip: noop,
+    clearRect: noop,
+    fillRect: noop,
+    strokeRect: noop,
+    fillText: noop,
+    strokeText: noop,
+    beginPath: noop,
+    closePath: noop,
+    rect: noop,
+    roundRect: noop,
+    moveTo: noop,
+    lineTo: noop,
+    quadraticCurveTo: noop,
+    bezierCurveTo: noop,
+    arc: noop,
+    arcTo: noop,
+    ellipse: noop,
+    fill: noop,
+    stroke: noop,
+    translate: noop,
+    rotate: noop,
+    scale: noop,
+    setLineDash: noop,
+    drawImage: noop,
+    createPattern: () => ({}),
+    createLinearGradient: fakeGrad,
+    createRadialGradient: fakeGrad,
+    measureText: (txt) => ({ width: String(txt || '').length * 8 }),
+    getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray((w || 4) * (h || 4) * 4) }),
+    putImageData: noop
+  };
+
+  let xrRenderSnapshot = null;
+  let activeTarget = 'xr-framebuffer';
+  const targetCalls = [];
+  const xrListeners = new Map();
+  const ctrlListeners = [new Map(), new Map()];
+  const mockControllers = [0, 1].map((idx) => {
+    const grp = new THREE.Group();
+    grp.addEventListener = (type, fn) => ctrlListeners[idx].set(type, fn);
+    return grp;
+  });
+  const mockGrips = [new THREE.Group(), new THREE.Group()];
+  const mockRenderer = {
+    xr: {
+      enabled: true,
+      isPresenting: true,
+      setReferenceSpaceType() {},
+      addEventListener(t, fn) {
+        xrListeners.set(t, fn);
+      },
+      removeEventListener(t) {
+        xrListeners.delete(t);
+      },
+      getController(i) {
+        return mockControllers[i];
+      },
+      getControllerGrip(i) {
+        return mockGrips[i];
+      }
+    },
+    autoClear: false,
+    toneMapping: null,
+    toneMappingExposure: 1,
+    shadowMap: { enabled: false, autoUpdate: true, type: null },
+    setClearColor() {},
+    setPixelRatio() {},
+    setSize() {},
+    clear() {},
+    getRenderTarget() {
+      return activeTarget;
+    },
+    setRenderTarget(rt) {
+      activeTarget = rt;
+      targetCalls.push(rt);
+    },
+    setAnimationLoop() {},
+    render(_scene, cam) {
+      xrRenderSnapshot = {
+        xrEnabledDuringPass: mockRenderer.xr.enabled,
+        camera: cam,
+        targetDuringPass: activeTarget
+      };
+    }
+  };
+
+  const stubs = createFakeDomStubs();
+  globalThis.document.createElement = (tag) =>
+    tag === 'canvas' ? { width: 256, height: 256, getContext: () => fakeCtx } : { addEventListener: noop };
+  const mapData = createDefaultMap();
+  const sm = new SceneManager(stubs.canvas, { renderer: mockRenderer, skipEnvironment: true });
+  let pocket = null;
+  let vr = null;
+
+  try {
+    pocket = createSurvivalPocketRooms(sm.scene, mapData);
+    const hiddenMesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial());
+    sm.scene.add(hiddenMesh);
+
+    const povCam = pocket.povCamera;
+    povCam.position.set(2, 1.65, -2);
+    let sawHiddenInvisible = null;
+    const origRender = mockRenderer.render;
+    mockRenderer.render = (sc, cam) => {
+      sawHiddenInvisible = hiddenMesh.visible;
+      origRender(sc, cam);
+    };
+
+    const okRt = sm.renderToTarget(pocket.povRenderTarget, povCam, {
+      hiddenObjects: [hiddenMesh],
+      ambientBoost: 0.4,
+      fogFar: 32
+    });
+    assert.equal(okRt, true);
+    assert.equal(xrRenderSnapshot.xrEnabledDuringPass, false);
+    assert.equal(xrRenderSnapshot.camera, povCam);
+    assert.equal(xrRenderSnapshot.targetDuringPass, pocket.povRenderTarget);
+    assert.equal(sawHiddenInvisible, false);
+    assert.equal(hiddenMesh.visible, true);
+    assert.equal(mockRenderer.xr.enabled, true);
+    assert.equal(mockRenderer.shadowMap.autoUpdate, true);
+    assert.equal(mockRenderer.getRenderTarget(), 'xr-framebuffer');
+    assert.ok(targetCalls.includes(pocket.povRenderTarget));
+
+    let optionPicked = -1;
+    let camNextCount = 0;
+    const vt = new VariationTableSession();
+    pocket.updateDetentionMathSheet(vt.getVrSnapshot({}), true);
+    const surfaces = pocket.getDetentionInteractiveSurfaces({
+      onSelectOption: (idx) => {
+        optionPicked = idx;
+      },
+      onPrevCamera: () => {},
+      onNextCamera: () => {
+        camNextCount += 1;
+      }
+    });
+
+    const player = new PlayerController(sm.camera, stubs.canvas, []);
+    vr = new VRManager(sm, player, {
+      playerName: 'TesterVR420',
+      mapData,
+      getWorldInteractiveSurfaces: () => surfaces
+    });
+    vr.active = true;
+    vr.simMode = false;
+    ctrlListeners[0].get('connected')?.({ data: { handedness: 'left', gamepad: { buttons: [], axes: [] } } });
+    ctrlListeners[1].get('connected')?.({ data: { handedness: 'right', gamepad: { buttons: [], axes: [] } } });
+
+    const detCfg = pocket.getDetentionRoomConfig();
+    const introApplied = vr.applySurvivalIntroPose(detCfg.spawn.x, detCfg.spawn.z, detCfg.lookAt);
+    assert.equal(introApplied, true);
+
+    const boardNextBox = getDetentionCameraHitBoxes(1024, 122, 'board').find((b) => b.id === 'cam_next');
+    assert.ok(boardNextBox);
+    const boardSurf = surfaces.find((s) => s.id === 'detention_board_cam_bar');
+    boardSurf.mesh.updateWorldMatrix(true, false);
+    const bU = (boardNextBox.x + boardNextBox.w / 2) / 1024;
+    const bV = 1 - (boardNextBox.y + boardNextBox.h / 2) / 122;
+    const localBoardPt = new THREE.Vector3(
+      (bU - 0.5) * boardSurf.width,
+      (bV - 0.5) * boardSurf.height,
+      0
+    );
+    const worldBoardPt = localBoardPt.clone().applyMatrix4(boardSurf.mesh.matrixWorld);
+    const worldBoardOrigin = new THREE.Vector3(localBoardPt.x, localBoardPt.y, 0.45).applyMatrix4(
+      boardSurf.mesh.matrixWorld
+    );
+    vr.vrRig.updateMatrixWorld(true);
+    mockControllers[1].position.copy(vr.vrRig.worldToLocal(worldBoardOrigin.clone()));
+    mockControllers[1].updateMatrixWorld(true);
+    mockControllers[1].lookAt(worldBoardPt);
+    mockControllers[1].rotateY(Math.PI);
+    mockControllers[1].updateMatrixWorld(true);
+
+    ctrlListeners[1].get('selectstart')?.();
+    vr.update(0.016, 0.2, 200);
+    ctrlListeners[1].get('selectend')?.();
+    assert.equal(camNextCount, 1);
+
+    mockControllers[1].position.set(100, 100, 100);
+    mockControllers[1].updateMatrixWorld(true);
+    vr.update(0.016, 0.25, 250);
+
+    const sheetBox0 = getVariationSheetHitBoxes(1024, 768)[0];
+    assert.ok(sheetBox0);
+    const mathSurf = surfaces.find((s) => s.id === 'detention_math_sheet');
+    mathSurf.mesh.updateWorldMatrix(true, false);
+    const sU = (sheetBox0.x + sheetBox0.w / 2) / 1024;
+    const sV = 1 - (sheetBox0.y + sheetBox0.h / 2) / 768;
+    const sheetTouchWorld = new THREE.Vector3(
+      (sU - 0.5) * mathSurf.width,
+      (sV - 0.5) * mathSurf.height,
+      0.01
+    ).applyMatrix4(mathSurf.mesh.matrixWorld);
+
+    vr.vrRig.updateMatrixWorld(true);
+    const tipObj = vr.slots.right.hand.fingers.index.tip;
+    const curTipWorld = new THREE.Vector3();
+    tipObj.getWorldPosition(curTipWorld);
+    const curTipLocalRig = vr.vrRig.worldToLocal(curTipWorld.clone());
+    const targetTipLocalRig = vr.vrRig.worldToLocal(sheetTouchWorld.clone());
+    mockGrips[1].position.add(targetTipLocalRig.sub(curTipLocalRig));
+    mockGrips[1].updateMatrixWorld(true);
+    vr.update(0.016, 0.3, 300);
+    assert.equal(optionPicked, 0);
+
+    let introSkipTriggered = false;
+    vr.openWorldSpatialPanel('survival_intro', {
+      title: 'SURVIE HORREUR',
+      survivalIntro: {
+        title: 'COUPURE DE COURANT',
+        subtitle: 'Phase 1',
+        briefing: 'Survivez, terminez tous les TPs et ne faites aucun bruit au micro.',
+        progress: 0.5,
+        onSkip: () => {
+          introSkipTriggered = true;
+        }
+      }
+    });
+    vr.worldPanel.getHitBoxes().find((b) => b.id === 'vr_surv_intro_skip')?.onClick?.();
+    assert.equal(introSkipTriggered, true);
+    vr.closeWorldSpatialPanel();
+  } finally {
+    pocket?.dispose?.();
     vr?.dispose?.();
     sm.dispose?.();
     stubs.restore();

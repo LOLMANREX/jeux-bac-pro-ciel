@@ -659,6 +659,7 @@ export function createTpSpatialPanel() {
     dialogue: null,
     ascension: null,
     survivalLobby: null,
+    survivalIntro: null,
     survivalHidden: null,
     jumpscare: null,
     detention: null,
@@ -676,6 +677,7 @@ export function createTpSpatialPanel() {
     if (state.detention) return 'detention';
     if (state.survivalEnd) return 'survival_end';
     if (state.survivalHidden) return 'survival_hidden';
+    if (state.survivalIntro) return 'survival_intro';
     if (state.survivalLobby) return 'survival_lobby';
     if (state.ascension) return 'ascension';
     if (state.dialogue) return 'dialogue';
@@ -684,6 +686,10 @@ export function createTpSpatialPanel() {
   };
 
   const handleExitAction = (uv) => {
+    if (typeof state.survivalIntro?.onSkip === 'function') {
+      state.survivalIntro.onSkip(uv);
+      return;
+    }
     if (typeof state.survivalLobby?.onLeave === 'function') {
       state.survivalLobby.onLeave(uv);
       return;
@@ -940,15 +946,17 @@ export function createTpSpatialPanel() {
             ? '#fb923c'
             : mode === 'survival_hidden'
               ? '#facc15'
-              : mode === 'survival_lobby'
+              : mode === 'survival_intro'
                 ? '#f43f5e'
-                : mode === 'survival_end'
-                  ? state.survivalEnd?.victory
-                    ? '#34d399'
-                    : '#f87171'
-                  : mode === 'ascension'
-                    ? '#fbbf24'
-                    : '#38bdf8';
+                : mode === 'survival_lobby'
+                  ? '#f43f5e'
+                  : mode === 'survival_end'
+                    ? state.survivalEnd?.victory
+                      ? '#34d399'
+                      : '#f87171'
+                    : mode === 'ascension'
+                      ? '#fbbf24'
+                      : '#38bdf8';
       ctx.fillStyle = headerColor;
       ctx.font = 'bold 26px system-ui, sans-serif';
       const headerTitle =
@@ -956,20 +964,22 @@ export function createTpSpatialPanel() {
           ? state.dialogue?.title || '👨‍🏫 ENTRETIEN PROFESSEUR CIEL'
           : mode === 'ascension'
             ? state.ascension?.title || '👑 CÉRÉMONIE D’ASCENSION BAC PRO CIEL'
-            : mode === 'survival_lobby'
-              ? '☠️ SALON D’ATTENTE — MODE SURVIE HORREUR'
-              : mode === 'survival_hidden'
-                ? `🗄️ ${state.survivalHidden?.rackLabel || 'BAIE DE BRASSAGE (CACHÉ)'}`
-                : mode === 'jumpscare'
-                  ? '☠️ ALERTE CAPTURE — PROFESSEUR CIEL'
-                  : mode === 'detention'
-                    ? '📝 HEURE DE COLLE — TABLEAUX DE VARIATION'
-                    : mode === 'survival_end'
-                      ? state.survivalEnd?.victory
-                        ? '🏆 VICTOIRE COOPÉRATIVE — SURVIE CIEL'
-                        : '💀 DÉFAITE — CLASSE EN HEURE DE COLLE'
-                      : String(state.tpTitle || 'TP Atelier 3D');
-      ctx.fillText(headerTitle.slice(0, 46), 24, 46);
+            : mode === 'survival_intro'
+              ? '☠️ ALERTE SURVIE HORREUR — INSTANCE ISOLÉE'
+              : mode === 'survival_lobby'
+                ? '☠️ SALON D’ATTENTE — MODE SURVIE HORREUR'
+                : mode === 'survival_hidden'
+                  ? `🗄️ ${state.survivalHidden?.rackLabel || 'BAIE DE BRASSAGE (CACHÉ)'}`
+                  : mode === 'jumpscare'
+                    ? '☠️ ALERTE CAPTURE — PROFESSEUR CIEL'
+                    : mode === 'detention'
+                      ? '📝 HEURE DE COLLE 3D — FEUILLE & CAMÉRA POV'
+                      : mode === 'survival_end'
+                        ? state.survivalEnd?.victory
+                          ? '🏆 VICTOIRE COOPÉRATIVE — SURVIE CIEL'
+                          : '💀 DÉFAITE — CLASSE EN HEURE DE COLLE'
+                        : String(state.tpTitle || 'TP Atelier 3D');
+      ctx.fillText(headerTitle.slice(0, 48), 24, 46);
     }
 
     if (mode === 'workbench' || mode === 'result') {
@@ -990,14 +1000,14 @@ export function createTpSpatialPanel() {
       }
     }
 
-    if (mode !== 'jumpscare') {
+    if (mode !== 'jumpscare' && mode !== 'survival_intro') {
       const exitLabel =
         mode === 'survival_lobby'
           ? '🚪 Quitter Salon'
           : mode === 'survival_hidden'
             ? '🚪 Sortir Baie'
             : mode === 'detention'
-              ? '📺 Voir Caméras'
+              ? '📺 Salle 3D'
               : mode === 'survival_end'
                 ? '🏫 Hall Principal'
                 : mode === 'dialogue' || mode === 'ascension'
@@ -1263,10 +1273,77 @@ export function createTpSpatialPanel() {
       return;
     }
 
+    if (mode === 'survival_intro' && state.survivalIntro) {
+      const si = state.survivalIntro;
+      const prog = Math.max(0, Math.min(1, Number(si.progress) || 0));
+      if (ctx) {
+        roundRectPath(ctx, 36, 78, canvasW - 72, 558, 22);
+        ctx.fillStyle = 'rgba(28, 6, 12, 0.94)';
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#ef4444';
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fb7185';
+        ctx.font = 'bold 30px system-ui, sans-serif';
+        ctx.fillText(
+          String(si.phaseLabel || '⚡ COUPURE ÉLECTRIQUE — ALERTE INTRUSION').slice(0, 56),
+          canvasW / 2,
+          152
+        );
+
+        ctx.fillStyle = '#fecdd3';
+        ctx.font = 'bold 34px system-ui, sans-serif';
+        ctx.fillText('LA TRAQUE DU PROFESSEUR CIEL COMMENCE', canvasW / 2, 232);
+
+        ctx.fillStyle = '#fef08a';
+        ctx.font = '600 26px system-ui, sans-serif';
+        const lines = wrapTextLines(
+          ctx,
+          si.briefingText || 'Survivez, terminez tous les TPs et ne faites aucun bruit au micro...',
+          canvasW - 180,
+          3
+        );
+        lines.forEach((ln, idx) => {
+          ctx.fillText(ln, canvasW / 2, 316 + idx * 42);
+        });
+
+        roundRectPath(ctx, 140, 488, canvasW - 280, 34, 14);
+        ctx.fillStyle = '#0f172a';
+        ctx.fill();
+        ctx.strokeStyle = '#f43f5e';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        roundRectPath(ctx, 144, 492, Math.max(16, Math.round((canvasW - 288) * prog)), 26, 10);
+        ctx.fillStyle = '#ef4444';
+        ctx.fill();
+
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font = 'bold 20px system-ui, sans-serif';
+        ctx.fillText(
+          'Cachez-vous dans les baies de brassage et surveillez votre micro !',
+          canvasW / 2,
+          574
+        );
+        ctx.textAlign = 'left';
+      }
+
+      addBtn('vr_surv_intro_skip', 360, 664, canvasW - 720, 96, '⏭️ Passer / Commencer', {
+        primary: true,
+        fontSize: 25,
+        onClick: () => si.onSkip?.()
+      });
+
+      if (texture) texture.needsUpdate = true;
+      return;
+    }
+
     if (mode === 'survival_lobby' && state.survivalLobby) {
       const sl = state.survivalLobby;
       const players = Array.isArray(sl.players) ? sl.players : [];
-      const minP = Math.max(2, Number(sl.minPlayers) || 2);
+      const minP = Math.max(1, Number(sl.minPlayers) || 1);
       const readyCnt = Number(sl.readyCount) || 0;
       const count = players.length;
 
@@ -1524,14 +1601,14 @@ export function createTpSpatialPanel() {
       const opts = Array.isArray(ex.options) ? ex.options : [];
 
       if (ctx) {
-        roundRectPath(ctx, 36, 76, canvasW - 72, 48, 12);
+        roundRectPath(ctx, 36, 76, 740, 48, 12);
         ctx.fillStyle = 'rgba(42, 18, 10, 0.94)';
         ctx.fill();
         ctx.fillStyle = '#fdba74';
-        ctx.font = 'bold 20px system-ui, sans-serif';
+        ctx.font = 'bold 19px system-ui, sans-serif';
         ctx.fillText(
-          `📝 Tableaux résolus : ${dtState.solvedCount || 0} • Survivants : ${dtState.survivorsCount ?? '?'} • Collés : ${dtState.detainedCount ?? '?'} • TPs : ${dtState.completedTps || 0}/${dtState.totalTps || 5}`,
-          56,
+          `📝 Résolus : ${dtState.solvedCount || 0} • Surv.: ${dtState.survivorsCount ?? '?'} • TPs: ${dtState.completedTps || 0}/${dtState.totalTps || 5} • 📹 ${String(dtState.camLabel || 'POV Live').slice(0, 22)}`,
+          52,
           107
         );
 
@@ -1605,6 +1682,15 @@ export function createTpSpatialPanel() {
           444
         );
       }
+
+      addBtn('vr_dt_cam_prev', 788, 76, 222, 48, '◀ Cam. Préc.', {
+        fontSize: 18,
+        onClick: () => dtState.onPrevCamera?.()
+      });
+      addBtn('vr_dt_cam_next', 1022, 76, 222, 48, 'Cam. Suiv. ▶', {
+        fontSize: 18,
+        onClick: () => dtState.onNextCamera?.()
+      });
 
       opts.slice(0, 4).forEach((optText, idx) => {
         const col = idx % 2;
@@ -2084,7 +2170,7 @@ export function createTpSpatialPanel() {
     const prevMode = resolveActiveMode();
     let structuralChange = Boolean(options.immediate);
     if (next.mode && next.mode !== prevMode) {
-      for (const sk of ['survivalLobby', 'survivalHidden', 'jumpscare', 'detention', 'survivalEnd']) {
+      for (const sk of ['survivalLobby', 'survivalIntro', 'survivalHidden', 'jumpscare', 'detention', 'survivalEnd']) {
         if (!(sk in next) && state[sk]) {
           state[sk] = null;
           structuralChange = true;
@@ -2099,6 +2185,7 @@ export function createTpSpatialPanel() {
         k === 'dialogue' ||
         k === 'ascension' ||
         k === 'survivalLobby' ||
+        k === 'survivalIntro' ||
         k === 'survivalHidden' ||
         k === 'jumpscare' ||
         k === 'detention' ||

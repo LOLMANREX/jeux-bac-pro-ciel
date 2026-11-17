@@ -492,6 +492,7 @@ export class SceneManager {
     this.quality = 'high';
     this.updaters = [];
     this.alwaysUpdaters = [];
+    this.beforeRenderCallbacks = [];
     this.customRenderScene = null;
     this.customStepFn = null;
     this.clock = new THREE.Clock();
@@ -665,7 +666,7 @@ export class SceneManager {
     this._horrorCamDir = new THREE.Vector3();
   }
 
-  setHorrorAtmosphere(active, threat = 0, flicker = 1) {
+  setHorrorAtmosphere(active, threat = 0, flicker = 1, fogFarOverride = null) {
     this.horrorMode = Boolean(active);
     if (!this.horrorMode) {
       this.scene.background = new THREE.Color('#cfe4f7');
@@ -676,10 +677,19 @@ export class SceneManager {
         this.scene.fog.far = Math.max(105, diag * 1.85);
       }
       this.renderer?.setClearColor?.('#cfe4f7', 1);
-      if (this.ambient) this.ambient.intensity = 0.42;
-      if (this.hemi) this.hemi.intensity = 0.82;
+      if (this.ambient) {
+        this.ambient.color.set('#f8fafc');
+        this.ambient.intensity = 0.42;
+      }
+      if (this.hemi) {
+        this.hemi.color.set('#e6f2ff');
+        this.hemi.intensity = 0.82;
+      }
       if (this.sun) this.sun.intensity = 1.42;
-      if (this.fill) this.fill.intensity = 0.42;
+      if (this.fill) {
+        this.fill.color.set('#f8fafc');
+        this.fill.intensity = 0.42;
+      }
       this.scene.environmentIntensity = 0.65;
       if (this.flashlight) {
         this.flashlight.visible = false;
@@ -688,20 +698,29 @@ export class SceneManager {
       return;
     }
 
-    const flk = Math.max(0.15, Math.min(1.1, Number(flicker) || 1));
+    const flk = Math.max(0.1, Math.min(1.2, Number(flicker) || 1));
     const thr = Math.max(0, Math.min(1, Number(threat) || 0));
-    const fogHex = thr > 0.5 ? '#16070d' : '#050814';
+    const fogHex = thr > 0.5 ? '#1b050a' : '#050814';
     this.scene.background = new THREE.Color(fogHex);
     if (this.scene.fog) {
       this.scene.fog.color.set(fogHex);
       this.scene.fog.near = 3.2;
-      this.scene.fog.far = 19.5;
+      this.scene.fog.far = Number.isFinite(Number(fogFarOverride)) ? Number(fogFarOverride) : 19.5;
     }
     this.renderer?.setClearColor?.(fogHex, 1);
-    if (this.ambient) this.ambient.intensity = 0.14 * flk;
-    if (this.hemi) this.hemi.intensity = 0.22 * flk;
+    if (this.ambient) {
+      this.ambient.color.set(thr > 0.55 ? '#fca5a5' : '#e2e8f0');
+      this.ambient.intensity = (thr > 0.55 ? 0.18 : 0.14) * flk;
+    }
+    if (this.hemi) {
+      this.hemi.color.set(thr > 0.55 ? '#ef4444' : '#94a3b8');
+      this.hemi.intensity = 0.22 * flk;
+    }
     if (this.sun) this.sun.intensity = 0.16 * flk;
-    if (this.fill) this.fill.intensity = 0.12 * flk;
+    if (this.fill) {
+      this.fill.color.set(thr > 0.55 ? '#dc2626' : '#f8fafc');
+      this.fill.intensity = (thr > 0.55 ? 0.24 : 0.12) * flk;
+    }
     this.scene.environmentIntensity = 0.16;
 
     if (this.flashlight && this.camera) {
@@ -838,6 +857,99 @@ export class SceneManager {
 
   addAlwaysUpdater(fn) {
     this.alwaysUpdaters.push(fn);
+  }
+
+  addBeforeRender(fn) {
+    if (typeof fn === 'function') {
+      this.beforeRenderCallbacks.push(fn);
+    }
+  }
+
+  removeBeforeRender(fn) {
+    this.beforeRenderCallbacks = this.beforeRenderCallbacks.filter((cb) => cb !== fn);
+  }
+
+  renderToTarget(renderTarget, virtualCamera, opts = {}) {
+    if (!this.renderer || !renderTarget || !virtualCamera) return false;
+    const renderer = this.renderer;
+    const prevTarget = renderer.getRenderTarget?.() ?? null;
+    const prevXrEnabled = renderer.xr ? Boolean(renderer.xr.enabled) : false;
+    const prevShadowAuto = renderer.shadowMap ? Boolean(renderer.shadowMap.autoUpdate) : false;
+    const prevAutoClear = renderer.autoClear;
+
+    const hiddenStates = [];
+    if (Array.isArray(opts.hiddenObjects)) {
+      for (const obj of opts.hiddenObjects) {
+        if (!obj) continue;
+        hiddenStates.push([obj, obj.visible]);
+        obj.visible = false;
+      }
+    }
+
+    const prevFlash = this.flashlight
+      ? {
+          visible: this.flashlight.visible,
+          intensity: this.flashlight.intensity,
+          colorHex: this.flashlight.color?.getHex?.(),
+          pos: this.flashlight.position.clone(),
+          targetPos: this.flashlight.target.position.clone()
+        }
+      : null;
+    const prevAmbIntensity = this.ambient ? this.ambient.intensity : null;
+    const prevFogFar = this.scene.fog ? this.scene.fog.far : null;
+
+    try {
+      if (opts.ambientBoost !== undefined && this.ambient) {
+        this.ambient.intensity = Math.max(this.ambient.intensity, Number(opts.ambientBoost) || 0.3);
+      }
+      if (opts.fogFar !== undefined && this.scene.fog) {
+        this.scene.fog.far = Number(opts.fogFar) || 26;
+      }
+      if (this.flashlight && opts.flashlightPose) {
+        this.flashlight.visible = true;
+        this.flashlight.intensity = opts.flashlightPose.intensity ?? 3.4;
+        if (opts.flashlightPose.color) {
+          this.flashlight.color.set(opts.flashlightPose.color);
+        }
+        this.flashlight.position.copy(opts.flashlightPose.position);
+        this.flashlight.target.position.copy(opts.flashlightPose.target);
+        this.flashlight.target.updateMatrixWorld();
+      }
+      if (renderer.xr) renderer.xr.enabled = false;
+      if (renderer.shadowMap) renderer.shadowMap.autoUpdate = false;
+      renderer.autoClear = true;
+      renderer.setRenderTarget?.(renderTarget);
+      renderer.clear?.(true, true, false);
+      renderer.render(this.scene, virtualCamera);
+      return true;
+    } catch (err) {
+      this.recordXrError('povRender', err);
+      return false;
+    } finally {
+      for (const [obj, vis] of hiddenStates) {
+        obj.visible = vis;
+      }
+      if (this.flashlight && prevFlash) {
+        this.flashlight.visible = prevFlash.visible;
+        this.flashlight.intensity = prevFlash.intensity;
+        if (prevFlash.colorHex !== undefined) {
+          this.flashlight.color.setHex(prevFlash.colorHex);
+        }
+        this.flashlight.position.copy(prevFlash.pos);
+        this.flashlight.target.position.copy(prevFlash.targetPos);
+        this.flashlight.target.updateMatrixWorld();
+      }
+      if (this.ambient && prevAmbIntensity !== null) {
+        this.ambient.intensity = prevAmbIntensity;
+      }
+      if (this.scene.fog && prevFogFar !== null) {
+        this.scene.fog.far = prevFogFar;
+      }
+      renderer.setRenderTarget?.(prevTarget);
+      if (renderer.xr) renderer.xr.enabled = prevXrEnabled;
+      if (renderer.shadowMap) renderer.shadowMap.autoUpdate = prevShadowAuto;
+      renderer.autoClear = prevAutoClear;
+    }
   }
 
   getFps() {
@@ -982,6 +1094,13 @@ export class SceneManager {
             this.alwaysUpdaters[i](dt, elapsed);
           } catch (err) {
             this.recordXrError(`alwaysUpdater:${i}`, err);
+          }
+        }
+        for (let i = 0; i < this.beforeRenderCallbacks.length; i++) {
+          try {
+            this.beforeRenderCallbacks[i](dt, elapsed, isXr);
+          } catch (err) {
+            this.recordXrError(`beforeRender:${i}`, err);
           }
         }
         if (isXr) {

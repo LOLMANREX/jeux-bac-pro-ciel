@@ -415,6 +415,9 @@ export class NetworkClient {
           this.pendingJoin.name = msg.profile.name;
         }
       }
+      if (msg.type === 'room_switched' && msg.room && this.pendingJoin) {
+        this.pendingJoin.room = msg.room;
+      }
       if (msg.type === 'pong') {
         if (this.lastPingSentAt > 0) {
           this.lastPingMs = Math.max(1, Math.round(performance.now() - this.lastPingSentAt));
@@ -684,6 +687,10 @@ export class NetworkClient {
 
   sendSurvivalDetentionSolved() {
     return this.send({ type: 'survival_detention_solved' });
+  }
+
+  sendSurvivalReturn() {
+    return this.send({ type: 'survival_return' });
   }
 
   async acceptQuest(name) {

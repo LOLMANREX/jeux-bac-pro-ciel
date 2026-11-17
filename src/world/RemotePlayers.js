@@ -235,6 +235,50 @@ export class RemotePlayersManager {
   constructor(scene) {
     this.scene = scene;
     this.peers = new Map();
+    this._allowedPeerIds = null;
+  }
+
+  setInstanceFilter(allowedIds = null) {
+    if (!allowedIds) {
+      this._allowedPeerIds = null;
+      return;
+    }
+    const nextSet = new Set(Array.isArray(allowedIds) ? allowedIds : [...allowedIds]);
+    this._allowedPeerIds = nextSet;
+    for (const id of [...this.peers.keys()]) {
+      if (!nextSet.has(id)) {
+        this.removePeer(id);
+      }
+    }
+  }
+
+  getPeerPoseForPov(id) {
+    const peer = this.peers.get(id);
+    if (!peer) return null;
+    return {
+      id: peer.id,
+      name: peer.name,
+      position: peer.group.position.clone(),
+      yaw: peer.group.rotation.y - Math.PI,
+      vrData: peer.vrData || null,
+      activity: peer.activity || 'Dans l’atelier',
+      zoneLabel: peer.zoneLabel || 'U300',
+      group: peer.group
+    };
+  }
+
+  setPeerPovHidden(id, hidden) {
+    const peer = this.peers.get(id);
+    if (!peer?.group) return;
+    if (hidden) {
+      if (peer._prePovVisible === undefined) {
+        peer._prePovVisible = peer.group.visible;
+      }
+      peer.group.visible = false;
+    } else if (peer._prePovVisible !== undefined) {
+      peer.group.visible = peer._prePovVisible;
+      delete peer._prePovVisible;
+    }
   }
 
   setPeers(peerList = []) {
@@ -249,6 +293,7 @@ export class RemotePlayersManager {
 
   upsertPeer(p) {
     if (!p || !p.id) return;
+    if (this._allowedPeerIds && !this._allowedPeerIds.has(p.id)) return;
     if (this.peers.has(p.id)) {
       this.movePeer(p.id, p.x, p.y, p.z, p.yaw, p.vrData);
       if (p.skin) {
@@ -446,6 +491,7 @@ export class RemotePlayersManager {
   }
 
   movePeer(id, x, y, z, yaw, vrData = undefined) {
+    if (this._allowedPeerIds && !this._allowedPeerIds.has(id)) return;
     const peer = this.peers.get(id);
     if (!peer) return;
     peer.targetPos.set(x, Math.max(0, Number(y) || 0), z);

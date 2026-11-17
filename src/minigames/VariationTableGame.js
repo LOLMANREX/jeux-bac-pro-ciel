@@ -307,3 +307,221 @@ export function renderVariationTableMarkup(exercise) {
     </div>
   `;
 }
+
+function wrapSheetLines(ctx, text, maxWidth, maxLines = 2) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (ctx.measureText(next).width <= maxWidth) {
+      cur = next;
+    } else {
+      if (cur) lines.push(cur);
+      cur = w;
+      if (lines.length >= maxLines) break;
+    }
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  return lines.slice(0, maxLines);
+}
+
+export function getVariationSheetHitBoxes(width = 1024, height = 768) {
+  const padX = Math.round(width * 0.088);
+  const gapX = Math.round(width * 0.022);
+  const gapY = Math.round(height * 0.02);
+  const boxW = Math.floor((width - padX - Math.round(width * 0.045) - gapX) / 2);
+  const boxH = Math.round(height * 0.118);
+  const startY = Math.round(height * 0.705);
+  const boxes = [];
+  for (let i = 0; i < 4; i++) {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    boxes.push({
+      id: `sheet_opt_${i}`,
+      optionIndex: i,
+      x: padX + col * (boxW + gapX),
+      y: startY + row * (boxH + gapY),
+      w: boxW,
+      h: boxH
+    });
+  }
+  return boxes;
+}
+
+export function drawVariationWorksheetCanvas(
+  ctx,
+  width = 1024,
+  height = 768,
+  detentionSnapshot = {},
+  hoveredId = null
+) {
+  const hitBoxes = getVariationSheetHitBoxes(width, height);
+  if (!ctx) {
+    return { hitBoxes };
+  }
+
+  const ex = detentionSnapshot.exercise || generateVariationExercise(0);
+  const tbl = ex.table || {};
+  const xs = Array.isArray(tbl.xs) ? tbl.xs : ['-∞', '0', '+∞'];
+  const signs = Array.isArray(tbl.signs) ? tbl.signs : ['-', '0', '+'];
+  const arrows = Array.isArray(tbl.arrows) ? tbl.arrows : ['↘', '0', '↗'];
+  const opts = Array.isArray(ex.options) ? ex.options : [];
+
+  ctx.fillStyle = '#fbf7ec';
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = 'rgba(147, 197, 253, 0.55)';
+  ctx.lineWidth = 1.5;
+  for (let ly = 72; ly < height - 24; ly += 32) {
+    ctx.beginPath();
+    ctx.moveTo(20, ly);
+    ctx.lineTo(width - 20, ly);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = 'rgba(239, 68, 68, 0.55)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(76, 18);
+  ctx.lineTo(76, height - 18);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(8, 8, width - 16, height - 16);
+
+  ctx.fillStyle = '#991b1b';
+  ctx.strokeStyle = '#dc2626';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.roundRect(92, 24, 340, 48, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#fef2f2';
+  ctx.font = 'bold 21px system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('📝 HEURE DE COLLE — MATHS', 108, 48);
+
+  ctx.fillStyle = '#1e293b';
+  ctx.font = 'bold 20px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(
+    `Résolus: ${detentionSnapshot.solvedCount || 0}  •  Série: ${detentionSnapshot.streak || 0}  •  TPs: ${detentionSnapshot.completedTps || 0}/${detentionSnapshot.totalTps || 5}`,
+    width - 36,
+    48
+  );
+  ctx.textAlign = 'left';
+
+  ctx.fillStyle = '#1e3a8a';
+  ctx.font = 'bold 28px monospace';
+  ctx.fillText(String(ex.fxLabel || 'f(x)'), 96, 108);
+
+  ctx.fillStyle = '#0369a1';
+  ctx.font = 'bold 26px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(String(ex.fPrimeLabel || "f'(x)"), width - 42, 108);
+  ctx.textAlign = 'left';
+
+  ctx.fillStyle = '#0f172a';
+  ctx.font = 'bold 24px system-ui, sans-serif';
+  const qLines = wrapSheetLines(ctx, ex.question || 'Complétez le tableau de variations :', width - 140, 2);
+  qLines.forEach((ln, idx) => {
+    ctx.fillText(ln, 96, 152 + idx * 30);
+  });
+
+  const tx = 96;
+  const ty = 216;
+  const tw = width - 142;
+  const rowH = 72;
+  const labelW = 138;
+  const colAreaW = tw - labelW;
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
+  ctx.fillRect(tx, ty, tw, rowH * 3);
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(tx, ty, tw, rowH * 3);
+  ctx.beginPath();
+  ctx.moveTo(tx + labelW, ty);
+  ctx.lineTo(tx + labelW, ty + rowH * 3);
+  ctx.moveTo(tx, ty + rowH);
+  ctx.lineTo(tx + tw, ty + rowH);
+  ctx.moveTo(tx, ty + rowH * 2);
+  ctx.lineTo(tx + tw, ty + rowH * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = '#1e3a8a';
+  ctx.font = 'bold 26px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('x', tx + labelW / 2, ty + rowH * 0.5);
+  ctx.fillText("f'(x)", tx + labelW / 2, ty + rowH * 1.5);
+  ctx.fillText('f(x)', tx + labelW / 2, ty + rowH * 2.5);
+
+  const xStep = colAreaW / Math.max(1, xs.length);
+  xs.forEach((xv, i) => {
+    const cx = tx + labelW + xStep * (i + 0.5);
+    ctx.fillStyle = xv === '?' ? '#b45309' : '#0f172a';
+    ctx.font = 'bold 26px monospace';
+    ctx.fillText(String(xv).slice(0, 8), cx, ty + rowH * 0.5);
+  });
+
+  const sStep = colAreaW / Math.max(1, signs.length);
+  signs.forEach((sv, i) => {
+    const cx = tx + labelW + sStep * (i + 0.5);
+    ctx.fillStyle =
+      sv === '?' ? '#d97706' : sv === '+' ? '#047857' : sv === '-' ? '#b91c1c' : '#334155';
+    ctx.font = 'bold 28px monospace';
+    ctx.fillText(String(sv).slice(0, 6), cx, ty + rowH * 1.5);
+  });
+
+  const aStep = colAreaW / Math.max(1, arrows.length);
+  arrows.forEach((av, i) => {
+    const cx = tx + labelW + aStep * (i + 0.5);
+    ctx.fillStyle = av === '?' ? '#d97706' : '#0369a1';
+    ctx.font = 'bold 30px monospace';
+    ctx.fillText(String(av).slice(0, 8), cx, ty + rowH * 2.5);
+  });
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle =
+    detentionSnapshot.lastCorrect === false
+      ? '#b91c1c'
+      : detentionSnapshot.lastCorrect === true
+        ? '#047857'
+        : '#475569';
+  ctx.font = 'bold 20px system-ui, sans-serif';
+  const fbText =
+    detentionSnapshot.feedback ||
+    'Cliquez sur la bonne réponse (A, B, C ou D) directement sur la feuille !';
+  ctx.fillText(String(fbText).slice(0, 82), 96, 480);
+
+  const letters = ['A', 'B', 'C', 'D'];
+  hitBoxes.forEach((box, idx) => {
+    const optText = String(opts[idx] || '');
+    const isHover = hoveredId === box.id;
+    ctx.fillStyle = isHover ? '#dbeafe' : '#ffffff';
+    ctx.strokeStyle = isHover ? '#2563eb' : '#475569';
+    ctx.lineWidth = isHover ? 4 : 2.5;
+    ctx.beginPath();
+    ctx.roundRect(box.x, box.y, box.w, box.h, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = isHover ? '#1d4ed8' : '#0f172a';
+    ctx.font = 'bold 22px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    const fullOpt = `${letters[idx]}) ${optText}`;
+    const optLines = wrapSheetLines(ctx, fullOpt, box.w - 28, 2);
+    if (optLines.length <= 1) {
+      ctx.fillText(optLines[0] || '', box.x + 14, box.y + box.h / 2);
+    } else {
+      ctx.fillText(optLines[0], box.x + 14, box.y + box.h * 0.34);
+      ctx.fillText(optLines[1], box.x + 14, box.y + box.h * 0.7);
+    }
+  });
+  ctx.textBaseline = 'alphabetic';
+
+  return { hitBoxes };
+}

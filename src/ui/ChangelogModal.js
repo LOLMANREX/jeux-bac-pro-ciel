@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.19 - Mode Survie Horreur : La Traque du Professeur CIEL, Baies de Brassage & Heure de Colle';
+    : 'v4.20 - Instance Isolée Survie, Cinématique Intro & Salle de Colle 3D POV Live';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,36 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
+    version: 'v4.20 — Instance Isolée Survie, Cinématique Intro & Salle de Colle 3D POV Live',
+    date: '17/11/2026',
+    tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'INSTANCE ISOLÉE & SOLO 1+ JOUEUR',
+        title: 'Salles Survie Isolées (survival-game-...) & Lancement dès 1 Joueur',
+        desc: 'Chaque partie de Survie Horreur bascule désormais dans sa propre instance isolée (survival-game-...) invisible depuis plateau-u300, ne montrant et ne faisant entendre que les participants de la partie et le Professeur CIEL. Le seuil de lancement passe à 1 joueur minimum (testable en solo comme en coop) avec retour automatique sur plateau-u300 en fin de partie.'
+      },
+      {
+        badge: 'CINÉMATIQUE HORREUR PC & VR',
+        title: 'Séquence d’Introduction Coupure de Courant, Alarme & Briefing CIEL',
+        desc: 'Au lancement de la traque : coupure brutale de l’éclairage de l’atelier vers une atmosphère rouge/tamisée avec alarme sonore et grésillement électrique, travelling caméra sur le Professeur CIEL (PC) ou cadrage spatial sécurisé (VR WebXR) et panneau de briefing interactif avant la reprise du contrôle au point d’apparition.'
+      },
+      {
+        badge: 'SALLE DE COLLE 3D',
+        title: 'Véritable Salle de Classe 3D avec Feuille de Maths Interactive sur le Bureau',
+        desc: 'Remplacement de la fenêtre 2D bloquante par une vraie salle d’heure de colle 3D (pupitres, chaises, horloge murale animée, fenêtre à barreaux et grand tableau face à l’élève). Les exercices de tableaux de variation s’affichent directement sur une feuille 3D posée sur le bureau, cliquable à la souris sur PC et au laser/main VR.'
+      },
+      {
+        badge: 'CAMÉRA POV LIVE SUR TABLEAU',
+        title: 'Écran Tableau WebGLRenderTarget Temps Réel sur le Point de Vue des Coéquipiers',
+        desc: 'Un grand écran de surveillance sur le tableau 3D rend en direct la véritable vue à la première personne (POV) d’un coéquipier survivant sur la carte (course, cachette en baie, manipulation de TP), avec boutons Caméra Précédente / Suivante sur le bureau, le tableau et en VR, et vue de patrouille du Professeur CIEL ou du plateau en solo.'
+      }
+    ]
+  },
+  {
     version: 'v4.19 — Mode Survie Horreur : La Traque du Professeur CIEL, Baies de Brassage & Heure de Colle',
     date: '16/11/2026',
-    tag: 'DERNIÈRE MÀJ',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'ÉDITEUR & LOBBY 2+ JOUEURS',
