@@ -26,7 +26,11 @@ import {
 import { buildLabWorld } from './world/LabBuilder.js';
 import { createHorrorTeacher } from './world/NpcTeacher.js';
 import { computeSurvivalIntroShot, createSurvivalPocketRooms } from './world/SurvivalArena3D.js';
-import { SURVIVAL_MIN_PLAYERS, resolveSurvivalIntroPlacement } from './world/SurvivalEngine.js';
+import {
+  SURVIVAL_MIN_PLAYERS,
+  computeRackExitPosition,
+  resolveSurvivalIntroPlacement
+} from './world/SurvivalEngine.js';
 import { PlayerController } from './world/PlayerController.js';
 import {
   createSpeechBubble,
@@ -478,7 +482,9 @@ function getActiveWorldSurfaces() {
     return survivalArena.getDetentionInteractiveSurfaces({
       onSelectOption: (idx) => submitDetentionOption(idx),
       onPrevCamera: () => cycleDetentionCamera(-1),
-      onNextCamera: () => cycleDetentionCamera(1)
+      onNextCamera: () => cycleDetentionCamera(1),
+      onExitDetention: () => exitDetentionAndReturnToHall(),
+      onRestartSurvival: () => restartSurvivalFromDetention()
     });
   }
   if (survivalState.inWaitingRoom && !survivalState.inActiveMatch) {
@@ -695,12 +701,13 @@ function cycleDetentionCamera(delta = 1) {
 const _povLookTmp = new THREE.Vector3();
 const _povDirTmp = new THREE.Vector3();
 const _povQuatTmp = new THREE.Quaternion();
+const _povHiddenScratch = [];
 
 function renderDetentionLivePov(_dt, elapsed) {
   if (!isDetentionSeatedActive()) return;
   if (!survivalArena?.povCamera) return;
   survivalArena.updateDetentionClock?.(elapsed);
-  if (elapsed - survivalState.lastPovRenderAt < 0.032) return;
+  if (elapsed - survivalState.lastPovRenderAt < 0.045) return;
   survivalState.lastPovRenderAt = elapsed;
 
   const snap = survivalState.snapshot;
@@ -717,7 +724,8 @@ function renderDetentionLivePov(_dt, elapsed) {
   survivalArena.setLivePovActive(true);
 
   const povCam = survivalArena.povCamera;
-  const hiddenObjects = [];
+  const hiddenObjects = _povHiddenScratch;
+  hiddenObjects.length = 0;
   if (localAvatar?.group) hiddenObjects.push(localAvatar.group);
   if (vrManager?.vrRig) hiddenObjects.push(vrManager.vrRig);
 
@@ -801,13 +809,14 @@ function renderDetentionLivePov(_dt, elapsed) {
       ambientBoost,
       fogFar: 28,
       flashlightPose: {
-        position: povCam.position.clone(),
-        target: _povLookTmp.clone(),
+        position: povCam.position,
+        target: _povLookTmp,
         intensity: flashIntensity,
         color: flashColor
       }
     });
   } finally {
+    hiddenObjects.length = 0;
     if (povPeerHiddenId) {
       remotePlayers.setPeerPovHidden(povPeerHiddenId, false);
     }
@@ -996,6 +1005,21 @@ function leaveSurvivalLobby() {
   }
 }
 
+function exitDetentionAndReturnToHall() {
+  sfx.click();
+  network.sendSurvivalLeave();
+  closeSurvivalEndCinematic({ skipSendReturn: true });
+}
+
+function restartSurvivalFromDetention() {
+  sfx.click();
+  if (network.connected) {
+    network.sendSurvivalRestart?.();
+  } else {
+    exitDetentionAndReturnToHall();
+  }
+}
+
 function toggleSurvivalReady() {
   const players = survivalState.snapshot?.lobbyPlayers || [];
   const me = players.find((p) => p.id === network.clientId);
@@ -1011,35 +1035,89 @@ function toggleHidingInRack(target) {
     return;
   }
   if (survivalState.hiddenRack) {
-    const spot = survivalState.hiddenSpot;
+    const spot = survivalState.hiddenSpot || survivalState.hiddenRack;
     sfx.playLockerDoorSound?.(false);
     network.sendSurvivalHide(null);
     survivalState.hiddenRack = null;
     survivalState.hiddenSpot = null;
-    player.setMovementLocked(false);
     hud?.hideHidingOverlay?.();
+    sceneMgr.restoreNormalExposure?.();
     if (vrManager?.isVrActive?.()) {
       vrManager.closeWorldSpatialPanel?.();
     }
     setModalActive(false, false, false);
-    if (spot) {
-      player.teleportTo({ x: spot.exitX, z: spot.exitZ }, { x: spot.exitX, z: spot.exitZ - 2 });
-      vrManager?.syncWorldTeleport?.(spot.exitX, spot.exitZ, player.yaw);
+    const rotRad = Number.isFinite(Number(spot?.rotRad))
+      ? Number(spot.rotRad)
+      : Number.isFinite(Number(spot?.rad))
+        ? Number(spot.rad)
+        : Number.isFinite(Number(spot?.rotation))
+          ? Number(spot.rotation)
+          : 0;
+    const computedExit = computeRackExitPosition(
+      spot || {},
+      lab.colliders,
+      currentMapData?.bounds,
+      player.radius || 0.42
+    );
+    const safeExit = player.resolveUnstuckPosition(computedExit.x, computedExit.z, rotRad);
+    const lookTarget = {
+      x: safeExit.x + Math.sin(rotRad) * 2.0,
+      z: safeExit.z + Math.cos(rotRad) * 2.0
+    };
+    player.setMovementLocked(false);
+    player.setEnabled(!vrManager?.isVrActive?.());
+    player.setAvatarVisible(true);
+    player.teleportTo(safeExit, lookTarget);
+    if (vrManager?.isVrActive?.()) {
+      vrManager.exitHidingRackVr?.(safeExit.x, safeExit.z, player.yaw);
+    } else {
+      vrManager?.syncWorldTeleport?.(safeExit.x, safeExit.z, player.yaw);
     }
     return;
   }
   const rackId = target?.id;
-  const spot = lab.hidingSpots?.find((s) => s.id === rackId) || null;
+  const spot = lab.hidingSpots?.find((s) => s.id === rackId) || target || null;
   if (!spot) return;
   sfx.playLockerDoorSound?.(true);
   if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
     miniGameModal.close();
   }
+  const spotX = Number.isFinite(Number(spot.x))
+    ? Number(spot.x)
+    : Number.isFinite(Number(spot.position?.x))
+      ? Number(spot.position.x)
+      : player.position.x;
+  const spotZ = Number.isFinite(Number(spot.z))
+    ? Number(spot.z)
+    : Number.isFinite(Number(spot.position?.z))
+      ? Number(spot.position.z)
+      : player.position.z;
+  const rotRad = Number.isFinite(Number(spot.rotRad))
+    ? Number(spot.rotRad)
+    : Number.isFinite(Number(spot.rad))
+      ? Number(spot.rad)
+      : Number.isFinite(Number(spot.rotation))
+        ? Number(spot.rotation)
+        : 0;
+  const computedExit = computeRackExitPosition(
+    { x: spotX, z: spotZ, rotRad, w: spot.w, d: spot.d },
+    lab.colliders,
+    currentMapData?.bounds,
+    player.radius || 0.42
+  );
   survivalState.hiddenRack = target;
-  survivalState.hiddenSpot = spot;
+  survivalState.hiddenSpot = {
+    ...spot,
+    x: spotX,
+    z: spotZ,
+    rotRad,
+    rad: rotRad,
+    exitX: computedExit.x,
+    exitZ: computedExit.z
+  };
   player.setMovementLocked(true);
-  player.teleportTo({ x: spot.x, z: spot.z }, { x: spot.exitX, z: spot.exitZ });
-  vrManager?.syncWorldTeleport?.(spot.x, spot.z, player.yaw);
+  player.teleportTo({ x: spotX, z: spotZ }, { x: computedExit.x, z: computedExit.z });
+  vrManager?.syncWorldTeleport?.(spotX, spotZ, player.yaw);
   network.sendSurvivalHide(spot.id);
   syncSurvivalPanelMode();
 }
@@ -2378,7 +2456,7 @@ function ensureCielOsOverlayUi() {
   bar.className = 'ciel-os-session-bar hidden';
   bar.innerHTML = `
     <div class="ciel-os-bar-left">
-      <span class="ciel-os-bar-badge">🖥️ CIEL OS 4.22</span>
+      <span class="ciel-os-bar-badge">🖥️ CIEL OS 4.23</span>
       <span id="ciel-os-bar-title" class="ciel-os-bar-title">Poste PC</span>
       <span class="ciel-os-bar-hint">Cliquez sur l’écran 3D • Clavier ZQSD / Flèches • Clic droit : Drapeau Démineur</span>
     </div>
@@ -2555,15 +2633,18 @@ async function openCielOsPc(target) {
   return true;
 }
 
+const _ndcCenter = new THREE.Vector2(0, 0);
+const _ndcScratch = new THREE.Vector2();
+
 function pickActivePcScreenUv(clientX, clientY) {
   if (!activePcSession?.pcStation?.screenMeshes?.length) return null;
   const rect = canvas.getBoundingClientRect();
   if (!rect.width || !rect.height) return null;
-  const ndc = new THREE.Vector2(
+  _ndcScratch.set(
     ((clientX - rect.left) / rect.width) * 2 - 1,
     -((clientY - rect.top) / rect.height) * 2 + 1
   );
-  raycaster.setFromCamera(ndc, sceneMgr.camera);
+  raycaster.setFromCamera(_ndcScratch, sceneMgr.camera);
   for (const sm of activePcSession.pcStation.screenMeshes) {
     sm.updateWorldMatrix(true, false);
   }
@@ -3392,6 +3473,7 @@ function interactWith(target) {
   else if (target.type === 'survival_lobby_console') toggleSurvivalReady();
   else if (target.type === 'survival_lobby_exit') leaveSurvivalLobby();
   else if (target.type === 'survival_detention_terminal') openDetentionTerminal();
+  else if (target.type === 'survival_detention_exit') exitDetentionAndReturnToHall();
   else if (target.type === 'ciel_os_pc') openCielOsPc(target);
   else openTp(target.tpId || target.id, target);
 }
@@ -3584,15 +3666,15 @@ let lastCursorPos = null;
 function getRayHitInteractable(clientX = null, clientY = null) {
   if (!joined || modalOpen || gameState.touchMode || vrManager?.isVrActive?.()) return null;
   if (document.pointerLockElement === canvas || clientX === null || clientY === null) {
-    raycaster.setFromCamera(new THREE.Vector2(0, 0), sceneMgr.camera);
+    raycaster.setFromCamera(_ndcCenter, sceneMgr.camera);
   } else {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
-    const ndc = new THREE.Vector2(
+    _ndcScratch.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1
     );
-    raycaster.setFromCamera(ndc, sceneMgr.camera);
+    raycaster.setFromCamera(_ndcScratch, sceneMgr.camera);
   }
   return pickLabInteractable(raycaster, getActiveInteractables(), lab.solidWallMeshes, 7.5);
 }
@@ -3621,15 +3703,15 @@ function pickDetentionSurfaceAt(clientX = null, clientY = null) {
   const surfaces = getActiveWorldSurfaces();
   if (!surfaces.length) return null;
   if (document.pointerLockElement === canvas || clientX === null || clientY === null) {
-    raycaster.setFromCamera(new THREE.Vector2(0, 0), sceneMgr.camera);
+    raycaster.setFromCamera(_ndcCenter, sceneMgr.camera);
   } else {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
-    const ndc = new THREE.Vector2(
+    _ndcScratch.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1
     );
-    raycaster.setFromCamera(ndc, sceneMgr.camera);
+    raycaster.setFromCamera(_ndcScratch, sceneMgr.camera);
   }
   let best = null;
   for (const surf of surfaces) {
@@ -3824,7 +3906,7 @@ let lastMiniMapDrawAt = 0;
 let lastDebugStatsAt = 0;
 
 sceneMgr.addUpdater((dt, elapsed) => {
-  lab.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned);
+  lab.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned, sceneMgr.camera);
   if (activePcSession?.comfortMode && cielOsDom?.comfortCtx && activePcSession.pcStation?.canvas) {
     cielOsDom.comfortCtx.drawImage(activePcSession.pcStation.canvas, 0, 0);
   }

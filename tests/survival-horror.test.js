@@ -15,7 +15,12 @@ import { buildLabWorld } from '../src/world/LabBuilder.js';
 import { createHorrorTeacher } from '../src/world/NpcTeacher.js';
 import { PlayerController } from '../src/world/PlayerController.js';
 import { RemotePlayersManager } from '../src/world/RemotePlayers.js';
-import { computeSurvivalIntroShot, createSurvivalPocketRooms, getDetentionCameraHitBoxes } from '../src/world/SurvivalArena3D.js';
+import {
+  computeSurvivalIntroShot,
+  createSurvivalPocketRooms,
+  getDetentionCameraHitBoxes,
+  getDetentionDeskExitHitBoxes
+} from '../src/world/SurvivalArena3D.js';
 import {
   SURVIVAL_CAPTURE_RADIUS,
   SURVIVAL_MIC_NOISE_THRESHOLD,
@@ -23,6 +28,7 @@ import {
   SURVIVAL_MIN_PLAYERS,
   SurvivalMatchController,
   buildNavGrid,
+  computeRackExitPosition,
   evaluateMicVolumeForAI,
   findPathAStar,
   getSurvivalDoors,
@@ -348,6 +354,8 @@ test('3D & VR : LabBuilder, NpcTeacher Horreur, SurvivalArena3D et VRHudPanel mo
 
     let deskSelected = -1;
     let camDelta = 0;
+    let deskExited = false;
+    let deskRestarted = false;
     const surfaces = pocket.getDetentionInteractiveSurfaces({
       onSelectOption: (idx) => {
         deskSelected = idx;
@@ -357,9 +365,40 @@ test('3D & VR : LabBuilder, NpcTeacher Horreur, SurvivalArena3D et VRHudPanel mo
       },
       onNextCamera: () => {
         camDelta += 1;
+      },
+      onExitDetention: () => {
+        deskExited = true;
+      },
+      onRestartSurvival: () => {
+        deskRestarted = true;
       }
     });
-    assert.equal(surfaces.length, 3);
+    assert.equal(surfaces.length, 4);
+    assert.equal(pocket.povRenderTarget.width, 512);
+    assert.equal(pocket.povRenderTarget.height, 288);
+    assert.ok(pocket.deskExitMesh);
+
+    const exitSurf = surfaces.find((s) => s.id === 'detention_desk_exit_btn');
+    assert.ok(exitSurf);
+    const exitBoxes = getDetentionDeskExitHitBoxes(384, 256);
+    assert.equal(exitBoxes.length, 2);
+    const restartBox = exitBoxes.find((b) => b.action === 'restart');
+    const exitBox = exitBoxes.find((b) => b.action === 'exit');
+    const restartHit = exitSurf.hitTestUv({
+      x: (restartBox.x + restartBox.w / 2) / 384,
+      y: 1 - (restartBox.y + restartBox.h / 2) / 256
+    });
+    assert.ok(restartHit);
+    restartHit.onClick();
+    assert.equal(deskRestarted, true);
+
+    const exitHit = exitSurf.hitTestUv({
+      x: (exitBox.x + exitBox.w / 2) / 384,
+      y: 1 - (exitBox.y + exitBox.h / 2) / 256
+    });
+    assert.ok(exitHit);
+    exitHit.onClick();
+    assert.equal(deskExited, true);
     const mathSurf = surfaces.find((s) => s.id === 'detention_math_sheet');
     const sheetBox2 = getVariationSheetHitBoxes(1024, 768)[2];
     const mathHit = mathSurf.hitTestUv({
@@ -1105,5 +1144,210 @@ test('v4.21 : Salle de Colle PC — Caméra libre assise (souris, PointerLock, f
     pocket?.dispose?.();
     mockDom.restore();
     restoreCanvasDoc();
+  }
+});
+
+test('v4.23 : Sortie dégagée des Baies de Brassage (1.15m devant la porte, sans collision, sans écran noir ni NaN)', () => {
+  const restoreCanvasDoc = installFakeCanvasDocument();
+  const mockDom = createHudDomMock();
+  const fakeCanvas = {
+    width: 1280,
+    height: 720,
+    style: {},
+    addEventListener() {},
+    requestPointerLock() {}
+  };
+
+  let lab = null;
+  try {
+    const map = createDefaultMap();
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.1, 140);
+    lab = buildLabWorld(scene, map, { hideSprites: true });
+
+    assert.ok(lab.hidingSpots.length >= 4);
+    const engineSpots = getSurvivalHidingSpots(map);
+    assert.equal(engineSpots.length, lab.hidingSpots.length);
+
+    const player = new PlayerController(camera, fakeCanvas, lab.colliders);
+    player.setBounds(map.bounds);
+    player.setEnabled(true);
+
+    for (const spot of lab.hidingSpots) {
+      assert.ok(Number.isFinite(spot.x));
+      assert.ok(Number.isFinite(spot.z));
+      assert.ok(Number.isFinite(spot.exitX));
+      assert.ok(Number.isFinite(spot.exitZ));
+      assert.ok(Number.isFinite(spot.rotRad));
+
+      const distExit = Math.hypot(spot.exitX - spot.x, spot.exitZ - spot.z);
+      assert.ok(distExit >= 1.1, `Sortie trop proche pour ${spot.id}: ${distExit}`);
+      assert.equal(
+        pointCollidesWithColliders(spot.exitX, spot.exitZ, lab.colliders, map.bounds, 0.42),
+        false,
+        `Collision à la sortie de la baie ${spot.id}`
+      );
+
+      player.setMovementLocked(true);
+      player.teleportTo({ x: spot.x, z: spot.z }, { x: spot.exitX, z: spot.exitZ });
+      assert.ok(Number.isFinite(player.position.x) && Number.isFinite(player.position.z));
+      assert.ok(Number.isFinite(camera.position.x) && Number.isFinite(camera.position.z));
+
+      const exitComputed = computeRackExitPosition(spot, lab.colliders, map.bounds, player.radius);
+      const safeExit = player.resolveUnstuckPosition(exitComputed.x, exitComputed.z, spot.rotRad);
+      player.setMovementLocked(false);
+      player.setEnabled(true);
+      player.teleportTo(safeExit, {
+        x: safeExit.x + Math.sin(spot.rotRad) * 2.0,
+        z: safeExit.z + Math.cos(spot.rotRad) * 2.0
+      });
+
+      assert.equal(player.movementLocked, false);
+      assert.equal(player.enabled, true);
+      assert.equal(player._collides(player.position.x, player.position.z), false);
+      assert.ok(Number.isFinite(player.yaw));
+    }
+
+    const gs = new GameState();
+    const dummyNet = {
+      wsUrl: '/ws',
+      lastPingMs: 8,
+      fetchLeaderboard: async () => [],
+      reconnectNow() {},
+      sendEmote() {},
+      sendChat() {}
+    };
+    const hud = new HudManager(gs, dummyNet, {});
+    hud.showHidingOverlay({ noiseLevel: 0.1, micEnabled: true, aiState: 'patrol' });
+    const hideOverlay = mockDom.elements.get('survival-hide-overlay');
+    assert.equal(hideOverlay.classList.contains('hidden'), false);
+    assert.equal(hideOverlay.style.display, 'flex');
+    assert.equal(hideOverlay.style.opacity, '1');
+
+    hud.hideHidingOverlay();
+    assert.equal(hideOverlay.classList.contains('hidden'), true);
+    assert.equal(hideOverlay.style.opacity, '0');
+    assert.equal(hideOverlay.style.display, 'none');
+  } finally {
+    lab?.dispose?.();
+    mockDom.restore();
+    restoreCanvasDoc();
+  }
+});
+
+test('v4.23 : Heure de Colle 3D en Solo (1 joueur) — capture sans écran de défaite bloquant, patrouille live du Professeur CIEL & relance/sortie via wsHub', async () => {
+  const map = createDefaultMap();
+  const soloCtrl = new SurvivalMatchController(map, {
+    roomId: 'test-solo-detention',
+    minPlayers: 1,
+    graceMs: 0,
+    captureRadius: 1.35
+  });
+  soloCtrl.joinLobby({ id: 'solo1', name: 'SoloStudent' });
+  const rStart = soloCtrl.setReady('solo1', true, 1000);
+  assert.equal(rStart.autoStarted, true);
+  assert.equal(soloCtrl.phase, 'active');
+
+  soloCtrl.updatePlayerPose('solo1', 0, 0, 0);
+  soloCtrl.ai.x = 0;
+  soloCtrl.ai.z = SURVIVAL_CAPTURE_RADIUS * 0.35;
+  const catchStep = soloCtrl.step(0.1, 2000);
+  assert.equal(catchStep.caught.length, 1);
+  assert.equal(catchStep.caught[0].playerId, 'solo1');
+  assert.equal(catchStep.ended, null);
+  assert.equal(soloCtrl.phase, 'active');
+  assert.equal(soloCtrl.isSoloDetentionActive(), true);
+
+  const aiPosBefore = { x: soloCtrl.ai.x, z: soloCtrl.ai.z };
+  for (let i = 1; i <= 15; i++) {
+    const patrolStep = soloCtrl.step(0.15, 2000 + i * 150);
+    assert.equal(patrolStep.ended, null);
+  }
+  assert.equal(soloCtrl.ai.state, 'patrol');
+  assert.ok(
+    Math.hypot(soloCtrl.ai.x - aiPosBefore.x, soloCtrl.ai.z - aiPosBefore.z) > 0.4,
+    'Le Professeur CIEL doit continuer sa patrouille dans l’atelier pendant l’heure de colle solo'
+  );
+
+  const solvedPulse = soloCtrl.recordDetentionSolved('solo1', 5000);
+  assert.ok(solvedPulse);
+  assert.equal(solvedPulse.detentionSolvedCount, 1);
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-survival-solo-colle-'));
+  const { server, wsHub } = createGameServer({
+    dbPath: null,
+    accountsPath: path.join(tmpDir, 'accounts.json'),
+    mapPath: null,
+    survivalOptions: { minPlayers: 1, graceMs: 0, introDurationMs: 2500, postEndResetMs: 5000 }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const wsUrl = `ws://127.0.0.1:${port}/ws`;
+
+  let wsSolo = null;
+  try {
+    wsSolo = await openWs(wsUrl);
+    const wSolo = waitForMessage(wsSolo, (m) => m.type === 'welcome');
+    wsSolo.send(JSON.stringify({ type: 'join', name: 'SoloCollePlayer', room: 'plateau-u300' }));
+    await wSolo;
+
+    const switchedPromise = waitForMessage(wsSolo, (m) => m.type === 'room_switched');
+    wsSolo.send(JSON.stringify({ type: 'survival_join' }));
+    await switchedPromise;
+
+    const startedPromise = waitForMessage(wsSolo, (m) => m.type === 'survival_started');
+    wsSolo.send(JSON.stringify({ type: 'survival_ready', ready: true }));
+    const startedMsg = await startedPromise;
+    assert.equal(startedMsg.state.phase, 'active');
+
+    let unexpectedEnd = false;
+    const onMsgCheckEnd = (raw) => {
+      try {
+        const d = JSON.parse(raw.toString());
+        if (d.type === 'survival_ended') unexpectedEnd = true;
+      } catch {}
+    };
+    wsSolo.on('message', onMsgCheckEnd);
+
+    const caughtPromise = waitForMessage(wsSolo, (m) => m.type === 'survival_caught');
+    wsSolo.send(
+      JSON.stringify({
+        type: 'move',
+        x: startedMsg.state.ai.x,
+        y: 0,
+        z: startedMsg.state.ai.z,
+        yaw: 0
+      })
+    );
+    const caughtMsg = await caughtPromise;
+    assert.equal(caughtMsg.detainedCount, 1);
+    assert.equal(caughtMsg.aliveCount, 0);
+    assert.equal(caughtMsg.state.soloDetained, true);
+    assert.equal(caughtMsg.state.phase, 'active');
+
+    const tickDuringDetention = await waitForMessage(
+      wsSolo,
+      (m) => m.type === 'survival_tick' && m.state?.soloDetained === true
+    );
+    assert.equal(tickDuringDetention.state.phase, 'active');
+    assert.equal(unexpectedEnd, false);
+    wsSolo.off('message', onMsgCheckEnd);
+
+    const restartedPromise = waitForMessage(wsSolo, (m) => m.type === 'survival_started');
+    wsSolo.send(JSON.stringify({ type: 'survival_restart' }));
+    const restartedMsg = await restartedPromise;
+    assert.equal(restartedMsg.state.phase, 'active');
+    assert.equal(restartedMsg.state.aliveCount, 1);
+    assert.equal(restartedMsg.state.detainedCount, 0);
+
+    const returnedPromise = waitForMessage(wsSolo, (m) => m.type === 'room_switched' && m.room === 'plateau-u300');
+    wsSolo.send(JSON.stringify({ type: 'survival_leave' }));
+    const returnedMsg = await returnedPromise;
+    assert.equal(returnedMsg.room, 'plateau-u300');
+  } finally {
+    if (wsSolo && wsSolo.readyState <= 1) wsSolo.close();
+    wsHub?.close?.();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

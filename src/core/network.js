@@ -693,6 +693,10 @@ export class NetworkClient {
     return this.send({ type: 'survival_return' });
   }
 
+  sendSurvivalRestart() {
+    return this.send({ type: 'survival_restart' });
+  }
+
   async acceptQuest(name) {
     const sent = this.send({ type: 'accept_quest' });
     if (!sent) {

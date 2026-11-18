@@ -134,6 +134,10 @@ export class VRManager {
     this.lastForwardDir = new THREE.Vector3(0, 0, -1);
     this.lastXrLocalXZ = new THREE.Vector2(0, 0);
     this.defaultPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.02);
+    this.workPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.18);
+    this.tempWorkPt = new THREE.Vector3();
+    this.tempProjVec = new THREE.Vector3();
+    this._worldSurfHoverThisFrame = new Map();
 
     this._onXrSessionEnd = () => {
       if (this.xrSession || this.active) {
@@ -836,6 +840,20 @@ export class VRManager {
       this.lastForwardDir.set(this.tempVecB.x / flatLen, 0, this.tempVecB.z / flatLen);
     }
     return true;
+  }
+
+  exitHidingRackVr(exitX, exitZ, yaw = null) {
+    this.closeWorldSpatialPanel?.();
+    this.seatedMode = false;
+    this.seatedPose = null;
+    if (this.player) {
+      this.player.setMovementLocked?.(false);
+      this.player.setEnabled?.(true);
+    }
+    if (this.active) {
+      return this.syncWorldTeleport(exitX, exitZ, yaw);
+    }
+    return false;
   }
 
   setDetentionHudHidden(hidden) {
@@ -1623,10 +1641,8 @@ export class VRManager {
     }
 
     if (this.tpContext && (slot.handedness === 'right' || Boolean(slot.dragState))) {
-      const workPt = new THREE.Vector3();
-      const workPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.18);
-      if (this.raycaster.ray.intersectPlane(workPlane, workPt)) {
-        this.tpContext.emitPointerRay?.(this.raycaster, workPt);
+      if (this.raycaster.ray.intersectPlane(this.workPlane, this.tempWorkPt)) {
+        this.tpContext.emitPointerRay?.(this.raycaster, this.tempWorkPt);
       }
     }
 
@@ -1728,7 +1744,7 @@ export class VRManager {
 
   _projectWorldToFakeScreen(worldPt) {
     if (!this.camera) return { x: 0, y: 0 };
-    const p = worldPt.clone().project(this.camera);
+    const p = this.tempProjVec.copy(worldPt).project(this.camera);
     return {
       x: (p.x * 0.5 + 0.5) * 1280,
       y: (-p.y * 0.5 + 0.5) * 720
@@ -2193,7 +2209,7 @@ export class VRManager {
     }
 
     this._updateWristDirectTouch();
-    this._worldSurfHoverThisFrame = new Map();
+    this._worldSurfHoverThisFrame.clear();
     if (this.tpContext && this.tpPanel) {
       this._updateSpatialPanelDirectTouch(this.tpPanel, this.slots.right, 'tpPanelTouchPressed');
       this._updateSpatialPanelDirectTouch(this.tpPanel, this.slots.left, 'tpPanelTouchPressed');

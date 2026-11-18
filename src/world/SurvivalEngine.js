@@ -33,25 +33,97 @@ export function getSurvivalRequiredTps(mapData = null) {
   return TP_CATALOG.map((t) => t.id);
 }
 
+export function computeRackExitPosition(
+  rack = {},
+  colliders = [],
+  bounds = null,
+  playerRadius = 0.42
+) {
+  const rx = Number.isFinite(Number(rack?.x))
+    ? Number(rack.x)
+    : Number.isFinite(Number(rack?.position?.x))
+      ? Number(rack.position.x)
+      : 0;
+  const rz = Number.isFinite(Number(rack?.z))
+    ? Number(rack.z)
+    : Number.isFinite(Number(rack?.position?.z))
+      ? Number(rack.position.z)
+      : 0;
+  const rotRad = Number.isFinite(Number(rack?.rotRad))
+    ? Number(rack.rotRad)
+    : Number.isFinite(Number(rack?.rad))
+      ? Number(rack.rad)
+      : ((Number(rack?.rotation ?? rack?.rotationDeg) || 0) * Math.PI) / 180;
+
+  const baseDist = 1.15;
+  const candidateDistances = [1.15, 1.28, 1.42, 1.58];
+  const candidateAngles = [0, 0.32, -0.32, 0.68, -0.68, Math.PI / 2, -Math.PI / 2, Math.PI];
+
+  for (const dist of candidateDistances) {
+    for (const dAng of candidateAngles) {
+      const ang = rotRad + dAng;
+      const cx = rx + Math.sin(ang) * dist;
+      const cz = rz + Math.cos(ang) * dist;
+      if (!pointCollidesWithColliders(cx, cz, colliders, bounds, playerRadius)) {
+        return {
+          x: Number(cx.toFixed(3)),
+          z: Number(cz.toFixed(3)),
+          rotRad,
+          offset: dist,
+          clear: true
+        };
+      }
+    }
+  }
+
+  const fallbackX = rx + Math.sin(rotRad) * baseDist;
+  const fallbackZ = rz + Math.cos(rotRad) * baseDist;
+  return {
+    x: Number(fallbackX.toFixed(3)),
+    z: Number(fallbackZ.toFixed(3)),
+    rotRad,
+    offset: baseDist,
+    clear: false
+  };
+}
+
 export function getSurvivalHidingSpots(mapData = null) {
   const src = mapData || createDefaultMap();
+  const colliders = getDynamicMapColliders(src);
+  const wWorld = Number(src?.world?.width) || 26;
+  const dWorld = Number(src?.world?.depth) || 24.4;
+  const bounds = {
+    minX: -wWorld / 2,
+    maxX: wWorld / 2,
+    minZ: -dWorld / 2,
+    maxZ: dWorld / 2
+  };
   const spots = [];
   for (const obj of src.objects || []) {
     if (obj.type !== 'hiding_rack') continue;
     const rad = ((Number(obj.rotation) || 0) * Math.PI) / 180;
     const d = Number(obj.d) || 0.78;
-    const exitDist = d * 0.5 + 0.68;
+    const w = Number(obj.w) || 1.1;
+    const ox = Number(obj.x) || 0;
+    const oz = Number(obj.z) || 0;
+    const exit = computeRackExitPosition(
+      { x: ox, z: oz, rotRad: rad, w, d },
+      colliders,
+      bounds,
+      0.42
+    );
     spots.push({
       id: obj.id,
       label: obj.label || 'Baie de Brassage (Cachette)',
-      x: Number(obj.x) || 0,
-      z: Number(obj.z) || 0,
+      x: ox,
+      z: oz,
       rotation: Number(obj.rotation) || 0,
       rad,
-      w: Number(obj.w) || 1.1,
+      rotRad: rad,
+      w,
       d,
-      exitX: Number(((Number(obj.x) || 0) + Math.sin(rad) * exitDist).toFixed(2)),
-      exitZ: Number(((Number(obj.z) || 0) + Math.cos(rad) * exitDist).toFixed(2))
+      exitX: Number(exit.x.toFixed(2)),
+      exitZ: Number(exit.z.toFixed(2))
     });
   }
   return spots;
@@ -1063,6 +1135,20 @@ export class SurvivalMatchController {
     return hasLineOfSight(this.ai.x, this.ai.z, p.x, p.z, this.navGrid.solidWalls);
   }
 
+  isSoloDetentionActive() {
+    return (
+      this.phase === 'active' &&
+      this.participants.size === 1 &&
+      this.getAliveParticipants().length === 0 &&
+      this.getDetainedParticipants().length === 1
+    );
+  }
+
+  finishSoloDetention(nowMs = Date.now()) {
+    if (this.phase !== 'active') return null;
+    return this._finishMatch('defeat', nowMs);
+  }
+
   step(dt = 0.1, nowMs = Date.now()) {
     if (this.phase !== 'active') return { caught: [], ended: null };
     const safeDt = Math.max(0.01, Math.min(0.3, Number(dt) || 0.1));
@@ -1073,7 +1159,7 @@ export class SurvivalMatchController {
     }
 
     const alive = this.getAliveParticipants();
-    if (alive.length === 0) {
+    if (alive.length === 0 && !this.isSoloDetentionActive()) {
       return { caught: [], ended: this._finishMatch('defeat', nowMs) };
     }
 
@@ -1122,7 +1208,7 @@ export class SurvivalMatchController {
     }
 
     if (this.ai.path.length === 0) {
-      if (this.ai.state === 'investigate') {
+      if (this.ai.state === 'investigate' || alive.length === 0) {
         this.ai.state = 'patrol';
         this.ai.targetPlayerId = null;
         this.ai.alertMessage = 'Patrouille dans les couloirs...';
@@ -1204,7 +1290,15 @@ export class SurvivalMatchController {
 
     let ended = null;
     if (caughtEvents.length > 0 && this.getAliveParticipants().length === 0) {
-      ended = this._finishMatch('defeat', nowMs);
+      if (this.participants.size === 1) {
+        this.ai.state = 'patrol';
+        this.ai.targetPlayerId = null;
+        this.ai.path = [];
+        this.ai.alertMessage = 'Patrouille dans les couloirs...';
+        this._pickNextPatrolTarget();
+      } else {
+        ended = this._finishMatch('defeat', nowMs);
+      }
     }
 
     return { caught: caughtEvents, ended };
@@ -1239,6 +1333,7 @@ export class SurvivalMatchController {
       participants: participantList,
       aliveCount: participantList.filter((p) => p.status === 'alive').length,
       detainedCount: participantList.filter((p) => p.status === 'detained').length,
+      soloDetained: this.isSoloDetentionActive(),
       requiredTps: [...this.requiredTps],
       completedTps: [...this.completedTps],
       radarActive: nowMs < this.radarRevealUntil,

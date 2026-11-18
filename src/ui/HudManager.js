@@ -2001,6 +2001,10 @@ export class HudManager {
   showHidingOverlay({ noiseLevel = 0, micEnabled = false, aiState = 'patrol' } = {}) {
     if (!this.survivalHideOverlayEl) return;
     this.survivalHideOverlayEl.classList.remove('hidden');
+    if (this.survivalHideOverlayEl.style) {
+      this.survivalHideOverlayEl.style.display = 'flex';
+      this.survivalHideOverlayEl.style.opacity = '1';
+    }
     const pct = Math.max(0, Math.min(100, Math.round((Number(noiseLevel) || 0) * 100)));
     if (this.survivalHideNoiseFillEl) {
       this.survivalHideNoiseFillEl.style.width = `${pct}%`;
@@ -2026,7 +2030,12 @@ export class HudManager {
   }
 
   hideHidingOverlay() {
-    this.survivalHideOverlayEl?.classList.add('hidden');
+    if (!this.survivalHideOverlayEl) return;
+    this.survivalHideOverlayEl.classList.add('hidden');
+    if (this.survivalHideOverlayEl.style) {
+      this.survivalHideOverlayEl.style.opacity = '0';
+      this.survivalHideOverlayEl.style.display = 'none';
+    }
   }
 
   triggerJumpscareOverlay(title = '☠️ ATTRAPÉ PAR LE PROFESSEUR CIEL !', sub = 'Téléportation immédiate en Salle d’Heure de Colle...') {

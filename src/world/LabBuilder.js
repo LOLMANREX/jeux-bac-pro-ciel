@@ -3,6 +3,7 @@ import { TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import { CielOsDesktop } from '../minigames/CielOsDesktop.js';
 import { createNpcTeacher } from './NpcTeacher.js';
 import { createRealisticMaterialPack } from './RealisticMaterials.js';
+import { computeRackExitPosition } from './SurvivalEngine.js';
 import {
   createDefaultMap,
   getCatalogItem,
@@ -588,8 +589,8 @@ function buildWorkbenchMesh(w, d, topHeight = 0.82, mats, useTechTop = false) {
     mats.deskEdgeMat
   );
   trim.position.y = topHeight - 0.032;
-  trim.castShadow = true;
-  trim.receiveShadow = true;
+  trim.castShadow = false;
+  trim.receiveShadow = false;
   grp.add(trim);
 
   const lx = Math.max(0.12, w / 2 - 0.1);
@@ -602,8 +603,8 @@ function buildWorkbenchMesh(w, d, topHeight = 0.82, mats, useTechTop = false) {
   ]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, topHeight, 0.06), mats.legMat);
     leg.position.set(px, topHeight / 2, pz);
-    leg.castShadow = true;
-    leg.receiveShadow = true;
+    leg.castShadow = false;
+    leg.receiveShadow = false;
     grp.add(leg);
   }
   return grp;
@@ -666,12 +667,13 @@ function createPropMountGroup(obj, supportHeight, mats) {
     mountY = 0.78;
     const base = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.55, obj.w + 0.2), 0.05, Math.max(0.55, obj.d + 0.2)), mats.oakDeskMat);
     base.position.y = 0.755;
-    base.castShadow = true;
-    base.receiveShadow = true;
+    base.castShadow = false;
+    base.receiveShadow = false;
     grp.add(base);
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.12, 0.75, 10), mats.legMat);
     post.position.y = 0.375;
-    post.castShadow = true;
+    post.castShadow = false;
+    post.receiveShadow = false;
     grp.add(post);
   }
   return { grp, mountY };
@@ -878,7 +880,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       parentGroup.add(monGrp);
 
       const bezel = new THREE.Mesh(new THREE.BoxGeometry(mw, mh, 0.045), bezelMat);
-      bezel.castShadow = true;
+      bezel.castShadow = false;
+      bezel.receiveShadow = false;
       monGrp.add(bezel);
 
       const standH = Math.max(0.08, (sp.y || topH + 0.32) - mh / 2 - topH);
@@ -1076,7 +1079,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     );
     ceilingMesh.rotation.x = Math.PI / 2;
     ceilingMesh.position.set(centerX, H, centerZ);
-    ceilingMesh.receiveShadow = true;
+    ceilingMesh.receiveShadow = false;
     worldGroup.add(ceilingMesh);
 
     const ledPositions = [];
@@ -1420,21 +1423,29 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         ring.position.set(0, 0.028, d * 0.55);
         grp.add(ring);
 
-        const exitDist = d * 0.5 + 0.68;
+        const exitInfo = computeRackExitPosition(
+          { x: obj.x, z: obj.z, rotRad, w, d },
+          colliders,
+          mapData.bounds,
+          0.42
+        );
         const hideEntry = {
           id: obj.id,
           hidingId: obj.id,
           type: 'hiding_rack',
           label: `[E] 🗄️ Se cacher — ${obj.label || 'Baie de Brassage'}`,
+          x: obj.x,
+          z: obj.z,
           position: new THREE.Vector3(obj.x, 0, obj.z),
           rotation: rotRad,
+          rotRad,
+          rad: rotRad,
+          rotationDeg: Number(obj.rotation) || 0,
           w,
           d,
-          exitPos: new THREE.Vector3(
-            obj.x + Math.sin(rotRad) * exitDist,
-            0,
-            obj.z + Math.cos(rotRad) * exitDist
-          ),
+          exitX: exitInfo.x,
+          exitZ: exitInfo.z,
+          exitPos: new THREE.Vector3(exitInfo.x, 0, exitInfo.z),
           interactRadius: cat.interactRadius || 2.3,
           ring,
           doorMesh,
@@ -1558,7 +1569,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           grp.add(bench);
           const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.42, 0.56), mats.lightPlasticMat);
           chassis.position.set(0, 1.09, 0);
-          chassis.castShadow = true;
+          chassis.castShadow = false;
           grp.add(chassis);
           const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.3), new THREE.MeshBasicMaterial({ map: makeScopeTexture() }));
           scr.position.set(0, 1.12, 0.29);
@@ -1725,11 +1736,13 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const seatMat = mats.getChairSeatMaterial(obj.color || color);
         const seat = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.07, 0.46), seatMat);
         seat.position.y = 0.48;
-        seat.castShadow = true;
+        seat.castShadow = false;
+        seat.receiveShadow = false;
         grp.add(seat);
         const back = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.46, 0.06), seatMat);
         back.position.set(0, 0.74, -0.2);
-        back.castShadow = true;
+        back.castShadow = false;
+        back.receiveShadow = false;
         grp.add(back);
         continue;
       }
@@ -2210,6 +2223,19 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       fallback.position.y = (cat.defaultH || 0.8) / 2;
       grp.add(fallback);
     }
+
+    worldGroup.updateMatrixWorld(true);
+    const dynamicNodes = new Set();
+    for (const tr of teacherRefs) {
+      if (tr?.root) {
+        tr.root.traverse((n) => dynamicNodes.add(n));
+      }
+    }
+    worldGroup.traverse((node) => {
+      if (node === worldGroup || dynamicNodes.has(node)) return;
+      node.updateMatrix();
+      node.matrixAutoUpdate = false;
+    });
   }
 
   function updateStationBadges(grades = {}) {
@@ -2291,8 +2317,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   }
 
   let lastPcUpdateElapsed = 0;
+  const _camWorldPos = new THREE.Vector3();
+  const _camWorldDir = new THREE.Vector3(0, 0, -1);
 
-  function update(elapsed, playerPos = null, diplomaEarned = false) {
+  function update(elapsed, playerPos = null, diplomaEarned = false, camera = null) {
     const dt = Math.max(0.008, Math.min(0.1, elapsed - lastPcUpdateElapsed || 0.016));
     lastPcUpdateElapsed = elapsed;
 
@@ -2300,6 +2328,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       const r = animatedRefs.rings[i].ring;
       const pulse = 1 + Math.sin(elapsed * 2.5 + i) * 0.04;
       r.scale.set(pulse, pulse, 1);
+      r.updateMatrix();
+      r.matrixWorldNeedsUpdate = true;
     }
     for (const led of animatedRefs.leds) {
       const blink = Math.sin(elapsed * (led.alert ? 9 : 4.5) + led.phase) > 0;
@@ -2308,6 +2338,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     for (const sb of animatedRefs.survivalBeacons) {
       const pulse = 0.5 + 0.5 * Math.sin(elapsed * 4.5 + sb.phase);
       sb.mesh.scale.setScalar(0.85 + pulse * 0.35);
+      sb.mesh.updateMatrix();
+      sb.mesh.matrixWorldNeedsUpdate = true;
       sb.portal.opacity = 0.28 + pulse * 0.24;
     }
     for (const tr of teacherRefs) {
@@ -2315,11 +2347,47 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         tr.update(elapsed, playerPos, diplomaEarned);
       }
     }
+
+    const hasCamera = Boolean(camera && typeof camera.getWorldPosition === 'function');
+    if (hasCamera) {
+      camera.getWorldPosition(_camWorldPos);
+      camera.getWorldDirection(_camWorldDir);
+    }
+    const hasPlayerPos = Boolean(
+      playerPos &&
+        Number.isFinite(Number(playerPos.x)) &&
+        Number.isFinite(Number(playerPos.z))
+    );
+
     for (const pc of pcStations) {
-      if (pc.isActiveSession || pc.desktop?.hasRunningGame?.()) {
+      if (pc.isActiveSession) {
+        pc.desktop.setSleepMode?.(false, true, true);
         pc.desktop.update(dt, elapsed);
+        continue;
+      }
+
+      if (hasPlayerPos || hasCamera) {
+        const px = hasPlayerPos ? Number(playerPos.x) : _camWorldPos.x;
+        const pz = hasPlayerPos ? Number(playerPos.z) : _camWorldPos.z;
+        const dist = Math.hypot(pc.position.x - px, pc.position.z - pz);
+        let inView = true;
+        if (hasCamera) {
+          const vx = pc.position.x - _camWorldPos.x;
+          const vy = 1.08 - _camWorldPos.y;
+          const vz = pc.position.z - _camWorldPos.z;
+          const vLen = Math.hypot(vx, vy, vz);
+          const dot =
+            vLen > 0.05
+              ? (vx * _camWorldDir.x + vy * _camWorldDir.y + vz * _camWorldDir.z) / vLen
+              : 1;
+          inView = dot > 0.15 && dist < 18;
+        } else {
+          inView = dist < 14;
+        }
+        const near = dist < 4.0 && inView;
+        pc.desktop.updateIdle(elapsed, { focused: false, near, inView });
       } else {
-        pc.desktop.updateIdle(elapsed);
+        pc.desktop.updateIdle(elapsed, { focused: false, near: false, inView: true });
       }
     }
   }

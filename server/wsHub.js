@@ -1316,6 +1316,30 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           break;
         }
 
+        case 'survival_restart': {
+          if (!state.name) return;
+          const ctrl = getSurvivalController(state.room);
+          ctrl.resetToIdle();
+          ctrl.joinLobby({ id: state.id, name: state.name, color: state.color });
+          const res = ctrl.setReady(state.id, true, Date.now());
+          const snap = ctrl.getPublicSnapshot();
+          if (res.autoStarted) {
+            clearPendingSurvivalRoom(state.room);
+            broadcastToRoom(state.room, {
+              type: 'survival_started',
+              introDurationMs: snap.introDurationMs,
+              state: snap
+            });
+            syncSurvivalTimer();
+          } else {
+            broadcastToRoom(state.room, {
+              type: 'survival_state',
+              state: snap
+            });
+          }
+          break;
+        }
+
         case 'survival_ready': {
           if (!state.name) return;
           const ctrl = getSurvivalController(state.room);

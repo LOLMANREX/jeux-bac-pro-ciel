@@ -18,6 +18,7 @@ import {
   createCielOsGame
 } from '../src/minigames/CielOsGames.js';
 import { buildLabWorld } from '../src/world/LabBuilder.js';
+import { SceneManager } from '../src/world/SceneManager.js';
 import {
   createDefaultMap,
   getCatalogItem,
@@ -418,5 +419,117 @@ test('LabBuilder & mapSchema : détection universelle de tous les bureaux PC sur
     assert.equal(lab.pcStations[0].desktop.activeAppId, 'snake');
   } finally {
     lab.dispose();
+  }
+});
+
+test('v4.23 — Throttling intelligent des écrans CIEL OS, matrixAutoUpdate=false & optimisations SceneManager', () => {
+  const os = new CielOsDesktop({ stationId: 'pc-throttle-test' });
+  os.openApp('snake');
+  os.dirty = false;
+  const startUploads = os.textureUploadCount;
+
+  assert.equal(os.updateIdle(1.0, { focused: false, near: false, inView: false }), false);
+  assert.equal(os.textureUploadCount, startUploads);
+
+  assert.equal(os.updateIdle(2.1, { focused: false, near: false, inView: true }), true);
+  assert.equal(os.sleepMode, true);
+  assert.equal(os.textureUploadCount, startUploads + 1);
+
+  for (let frame = 1; frame <= 30; frame++) {
+    assert.equal(
+      os.updateIdle(2.1 + frame * 0.016, { focused: false, near: false, inView: true }),
+      false
+    );
+  }
+  assert.equal(os.textureUploadCount, startUploads + 1);
+
+  assert.equal(os.updateIdle(4.15, { focused: false, near: false, inView: true }), true);
+  assert.equal(os.textureUploadCount, startUploads + 2);
+
+  let nearUpdates = 0;
+  for (let frame = 1; frame <= 20; frame++) {
+    if (os.updateIdle(4.2 + frame * 0.035, { focused: false, near: true, inView: true })) {
+      nearUpdates++;
+    }
+  }
+  assert.equal(os.sleepMode, false);
+  assert.ok(nearUpdates >= 15);
+
+  const scene = new THREE.Scene();
+  const mapData = createDefaultMap();
+  const lab = buildLabWorld(scene, mapData, { hideSprites: true });
+  try {
+    assert.ok(lab.solidWallMeshes.length > 0);
+    for (const wall of lab.solidWallMeshes) {
+      assert.equal(wall.matrixAutoUpdate, false);
+    }
+
+    const activePc = lab.pcStations[0];
+    const distantPc = lab.pcStations.find(
+      (pc) => pc.id !== activePc.id && pc.position.distanceTo(activePc.position) > 6
+    );
+    assert.ok(distantPc);
+
+    for (const sm of activePc.screenMeshes) {
+      assert.equal(sm.matrixAutoUpdate, false);
+      assert.equal(sm.castShadow, false);
+    }
+
+    activePc.desktop.openApp('snake');
+    distantPc.desktop.openApp('snake');
+    activePc.isActiveSession = true;
+    distantPc.isActiveSession = false;
+    activePc.desktop.dirty = false;
+    distantPc.desktop.dirty = false;
+
+    const cam = new THREE.PerspectiveCamera(68, 16 / 9, 0.1, 180);
+    cam.position.set(activePc.position.x, 1.6, activePc.position.z + 1.2);
+    cam.lookAt(activePc.position.x, 1.1, activePc.position.z);
+    cam.updateMatrixWorld(true);
+
+    const activeUploadsBefore = activePc.desktop.textureUploadCount;
+    const distantUploadsBefore = distantPc.desktop.textureUploadCount;
+
+    for (let f = 1; f <= 30; f++) {
+      lab.update(10 + f * 0.016, new THREE.Vector3(activePc.position.x, 0, activePc.position.z + 1.2), false, cam);
+    }
+
+    assert.ok(activePc.desktop.textureUploadCount - activeUploadsBefore >= 25);
+    assert.ok(distantPc.desktop.textureUploadCount - distantUploadsBefore <= 1);
+  } finally {
+    lab.dispose();
+  }
+
+  let appliedPixelRatio = 0;
+  const prevWin = globalThis.window;
+  globalThis.window = {
+    innerWidth: 1920,
+    innerHeight: 1080,
+    devicePixelRatio: 3.0,
+    addEventListener() {},
+    removeEventListener() {}
+  };
+  try {
+    const fakeRenderer = {
+      xr: { enabled: true, isPresenting: false, setReferenceSpaceType() {}, addEventListener() {} },
+      shadowMap: { enabled: true, type: THREE.PCFSoftShadowMap },
+      setPixelRatio(r) {
+        appliedPixelRatio = r;
+      },
+      setSize() {},
+      setClearColor() {}
+    };
+    const mgr = new SceneManager(null, { renderer: fakeRenderer, skipEnvironment: true });
+    mgr.setQuality('high');
+    assert.equal(appliedPixelRatio, 1.5);
+    mgr.updateWorldBounds({ width: 80, depth: 80, minX: -40, maxX: 40, minZ: -40, maxZ: 40 });
+    assert.equal(mgr.sun.shadow.mapSize.x, 1024);
+    assert.equal(mgr.sun.shadow.mapSize.y, 1024);
+    fakeRenderer.toneMappingExposure = 0.2;
+    mgr.restoreNormalExposure();
+    assert.equal(fakeRenderer.toneMappingExposure, 0.96);
+  } finally {
+    if (prevWin === undefined) delete globalThis.window;
+    else globalThis.window = prevWin;
   }
 });

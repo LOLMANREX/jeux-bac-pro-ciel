@@ -236,6 +236,7 @@ export class RemotePlayersManager {
     this.scene = scene;
     this.peers = new Map();
     this._allowedPeerIds = null;
+    this._povPosePos = new THREE.Vector3();
   }
 
   setInstanceFilter(allowedIds = null) {
@@ -255,10 +256,11 @@ export class RemotePlayersManager {
   getPeerPoseForPov(id) {
     const peer = this.peers.get(id);
     if (!peer) return null;
+    this._povPosePos.copy(peer.group.position);
     return {
       id: peer.id,
       name: peer.name,
-      position: peer.group.position.clone(),
+      position: this._povPosePos,
       yaw: peer.group.rotation.y - Math.PI,
       vrData: peer.vrData || null,
       activity: peer.activity || 'Dans l’atelier',

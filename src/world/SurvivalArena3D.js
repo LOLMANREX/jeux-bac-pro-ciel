@@ -293,6 +293,32 @@ export function getDetentionCameraHitBoxes(width, height, kind = 'desk') {
   ];
 }
 
+export function getDetentionDeskExitHitBoxes(width = 384, height = 256) {
+  const pad = 14;
+  const btnW = width - pad * 2;
+  const btnH = Math.round((height - 74) / 2);
+  return [
+    {
+      id: 'desk_restart_survival',
+      action: 'restart',
+      label: '🔄 Relancer une partie',
+      x: pad,
+      y: 52,
+      w: btnW,
+      h: btnH
+    },
+    {
+      id: 'desk_exit_detention',
+      action: 'exit',
+      label: '🚪 Quitter la colle',
+      x: pad,
+      y: 52 + btnH + 10,
+      w: btnW,
+      h: btnH
+    }
+  ];
+}
+
 export function createSurvivalPocketRooms(scene, mapData = null) {
   const root = new THREE.Group();
   root.name = 'survival-pocket-rooms';
@@ -428,7 +454,7 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
 
   let povRenderTarget = null;
   if (typeof THREE.WebGLRenderTarget === 'function') {
-    povRenderTarget = new THREE.WebGLRenderTarget(640, 360, {
+    povRenderTarget = new THREE.WebGLRenderTarget(512, 288, {
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
       depthBuffer: true
@@ -642,6 +668,33 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
   deskCamMesh.name = 'detention-desk-cam-console';
   detGroup.add(deskCamMesh);
 
+  const deskExitW = 0.25;
+  const deskExitH = 0.165;
+  const deskExitHousing = new THREE.Mesh(
+    new THREE.BoxGeometry(deskExitW + 0.028, 0.024, deskExitH + 0.028),
+    new THREE.MeshStandardMaterial({ color: '#111827', metalness: 0.72, roughness: 0.32 })
+  );
+  deskExitHousing.position.set(detCenter.x - 0.63, 0.818, detCenter.z + 0.68);
+  deskExitHousing.rotation.order = 'YXZ';
+  deskExitHousing.rotation.y = 0.18;
+  deskExitHousing.rotation.x = 0.48;
+  detGroup.add(deskExitHousing);
+
+  const deskExitTex = makeRoomCanvasTexture(384, 256, (ctx, w, h) => {
+    ctx.fillStyle = '#071224';
+    ctx.fillRect(0, 0, w, h);
+  });
+  const deskExitMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(deskExitW, deskExitH),
+    new THREE.MeshBasicMaterial({ map: deskExitTex?.tex || null })
+  );
+  deskExitMesh.position.set(detCenter.x - 0.63, 0.834, detCenter.z + 0.692);
+  deskExitMesh.rotation.order = 'YXZ';
+  deskExitMesh.rotation.y = 0.18;
+  deskExitMesh.rotation.x = -Math.PI / 2 + 0.48;
+  deskExitMesh.name = 'detention-desk-exit-btn';
+  detGroup.add(deskExitMesh);
+
   const waitingInteractables = [
     {
       id: 'survival-lobby-ready',
@@ -669,6 +722,14 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
       position: new THREE.Vector3(detCenter.x, 0, detCenter.z + 0.5),
       interactRadius: 3.0,
       mesh: mainDesk
+    },
+    {
+      id: 'survival-detention-exit-btn',
+      type: 'survival_detention_exit',
+      label: '[E] 🚪 Quitter l’Heure de Colle / Relancer une partie',
+      position: new THREE.Vector3(detCenter.x - 0.63, 0.834, detCenter.z + 0.692),
+      interactRadius: 2.6,
+      mesh: deskExitMesh
     }
   ];
 
@@ -680,6 +741,7 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
   let hoveredSheetId = null;
   let hoveredDeskCamId = null;
   let hoveredBoardCamId = null;
+  let hoveredDeskExitId = null;
   let lastDetentionState = {};
   let lastCamInfo = {
     label: '📹 Caméra Surveillance U300',
@@ -715,6 +777,59 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
     secondPivot.rotation.z = -((t % 60) / 60) * Math.PI * 2;
     minutePivot.rotation.z = -((t / 3600) % 1) * Math.PI * 2 - 0.85;
     hourPivot.rotation.z = -((t / 43200) % 1) * Math.PI * 2 - 2.1;
+    secondPivot.updateMatrix();
+    minutePivot.updateMatrix();
+    hourPivot.updateMatrix();
+  }
+
+  function drawDeskExitControls() {
+    if (!deskExitTex?.ctx || !deskExitTex?.tex) return;
+    const ctx = deskExitTex.ctx;
+    const W = 384;
+    const H = 256;
+    ctx.fillStyle = '#081121';
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(4, 4, W - 8, H - 8);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 17px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('HEURE DE COLLE • ACTIONS', W / 2, 26);
+
+    const boxes = getDetentionDeskExitHitBoxes(W, H);
+    boxes.forEach((b) => {
+      const isHover = hoveredDeskExitId === b.id;
+      const isRestart = b.action === 'restart';
+      ctx.fillStyle = isHover
+        ? isRestart
+          ? '#0284c7'
+          : '#be123c'
+        : isRestart
+          ? '#1e3a8a'
+          : '#4c0519';
+      ctx.strokeStyle = isHover
+        ? '#f8fafc'
+        : isRestart
+          ? '#38bdf8'
+          : '#fb7185';
+      ctx.lineWidth = isHover ? 3.5 : 2;
+      ctx.beginPath();
+      ctx.roundRect(b.x, b.y, b.w, b.h, 12);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 22px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2);
+    });
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    deskExitTex.tex.needsUpdate = true;
   }
 
   function updateDetentionMathSheet(detentionSnapshot = lastDetentionState, force = false) {
@@ -866,6 +981,7 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
     const sheetBoxes = getVariationSheetHitBoxes(1024, 768);
     const deskCamBoxes = getDetentionCameraHitBoxes(512, 340, 'desk');
     const boardCamBoxes = getDetentionCameraHitBoxes(1024, 122, 'board');
+    const deskExitBoxes = getDetentionDeskExitHitBoxes(384, 256);
 
     return [
       {
@@ -926,6 +1042,37 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
           if (hoveredBoardCamId === nextId) return;
           hoveredBoardCamId = nextId;
           drawCamControls();
+        }
+      },
+      {
+        id: 'detention_desk_exit_btn',
+        mesh: deskExitMesh,
+        width: deskExitW,
+        height: deskExitH,
+        hitTestUv(uv) {
+          const hit = hitTestBoxUv(deskExitBoxes, 384, 256, uv) || deskExitBoxes[1];
+          if (!hit) return null;
+          return {
+            id: hit.id,
+            action: hit.action,
+            label: hit.label,
+            onClick: () => {
+              if (hit.action === 'restart') {
+                if (typeof handlers.onRestartSurvival === 'function') {
+                  handlers.onRestartSurvival();
+                } else {
+                  handlers.onExitDetention?.();
+                }
+              } else {
+                handlers.onExitDetention?.();
+              }
+            }
+          };
+        },
+        setHovered(nextId) {
+          if (hoveredDeskExitId === nextId) return;
+          hoveredDeskExitId = nextId;
+          drawDeskExitControls();
         }
       }
     ];
@@ -1183,6 +1330,7 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
     clockFaceTex?.tex?.dispose?.();
     sheetTex?.tex?.dispose?.();
     deskCamTex?.tex?.dispose?.();
+    deskExitTex?.tex?.dispose?.();
     povRenderTarget?.dispose?.();
     root.traverse((obj) => {
       if (obj.geometry) obj.geometry.dispose();
@@ -1194,14 +1342,23 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
     root.parent?.remove(root);
   }
 
+  root.updateMatrixWorld(true);
+  root.traverse((node) => {
+    if (node === root) return;
+    node.updateMatrix();
+    node.matrixAutoUpdate = false;
+  });
+
   updateDetentionCameraBar(lastCamInfo, true);
   updateDetentionMathSheet({}, true);
+  drawDeskExitControls();
 
   return {
     root,
     detGroup,
     mathSheetMesh,
     deskCamMesh,
+    deskExitMesh,
     boardCamMesh,
     survMonitor,
     povRenderTarget,
@@ -1213,6 +1370,7 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
     updateDetentionMathSheet,
     updateDetentionCameraBar,
     updateDetentionClock,
+    drawDeskExitControls,
     getDetentionInteractiveSurfaces,
     getWaitingRoomConfig,
     getDetentionRoomConfig,

@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.22 - Postes PC Fonctionnels : CIEL OS & 6 Mini-Jeux Intégrés';
+    : 'v4.23 - Optimisation Massive des Performances FPS, Correction Déblocage Baie de Brassage & Heure de Colle en Solo';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.22 — Postes PC Fonctionnels : CIEL OS Interactif & Salle d’Arcade Mini-Jeux sur Tous les Bureaux',
+    version: 'v4.23 — Optimisation Massive des Performances FPS, Correction Déblocage Baie de Brassage & Heure de Colle en Solo',
     date: '18/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'PERFORMANCES & FPS MASSIFS',
+        title: 'Throttling Intelligent des Écrans CIEL OS, Matrices Statiques Figées & Rendu Optimisé',
+        desc: 'Rafraîchissement en temps réel (30-60 FPS) réservé au PC actif ou aux écrans à moins de 4 mètres dans le champ de vision avec mise en veille automatique des postes distants (horloge toutes les 2s ou pause hors caméra), plafonnement pixelRatio à 1.5, shadow.mapSize à 1024x1024, WebGLRenderTarget POV en 512x288 à 22 FPS, matrixAutoUpdate=false sur tout le mobilier statique et zéro allocation mémoire dans la boucle de rendu.'
+      },
+      {
+        badge: 'CORRECTIF BAIE DE BRASSAGE',
+        title: 'Sortie Dégagée à 1.15m Devant la Porte Sans Écran Noir ni Blocage Joueur',
+        desc: 'Réinitialisation instantanée du filtre sombre (opacity=0, display=none) et de l’exposition de scène dès la sortie d’une baie de brassage ([E] ou bouton VR), calcul d’une position de sortie validée sans collision à 1.15m devant la porte selon sa rotation rotRad, et réactivation immédiate des contrôles PC/VR ainsi que de l’avatar.'
+      },
+      {
+        badge: 'HEURE DE COLLE 3D EN SOLO',
+        title: 'Accès à la Salle de Colle 3D à 1 Joueur & Bouton 3D Discret sur le Coin du Bureau',
+        desc: 'En partie Survie 1 joueur, se faire attraper par le Professeur CIEL envoie désormais directement l’élève dans la Salle d’Heure de Colle 3D (feuille interactive de tableaux de variation et écran du tableau diffusant la caméra POV en direct du Professeur CIEL en patrouille), avec un bouton 3D discret sur le coin du bureau (souris PC et laser/main VR) pour quitter la colle ou relancer une partie.'
+      }
+    ]
+  },
+  {
+    version: 'v4.22 — Postes PC Fonctionnels : CIEL OS Interactif & Salle d’Arcade Mini-Jeux sur Tous les Bureaux',
+    date: '18/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'TOUS LES PC INTERACTIFS 3D',

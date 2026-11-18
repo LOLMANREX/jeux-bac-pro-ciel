@@ -198,7 +198,12 @@ export class CielOsDesktop {
     this.cursorPos = { x: this.width / 2, y: this.height / 2, visible: false };
     this.elapsed = 0;
     this.lastIdleDrawAt = -10;
+    this.lastActiveDrawAt = -10;
     this.dirty = true;
+    this.sleepMode = false;
+    this.inView = true;
+    this.isFocusedStation = false;
+    this.textureUploadCount = 0;
 
     const savedScores = readStorageJson('ciel_os_high_scores', {});
     this.highScores = {
@@ -225,7 +230,7 @@ export class CielOsDesktop {
 
     this.terminalHistory = [
       '╔══════════════════════════════════════════════════════════════╗',
-      '║  CIEL OS v4.22 LTS — Noyau Cyber & Réseau Plateau U300       ║',
+      '║  CIEL OS v4.23 LTS — Noyau Cyber & Réseau Plateau U300       ║',
       '║  Tapez "help" ou cliquez sur une commande rapide ci-dessous. ║',
       '╚══════════════════════════════════════════════════════════════╝'
     ];
@@ -816,11 +821,47 @@ export class CielOsDesktop {
     return false;
   }
 
-  updateIdle(elapsed = 0) {
+  setSleepMode(sleeping, inView = true, focused = false) {
+    this.sleepMode = Boolean(sleeping);
+    this.inView = Boolean(inView);
+    this.isFocusedStation = Boolean(focused);
+  }
+
+  updateIdle(elapsed = 0, opts = {}) {
     this.elapsed = elapsed;
-    if (this.hasRunningGame()) {
-      return this.update(0.033, elapsed);
+    const inView = opts.inView !== undefined ? Boolean(opts.inView) : this.inView;
+    const focused = opts.focused !== undefined ? Boolean(opts.focused) : this.isFocusedStation;
+    const near = opts.near !== undefined ? Boolean(opts.near) : !this.sleepMode;
+    this.inView = inView;
+    this.isFocusedStation = focused;
+    this.sleepMode = !focused && !near;
+
+    if (!focused && !inView && !this.dirty) {
+      return false;
     }
+
+    if (this.sleepMode) {
+      if (this.dirty || elapsed - this.lastIdleDrawAt >= 2.0) {
+        this.lastIdleDrawAt = elapsed;
+        this.redraw();
+        return true;
+      }
+      return false;
+    }
+
+    if (this.hasRunningGame()) {
+      const minStep = focused ? 0.016 : 0.032;
+      if (this.dirty || elapsed - this.lastActiveDrawAt >= minStep) {
+        const dt =
+          this.lastActiveDrawAt >= 0
+            ? Math.min(0.08, Math.max(0.016, elapsed - this.lastActiveDrawAt))
+            : 0.032;
+        this.lastActiveDrawAt = elapsed;
+        return this.update(dt, elapsed);
+      }
+      return false;
+    }
+
     if (this.dirty || elapsed - this.lastIdleDrawAt >= 1.0) {
       this.lastIdleDrawAt = elapsed;
       this.redraw();
@@ -1504,6 +1545,7 @@ export class CielOsDesktop {
       ctx.restore();
     }
 
+    this.textureUploadCount = (this.textureUploadCount || 0) + 1;
     this.onChange?.();
   }
 

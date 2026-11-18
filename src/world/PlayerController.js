@@ -239,19 +239,68 @@ export class PlayerController {
   }
 
   teleportTo(targetPos, lookAtPos) {
-    this.position.set(targetPos.x, this.groundY, targetPos.z);
+    const tx = Number.isFinite(Number(targetPos?.x))
+      ? Number(targetPos.x)
+      : Number.isFinite(Number(targetPos?.position?.x))
+        ? Number(targetPos.position.x)
+        : Number.isFinite(this.position.x)
+          ? this.position.x
+          : 0;
+    const tz = Number.isFinite(Number(targetPos?.z))
+      ? Number(targetPos.z)
+      : Number.isFinite(Number(targetPos?.position?.z))
+        ? Number(targetPos.position.z)
+        : Number.isFinite(this.position.z)
+          ? this.position.z
+          : 0;
+    this.position.set(tx, this.groundY, tz);
     this.velocityY = 0;
     this.isGrounded = true;
     this.wasGrounded = true;
     if (lookAtPos) {
-      const dx = lookAtPos.x - targetPos.x;
-      const dz = lookAtPos.z - targetPos.z;
-      this.yaw = Math.atan2(-dx, -dz);
-      this.pitch = -0.12;
+      const lx = Number.isFinite(Number(lookAtPos?.x))
+        ? Number(lookAtPos.x)
+        : Number.isFinite(Number(lookAtPos?.position?.x))
+          ? Number(lookAtPos.position.x)
+          : NaN;
+      const lz = Number.isFinite(Number(lookAtPos?.z))
+        ? Number(lookAtPos.z)
+        : Number.isFinite(Number(lookAtPos?.position?.z))
+          ? Number(lookAtPos.position.z)
+          : NaN;
+      if (Number.isFinite(lx) && Number.isFinite(lz)) {
+        const dx = lx - tx;
+        const dz = lz - tz;
+        if (Math.hypot(dx, dz) > 0.001) {
+          this.yaw = Math.atan2(-dx, -dz);
+        }
+        this.pitch = -0.12;
+      }
     }
     if (!this.vrModeActive) {
       this._applyCamera();
     }
+  }
+
+  resolveUnstuckPosition(desiredX, desiredZ, rotRad = 0) {
+    const rx = Number.isFinite(Number(desiredX)) ? Number(desiredX) : 0;
+    const rz = Number.isFinite(Number(desiredZ)) ? Number(desiredZ) : 0;
+    if (!this._collides(rx, rz)) {
+      return { x: rx, z: rz };
+    }
+    const radii = [0.25, 0.5, 0.85, 1.15, 1.45];
+    const angles = [0, 0.4, -0.4, 0.85, -0.85, Math.PI / 2, -Math.PI / 2, Math.PI];
+    for (const r of radii) {
+      for (const a of angles) {
+        const cx = rx + Math.sin(rotRad + a) * r;
+        const cz = rz + Math.cos(rotRad + a) * r;
+        if (!this._collides(cx, cz)) {
+          return { x: cx, z: cz };
+        }
+      }
+    }
+    const clamped = this.clampToBounds(rx, rz);
+    return { x: clamped.x, z: clamped.z };
   }
 
   setColliders(colliders) {
