@@ -6,6 +6,7 @@ export class SoundEngine {
     this.sinkAudioEl = null;
     this.usingStreamSink = false;
     this.muted = false;
+    this.volume = 0.8;
     this.sinkId = this._readSavedSinkId();
   }
 
@@ -155,12 +156,35 @@ export class SoundEngine {
     return this.muted;
   }
 
+  setVolume(vol = 0.8) {
+    const n = Number(vol);
+    this.volume = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.8;
+    if (this.volume <= 0.001) {
+      this.muted = true;
+    } else if (this.muted && n > 0.01) {
+      this.muted = false;
+    }
+    if (this.masterGain && this.ctx) {
+      try {
+        this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
+      } catch {}
+    }
+    return this.volume;
+  }
+
+  getVolume() {
+    return this.muted ? 0 : this.volume;
+  }
+
   playTone(freq = 440, duration = 0.08, type = 'sine', volume = 0.08, delaySec = 0) {
     const ctx = this._ensureCtx();
     if (!ctx) return;
+    const volScale = Number.isFinite(this.volume) ? Math.max(0, Math.min(1, this.volume)) : 0.8;
+    if (volScale <= 0.001) return;
     const safeFreq = Number.isFinite(Number(freq)) ? Math.max(40, Math.min(8000, Number(freq))) : 440;
     const safeDur = Number.isFinite(Number(duration)) ? Math.max(0.015, Math.min(2.5, Number(duration))) : 0.08;
-    const safeVol = Number.isFinite(Number(volume)) ? Math.max(0.002, Math.min(0.4, Number(volume))) : 0.08;
+    const rawVol = Number.isFinite(Number(volume)) ? Math.max(0.002, Math.min(0.4, Number(volume))) : 0.08;
+    const safeVol = Math.max(0.0015, rawVol * volScale);
     const startAt = ctx.currentTime + Math.max(0, Number(delaySec) || 0);
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -629,6 +653,60 @@ export class SoundEngine {
     this.playTone(72, 0.65, 'sawtooth', 0.12, 1.9);
     this.playTone(138, 0.48, 'triangle', 0.08, 1.95);
     return true;
+  }
+
+  osBoot() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    [329.63, 440, 659.25, 880].forEach((n, idx) => {
+      this.playTone(n, 0.14, 'triangle', 0.065, idx * 0.055);
+    });
+  }
+
+  osClick() {
+    this.playTone(760, 0.035, 'triangle', 0.055, 0);
+  }
+
+  osWindowOpen() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    this.playTone(480, 0.055, 'sine', 0.06, 0);
+    this.playTone(720, 0.075, 'triangle', 0.065, 0.04);
+  }
+
+  osWindowClose() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    this.playTone(680, 0.05, 'triangle', 0.055, 0);
+    this.playTone(420, 0.07, 'sine', 0.05, 0.038);
+  }
+
+  arcadeBeep(freq = 660, duration = 0.045, type = 'square') {
+    this.playTone(freq, duration, type, 0.055, 0);
+  }
+
+  arcadePowerup() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    [523.25, 659.25, 783.99, 1046.5].forEach((n, idx) => {
+      this.playTone(n, 0.07, 'square', 0.06, idx * 0.045);
+    });
+  }
+
+  arcadeGameOver() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    [392, 349.23, 329.63, 261.63].forEach((n, idx) => {
+      this.playTone(n, 0.14, 'sawtooth', 0.065, idx * 0.09);
+    });
+  }
+
+  arcadeVictory() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((n, idx) => {
+      this.playTone(n, 0.12, 'triangle', 0.075, idx * 0.065);
+    });
   }
 }
 

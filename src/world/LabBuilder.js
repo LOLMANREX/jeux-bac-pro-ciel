@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
+import { CielOsDesktop } from '../minigames/CielOsDesktop.js';
 import { createNpcTeacher } from './NpcTeacher.js';
 import { createRealisticMaterialPack } from './RealisticMaterials.js';
 import {
@@ -7,6 +8,7 @@ import {
   getCatalogItem,
   getDynamicMapColliders,
   getZonePolygonPoints,
+  isPcDeskObject,
   normalizeMapData,
   subtractDoorsFromWalls
 } from './mapSchema.js';
@@ -38,11 +40,16 @@ function disposeNodeTree(root) {
 }
 
 function makeCanvasTexture(width, height, drawFn) {
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+    return new THREE.Texture();
+  }
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  drawFn(ctx, width, height);
+  const ctx = canvas.getContext?.('2d');
+  if (ctx) {
+    drawFn(ctx, width, height);
+  }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.minFilter = THREE.LinearFilter;
@@ -297,12 +304,16 @@ const WALL_MOUNT_CLEARANCE = 0.015;
 function createWallLeaderboardBoard(parent, obj, mats) {
   const W = 1280;
   const H = 744;
-  const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
+  let canvas = null;
+  let ctx = null;
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    ctx = canvas.getContext?.('2d') || null;
+  }
 
-  const texture = new THREE.CanvasTexture(canvas);
+  const texture = canvas ? new THREE.CanvasTexture(canvas) : new THREE.Texture();
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
@@ -368,6 +379,7 @@ function createWallLeaderboardBoard(parent, obj, mats) {
 
     if (signature === lastSignature) return;
     lastSignature = signature;
+    if (!ctx) return;
 
     const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
     bgGrad.addColorStop(0, '#060d1e');
@@ -675,6 +687,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   const teacherRefs = [];
   const survivalDoors = [];
   const hidingSpots = [];
+  const pcStations = [];
+  const pcInteractiveSurfaces = [];
   let ceilingPanelsInst = null;
   const animatedRefs = {
     rings: [],
@@ -809,6 +823,207 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       mesh: parentGroup,
       highlightMats: Array.isArray(highlightMats) ? highlightMats : null
     });
+  }
+
+  function attachCielOsPcToDesk(obj, cat, parentGroup, topH, monitorSpecs, mats, extraHighlightMats = []) {
+    const defaultTheme =
+      obj.type === 'pc_gamer_cyber'
+        ? 'synthwave'
+        : obj.type === 'network_island'
+          ? 'matrix_green'
+          : obj.type === 'pc_open_maint'
+            ? 'dark_mode'
+            : 'cyber_blue';
+
+    const desktop = new CielOsDesktop({
+      stationId: obj.id,
+      stationLabel: obj.label || cat.shortLabel || 'Poste PC CIEL',
+      playerName: lastLocalPlayerName || 'Eleve_CIEL',
+      themeId: defaultTheme
+    });
+
+    const osTexture = new THREE.CanvasTexture(desktop.canvas);
+    osTexture.colorSpace = THREE.SRGBColorSpace;
+    osTexture.minFilter = THREE.LinearFilter;
+    osTexture.magFilter = THREE.LinearFilter;
+    desktop.onChange = () => {
+      osTexture.needsUpdate = true;
+    };
+
+    const screenMat = new THREE.MeshBasicMaterial({ map: osTexture });
+    const bezelMat = new THREE.MeshStandardMaterial({
+      color: '#0f172a',
+      roughness: 0.35,
+      metalness: 0.65,
+      emissive: '#082f49',
+      emissiveIntensity: 0.22
+    });
+    const highlightMats = [bezelMat, ...extraHighlightMats];
+    const screenMeshes = [];
+    const stationSurfaces = [];
+
+    const specs =
+      Array.isArray(monitorSpecs) && monitorSpecs.length > 0
+        ? monitorSpecs
+        : [{ x: 0, y: topH + 0.32, z: -0.15, rotY: 0, w: 0.66, h: 0.41, dualSided: true }];
+
+    specs.forEach((sp, idx) => {
+      const mw = sp.w || 0.66;
+      const mh = sp.h || 0.41;
+      const sw = mw - 0.05;
+      const sh = mh - 0.05;
+      const monGrp = new THREE.Group();
+      monGrp.position.set(sp.x || 0, sp.y || topH + 0.32, sp.z || 0);
+      monGrp.rotation.y = sp.rotY || 0;
+      parentGroup.add(monGrp);
+
+      const bezel = new THREE.Mesh(new THREE.BoxGeometry(mw, mh, 0.045), bezelMat);
+      bezel.castShadow = true;
+      monGrp.add(bezel);
+
+      const standH = Math.max(0.08, (sp.y || topH + 0.32) - mh / 2 - topH);
+      const stand = new THREE.Mesh(new THREE.BoxGeometry(0.07, standH + 0.04, 0.05), mats.darkMetalMat);
+      stand.position.set(0, -mh / 2 - standH / 2 + 0.01, -0.01);
+      monGrp.add(stand);
+
+      const basePlate = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.016, 0.16), mats.darkMetalMat);
+      basePlate.position.set(0, -mh / 2 - standH + 0.008, 0.01);
+      monGrp.add(basePlate);
+
+      const frontScreen = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), screenMat);
+      frontScreen.position.set(0, 0, 0.025);
+      frontScreen.name = `ciel-os-screen-${obj.id}-${idx}-front`;
+      monGrp.add(frontScreen);
+      screenMeshes.push(frontScreen);
+
+      if (sp.dualSided !== false) {
+        const backScreen = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), screenMat);
+        backScreen.position.set(0, 0, -0.025);
+        backScreen.rotation.y = Math.PI;
+        backScreen.name = `ciel-os-screen-${obj.id}-${idx}-back`;
+        monGrp.add(backScreen);
+        screenMeshes.push(backScreen);
+      }
+
+      if (idx === 0) {
+        const kbdDir = Math.cos(sp.rotY || 0) >= 0 ? 1 : -1;
+        const kbd = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.018, 0.13), mats.darkMetalMat);
+        kbd.position.set(sp.x || 0, topH + 0.042, (sp.z || 0) + 0.2 * kbdDir);
+        parentGroup.add(kbd);
+        const mouse = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.095), mats.darkMetalMat);
+        mouse.position.set((sp.x || 0) + 0.26 * kbdDir, topH + 0.042, (sp.z || 0) + 0.2 * kbdDir);
+        parentGroup.add(mouse);
+      }
+    });
+
+    const pcRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.52, 0.66, 28),
+      new THREE.MeshBasicMaterial({
+        color: obj.color || cat.defaultColor || '#38bdf8',
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.55
+      })
+    );
+    pcRing.rotation.x = -Math.PI / 2;
+    pcRing.position.set(0, 0.026, 0);
+    parentGroup.add(pcRing);
+
+    const pcStation = {
+      id: obj.id,
+      objId: obj.id,
+      objType: obj.type,
+      label: obj.label || cat.shortLabel || 'Poste PC CIEL OS',
+      position: new THREE.Vector3(obj.x, 0, obj.z),
+      rotation: ((obj.rotation || 0) * Math.PI) / 180,
+      desktop,
+      canvas: desktop.canvas,
+      texture: osTexture,
+      group: parentGroup,
+      screenMeshes,
+      surfaces: stationSurfaces,
+      isActiveSession: false,
+      getCameraFocusPose(viewerPos = null) {
+        parentGroup.updateWorldMatrix(true, true);
+        let bestScreen = screenMeshes[0] || null;
+        let bestScore = -Infinity;
+        const worldPos = new THREE.Vector3();
+        const worldQuat = new THREE.Quaternion();
+        const normal = new THREE.Vector3();
+        const bestCenter = new THREE.Vector3(obj.x, topH + 0.32, obj.z);
+        const bestNormal = new THREE.Vector3(0, 0, 1);
+
+        for (const sm of screenMeshes) {
+          sm.updateWorldMatrix(true, false);
+          sm.getWorldPosition(worldPos);
+          sm.getWorldQuaternion(worldQuat);
+          normal.set(0, 0, 1).applyQuaternion(worldQuat);
+          normal.y = 0;
+          if (normal.lengthSq() < 1e-5) normal.set(0, 0, 1);
+          else normal.normalize();
+
+          let score = 0;
+          if (viewerPos && Number.isFinite(Number(viewerPos.x)) && Number.isFinite(Number(viewerPos.z))) {
+            const vx = Number(viewerPos.x) - worldPos.x;
+            const vz = Number(viewerPos.z) - worldPos.z;
+            const vLen = Math.hypot(vx, vz) || 1;
+            score = (vx / vLen) * normal.x + (vz / vLen) * normal.z;
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            bestScreen = sm;
+            bestCenter.copy(worldPos);
+            bestNormal.copy(normal);
+          }
+        }
+
+        const camDist = 0.54;
+        const camPos = new THREE.Vector3(
+          bestCenter.x + bestNormal.x * camDist,
+          bestCenter.y + 0.02,
+          bestCenter.z + bestNormal.z * camDist
+        );
+        const lookAt = bestCenter.clone();
+        return { camPos, lookAt, screenMesh: bestScreen };
+      }
+    };
+
+    screenMeshes.forEach((sm, sIdx) => {
+      const geomParams = sm.geometry?.parameters || {};
+      const surf = {
+        id: `pc_screen_${obj.id}_${sIdx}`,
+        pcId: obj.id,
+        pcStation,
+        mesh: sm,
+        width: geomParams.width || 0.61,
+        height: geomParams.height || 0.36,
+        hitTestUv: (uv) => desktop.hitTestUv(uv),
+        setHovered: (btnId) => desktop.setHovered(btnId)
+      };
+      stationSurfaces.push(surf);
+      pcInteractiveSurfaces.push(surf);
+    });
+
+    pcStations.push(pcStation);
+
+    interactables.push({
+      id: `pc-${obj.id}`,
+      pcId: obj.id,
+      objId: obj.id,
+      type: 'ciel_os_pc',
+      isPcDesk: true,
+      isProp: true,
+      label: `[E] 🖥️ Utiliser le PC (CIEL OS) — ${obj.label || cat.shortLabel}`,
+      shortTitle: obj.label || cat.shortLabel || 'Poste PC CIEL OS',
+      position: new THREE.Vector3(obj.x, 0, obj.z),
+      interactRadius: cat.interactRadius || 2.4,
+      ring: pcRing,
+      mesh: parentGroup,
+      highlightMats,
+      pcStation
+    });
+
+    return pcStation;
   }
 
   function renderMapIntoGroup(mapData) {
@@ -1526,27 +1741,47 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         grp.add(bench);
 
         if (obj.type === 'desk_individual') {
-          if (String(obj.label || '').toLowerCase().includes('studio')) {
+          const isStudio = String(obj.label || '').toLowerCase().includes('studio');
+          if (isStudio) {
             const acoustic = new THREE.Mesh(
               new THREE.BoxGeometry(w, 1.4, 0.12),
               mats.acousticMat
             );
             acoustic.position.set(0, 1.48, d / 2 - 0.08);
             grp.add(acoustic);
+            attachCielOsPcToDesk(
+              obj,
+              cat,
+              grp,
+              topH,
+              [{ x: 0, y: topH + 0.32, z: 0.08, rotY: Math.PI, w: 0.64, h: 0.39, dualSided: true }],
+              mats
+            );
           } else {
-            const mon = new THREE.Mesh(new THREE.BoxGeometry(Math.min(0.65, w * 0.55), 0.36, 0.05), mats.darkMetalMat);
-            mon.position.set(0, topH + 0.32, -d * 0.2);
-            grp.add(mon);
+            attachCielOsPcToDesk(
+              obj,
+              cat,
+              grp,
+              topH,
+              [{ x: 0, y: topH + 0.32, z: -d * 0.18, rotY: 0, w: Math.min(0.66, w * 0.56), h: 0.4, dualSided: true }],
+              mats
+            );
           }
         } else if (obj.type === 'desk_teacher') {
           const mod = new THREE.Mesh(new THREE.BoxGeometry(w - 0.18, 0.46, 0.05), mats.oakDeskMat);
           mod.position.set(0, 0.52, d / 2 - 0.08);
           grp.add(mod);
-          for (const mx of [-0.36, 0.36]) {
-            const mon = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.38, 0.05), mats.darkMetalMat);
-            mon.position.set(mx, topH + 0.34, -0.15);
-            grp.add(mon);
-          }
+          attachCielOsPcToDesk(
+            obj,
+            cat,
+            grp,
+            topH,
+            [
+              { x: -0.36, y: topH + 0.33, z: -0.15, rotY: 0.08, w: 0.62, h: 0.39, dualSided: true },
+              { x: 0.36, y: topH + 0.33, z: -0.15, rotY: -0.08, w: 0.62, h: 0.39, dualSided: true }
+            ],
+            mats
+          );
         } else if (obj.type === 'elec_bench') {
           const riser = new THREE.Mesh(new THREE.BoxGeometry(w * 0.94, 0.46, 0.28), mats.brushedMetalMat);
           riser.position.set(0, topH + 0.26, -d * 0.3);
@@ -1555,11 +1790,18 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           dial.position.set(-w * 0.2, topH + 0.28, -d * 0.3 + 0.145);
           grp.add(dial);
         } else if (obj.type === 'network_island') {
-          for (const mx of [-Math.min(0.45, w * 0.22), Math.min(0.45, w * 0.22)]) {
-            const mon = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.36, 0.05), mats.darkMetalMat);
-            mon.position.set(mx, topH + 0.32, 0);
-            grp.add(mon);
-          }
+          const mxOff = Math.min(0.45, w * 0.22);
+          attachCielOsPcToDesk(
+            obj,
+            cat,
+            grp,
+            topH,
+            [
+              { x: -mxOff, y: topH + 0.32, z: 0.04, rotY: 0, w: 0.62, h: 0.39, dualSided: true },
+              { x: mxOff, y: topH + 0.32, z: -0.04, rotY: Math.PI, w: 0.62, h: 0.39, dualSided: true }
+            ],
+            mats
+          );
         }
         continue;
       }
@@ -1779,26 +2021,36 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         continue;
       }
 
-      if (obj.type === 'pc_gamer_cyber') {
+      if (obj.type === 'pc_gamer_cyber' || obj.type === 'pc_ciel_os') {
         const bench = buildWorkbenchMesh(w, d, 0.78, mats, false);
         grp.add(bench);
-        const monL = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.38, 0.05), mats.darkMetalMat);
-        monL.position.set(-0.36, 1.16, -0.15);
-        monL.rotation.y = 0.14;
-        grp.add(monL);
-        const monR = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.38, 0.05), mats.darkMetalMat);
-        monR.position.set(0.32, 1.16, -0.15);
-        monR.rotation.y = -0.14;
-        grp.add(monR);
         const tower = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.48, 0.44), mats.darkMetalMat);
         tower.position.set(w * 0.36, 1.04, -0.05);
         grp.add(tower);
-        const rgb = new THREE.Mesh(
-          new THREE.BoxGeometry(0.03, 0.36, 0.36),
-          new THREE.MeshStandardMaterial({ color: '#0284c7', roughness: 0.3, metalness: 0.4 })
-        );
+        const rgbMat = new THREE.MeshStandardMaterial({
+          color: obj.type === 'pc_ciel_os' ? '#38bdf8' : '#0284c7',
+          roughness: 0.3,
+          metalness: 0.4,
+          emissive: obj.type === 'pc_ciel_os' ? '#0284c7' : '#000000',
+          emissiveIntensity: obj.type === 'pc_ciel_os' ? 0.35 : 0
+        });
+        const rgb = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.36, 0.36), rgbMat);
         rgb.position.set(w * 0.36 - 0.125, 1.04, -0.05);
         grp.add(rgb);
+        attachCielOsPcToDesk(
+          obj,
+          cat,
+          grp,
+          0.78,
+          obj.type === 'pc_ciel_os'
+            ? [{ x: -0.06, y: 1.14, z: -0.14, rotY: 0, w: 0.72, h: 0.44, dualSided: true }]
+            : [
+                { x: -0.34, y: 1.14, z: -0.15, rotY: 0.12, w: 0.66, h: 0.41, dualSided: true },
+                { x: 0.28, y: 1.14, z: -0.15, rotY: -0.12, w: 0.66, h: 0.41, dualSided: true }
+              ],
+          mats,
+          [rgbMat]
+        );
         continue;
       }
 
@@ -1809,20 +2061,28 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         esd.position.y = 0.89;
         grp.add(esd);
         const openCase = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.09, 0.48), mats.brushedMetalMat);
-        openCase.position.set(0, 0.94, 0.05);
+        openCase.position.set(0.12, 0.94, 0.12);
         grp.add(openCase);
         const mobo = new THREE.Mesh(
           new THREE.BoxGeometry(0.34, 0.03, 0.3),
           new THREE.MeshStandardMaterial({ color: '#047857', roughness: 0.48, metalness: 0.15 })
         );
-        mobo.position.set(-0.04, 0.995, 0.05);
+        mobo.position.set(0.08, 0.995, 0.12);
         grp.add(mobo);
         const gpu = new THREE.Mesh(
           new THREE.BoxGeometry(0.24, 0.08, 0.05),
           new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.38, metalness: 0.55 })
         );
-        gpu.position.set(0, 1.03, 0.12);
+        gpu.position.set(0.12, 1.03, 0.19);
         grp.add(gpu);
+        attachCielOsPcToDesk(
+          obj,
+          cat,
+          grp,
+          0.84,
+          [{ x: -0.12, y: 1.18, z: -0.32, rotY: 0, w: 0.64, h: 0.4, dualSided: true }],
+          mats
+        );
         continue;
       }
 
@@ -1967,6 +2227,11 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     for (const board of leaderboardBoards) {
       board.update(lastLeaderboardEntries, lastLocalPlayerName);
     }
+    if (lastLocalPlayerName) {
+      for (const pc of pcStations) {
+        pc.desktop?.setPlayerName?.(lastLocalPlayerName);
+      }
+    }
   }
 
   function rebuildWorld(nextMapData) {
@@ -1977,6 +2242,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     teacherRefs.length = 0;
     survivalDoors.length = 0;
     hidingSpots.length = 0;
+    pcStations.length = 0;
+    pcInteractiveSurfaces.length = 0;
     ceilingPanelsInst = null;
     animatedRefs.rings.length = 0;
     animatedRefs.leds.length = 0;
@@ -2023,7 +2290,12 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     }
   }
 
+  let lastPcUpdateElapsed = 0;
+
   function update(elapsed, playerPos = null, diplomaEarned = false) {
+    const dt = Math.max(0.008, Math.min(0.1, elapsed - lastPcUpdateElapsed || 0.016));
+    lastPcUpdateElapsed = elapsed;
+
     for (let i = 0; i < animatedRefs.rings.length; i++) {
       const r = animatedRefs.rings[i].ring;
       const pulse = 1 + Math.sin(elapsed * 2.5 + i) * 0.04;
@@ -2043,6 +2315,17 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         tr.update(elapsed, playerPos, diplomaEarned);
       }
     }
+    for (const pc of pcStations) {
+      if (pc.isActiveSession || pc.desktop?.hasRunningGame?.()) {
+        pc.desktop.update(dt, elapsed);
+      } else {
+        pc.desktop.updateIdle(elapsed);
+      }
+    }
+  }
+
+  function getPcStationById(id) {
+    return pcStations.find((pc) => pc.id === id || `pc-${pc.id}` === id) || null;
   }
 
   function dispose() {
@@ -2069,6 +2352,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     solidWallMeshes,
     survivalDoors,
     hidingSpots,
+    pcStations,
+    pcInteractiveSurfaces,
+    getPcStationById,
     get mapData() {
       return currentMapData;
     },

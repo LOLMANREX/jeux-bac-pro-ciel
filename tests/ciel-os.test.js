@@ -1,0 +1,422 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import * as THREE from 'three';
+import { sfx } from '../src/core/audio.js';
+import {
+  CIEL_OS_APPS,
+  CIEL_OS_THEMES,
+  CielOsDesktop
+} from '../src/minigames/CielOsDesktop.js';
+import {
+  CIEL_OS_GAMES_CATALOG,
+  Ciel2048Game,
+  CielBlocksGame,
+  CielMinesweeperGame,
+  CyberSnakeGame,
+  FlappyPacketGame,
+  NetworkBreakoutGame,
+  createCielOsGame
+} from '../src/minigames/CielOsGames.js';
+import { buildLabWorld } from '../src/world/LabBuilder.js';
+import {
+  createDefaultMap,
+  getCatalogItem,
+  isPcDeskObject
+} from '../src/world/mapSchema.js';
+
+test('CIEL OS Desktop : session élève, 4 thèmes, barre des tâches, volume, gestion de fenêtres et UV hit-test', () => {
+  const os = new CielOsDesktop({
+    stationId: 'pc-u305-1',
+    stationLabel: 'Poste SOC 1',
+    playerName: 'Lucas_CIEL',
+    startLocked: true
+  });
+
+  assert.equal(os.sessionLocked, true);
+  assert.equal(os.playerName, 'Lucas_CIEL');
+  assert.ok(os.getHitBoxes().some((b) => b.id === 'session_unlock_btn'));
+
+  os.unlockSession();
+  assert.equal(os.sessionLocked, false);
+  assert.ok(os.getHitBoxes().some((b) => b.id === 'desk_icon_snake'));
+  assert.ok(os.getHitBoxes().some((b) => b.id === 'taskbar_start'));
+
+  assert.equal(CIEL_OS_THEMES.length, 4);
+  for (const th of CIEL_OS_THEMES) {
+    assert.equal(os.setTheme(th.id), true);
+    assert.equal(os.getTheme().id, th.id);
+  }
+  os.cycleTheme();
+  assert.ok(os.getTheme().id);
+
+  sfx.setVolume(0.5);
+  assert.equal(sfx.getVolume(), 0.5);
+  sfx.osBoot();
+  sfx.osClick();
+  sfx.osWindowOpen();
+  sfx.osWindowClose();
+  sfx.arcadeBeep();
+  sfx.arcadePowerup();
+  sfx.arcadeVictory();
+  sfx.arcadeGameOver();
+
+  assert.equal(os.toggleStartMenu(), true);
+  assert.ok(os.getHitBoxes().some((b) => b.id === 'start_app_terminal'));
+
+  for (const app of CIEL_OS_APPS) {
+    assert.equal(os.openApp(app.id), true);
+    assert.equal(os.activeAppId, app.id);
+  }
+
+  assert.equal(os.toggleMaximizeWindow('scores'), true);
+  assert.equal(os.minimizeWindow('scores'), true);
+  assert.notEqual(os.activeAppId, 'scores');
+  assert.equal(os.closeWindow('scores'), true);
+
+  const snakeIcon = os.getHitBoxes().find((b) => b.id === 'desk_icon_snake');
+  assert.ok(snakeIcon);
+  const uv = {
+    x: (snakeIcon.x + snakeIcon.w / 2) / os.width,
+    y: 1 - (snakeIcon.y + snakeIcon.h / 2) / os.height
+  };
+  const hit = os.hitTestUv(uv);
+  assert.equal(hit.id, 'desk_icon_snake');
+  os.handlePointerDownUv(uv, 0);
+  os.handlePointerUpUv(uv, 0);
+  assert.equal(os.activeAppId, 'snake');
+  assert.equal(os.hasRunningGame(), true);
+
+  os.lockSession();
+  assert.equal(os.sessionLocked, true);
+});
+
+test('CIEL OS Applications : Terminal CIEL (help, ping, matrix, whoami, hack, cowsay, clear), Bloc-Notes et Explorateur de Scores', () => {
+  const os = new CielOsDesktop({
+    stationId: 'pc-u307-1',
+    stationLabel: 'Îlot Réseau 1',
+    playerName: 'Emma_CIEL'
+  });
+
+  os.openApp('terminal');
+  assert.equal(os.activeAppId, 'terminal');
+
+  const helpOut = os.executeTerminalCommand('help');
+  assert.ok(helpOut.includes('ping'));
+  assert.ok(helpOut.includes('cowsay'));
+
+  const pingOut = os.executeTerminalCommand('ping 192.168.10.254');
+  assert.ok(pingOut.includes('0% packet loss'));
+
+  const whoOut = os.executeTerminalCommand('whoami');
+  assert.ok(whoOut.includes('Emma_CIEL'));
+  assert.ok(whoOut.includes('Professeur CIEL'));
+
+  const matrixOut = os.executeTerminalCommand('matrix');
+  assert.ok(matrixOut.includes('FLUX MATRIX'));
+  assert.equal(os.themeId, 'matrix_green');
+
+  const hackOut = os.executeTerminalCommand('hack');
+  assert.ok(hackOut.includes('Professeur CIEL'));
+
+  const cowOut = os.executeTerminalCommand('cowsay Bonjour U300');
+  assert.ok(cowOut.includes('Bonjour U300'));
+  assert.ok(cowOut.includes('^__^'));
+
+  os.handleKeyDown('KeyH', 'h');
+  os.handleKeyDown('KeyE', 'e');
+  os.handleKeyDown('KeyL', 'l');
+  os.handleKeyDown('KeyP', 'p');
+  assert.equal(os.terminalInput, 'help');
+  os.handleKeyDown('Enter', 'Enter');
+  assert.equal(os.terminalInput, '');
+
+  os.executeTerminalCommand('clear');
+  assert.equal(os.terminalHistory.length, 0);
+
+  os.openApp('notepad');
+  assert.equal(os.activeAppId, 'notepad');
+  os.setNotepadText('Note test CIEL');
+  os.handleKeyDown('KeyA', '!');
+  assert.equal(os.notepadText, 'Note test CIEL!');
+  os.handleKeyDown('Backspace', 'Backspace');
+  assert.equal(os.notepadText, 'Note test CIEL');
+
+  os.openApp('scores');
+  assert.equal(os.activeAppId, 'scores');
+  const snakeGame = os.getGameInstance('snake');
+  snakeGame.addScore(120);
+  assert.equal(os.highScores.snake, 120);
+  assert.equal(os.getTotalArcadeScore(), 120);
+  os.resetHighScores();
+  assert.equal(os.getTotalArcadeScore(), 0);
+});
+
+test('Mini-Jeu 1 — Cyber Snake : déplacement, nourriture, bonus turbo, portails vs murs, game over et reset', () => {
+  assert.equal(CIEL_OS_GAMES_CATALOG.length, 6);
+  let best = 0;
+  const game = new CyberSnakeGame({
+    onScoreChange: (_id, _score, hi) => {
+      best = hi;
+    }
+  });
+
+  const head0 = { ...game.snake[0] };
+  game.food = { x: head0.x + 1, y: head0.y, kind: 'normal' };
+  game.stepTick();
+  assert.equal(game.score, 10);
+  assert.equal(best, 10);
+  assert.equal(game.snake.length, 4);
+
+  const head1 = { ...game.snake[0] };
+  game.bonusFood = { x: head1.x + 1, y: head1.y, ttl: 5 };
+  game.stepTick();
+  assert.ok(game.score >= 40);
+  assert.ok(game.boostRemaining > 0);
+
+  game.portalWalls = false;
+  game.snake = [{ x: game.cols - 1, y: 5 }, { x: game.cols - 2, y: 5 }, { x: game.cols - 3, y: 5 }];
+  game.dir = { x: 1, y: 0 };
+  game.nextDir = { x: 1, y: 0 };
+  game.stepTick();
+  assert.equal(game.gameOver, true);
+
+  game.reset();
+  assert.equal(game.gameOver, false);
+  assert.equal(game.score, 0);
+  assert.equal(game.highScore, best);
+});
+
+test('Mini-Jeu 2 — Démineur CIEL : premier clic sûr, révélation, drapeaux, victoire, game over et niveaux Facile/Moyen', () => {
+  const game = new CielMinesweeperGame();
+  assert.equal(game.cols, 8);
+  assert.equal(game.rows, 8);
+  assert.equal(game.mineCount, 10);
+
+  game.board[0][0].mine = true;
+  game._recomputeNeighbors();
+  assert.equal(game.revealCell(0, 0), true);
+  assert.equal(game.gameOver, false);
+  assert.equal(game.board[0][0].revealed, true);
+
+  let flagCell = null;
+  for (let r = 0; r < game.rows && !flagCell; r++) {
+    for (let c = 0; c < game.cols && !flagCell; c++) {
+      if (!game.board[r][c].revealed) flagCell = [r, c];
+    }
+  }
+  const [fr, fc] = flagCell;
+  assert.equal(game.toggleFlag(fr, fc), true);
+  assert.equal(game.flagCount, 1);
+  assert.equal(game.revealCell(fr, fc), false);
+  assert.equal(game.toggleFlag(fr, fc), false);
+
+  for (let r = 0; r < game.rows; r++) {
+    for (let c = 0; c < game.cols; c++) {
+      if (!game.board[r][c].mine && !game.board[r][c].revealed) {
+        game.revealCell(r, c);
+      }
+    }
+  }
+  assert.equal(game.won, true);
+  assert.ok(game.score > 100);
+
+  game.setDifficulty('medium');
+  assert.equal(game.cols, 12);
+  assert.equal(game.rows, 10);
+  assert.equal(game.mineCount, 20);
+
+  let safeFirst = null;
+  let mineSecond = null;
+  for (let r = 0; r < game.rows; r++) {
+    for (let c = 0; c < game.cols; c++) {
+      if (!game.board[r][c].mine && !safeFirst) safeFirst = [r, c];
+      if (game.board[r][c].mine && !mineSecond) mineSecond = [r, c];
+    }
+  }
+  game.revealCell(safeFirst[0], safeFirst[1]);
+  game.revealCell(mineSecond[0], mineSecond[1]);
+  assert.equal(game.gameOver, true);
+  assert.equal(game.won, false);
+
+  game.reset();
+  assert.equal(game.gameOver, false);
+});
+
+test('Mini-Jeu 3 — CIEL-Blocks (Tetris) : rotation, déplacement, hardDrop, suppression de lignes, accélération et game over', () => {
+  const game = new CielBlocksGame();
+  const x0 = game.current.x;
+  game.moveHorizontal(-1);
+  assert.equal(game.current.x, x0 - 1);
+  game.rotatePiece();
+
+  for (let c = 0; c < game.cols; c++) {
+    game.grid[game.rows - 1][c] = '#22d3ee';
+  }
+  game.current = {
+    id: 'O',
+    color: '#fbbf24',
+    matrix: [
+      [1, 1],
+      [1, 1]
+    ],
+    x: 0,
+    y: 0
+  };
+  game.hardDrop();
+  assert.equal(game.lines, 1);
+  assert.ok(game.score >= 100);
+
+  for (let r = 0; r < game.rows; r++) {
+    for (let c = 0; c < game.cols; c++) {
+      game.grid[r][c] = '#f43f5e';
+    }
+  }
+  game._spawnPiece();
+  assert.equal(game.gameOver, true);
+
+  game.reset();
+  assert.equal(game.gameOver, false);
+  assert.equal(game.lines, 0);
+});
+
+test('Mini-Jeu 4 — Casse-Briques Réseau (Breakout) : raquette, rebonds, briques multi-résistance, multi-balle et game over', () => {
+  const game = new NetworkBreakoutGame();
+  assert.equal(game.lives, 3);
+  assert.ok(game.bricks.length > 20);
+
+  game.setPaddleRatio(0.8);
+  assert.ok(game.paddle.x > 200);
+
+  assert.equal(game.spawnMultiBall(), true);
+  assert.equal(game.balls.length, 3);
+
+  const targetBrick = game.bricks[0];
+  const initialHp = targetBrick.hp;
+  game.balls[0].x = targetBrick.x + targetBrick.w / 2;
+  game.balls[0].y = targetBrick.y + targetBrick.h / 2;
+  game.update(0.016);
+  assert.equal(targetBrick.hp, initialHp - 1);
+  assert.ok(game.score >= 10);
+
+  game.lives = 1;
+  game.balls = [{ x: 100, y: game.worldH + 20, vx: 0, vy: 100, r: 6 }];
+  game.update(0.016);
+  assert.equal(game.gameOver, true);
+
+  game.reset();
+  assert.equal(game.gameOver, false);
+  assert.equal(game.lives, 3);
+});
+
+test('Mini-Jeu 5 — Flappy Packet : impulsion IP, passage de pare-feux, score, crash et reset', () => {
+  const game = new FlappyPacketGame();
+  const y0 = game.packet.y;
+  game.flap();
+  assert.ok(game.packet.vy < 0);
+  game.update(0.02);
+  assert.ok(game.packet.y < y0);
+
+  game.pipes[0].x = game.packet.x - game.pipes[0].w - 2;
+  game.pipes[0].passed = false;
+  game.update(0.016);
+  assert.equal(game.packetsPassed, 1);
+  assert.equal(game.score, 15);
+
+  game.packet.y = game.worldH + 10;
+  game.update(0.016);
+  assert.equal(game.gameOver, true);
+
+  game.reset();
+  assert.equal(game.gameOver, false);
+  assert.equal(game.score, 0);
+});
+
+test('Mini-Jeu 6 — 2048 CIEL : fusion de tuiles jusqu’à 2048, score, détection de blocage (game over) et reset', () => {
+  const game = createCielOsGame('game2048');
+  assert.ok(game instanceof Ciel2048Game);
+
+  game.grid = [
+    [2, 2, 0, 0],
+    [4, 4, 0, 0],
+    [1024, 1024, 0, 0],
+    [0, 0, 0, 0]
+  ];
+  const moved = game.slide('left');
+  assert.equal(moved, true);
+  assert.equal(game.grid[0][0], 4);
+  assert.equal(game.grid[1][0], 8);
+  assert.equal(game.grid[2][0], 2048);
+  assert.equal(game.won, true);
+  assert.ok(game.score >= 2060);
+
+  game.grid = [
+    [2, 4, 2, 4],
+    [4, 2, 4, 2],
+    [2, 4, 2, 4],
+    [4, 2, 4, 8]
+  ];
+  assert.equal(game.canMove(), false);
+  game.grid[3][2] = 4;
+  game.grid[3][3] = 4;
+  game.spawnTile = () => {
+    game.grid[3][3] = 16;
+    return true;
+  };
+  game.slide('left');
+  assert.equal(game.gameOver, true);
+
+  game.reset();
+  assert.equal(game.gameOver, false);
+  assert.equal(game.score, 0);
+});
+
+test('LabBuilder & mapSchema : détection universelle de tous les bureaux PC sur le Plateau U300 et l’éditeur de carte', () => {
+  for (const pcType of [
+    'desk_individual',
+    'desk_teacher',
+    'network_island',
+    'pc_gamer_cyber',
+    'pc_open_maint',
+    'pc_ciel_os'
+  ]) {
+    assert.ok(getCatalogItem(pcType), `Catalogue manquant pour ${pcType}`);
+    assert.equal(isPcDeskObject(pcType), true);
+  }
+
+  const scene = new THREE.Scene();
+  const mapData = createDefaultMap();
+  const lab = buildLabWorld(scene, mapData, { hideSprites: true });
+
+  try {
+    assert.ok(lab.pcStations.length >= 15);
+    assert.ok(lab.pcInteractiveSurfaces.length >= 15);
+
+    const pcInteractables = lab.interactables.filter((it) => it.type === 'ciel_os_pc');
+    assert.equal(pcInteractables.length, lab.pcStations.length);
+
+    for (const item of pcInteractables) {
+      assert.ok(item.label.startsWith('[E] 🖥️ Utiliser le PC (CIEL OS)'));
+      assert.ok(item.pcStation);
+      assert.ok(item.pcStation.texture instanceof THREE.CanvasTexture);
+      assert.ok(item.pcStation.desktop instanceof CielOsDesktop);
+      assert.ok(item.pcStation.screenMeshes.length >= 1);
+
+      const pose = item.pcStation.getCameraFocusPose({
+        x: item.position.x,
+        z: item.position.z + 1.5
+      });
+      assert.ok(pose.camPos instanceof THREE.Vector3);
+      assert.ok(pose.lookAt instanceof THREE.Vector3);
+      assert.ok(pose.camPos.distanceTo(pose.lookAt) > 0.3);
+    }
+
+    lab.updateLeaderboardBoard([], 'Alice_CIEL');
+    assert.equal(lab.pcStations[0].desktop.playerName, 'Alice_CIEL');
+
+    lab.pcStations[0].desktop.openApp('snake');
+    lab.update(1.5, new THREE.Vector3(0, 0, 0), false);
+    assert.equal(lab.pcStations[0].desktop.activeAppId, 'snake');
+  } finally {
+    lab.dispose();
+  }
+});

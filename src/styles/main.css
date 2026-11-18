@@ -5750,3 +5750,116 @@ body.survival-detention-active #toast-container {
   display: none !important;
   pointer-events: none !important;
 }
+
+.ciel-os-session-bar {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 64;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 18px;
+  width: min(940px, 94vw);
+  background: rgba(7, 15, 32, 0.94);
+  backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(56, 189, 248, 0.55);
+  border-radius: 16px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.68);
+  pointer-events: auto;
+}
+
+.ciel-os-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ciel-os-bar-badge {
+  background: rgba(2, 132, 199, 0.3);
+  border: 1px solid #38bdf8;
+  color: #7dd3fc;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.ciel-os-bar-title {
+  color: #f8fafc;
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+
+.ciel-os-bar-hint {
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+.ciel-os-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ciel-os-bar-btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  border: 1.5px solid rgba(56, 189, 248, 0.5);
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.ciel-os-bar-btn.primary {
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  border-color: #38bdf8;
+}
+
+.ciel-os-bar-btn.danger {
+  background: linear-gradient(135deg, #be123c, #9f1239);
+  border-color: #fb7185;
+}
+
+.ciel-os-bar-btn:hover {
+  transform: translateY(-1px);
+}
+
+.ciel-os-comfort-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 62;
+  background: rgba(3, 8, 20, 0.84);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 18px 78px;
+}
+
+.ciel-os-comfort-frame {
+  background: #070e1e;
+  border: 3px solid #38bdf8;
+  border-radius: 18px;
+  padding: 10px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.85), 0 0 38px rgba(56, 189, 248, 0.25);
+  max-width: 95vw;
+  max-height: calc(100dvh - 108px);
+  display: flex;
+}
+
+#ciel-os-comfort-canvas {
+  width: min(1024px, 92vw);
+  height: auto;
+  max-height: calc(100dvh - 132px);
+  aspect-ratio: 1024 / 640;
+  border-radius: 10px;
+  cursor: pointer;
+  display: block;
+}

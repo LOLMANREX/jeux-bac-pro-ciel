@@ -1,104 +1,70 @@
-# Rapport Technique — Mise à jour v4.21 : Correctifs Salle de Colle 3D (Caméra Libre Assise, Zéro ATH & Cinématique d'Intro Sans Traversée de Murs)
+# Rapport Technique — Mise à jour v4.22 : Postes PC Fonctionnels (CIEL OS Interactif & Salle d'Arcade Mini-Jeux sur Tous les Bureaux)
 
-## 1. Diagnostic
+## 1. Diagnostic Technique Initial
+- ** État initial des bureaux et PC (v4.21)** :
+  - Les bureaux et postes de travail (`desk_individual`, `desk_teacher`, `network_island`, `pc_gamer_cyber`, `pc_open_maint`) présents sur le Plateau U300 (cabines U304, postes Cyber SOC U305, banc diagnostic U306, îlots réseau U307) ainsi que dans le catalogue de l'éditeur de carte (`src/world/mapSchema.js`) étaient purement décoratifs : leurs moniteurs 3D affichaient un matériau métallique sombre statique sans aucune interaction possible.
+  - Il n'existait ni système d'exploitation virtuel rendu sur `THREE.CanvasTexture`, ni collection de mini-jeux d'arcade jouables sur les écrans des bureaux sur PC et en VR WebXR.
 
-Trois défauts affectaient l'immersion et la lisibilité du mode **Survie Horreur — Salle d'Heure de Colle 3D** sur PC et en VR autonome (Meta Quest / WebXR) :
+## 2. Modifications Réalisées Fichier par Fichier
 
-1. **Caméra bloquée ou inconfortable en position assise (Salle de Colle 3D)** :
-   - Sur PC, la rotation libre de la tête autour de la chaise (souris / PointerLock, cliquer-glisser gauche et droit, touches fléchées, glisser tactile) et le raycast fluide depuis le réticule ou le curseur libre devaient cohabiter sans jamais autoriser de déplacement au sol (`ZQSD` / `WASD` / `Espace`), tout en évitant que les flèches `ArrowLeft` / `ArrowRight` ne détournent la rotation de tête vers le changement de caméra POV.
-   - En VR (WebXR `local-floor` et Simulateur VR), la position assise du rig devait ancrer le regard exactement à hauteur assise devant le bureau face au tableau (`1,28 m`), conserver le suivi libre 6DoF de la tête et le *snap-turn* au joystick droit tout en neutralisant le déplacement au joystick gauche.
+- **[src/core/audio.js](file:///opt/atelier-dev/src/core/audio.js)** :
+  - Ajout de la gestion du volume sonore global (`volume`, `setVolume(vol)`, `getVolume()`) pilotable depuis la barre des tâches de CIEL OS.
+  - Ajout des bruitages rétro synthétisés via Web Audio API pour CIEL OS et les mini-jeux d'arcade : `osBoot()`, `osClick()`, `osWindowOpen()`, `osWindowClose()`, `arcadeBeep()`, `arcadePowerup()`, `arcadeGameOver()` et `arcadeVictory()`.
 
-2. **Persistance de l'ATH (HUD) pendant la Salle d'Heure de Colle** :
-   - Lors de l'entrée en état `detention`, des éléments d'interface superflus (barre supérieure `#hud`, minimap, notes, XP, classement, boutons audio/micro, contrôles tactiles, modale HTML 2D de tableau de variation, barre Survie `#survival-hud-bar`, panneau `#survival-detention-3d-hud`, panneau debug, montre connectée VR `VRHudPanel` et toasts) restaient susceptibles d'apparaître à l'écran au lieu de laisser l'élève face à uniquement la salle 3D, sa feuille interactive posée sur le bureau et l'écran POV des coéquipiers au tableau.
+- **[src/minigames/CielOsGames.js](file:///opt/atelier-dev/src/minigames/CielOsGames.js)** *(Nouveau module)* :
+  - Implémentation complète des **6 mini-jeux intégrés** jouables dans les fenêtres de CIEL OS (clavier ZQSD / Flèches / Espace + Souris sur PC, et pointeur laser / toucher main / boutons tactiles / joysticks en VR) :
+    1. **Cyber Snake (`CyberSnakeGame`)** : serpent néon sur grille 20×13, paquets IP standards (+10 pts), bonus de vitesse Turbo dorés (+30 pts et accélération temporaire), portails de téléportation, bascule entre bordures Téléporteurs et Murs pare-feu, compteur de score et record.
+    2. **Démineur CIEL (`CielMinesweeperGame`)** : niveaux Facile (8×8, 10 mines) et Moyen (12×10, 20 mines), garantie de premier clic sans mine, révélation récursive des zones vides, pose de drapeaux par clic droit ou bouton `🚩 Mode Drapeau` (tactile / VR), chronomètre temps réel et score avec bonus de rapidité.
+    3. **CIEL-Blocks (`CielBlocksGame`)** : grille 10×18, les 7 tétrominos néon CIEL avec rotation et wall-kick, pièce fantôme de prévisualisation de chute, aperçu de la pièce suivante, chute directe (Hard Drop), suppression de lignes et accélération progressive par niveau.
+    4. **Casse-Briques Réseau (`NetworkBreakoutGame`)** : raquette pilotable à la souris, au clavier, aux boutons VR ou au joystick, rebonds physiques angulaires, briques pare-feu multi-résistance (1 à 3 PV), bonus multi-balle (`spawnMultiBall()`), progression par vagues et gestion des vies.
+    5. **Flappy Packet (`FlappyPacketGame`)** : pilotage d'un paquet réseau IP à travers les ouvertures des pare-feux, physique de gravité et impulsion (`flap()`), défilement dynamique, compteur de ports franchis et détection de collision.
+    6. **2048 CIEL (`Ciel2048Game`)** : grille 4×4 avec fusion des puissances de 2 (`2, 4, 8...` jusqu'à `2048` et au-delà), animations d'apparition et de fusion, contrôles ZQSD/Flèches, glisser souris/tactile, joystick VR et pavé directionnel cliquable.
 
-3. **Traversée de murs durant la cinématique d'introduction du mode Survie Horreur** :
-   - Le point cible `introAi` était précédemment positionné en `{ x: 1.8, z: -1.2 }`, à l'intérieur même de la cage d'escalier centrale (`ESCALIER`, `x ∈ [-2.4, 1.81]`, `z ∈ [-1.55, 2.11]`), tandis que le point d'apparition `PLATEAU_SPAWN` se trouvait en `(-3.95, 0.65)`. La ligne de vue et le travelling caméra coupaient ainsi directement à travers les cloisons et le bloc d'escalier (`stair_block`), sans contrôle de collision sur les positions interpolées ni sur le recul de caméra.
+- **[src/minigames/CielOsDesktop.js](file:///opt/atelier-dev/src/minigames/CielOsDesktop.js)** *(Nouveau module)* :
+  - Système d'exploitation graphique complet rendu sur canvas haute résolution (`1024×640`) :
+    - Écran de session élève nominatif (`playerName`, verrouillage/déverrouillage rapide) et bandeau de session actif.
+    - Bureau avec icônes cliquables, **4 thèmes de fond d'écran personnalisables** (*Cyber Bleu*, *Matrix Vert*, *Synthwave*, *Mode Sombre*), barre des tâches avec menu Démarrer (`❖ CIEL`), onglets de fenêtres, contrôle du volume sonore (`🔊/🔇`, `−`, `+`), horloge temps réel, bascule mode Confort/VR et bouton Quitter.
+    - Gestionnaire de fenêtres complet (ouverture, réduction dans la barre des tâches, agrandissement/centrage, fermeture).
+    - **Terminal CIEL** : shell interactif supportant `help`, `ping`, `matrix`, `whoami`, `hack`, `cowsay`, `ipconfig`, `scores`, `date`, `theme` et `clear`, avec boutons de commandes rapides et clavier virtuel AZERTY intégré pour la VR.
+    - **Bloc-Notes CIEL** : éditeur de notes persistant avec 4 modèles de fiches de révision Bac Pro CIEL (VLAN Cisco, Loi d'Ohm, Brochage RJ45 T568B, Audit SOC) et clavier virtuel VR.
+    - **Explorateur de Scores** : tableau récapitulatif des meilleurs scores locaux sur les 6 mini-jeux avec rangs, cumul de points Arcade, réinitialisation et lancement direct.
 
----
+- **[src/world/mapSchema.js](file:///opt/atelier-dev/src/world/mapSchema.js)** :
+  - Marquage `isPcDesk: true` et rayon d'interaction sur tous les bureaux et postes PC du catalogue (`desk_individual`, `desk_teacher`, `network_island`, `pc_gamer_cyber`, `pc_open_maint`) et ajout de l'objet constructible `pc_ciel_os` (*Poste PC CIEL OS (Bureau + Arcade Mini-Jeux)*).
+  - Export de l'utilitaire `isPcDeskObject(objOrType)`.
 
-## 2. Modifications fichier par fichier
+- **[src/world/LabBuilder.js](file:///opt/atelier-dev/src/world/LabBuilder.js)**, **[src/world/RealisticMaterials.js](file:///opt/atelier-dev/src/world/RealisticMaterials.js)** & **[src/world/NpcTeacher.js](file:///opt/atelier-dev/src/world/NpcTeacher.js)** :
+  - Détection automatique de tous les bureaux PC de la carte et génération sur chacun d'eux d'un moniteur 3D (avec clavier et souris) équipé de sa propre texture dynamique `THREE.CanvasTexture` pilotée par `CielOsDesktop`.
+  - Animation continue des écrans 3D même sans interaction (horloge temps réel, fond d'écran animé, aperçu de l'application) et synchronisation 60 FPS lors de l'utilisation par un élève.
+  - Enregistrement de chaque poste dans `lab.interactables` (`[E] 🖥️ Utiliser le PC (CIEL OS)`), `lab.pcStations` et `lab.pcInteractiveSurfaces` avec calcul automatique du cadrage caméra 3D (`getCameraFocusPose`).
 
-- `src/world/PlayerController.js` :
-  - Ajout de l'état assis (`seated`, `seatedPose`) et de la méthode `setSeated(seated, pose)`.
-  - Déblocage de la rotation caméra libre à 360° en lacet et `[-1.15, 1.15]` rad en tangage en position assise via PointerLock, cliquer-glisser souris (bouton gauche et bouton droit), touches fléchées dans `update(dt)` et glisser tactile.
-  - Verrouillage strict de toute translation au sol (`ZQSD` / `WASD` / `Espace`) tant que `seated` est actif, et positionnement première personne assis dans `_applyCamera()`.
+- **[src/vr/VRManager.js](file:///opt/atelier-dev/src/vr/VRManager.js)** :
+  - Support complet des deux modes d'interaction VR sur tous les PC de bureaux :
+    1. Pointage direct au laser ou toucher à l'index (hand-tracking) sur les écrans 3D des bureaux via `getWorldInteractiveSurfaces`.
+    2. Ouverture d'un panneau miroir spatial rapproché haute lisibilité (`openCielOsPanel` / `closeCielOsPanel`) synchronisé en temps réel avec l'écran 3D du bureau et pilotable au laser, au toucher direct et aux joysticks VR.
 
-- `src/world/SurvivalArena3D.js` :
-  - Mise à jour de `getDetentionRoomConfig()` (`spawn` assis en `{ x: detCenter.x, z: detCenter.z + 1.22 }`, `pcEye` et `vrSeatEyeY` à `1.28 m`, `lookAt` orienté vers le bureau et le tableau `{ x: detCenter.x, y: 1.18, z: detCenter.z - 1.5 }`).
-  - Refonte de `computeSurvivalIntroShot` avec trajectoire continue sur le segment dégagé `[spawn -> aiPos]` et garde-fou anti-murs par frame `clampIntroCameraPos` s'appuyant sur les colliders dynamiques et la ligne de vue de la carte.
+- **[src/main.js](file:///opt/atelier-dev/src/main.js)** & **[src/styles/main.css](file:///opt/atelier-dev/src/styles/main.css)** :
+  - Gestion de l'interaction `[E] 🖥️ Utiliser le PC (CIEL OS)` : zoom caméra fluide face à l'écran 3D du bureau sur PC, pilotage direct du curseur CIEL OS par raycast UV sur le moniteur 3D (clic gauche, clic droit drapeau Démineur, survol, clavier), barre d'action permettant de basculer en **Mode Plein Écran Confort** ou de quitter avec `Échap` / bouton Quitter.
 
-- `src/world/SurvivalEngine.js` :
-  - Exportation de `hasFullMapLineOfSight` et `resolveSurvivalIntroPlacement` exploitant `getDynamicMapColliders` et `buildNavGrid` afin de placer automatiquement le **Professeur CIEL** (`introAi`) et la caméra (`introSpawn`) dans une même zone dégagée et connectée avec ligne de vue à 100 % libre (ex. allée du hall ouest U300 en `(-4.95, -2.35)` sur la carte par défaut, avec repli dynamique sur toute carte personnalisée).
-  - Intégration de `introPlacement` (`introAi`, `introSpawn`) dans `SurvivalMatchController` (`setMapData`, `startMatch`, `getPublicSnapshot`).
+- **[vite.config.js](file:///opt/atelier-dev/vite.config.js)** & **[src/ui/ChangelogModal.js](file:///opt/atelier-dev/src/ui/ChangelogModal.js)** :
+  - Incrémentation de la version vers `v4.22 - Postes PC Fonctionnels : CIEL OS & 6 Mini-Jeux Intégrés` et ajout de l'entrée `v4.22` en haut de `CHANGELOG_RELEASES` (passage de `v4.21` au tag `HISTORIQUE`).
 
-- `src/vr/VRHudPanel.js` :
-  - Ajout de `hudSuppressed`, `setHudSuppressed(suppressed)` et `isHudSuppressed()` sur `createWristHudPanel` pour masquer complètement la montre connectée VR en salle de colle et la restaurer ensuite.
+- **[tests/ciel-os.test.js](file:///opt/atelier-dev/tests/ciel-os.test.js)**, **[tests/vr.test.js](file:///opt/atelier-dev/tests/vr.test.js)** & **[tests/celebration-debug.test.js](file:///opt/atelier-dev/tests/celebration-debug.test.js)** :
+  - Création de la suite de tests `tests/ciel-os.test.js` et extension de `tests/vr.test.js` validant CIEL OS, les 4 thèmes, les commandes Terminal, le Bloc-Notes, l'Explorateur de Scores, les 6 mini-jeux complets et l'interaction PC + VR sur tous les postes de bureaux.
 
-- `src/vr/VRManager.js` :
-  - Ajout de `seatedMode`, `seatedPose`, `detentionHudHidden`, `setSeatedMode(active, pose)` et `setDetentionHudHidden(hidden)`.
-  - Ajustement de l'ancrage dans `_stabilizeFloor()` pour placer exactement la vue à hauteur assise (`1.28 m`) sous WebXR `local-floor` comme en Simulateur VR tout en conservant le suivi 6DoF libre de la tête.
-  - Neutralisation de la locomotion joystick gauche / `WASD` dans `_updateLocomotion()` en mode assis tout en conservant le *snap-turn* au joystick droit (et rotation fléchée en simulateur).
-  - Masquage du panneau de debug VR pendant `detentionHudHidden` et sécurisation anti-murs/ligne de vue dans `applySurvivalIntroPose`.
+## 3. Résultats des Tests et du Build
+- **Tests unitaires et d'intégration (`node --test --test-force-exit tests/*.test.js`)** : **88 / 88 tests réussis (0 échec)**.
+- **Build de production (`npm run build`)** : **Succès sans aucune erreur**.
+- **Respect des règles strictes** :
+  - `server/data/map.json` et `server/data/db.json` intacts (aucune modification).
+  - Zéro commentaire dans l'intégralité du code généré ou modifié.
+  - Lore Professeur CIEL intégralement respecté.
 
-- `src/ui/HudManager.js` :
-  - Ajout de `setDetentionHudHidden(hidden, { restoreHud })` pilotant la classe `body.survival-detention-active`, masquant `#hud`, le panneau debug, `#survival-hud-bar`, `#survival-detention-3d-hud`, les modales HTML 2D, le chat, les toasts et l'invite d'interaction dès l'entrée en `detention`, puis restaurant proprement l'ATH normal au retour au lobby ou au hall.
-  - Ajout de gardes dans `show()`, `openSettingsModal`, `openSkinModal`, `openLeaderboard`, `toggleChat`, `setPrivateDebugMode`, `updateSurvivalHud`, `showDetentionModal`, `showDetention3dHud` et `toast`.
-
-- `src/styles/main.css` :
-  - Ajout des règles CSS `body.survival-detention-active` (`display: none !important; pointer-events: none !important;`) garantissant l'absence totale d'ATH à l'écran durant la colle tout en préservant `#survival-end-overlay` en fin de partie.
-
-- `src/main.js` :
-  - Synchronisation de `setSeated`, `setSeatedMode` et `setDetentionHudHidden` dans `onEnterVr`, `onExitVr`, `teleportWithWorldMode`, `enterDetentionClassroom3D`, `startSurvivalMatchClient`, `endSurvivalMatchClient`, `closeSurvivalEndCinematic`, `resetSurvivalClientFull`, `enterSurvivalLobby`, `updateSurvivalLoop`, `renderDetentionLivePov` et `applyMapData`.
-  - Prise en charge fluide dans `pickDetentionSurfaceAt` et `updateDetentionSurfaceHover` du raycast PointerLock `(0, 0)`, du curseur souris libre et du glisser/taper tactile sur la feuille de maths et les boutons POV.
-  - Suppression du détournement de `ArrowLeft` / `ArrowRight` (cyclage POV clavier déplacé sur `BracketLeft` / `BracketRight`) et blocage de `Tab` en salle de colle.
-
-- `vite.config.js` et `src/ui/ChangelogModal.js` :
-  - Mise à jour de `__APP_VERSION__` (`vite.config.js`) vers `'v4.21 - Salle de Colle Caméra Libre, Zéro ATH & Cinématique Anti-Murs'` et de `APP_VERSION` (`ChangelogModal.js`) vers `'v4.21 — Correctifs Salle de Colle 3D : Caméra Libre Assise, Zéro ATH & Cinématique d’Intro Sans Traversée de Murs'`.
-  - Ajout de l'entrée `v4.21` (`tag: 'DERNIÈRE MÀJ'`) en tête de `CHANGELOG_RELEASES` et passage de `v4.20` au tag `'HISTORIQUE'`.
-
-- `tests/celebration-debug.test.js`, `tests/survival-horror.test.js` et `tests/vr.test.js` :
-  - Actualisation de la vérification de version `v4.21` dans `tests/celebration-debug.test.js`.
-  - Ajout des tests vérifiant l'absence totale de traversée murale en cinématique d'intro (Plateau U300 et carte cloisonnée), la caméra libre assise sur PC (souris, PointerLock, flèches, verrouillage `ZQSD`, raycast sur feuille et zéro ATH + restauration), ainsi que la parité VR WebXR/Simulateur (hauteur assise `1,28 m`, 6DoF libre, *snap-turn* joystick droit, joystick gauche bloqué, montre/debug masqués et intro sans murs).
-
----
-
-## 3. Résultats tests/build
-
-Vérifications exécutées après toutes les éditions finales :
-
-1. **`node --test --test-force-exit tests/*.test.js`** :
-   - **78 / 78 tests réussis**, 0 échec, 0 annulé, 0 ignoré (`13168.314022 ms` / `13,17 s`).
-2. **`npm test` (`node --test tests/*.test.js`, sans `--test-force-exit`)** :
-   - **78 / 78 tests réussis**, 0 échec, arrêt naturel propre confirmant l'absence de socket ou timer ouvert (`15780.273393 ms` / `15,78 s`).
-3. **`npm run build` (`vite build` v6.4.6)** :
-   - Build de production réussi sans avertissement ni erreur sur **54 modules** en **15.13s** :
-     - `dist/admin.html` : `15.26 kB` (`gzip: 3.75 kB`)
-     - `dist/index.html` : `67.84 kB` (`gzip: 14.13 kB`)
-     - `dist/assets/admin-BzkkMmhh.css` : `20.00 kB` (`gzip: 4.69 kB`)
-     - `dist/assets/main-B7Nj6vnY.css` : `108.78 kB` (`gzip: 21.97 kB`)
-     - `dist/assets/admin-DevECeYr.js` : `94.42 kB` (`gzip: 25.53 kB`)
-     - `dist/assets/LabBuilder-BqzJdtMn.js` : `177.26 kB` (`gzip: 53.22 kB`)
-     - `dist/assets/three-_5pHxIMn.js` : `523.73 kB` (`gzip: 132.75 kB`)
-     - `dist/assets/main-CRM7A6I-.js` : `770.91 kB` (`gzip: 235.60 kB`)
-4. **Contrôles de conformité dépôt** :
-   - Aucune modification sur `server/data/map.json` ni `server/data/db.json`.
-   - `0` commentaire détecté sur les `1589` lignes ajoutées dans `src/`, `tests/` et `vite.config.js`.
-   - `0` occurrence interdite du nom proscrit ; usage exclusif de `Professeur CIEL`.
-
----
-
-## 4. Guide de vérification
-
-1. **Cinématique d'introduction Survie Horreur (PC & VR)** :
-   - Rejoindre le plateau U300, franchir la porte Survie Horreur et lancer une partie.
-   - Vérifier que le **Professeur CIEL** apparaît dans une allée dégagée du plateau avec une vue parfaitement libre (sans aucune paroi ni cloison coupant la caméra ou l'avatar durant toute l'animation d'approche et de travelling).
-2. **Salle d'Heure de Colle 3D sur PC & Mobile** :
-   - Se laisser capturer par le Professeur CIEL afin d'entrer en Salle d'Heure de Colle 3D.
-   - Vérifier qu'**aucun élément d'ATH** (ni barre supérieure, ni minimap, ni boutons audio/micro, ni notes, ni barre survie, ni modale 2D) n'apparaît à l'écran : seuls la classe 3D, la feuille de maths sur le bureau et le moniteur POV des coéquipiers au tableau sont visibles.
-   - Tourner librement la caméra avec la souris (PointerLock actif ou cliquer-glisser) et avec les flèches du clavier pour passer du tableau à la feuille du bureau, tout en vérifiant que `ZQSD` / `WASD` / `Espace` ne déplacent pas le personnage hors de la chaise.
-   - Cliquer sur les réponses de la feuille posée sur le bureau pour valider les tableaux de variation, et tester `[` / `]` ou les boutons du tableau pour basculer entre les flux POV des coéquipiers.
-   - Terminer la partie (victoire des coéquipiers ou défaite) et vérifier la restauration immédiate de l'ATH normal au retour au lobby.
-3. **Salle d'Heure de Colle 3D en VR (Meta Quest Browser / WebXR)** :
-   - Entrer en session VR sur le mode Survie Horreur puis se faire capturer vers la salle de colle.
-   - Vérifier que le point de vue est positionné à hauteur assise (`1,28 m`) devant le bureau face au tableau, que la montre connectée et le panneau debug VR sont masqués, que le suivi de tête 6DoF et le *snap-turn* au joystick droit fonctionnent librement, et que le joystick gauche ne déplace pas le joueur.
-   - Pointer ou toucher directement les cellules de la feuille sur le bureau pour répondre et revenir en lobby en fin de partie en vérifiant la réapparition de la montre VR.
+## 4. Guide de Vérification Rapide
+1. **Sur PC** :
+   - Approchez-vous de n'importe quel bureau équipé d'un écran dans les salles **U304**, **U305**, **U306** ou **U307** (ou placez un bureau/PC dans l'éditeur de carte `/admin`).
+   - Observez l'écran 3D animé en direct, puis appuyez sur **`E`** (ou cliquez sur le poste) via `[E] 🖥️ Utiliser le PC (CIEL OS)`.
+   - La caméra zoome face au moniteur 3D : cliquez sur les icônes pour lancer **Cyber Snake**, **Démineur CIEL**, **CIEL-Blocks**, **Casse-Briques Réseau**, **Flappy Packet**, **2048 CIEL**, **Terminal CIEL** (`help`, `ping`, `matrix`, `whoami`, `hack`, `cowsay`), **Bloc-Notes** ou **Explorateur de Scores**.
+   - Cliquez sur `⛶ Mode Plein Écran Confort` pour agrandir l'interface ou appuyez sur `Échap` pour quitter le PC.
+2. **En VR (Casque WebXR ou Simulation VR `F9`)** :
+   - Pointez directement l'écran 3D d'un bureau avec le laser ou l'index pour cliquer sur les icônes de CIEL OS, ou interagissez avec le bureau pour ouvrir le **Panneau Miroir VR Confort** devant vous et jouez aux 6 mini-jeux avec le laser, les mains virtuelles ou les joysticks.

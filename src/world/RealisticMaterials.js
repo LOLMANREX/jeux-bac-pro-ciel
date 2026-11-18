@@ -9,10 +9,40 @@ function createRng(seed) {
 }
 
 function makeCanvas(size, height = size) {
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = height;
-  return canvas;
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    if (canvas && typeof canvas.getContext === 'function') {
+      canvas.width = size;
+      canvas.height = height;
+      return canvas;
+    }
+  }
+  const noop = () => {};
+  const stubCtx = {
+    fillStyle: '#000',
+    strokeStyle: '#000',
+    lineWidth: 1,
+    globalAlpha: 1,
+    fillRect: noop,
+    strokeRect: noop,
+    clearRect: noop,
+    beginPath: noop,
+    closePath: noop,
+    moveTo: noop,
+    lineTo: noop,
+    arc: noop,
+    fill: noop,
+    stroke: noop,
+    createLinearGradient: () => ({ addColorStop: noop }),
+    createRadialGradient: () => ({ addColorStop: noop }),
+    getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray((w || 4) * (h || 4) * 4) }),
+    putImageData: noop
+  };
+  return {
+    width: size,
+    height,
+    getContext: () => stubCtx
+  };
 }
 
 function configureTexture(tex, anisotropy, repeatX = 1, repeatY = 1, isColor = true) {

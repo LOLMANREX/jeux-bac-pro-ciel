@@ -7,6 +7,7 @@ import { buildArticulatedVRHand } from '../src/vr/VRHandBuilder.js';
 import { createTpSpatialPanel, createVrDebugPanel, createWristHudPanel } from '../src/vr/VRHudPanel.js';
 import { VRManager } from '../src/vr/VRManager.js';
 import { attachRemoteVrVisuals, buildStudentAvatarMesh } from '../src/world/AvatarBuilder.js';
+import { buildLabWorld } from '../src/world/LabBuilder.js';
 import { createDefaultMap } from '../src/world/mapSchema.js';
 import { VariationTableSession, getVariationSheetHitBoxes } from '../src/minigames/VariationTableGame.js';
 import { PlayerController } from '../src/world/PlayerController.js';
@@ -1583,6 +1584,84 @@ test('VR WebXR v4.21 : Salle de Colle hauteur assise, 6DoF libre, snap-turn joys
     pocket?.dispose?.();
     vr?.dispose?.();
     sm.dispose?.();
+    stubs.restore();
+  }
+});
+
+test('VR WebXR v4.22 : interaction sur tous les PC de bureaux (raycast écran 3D direct & panneau miroir CIEL OS + joysticks)', () => {
+  const stubs = createFakeDomStubs();
+  const mockScene = new THREE.Scene();
+  const mockCam = new THREE.PerspectiveCamera(72, 1.77, 0.1, 180);
+  const mockSceneMgr = {
+    scene: mockScene,
+    camera: mockCam,
+    renderer: null,
+    getFps: () => 72,
+    getXrErrors: () => [],
+    setVrPresentingState() {},
+    bindVrManager() {}
+  };
+
+  const mapData = createDefaultMap();
+  const lab = buildLabWorld(mockScene, mapData, { hideSprites: true });
+  let vr = null;
+
+  try {
+    const player = new PlayerController(mockCam, stubs.canvas, lab.colliders);
+    player.setBounds(mapData.bounds);
+
+    vr = new VRManager(mockSceneMgr, player, {
+      playerName: 'GamerVR422',
+      mapData,
+      getInteractables: () => lab.interactables,
+      getWorldInteractiveSurfaces: () => lab.pcInteractiveSurfaces,
+      onInteract: (item) => {
+        if (item.type === 'ciel_os_pc') {
+          vr.openCielOsPanel(item.pcStation);
+        }
+      }
+    });
+
+    assert.equal(vr.enterSimulationMode(), true);
+    const pcStation = lab.pcStations[0];
+    assert.ok(pcStation);
+
+    const snakeBox = pcStation.desktop.getHitBoxes().find((b) => b.id === 'desk_icon_snake');
+    assert.ok(snakeBox);
+    const surf = pcStation.surfaces[0];
+    assert.ok(surf);
+    const uv = {
+      x: (snakeBox.x + snakeBox.w / 2) / pcStation.desktop.width,
+      y: 1 - (snakeBox.y + snakeBox.h / 2) / pcStation.desktop.height
+    };
+    const hit3d = surf.hitTestUv(uv);
+    assert.equal(hit3d.id, 'desk_icon_snake');
+    hit3d.onClick(uv);
+    assert.equal(pcStation.desktop.activeAppId, 'snake');
+
+    const panel = vr.openCielOsPanel(pcStation);
+    assert.ok(panel);
+    assert.equal(vr.activePcStation, pcStation);
+    assert.equal(panel.getState().mode, 'ciel_os');
+    assert.equal(panel.getState().activeAppId, 'snake');
+
+    const snakeGame = pcStation.desktop.getGameInstance('snake');
+    assert.deepEqual(snakeGame.nextDir, { x: 1, y: 0 });
+    vr.setSimInput({ lx: 0, ly: -0.95 });
+    vr.update(0.05, 0.2, 200);
+    assert.deepEqual(snakeGame.nextDir, { x: 0, y: -1 });
+
+    const termIcon = panel.getHitBoxes().find((b) => b.id === 'desk_icon_terminal');
+    assert.ok(termIcon);
+    termIcon.onClick();
+    assert.equal(pcStation.desktop.activeAppId, 'terminal');
+
+    assert.equal(vr.closeCielOsPanel(), true);
+    assert.equal(vr.activePcStation, null);
+    assert.equal(pcStation.isActiveSession, false);
+  } finally {
+    vr?.dispose?.();
+    lab.dispose();
     stubs.restore();
   }
 });

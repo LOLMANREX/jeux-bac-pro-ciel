@@ -2,30 +2,35 @@ import * as THREE from 'three';
 import { TEACHER_POS } from '../core/gameState.js';
 
 function createLabel(text, subtext) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 150;
-  const ctx = canvas.getContext('2d');
+  let tex = null;
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    const canvas = document.createElement('canvas');
+    if (canvas && typeof canvas.getContext === 'function') {
+      canvas.width = 512;
+      canvas.height = 150;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.roundRect(14, 14, 484, 122, 22);
+        ctx.fill();
+        ctx.stroke();
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-  ctx.strokeStyle = '#fbbf24';
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.roundRect(14, 14, 484, 122, 22);
-  ctx.fill();
-  ctx.stroke();
+        ctx.fillStyle = '#fbbf24';
+        ctx.font = 'bold 34px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(text, 256, 62);
 
-  ctx.fillStyle = '#fbbf24';
-  ctx.font = 'bold 34px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(text, 256, 62);
-
-  ctx.fillStyle = '#e2e8f0';
-  ctx.font = '24px system-ui, sans-serif';
-  ctx.fillText(subtext, 256, 106);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = '24px system-ui, sans-serif';
+        ctx.fillText(subtext, 256, 106);
+      }
+      tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+    }
+  }
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false })
   );

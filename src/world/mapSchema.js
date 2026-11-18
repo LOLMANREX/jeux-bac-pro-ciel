@@ -349,9 +349,11 @@ export const MAP_ITEM_CATALOG = [
     type: 'desk_individual',
     category: 'furniture',
     subGroup: 'Assises & Bureaux',
-    label: 'Bureau individuel',
+    label: 'Bureau individuel (PC CIEL OS)',
     shortLabel: 'Bureau élève',
     icon: '🗄️',
+    interactRadius: 2.35,
+    isPcDesk: true,
     defaultW: 1.4,
     defaultD: 0.78,
     defaultH: 0.78,
@@ -391,9 +393,11 @@ export const MAP_ITEM_CATALOG = [
     type: 'network_island',
     category: 'furniture',
     subGroup: 'Îlots & Salles',
-    label: 'Îlot central réseau (multipostes)',
+    label: 'Îlot central réseau (multipostes CIEL OS)',
     shortLabel: 'Îlot réseau',
     icon: '🔀',
+    interactRadius: 2.55,
+    isPcDesk: true,
     defaultW: 2.0,
     defaultD: 1.05,
     defaultH: 1.25,
@@ -405,9 +409,11 @@ export const MAP_ITEM_CATALOG = [
     type: 'desk_teacher',
     category: 'furniture',
     subGroup: 'Assises & Bureaux',
-    label: 'Bureau professeur',
+    label: 'Bureau professeur (PC CIEL OS)',
     shortLabel: 'Bureau prof',
     icon: '📋',
+    interactRadius: 2.45,
+    isPcDesk: true,
     defaultW: 1.85,
     defaultD: 0.9,
     defaultH: 0.78,
@@ -581,9 +587,11 @@ export const MAP_ITEM_CATALOG = [
     type: 'pc_gamer_cyber',
     category: 'tech',
     subGroup: 'Hardware & Cyber',
-    label: 'PC fixe Gamer/Cyber (boîtier vitré + double écran)',
+    label: 'PC fixe Gamer/Cyber (boîtier vitré + double écran CIEL OS)',
     shortLabel: 'Poste Cyber',
     icon: '🖥️',
+    interactRadius: 2.45,
+    isPcDesk: true,
     defaultW: 1.8,
     defaultD: 1.1,
     defaultH: 1.35,
@@ -595,15 +603,33 @@ export const MAP_ITEM_CATALOG = [
     type: 'pc_open_maint',
     category: 'tech',
     subGroup: 'Hardware & Cyber',
-    label: 'Poste PC ouvert (maintenance)',
+    label: 'Poste PC ouvert (maintenance & CIEL OS)',
     shortLabel: 'PC Ouvert',
     icon: '🔧',
+    interactRadius: 2.45,
+    isPcDesk: true,
     defaultW: 1.25,
     defaultD: 1.8,
     defaultH: 1.35,
     defaultColor: '#a78bfa',
     collides: true,
     supportTop: 0.84
+  },
+  {
+    type: 'pc_ciel_os',
+    category: 'tech',
+    subGroup: 'Hardware & Cyber',
+    label: 'Poste PC CIEL OS (Bureau + Arcade Mini-Jeux)',
+    shortLabel: 'Poste CIEL OS',
+    icon: '🕹️',
+    interactRadius: 2.45,
+    isPcDesk: true,
+    defaultW: 1.5,
+    defaultD: 0.85,
+    defaultH: 1.35,
+    defaultColor: '#38bdf8',
+    collides: true,
+    supportTop: 0.78
   },
   {
     type: 'soc_wall_screen',
@@ -681,6 +707,12 @@ export const CATALOG_BY_TYPE = new Map(MAP_ITEM_CATALOG.map((item) => [item.type
 
 export function getCatalogItem(type) {
   return CATALOG_BY_TYPE.get(type) || null;
+}
+
+export function isPcDeskObject(objOrType) {
+  const type = typeof objOrType === 'string' ? objOrType : objOrType?.type;
+  const cat = getCatalogItem(type);
+  return Boolean(cat?.isPcDesk);
 }
 
 function clampNum(v, min, max, fallback) {

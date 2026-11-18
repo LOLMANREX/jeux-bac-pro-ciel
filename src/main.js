@@ -219,6 +219,7 @@ vrManager = new VRManager(sceneMgr, player, {
     if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
       miniGameModal.close();
     }
+    closeCielOsPc({ restoreCamera: false });
     if (typeof document !== 'undefined' && document.body?.classList) {
       document.body.classList.add('vr-presenting');
     }
@@ -258,6 +259,7 @@ vrManager = new VRManager(sceneMgr, player, {
     if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
       miniGameModal.close();
     }
+    closeCielOsPc({ restoreCamera: false });
     player.setVrMode?.(false);
     localAvatar?.setFirstPersonVrHidden?.(false);
     vrManager.setSeatedMode?.(false);
@@ -472,12 +474,17 @@ function getActiveInteractables() {
 }
 
 function getActiveWorldSurfaces() {
-  if (!isDetentionSeatedActive()) return [];
-  return survivalArena.getDetentionInteractiveSurfaces({
-    onSelectOption: (idx) => submitDetentionOption(idx),
-    onPrevCamera: () => cycleDetentionCamera(-1),
-    onNextCamera: () => cycleDetentionCamera(1)
-  });
+  if (isDetentionSeatedActive()) {
+    return survivalArena.getDetentionInteractiveSurfaces({
+      onSelectOption: (idx) => submitDetentionOption(idx),
+      onPrevCamera: () => cycleDetentionCamera(-1),
+      onNextCamera: () => cycleDetentionCamera(1)
+    });
+  }
+  if (survivalState.inWaitingRoom && !survivalState.inActiveMatch) {
+    return [];
+  }
+  return lab.pcInteractiveSurfaces || [];
 }
 
 function applyDetentionPcCamera() {
@@ -1187,6 +1194,7 @@ function triggerLocalCaughtJumpscare(snapshot) {
   if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
     miniGameModal.close();
   }
+  closeCielOsPc({ restoreCamera: false });
   survivalState.introActive = false;
   hud?.hideSurvivalIntroOverlay?.();
   survivalState.hiddenRack = null;
@@ -2122,6 +2130,7 @@ function getSpawnPose(mapData) {
 
 function applyMapData(rawMap, liveUpdate = false) {
   if (!rawMap) return;
+  closeCielOsPc({ restoreCamera: false });
   currentMapData = normalizeMapData(rawMap);
   lab.rebuildWorld(currentMapData);
   survivalArena?.setMapData?.(currentMapData);
@@ -2356,6 +2365,213 @@ function openTeacherDialogue(customDialogue = '') {
       setModalActive(false, false, false);
     }
   });
+}
+
+let activePcSession = null;
+let cielOsDom = null;
+
+function ensureCielOsOverlayUi() {
+  if (cielOsDom || typeof document === 'undefined' || !document.body) return cielOsDom;
+
+  const bar = document.createElement('div');
+  bar.id = 'ciel-os-session-bar';
+  bar.className = 'ciel-os-session-bar hidden';
+  bar.innerHTML = `
+    <div class="ciel-os-bar-left">
+      <span class="ciel-os-bar-badge">🖥️ CIEL OS 4.22</span>
+      <span id="ciel-os-bar-title" class="ciel-os-bar-title">Poste PC</span>
+      <span class="ciel-os-bar-hint">Cliquez sur l’écran 3D • Clavier ZQSD / Flèches • Clic droit : Drapeau Démineur</span>
+    </div>
+    <div class="ciel-os-bar-actions">
+      <button type="button" id="ciel-os-btn-comfort" class="ciel-os-bar-btn primary">⛶ Mode Plein Écran Confort</button>
+      <button type="button" id="ciel-os-btn-exit" class="ciel-os-bar-btn danger">✕ Quitter le PC (Échap)</button>
+    </div>
+  `;
+  document.body.appendChild(bar);
+
+  const comfortBackdrop = document.createElement('div');
+  comfortBackdrop.id = 'ciel-os-comfort-backdrop';
+  comfortBackdrop.className = 'ciel-os-comfort-backdrop hidden';
+  comfortBackdrop.innerHTML = `
+    <div class="ciel-os-comfort-frame">
+      <canvas id="ciel-os-comfort-canvas" width="1024" height="640"></canvas>
+    </div>
+  `;
+  document.body.appendChild(comfortBackdrop);
+
+  const comfortCanvas = comfortBackdrop.querySelector('#ciel-os-comfort-canvas');
+  const comfortCtx = comfortCanvas?.getContext?.('2d') || null;
+  const btnComfort = bar.querySelector('#ciel-os-btn-comfort');
+  const btnExit = bar.querySelector('#ciel-os-btn-exit');
+  const titleEl = bar.querySelector('#ciel-os-bar-title');
+
+  btnComfort?.addEventListener('click', () => {
+    sfx.osClick?.();
+    toggleCielOsComfortMode();
+  });
+
+  btnExit?.addEventListener('click', () => {
+    sfx.osWindowClose?.();
+    closeCielOsPc();
+  });
+
+  const eventToComfortUv = (ev) => {
+    if (!comfortCanvas) return null;
+    const rect = comfortCanvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const u = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+    const v = Math.max(0, Math.min(1, 1 - (ev.clientY - rect.top) / rect.height));
+    return { x: u, y: v };
+  };
+
+  comfortCanvas?.addEventListener('mousemove', (ev) => {
+    if (!activePcSession?.comfortMode) return;
+    const uv = eventToComfortUv(ev);
+    if (uv) activePcSession.pcStation.desktop.handlePointerMoveUv(uv);
+  });
+
+  comfortCanvas?.addEventListener('mousedown', (ev) => {
+    if (!activePcSession?.comfortMode) return;
+    ev.preventDefault();
+    const uv = eventToComfortUv(ev);
+    if (uv) activePcSession.pcStation.desktop.handlePointerDownUv(uv, ev.button);
+  });
+
+  comfortCanvas?.addEventListener('mouseup', (ev) => {
+    if (!activePcSession?.comfortMode) return;
+    const uv = eventToComfortUv(ev);
+    if (uv) activePcSession.pcStation.desktop.handlePointerUpUv(uv, ev.button);
+  });
+
+  comfortCanvas?.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+  });
+
+  cielOsDom = {
+    bar,
+    comfortBackdrop,
+    comfortCanvas,
+    comfortCtx,
+    btnComfort,
+    btnExit,
+    titleEl
+  };
+  return cielOsDom;
+}
+
+function toggleCielOsComfortMode(forceState = null) {
+  if (!activePcSession) return false;
+  const dom = ensureCielOsOverlayUi();
+  activePcSession.comfortMode =
+    typeof forceState === 'boolean' ? forceState : !activePcSession.comfortMode;
+  if (dom) {
+    dom.comfortBackdrop.classList.toggle('hidden', !activePcSession.comfortMode);
+    if (dom.btnComfort) {
+      dom.btnComfort.textContent = activePcSession.comfortMode
+        ? '🖥️ Vue Écran 3D Bureau'
+        : '⛶ Mode Plein Écran Confort';
+    }
+  }
+  return activePcSession.comfortMode;
+}
+
+function closeCielOsPc({ restoreCamera = true } = {}) {
+  if (vrManager?.activePcStation) {
+    vrManager.closeCielOsPanel();
+  }
+  if (!activePcSession) return false;
+  const prev = activePcSession;
+  activePcSession = null;
+  if (prev.pcStation) {
+    prev.pcStation.isActiveSession = false;
+  }
+  if (cielOsDom) {
+    cielOsDom.bar.classList.add('hidden');
+    cielOsDom.comfortBackdrop.classList.add('hidden');
+  }
+  activeCameraTweenId++;
+  network.sendActivity('Dans l’atelier');
+  setModalActive(false, false, false);
+  if (restoreCamera && !vrManager?.isVrActive?.()) {
+    player._applyCamera?.();
+  }
+  return true;
+}
+
+async function openCielOsPc(target) {
+  if (!target) return false;
+  const pcStation =
+    target.pcStation || lab.getPcStationById?.(target.pcId || target.objId || target.id);
+  if (!pcStation?.desktop) return false;
+
+  pcStation.desktop.setPlayerName(gameState.profile.name || 'Eleve_CIEL');
+  sfx.osBoot?.();
+  network.sendActivity(`Sur PC (${pcStation.label})`);
+
+  if (vrManager?.isVrActive?.()) {
+    pcStation.desktop.onToggleComfort = () => {
+      vrManager.closeCielOsPanel();
+    };
+    vrManager.openCielOsPanel(pcStation, {
+      onExit: () => {
+        network.sendActivity('Dans l’atelier');
+      }
+    });
+    return true;
+  }
+
+  const openSeq = ++tpOpenSeqId;
+  lab.setHoveredInteractable?.(null);
+  hoveredInteractable = null;
+  if (document.pointerLockElement === canvas) {
+    document.exitPointerLock?.();
+  }
+
+  activePcSession = {
+    pcStation,
+    comfortMode: false,
+    target
+  };
+  pcStation.isActiveSession = true;
+  pcStation.desktop.onRequestExit = () => closeCielOsPc();
+  pcStation.desktop.onToggleComfort = () => toggleCielOsComfortMode();
+
+  const dom = ensureCielOsOverlayUi();
+  if (dom) {
+    if (dom.titleEl) dom.titleEl.textContent = pcStation.label;
+    if (dom.btnComfort) dom.btnComfort.textContent = '⛶ Mode Plein Écran Confort';
+    dom.bar.classList.remove('hidden');
+    dom.comfortBackdrop.classList.add('hidden');
+  }
+
+  setModalActive(true, false, true);
+
+  const focusPose = pcStation.getCameraFocusPose?.(player.position);
+  if (focusPose?.camPos && focusPose?.lookAt) {
+    await animateCameraPose(focusPose.camPos, focusPose.lookAt, 340);
+    if (openSeq !== tpOpenSeqId || !joined || !activePcSession) return false;
+  }
+  pcStation.desktop.redraw();
+  return true;
+}
+
+function pickActivePcScreenUv(clientX, clientY) {
+  if (!activePcSession?.pcStation?.screenMeshes?.length) return null;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const ndc = new THREE.Vector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1
+  );
+  raycaster.setFromCamera(ndc, sceneMgr.camera);
+  for (const sm of activePcSession.pcStation.screenMeshes) {
+    sm.updateWorldMatrix(true, false);
+  }
+  const hits = raycaster.intersectObjects(activePcSession.pcStation.screenMeshes, false);
+  if (hits.length > 0 && hits[0].uv) {
+    return hits[0].uv;
+  }
+  return null;
 }
 
 function teleportNearTarget(id) {
@@ -2741,6 +2957,7 @@ try {
 function returnToMainMenu(isLogout = false) {
   activeCameraTweenId++;
   tpOpenSeqId++;
+  closeCielOsPc({ restoreCamera: false });
   if (vrManager?.isVrActive?.()) {
     vrManager.exitVr();
   }
@@ -3175,6 +3392,7 @@ function interactWith(target) {
   else if (target.type === 'survival_lobby_console') toggleSurvivalReady();
   else if (target.type === 'survival_lobby_exit') leaveSurvivalLobby();
   else if (target.type === 'survival_detention_terminal') openDetentionTerminal();
+  else if (target.type === 'ciel_os_pc') openCielOsPc(target);
   else openTp(target.tpId || target.id, target);
 }
 
@@ -3201,6 +3419,19 @@ window.addEventListener('keydown', (e) => {
     }
     if (e.code === 'KeyG') {
       vrManager.setSimInput({ thumb: 1 });
+    }
+  }
+
+  if (activePcSession && !isTyping) {
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      closeCielOsPc();
+      return;
+    }
+    const handled = activePcSession.pcStation?.desktop?.handleKeyDown?.(e.code, e.key);
+    if (handled) {
+      e.preventDefault();
+      return;
     }
   }
 
@@ -3432,9 +3663,27 @@ canvas.addEventListener('mousedown', (e) => {
   downPos = { x: e.clientX, y: e.clientY };
   if (vrManager?.isVrActive?.() && vrManager.simMode && e.button === 0) {
     vrManager.setSimInput({ mouseTrigger: true });
+    return;
+  }
+  if (activePcSession && !activePcSession.comfortMode && !vrManager?.isVrActive?.()) {
+    const uv = pickActivePcScreenUv(e.clientX, e.clientY);
+    if (uv) {
+      e.preventDefault();
+      activePcSession.pcStation.desktop.handlePointerDownUv(uv, e.button);
+    }
   }
 });
 canvas.addEventListener('mousemove', (e) => {
+  if (activePcSession && !activePcSession.comfortMode && !vrManager?.isVrActive?.()) {
+    const uv = pickActivePcScreenUv(e.clientX, e.clientY);
+    if (uv) {
+      canvas.style.cursor = 'pointer';
+      activePcSession.pcStation.desktop.handlePointerMoveUv(uv);
+    } else {
+      canvas.style.cursor = '';
+    }
+    return;
+  }
   if (isDetentionSeatedActive() && !vrManager?.isVrActive?.()) {
     if (document.pointerLockElement === canvas) {
       updateDetentionSurfaceHover(null, null);
@@ -3465,7 +3714,7 @@ window.addEventListener('blur', () => {
   setDesktopHoveredInteractable(null);
 });
 canvas.addEventListener('contextmenu', (e) => {
-  if ((vrManager?.isVrActive?.() && vrManager.simMode) || isDetentionSeatedActive()) {
+  if ((vrManager?.isVrActive?.() && vrManager.simMode) || isDetentionSeatedActive() || activePcSession) {
     e.preventDefault();
   }
 });
@@ -3481,6 +3730,13 @@ window.addEventListener('mouseup', (e) => {
   }
 });
 canvas.addEventListener('mouseup', (e) => {
+  if (activePcSession && !activePcSession.comfortMode && !vrManager?.isVrActive?.()) {
+    const uv = pickActivePcScreenUv(e.clientX, e.clientY);
+    if (uv) {
+      activePcSession.pcStation.desktop.handlePointerUpUv(uv, e.button);
+    }
+    return;
+  }
   if (isDetentionSeatedActive() && !vrManager?.isVrActive?.() && e.button === 0) {
     const isLocked = document.pointerLockElement === canvas;
     const dragDist = isLocked ? 0 : Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
@@ -3569,6 +3825,9 @@ let lastDebugStatsAt = 0;
 
 sceneMgr.addUpdater((dt, elapsed) => {
   lab.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned);
+  if (activePcSession?.comfortMode && cielOsDom?.comfortCtx && activePcSession.pcStation?.canvas) {
+    cielOsDom.comfortCtx.drawImage(activePcSession.pcStation.canvas, 0, 0);
+  }
   localAvatar?.updateEffects?.(elapsed);
   remotePlayers.update(dt, elapsed);
   updateSpeechBubble(localBubble, dt);

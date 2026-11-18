@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.21 - Salle de Colle Caméra Libre, Zéro ATH & Cinématique Anti-Murs'),
+    __APP_VERSION__: JSON.stringify('v4.22 - Postes PC Fonctionnels : CIEL OS & 6 Mini-Jeux Intégrés'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

@@ -98,6 +98,7 @@ export class VRManager {
 
     this.tpPanel = null;
     this.worldPanel = null;
+    this.activePcStation = null;
     this.tpContext = null;
     this.tpCamOffsetYaw = 0;
     this.tpZoomScale = 1;
@@ -969,11 +970,129 @@ export class VRManager {
     this.worldPanel.updateState(state);
   }
 
+  openCielOsPanel(pcStation, options = {}) {
+    if (!this.active || !this.sceneMgr?.scene || !pcStation?.desktop) return null;
+    if (this.tpContext) {
+      this.detachTpContext();
+    }
+    this.closeWorldSpatialPanel();
+
+    const screenWidth = 1.38;
+    const screenHeight = 0.86;
+    const group = new THREE.Group();
+    group.name = `vr-ciel-os-panel-${pcStation.id}`;
+
+    const frame = new THREE.Mesh(
+      new THREE.BoxGeometry(screenWidth + 0.05, screenHeight + 0.05, 0.022),
+      new THREE.MeshStandardMaterial({
+        color: '#0f172a',
+        metalness: 0.72,
+        roughness: 0.26,
+        emissive: '#0284c7',
+        emissiveIntensity: 0.35
+      })
+    );
+    frame.position.z = -0.012;
+    group.add(frame);
+
+    const screenMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(screenWidth, screenHeight),
+      new THREE.MeshBasicMaterial({
+        map: pcStation.texture,
+        transparent: true,
+        opacity: 0.99
+      })
+    );
+    group.add(screenMesh);
+    this.sceneMgr.scene.add(group);
+
+    const placeRelativeToCamera = (camera, dist = 1.08, yOffset = -0.02) => {
+      if (!camera) return;
+      camera.updateMatrixWorld(true);
+      camera.getWorldPosition(this.tempVecA);
+      camera.getWorldDirection(this.tempVecB);
+      this.tempVecB.y = 0;
+      if (this.tempVecB.lengthSq() < 1e-6) {
+        this.tempVecB.set(0, 0, -1);
+      } else {
+        this.tempVecB.normalize();
+      }
+      group.position.set(
+        this.tempVecA.x + this.tempVecB.x * dist,
+        this.tempVecA.y + yOffset,
+        this.tempVecA.z + this.tempVecB.z * dist
+      );
+      group.lookAt(this.tempVecA.x, this.tempVecA.y, this.tempVecA.z);
+      group.updateMatrixWorld(true);
+    };
+
+    if (this.camera) {
+      const dist = Number.isFinite(Number(options.dist)) ? Number(options.dist) : 1.08;
+      const yOffset = Number.isFinite(Number(options.yOffset)) ? Number(options.yOffset) : -0.02;
+      placeRelativeToCamera(this.camera, dist, yOffset);
+    }
+
+    this.activePcStation = pcStation;
+    pcStation.isActiveSession = true;
+    const prevExit = pcStation.desktop.onRequestExit;
+    pcStation.desktop.onRequestExit = () => {
+      this.closeCielOsPanel();
+      options.onExit?.();
+    };
+
+    this.worldPanel = {
+      group,
+      screenMesh,
+      screenWidth,
+      screenHeight,
+      pcStation,
+      isCielOsPanel: true,
+      hitTestUv: (uv) => pcStation.desktop.hitTestUv(uv),
+      setHovered: (id) => pcStation.desktop.setHovered(id),
+      updateState: () => pcStation.desktop.redraw(),
+      getState: () => ({
+        mode: 'ciel_os',
+        pcId: pcStation.id,
+        activeAppId: pcStation.desktop.activeAppId
+      }),
+      getHitBoxes: () => pcStation.desktop.getHitBoxes(),
+      placeRelativeToCamera,
+      dispose: () => {
+        if (pcStation.desktop.onRequestExit) {
+          pcStation.desktop.onRequestExit = prevExit || null;
+        }
+        frame.geometry.dispose();
+        frame.material.dispose();
+        screenMesh.geometry.dispose();
+        screenMesh.material.dispose();
+      }
+    };
+
+    pcStation.desktop.redraw();
+    return this.worldPanel;
+  }
+
+  closeCielOsPanel() {
+    if (this.activePcStation) {
+      this.activePcStation.isActiveSession = false;
+      this.activePcStation = null;
+    }
+    if (this.worldPanel?.isCielOsPanel) {
+      this.closeWorldSpatialPanel();
+      return true;
+    }
+    return false;
+  }
+
   closeWorldSpatialPanel() {
     this.slots.left.panelDrag = null;
     this.slots.right.panelDrag = null;
     this.slots.left.worldPanelTouchPressed = false;
     this.slots.right.worldPanelTouchPressed = false;
+    if (this.activePcStation) {
+      this.activePcStation.isActiveSession = false;
+      this.activePcStation = null;
+    }
     if (this.worldPanel) {
       this.worldPanel.group.parent?.remove(this.worldPanel.group);
       this.worldPanel.dispose();
@@ -1708,7 +1827,25 @@ export class VRManager {
 
     let moveX = 0;
     let moveZ = 0;
-    const lockedMove = Boolean(this.seatedMode || this.player?.movementLocked);
+    const lockedMove = Boolean(this.seatedMode || this.player?.movementLocked || this.activePcStation);
+
+    if (this.activePcStation?.desktop) {
+      if (this.simMode) {
+        const sx = this.simStickState.lx || (this.simKeys.has('ArrowRight') ? 1 : this.simKeys.has('ArrowLeft') ? -1 : 0);
+        const sy = this.simStickState.ly || (this.simKeys.has('ArrowDown') ? 1 : this.simKeys.has('ArrowUp') ? -1 : 0);
+        if (sx || sy) {
+          this.activePcStation.desktop.handleThumbstick(sx, sy, dt);
+        }
+      } else {
+        const lStick = this._readThumbstick(leftState.axes);
+        const rStick = this._readThumbstick(rightState.axes);
+        const sx = Math.abs(lStick.x) >= Math.abs(rStick.x) ? lStick.x : rStick.x;
+        const sy = Math.abs(lStick.y) >= Math.abs(rStick.y) ? lStick.y : rStick.y;
+        if (Math.hypot(sx, sy) > 0.15) {
+          this.activePcStation.desktop.handleThumbstick(sx, sy, dt);
+        }
+      }
+    }
 
     if (this.simMode) {
       const targetLeftPos = this.simWatchInspect
@@ -2050,6 +2187,9 @@ export class VRManager {
     }
     if (this.debugPanel.group.visible) {
       this._syncDebugPanel(false, nowMs);
+    }
+    if (this.activePcStation?.desktop) {
+      this.activePcStation.desktop.update(dt, elapsed);
     }
 
     this._updateWristDirectTouch();

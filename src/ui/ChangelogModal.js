@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.21 - Salle de Colle Caméra Libre, Zéro ATH & Cinématique Anti-Murs';
+    : 'v4.22 - Postes PC Fonctionnels : CIEL OS & 6 Mini-Jeux Intégrés';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
+    version: 'v4.22 — Postes PC Fonctionnels : CIEL OS Interactif & Salle d’Arcade Mini-Jeux sur Tous les Bureaux',
+    date: '18/11/2026',
+    tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'TOUS LES PC INTERACTIFS 3D',
+        title: 'Détection Universelle des Bureaux & Écrans Dynamiques THREE.CanvasTexture',
+        desc: 'Tous les ordinateurs posés sur les bureaux du Plateau U300 (cabines U304, postes SOC U305, banc diagnostic U306, îlots réseau U307 et bureaux de l’éditeur de carte) sont désormais 100 % interactifs ([E] 🖥️ Utiliser le PC (CIEL OS)) avec zoom caméra 3D confort sur PC et raycast laser / panneau miroir rapproché en VR WebXR.'
+      },
+      {
+        badge: 'SYSTÈME D’EXPLOITATION CIEL OS',
+        title: 'Bureau Graphique, 4 Thèmes, Barre des Tâches, Terminal, Bloc-Notes & Scores',
+        desc: 'OS complet haute résolution (1024x640) avec session élève nominative, 4 thèmes de fond d’écran (Cyber Bleu, Matrix Vert, Synthwave, Mode Sombre), menu Démarrer, gestion de fenêtres, contrôle du volume Web Audio, Terminal CIEL (help, ping, matrix, whoami, hack, cowsay), Bloc-Notes technique et Explorateur de Scores.'
+      },
+      {
+        badge: '6 MINI-JEUX D’ARCADE PC & VR',
+        title: 'Cyber Snake, Démineur CIEL, CIEL-Blocks, Casse-Briques Réseau, Flappy Packet & 2048 CIEL',
+        desc: 'Collection complète de 6 mini-jeux intégrés dans les fenêtres de CIEL OS, jouables au clavier/souris sur PC comme au laser/doigt/joysticks en VR avec bruitages rétro synthétisés et sauvegarde locale des records.'
+      }
+    ]
+  },
+  {
     version: 'v4.21 — Correctifs Salle de Colle 3D : Caméra Libre Assise, Zéro ATH & Cinématique d’Intro Sans Traversée de Murs',
     date: '17/11/2026',
-    tag: 'DERNIÈRE MÀJ',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'CAMÉRA LIBRE ASSISE PC & VR',
