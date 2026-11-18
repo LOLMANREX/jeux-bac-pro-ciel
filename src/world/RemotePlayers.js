@@ -14,6 +14,8 @@ import {
   ULTIMATE_SECRET_SKIN_ID,
   updateVoiceIndicatorSprite
 } from './AvatarBuilder.js';
+import { buildPetMesh } from './PetBuilder.js';
+import { isShopPetId } from './ShopCatalog.js';
 
 function makeStudentBadge(peer) {
   if (typeof document === 'undefined') return null;
@@ -277,10 +279,46 @@ export class RemotePlayersManager {
         peer._prePovVisible = peer.group.visible;
       }
       peer.group.visible = false;
+      if (peer.petMesh?.group) peer.petMesh.group.visible = false;
     } else if (peer._prePovVisible !== undefined) {
       peer.group.visible = peer._prePovVisible;
+      if (peer.petMesh?.group) peer.petMesh.group.visible = peer._prePovVisible;
       delete peer._prePovVisible;
     }
+  }
+
+  _syncPeerPet(peer, rawPetId) {
+    if (!peer) return;
+    const nextPetId = isShopPetId(rawPetId) ? rawPetId : null;
+    if (peer.equippedPet === nextPetId && Boolean(peer.petMesh) === Boolean(nextPetId)) {
+      return;
+    }
+    if (peer.petMesh) {
+      if (peer.petMesh.group) {
+        this.scene.remove(peer.petMesh.group);
+      }
+      peer.petMesh.dispose?.();
+      peer.petMesh = null;
+    }
+    peer.equippedPet = nextPetId;
+    if (nextPetId) {
+      peer.petMesh = buildPetMesh(nextPetId);
+      peer.petMesh.snapToOwner(peer.group.position, peer.group.rotation.y - Math.PI);
+      this.scene.add(peer.petMesh.group);
+    }
+  }
+
+  setPet(id, petId) {
+    const peer = this.peers.get(id);
+    if (!peer) return null;
+    if (isShopPetId(petId)) {
+      peer.skin = { ...peer.skin, equippedPet: petId };
+    } else if (peer.skin) {
+      peer.skin = { ...peer.skin };
+      delete peer.skin.equippedPet;
+    }
+    this._syncPeerPet(peer, petId);
+    return peer.petMesh;
   }
 
   setPeers(peerList = []) {
@@ -300,9 +338,16 @@ export class RemotePlayersManager {
       this.movePeer(p.id, p.x, p.y, p.z, p.yaw, p.vrData);
       if (p.skin) {
         const existing = this.peers.get(p.id);
-        if (JSON.stringify(existing.skin) !== JSON.stringify(normalizeSkin(p.skin))) {
-          this.setSkin(p.id, p.skin);
+        const nextNorm = normalizeSkin({
+          ...p.skin,
+          equippedPet: p.equippedPet ?? p.skin.equippedPet,
+          equippedTrail: p.equippedTrail ?? p.skin.equippedTrail
+        });
+        if (JSON.stringify(existing.skin) !== JSON.stringify(nextNorm)) {
+          this.setSkin(p.id, nextNorm);
         }
+      } else if (p.equippedPet !== undefined) {
+        this.setPet(p.id, p.equippedPet);
       }
       if (p.activity) this.setActivity(p.id, p.activity);
       if (p.zoneId || p.zoneLabel) this.setZone(p.id, p.zoneId, p.zoneLabel);
@@ -310,7 +355,11 @@ export class RemotePlayersManager {
       return;
     }
 
-    const skin = normalizeSkin(p.skin || { outfitColor: p.color || '#22d3ee' });
+    const skin = normalizeSkin({
+      ...(p.skin || { outfitColor: p.color || '#22d3ee' }),
+      equippedPet: p.equippedPet ?? p.skin?.equippedPet,
+      equippedTrail: p.equippedTrail ?? p.skin?.equippedTrail
+    });
     const accentColor = skin.outfitColor || p.color || '#22d3ee';
     const meshData = buildStudentAvatarMesh(skin);
     meshData.group.position.set(p.x ?? -3.95, Math.max(0, p.y || 0), p.z ?? 0.65);
@@ -321,6 +370,8 @@ export class RemotePlayersManager {
       name: p.name,
       color: accentColor,
       skin,
+      equippedPet: null,
+      petMesh: null,
       activity: p.activity || 'Dans l’atelier',
       zoneId: p.zoneId || 'U300',
       zoneLabel: p.zoneLabel || 'U300 - Couloir Central',
@@ -383,6 +434,7 @@ export class RemotePlayersManager {
     peerData.group.add(bubble);
 
     this.scene.add(peerData.group);
+    this._syncPeerPet(peerData, skin.equippedPet || p.equippedPet);
     this.peers.set(p.id, peerData);
   }
 
@@ -436,6 +488,7 @@ export class RemotePlayersManager {
     peer._walkPhase = 0;
 
     this.scene.add(peer.group);
+    this._syncPeerPet(peer, nextSkin.equippedPet ?? rawSkin?.equippedPet);
     this._refreshBadge(peer);
   }
 
@@ -603,6 +656,13 @@ export class RemotePlayersManager {
   removePeer(id) {
     const peer = this.peers.get(id);
     if (!peer) return;
+    if (peer.petMesh) {
+      if (peer.petMesh.group) {
+        this.scene.remove(peer.petMesh.group);
+      }
+      peer.petMesh.dispose?.();
+      peer.petMesh = null;
+    }
     peer.vrTracker?.dispose?.();
     peer.badge.material.map?.dispose();
     peer.badge.material.dispose();
@@ -655,6 +715,12 @@ export class RemotePlayersManager {
       });
 
       peer.updateEffects?.(elapsed);
+      if (peer.petMesh) {
+        if (peer.petMesh.group) {
+          peer.petMesh.group.visible = peer.group.visible;
+        }
+        peer.petMesh.update(dt, elapsed, peer.group.position, peer.group.rotation.y - Math.PI);
+      }
       peer.vrTracker?.update?.(peer.vrData, dt, elapsed);
       updateSpeechBubble(peer.bubble, dt);
       updateVoiceIndicatorSprite(peer.voiceIndicator, dt, peer.isSpeaking);

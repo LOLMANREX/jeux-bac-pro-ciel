@@ -5,6 +5,13 @@ import {
   isBattlePassSkinId
 } from '../core/battlePassSkins.js';
 import { buildArticulatedVRHand } from '../vr/VRHandBuilder.js';
+import {
+  getShopAccessoryById,
+  getShopSkinById,
+  isShopAccessoryId,
+  isShopPetId,
+  isShopSkinId
+} from './ShopCatalog.js';
 
 export const SKIN_OPTIONS = {
   outfitColors: [
@@ -180,6 +187,33 @@ export function resolveAscensionSpecialty(rawInput) {
   return ASCENSION_SPECIALTIES[0];
 }
 
+export function applyShopSkin(baseSkin = {}, shopSkinId = null) {
+  const normalized = normalizeSkin(baseSkin);
+  const spec = getShopSkinById(shopSkinId);
+  if (!spec) {
+    const out = { ...normalized };
+    delete out.shopSkinId;
+    return out;
+  }
+  const validStyle = SKIN_OPTIONS.outfitStyles.some((o) => o.id === spec.outfitStyle)
+    ? spec.outfitStyle
+    : 'cyber';
+  const validHat = SKIN_OPTIONS.hats.some((h) => h.id === spec.hat) ? spec.hat : 'glasses';
+  const out = {
+    ...normalized,
+    outfitColor: spec.outfitColor || '#22d3ee',
+    pantsColor: spec.pantsColor || '#1e293b',
+    outfitStyle: validStyle,
+    hat: validHat,
+    shopSkinId: spec.id
+  };
+  delete out.divineSpecialty;
+  delete out.secretSkin;
+  delete out.battlePassTier;
+  delete out.showcase;
+  return out;
+}
+
 export function applyBattlePassSkin(baseSkin = {}, tierOrId = 7) {
   const normalized = normalizeSkin(baseSkin);
   const tierSpec = getBattlePassTierSpec(tierOrId);
@@ -193,6 +227,7 @@ export function applyBattlePassSkin(baseSkin = {}, tierOrId = 7) {
   };
   delete out.divineSpecialty;
   delete out.secretSkin;
+  delete out.shopSkinId;
   return out;
 }
 
@@ -208,10 +243,14 @@ export function applySessionDivineSkin(baseSkin = {}, specialtyInput = 'cyber') 
     };
     delete out.battlePassTier;
     delete out.showcase;
+    delete out.shopSkinId;
     return out;
   }
   if (isBattlePassSkinId(specialtyInput)) {
     return applyBattlePassSkin(normalized, specialtyInput);
+  }
+  if (isShopSkinId(specialtyInput)) {
+    return applyShopSkin(normalized, specialtyInput);
   }
   const spec = resolveAscensionSpecialty(specialtyInput);
   const out = {
@@ -223,6 +262,7 @@ export function applySessionDivineSkin(baseSkin = {}, specialtyInput = 'cyber') 
   delete out.secretSkin;
   delete out.battlePassTier;
   delete out.showcase;
+  delete out.shopSkinId;
   return out;
 }
 
@@ -250,6 +290,12 @@ export function normalizeSkin(rawSkin = {}) {
   if (s.creatorAura) {
     out.creatorAura = true;
   }
+  if (isShopPetId(s.equippedPet)) {
+    out.equippedPet = s.equippedPet;
+  }
+  if (isShopAccessoryId(s.equippedTrail)) {
+    out.equippedTrail = s.equippedTrail;
+  }
   if (s.secretSkin || isUltimateSecretSkinId(s.divineSpecialty)) {
     out.divineSpecialty = ULTIMATE_SECRET_SKIN_ID;
     out.secretSkin = true;
@@ -260,6 +306,11 @@ export function normalizeSkin(rawSkin = {}) {
     if (bpSpec) {
       out.battlePassTier = bpSpec.tier;
       out.showcase = cloneShowcase(bpSpec.showcase);
+    } else if (isShopSkinId(s.shopSkinId || s.equippedSkin)) {
+      const shopSpec = getShopSkinById(s.shopSkinId || s.equippedSkin);
+      out.shopSkinId = shopSpec.id;
+      out.outfitColor = shopSpec.outfitColor || out.outfitColor;
+      out.pantsColor = shopSpec.pantsColor || out.pantsColor;
     } else if (s.showcase && typeof s.showcase === 'object') {
       const cleanShowcase = cloneShowcase(s.showcase);
       if (cleanShowcase) {
@@ -469,6 +520,44 @@ function createThemeMaterials(skin, showcase = null) {
       }),
       trimColor: spec.primaryColor,
       divineSpec: spec
+    };
+  }
+  if (skin.shopSkinId && isShopSkinId(skin.shopSkinId)) {
+    const shopSpec = getShopSkinById(skin.shopSkinId);
+    const isGold = shopSpec.id === 'shop_overclocked_gold';
+    const isCopper = shopSpec.id === 'shop_steampunk_copper';
+    const isSamurai = shopSpec.id === 'shop_cyber_samurai';
+    return {
+      torsoMat: new THREE.MeshStandardMaterial({
+        color: shopSpec.outfitColor,
+        metalness: isGold ? 0.9 : isCopper || isSamurai ? 0.72 : 0.45,
+        roughness: isGold ? 0.16 : 0.35,
+        emissive: shopSpec.emissiveColor || shopSpec.accentColor,
+        emissiveIntensity: isGold ? 0.32 : 0.18
+      }),
+      pantsMat: new THREE.MeshStandardMaterial({
+        color: shopSpec.pantsColor,
+        metalness: 0.42,
+        roughness: 0.45
+      }),
+      shoeMat: new THREE.MeshStandardMaterial({
+        color: shopSpec.accentColor,
+        metalness: 0.75,
+        roughness: 0.25,
+        emissive: shopSpec.emissiveColor || shopSpec.accentColor,
+        emissiveIntensity: 0.35
+      }),
+      skinMat: new THREE.MeshStandardMaterial({ color: skin.skinTone, roughness: 0.7 }),
+      hairMat: new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.75 }),
+      trimMat: new THREE.MeshStandardMaterial({
+        color: shopSpec.accentColor,
+        metalness: 0.85,
+        roughness: 0.18,
+        emissive: shopSpec.emissiveColor || shopSpec.accentColor,
+        emissiveIntensity: 1.4
+      }),
+      trimColor: shopSpec.accentColor,
+      shopSkinSpec: shopSpec
     };
   }
   return {
@@ -1932,6 +2021,437 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
   const getDivineSpecialty = () =>
     currentSecretActive ? ULTIMATE_SECRET_SKIN_ID : currentDivineSpec ? currentDivineSpec.id : null;
 
+  const shopSkinGroup = new THREE.Group();
+  shopSkinGroup.name = 'shop-skin-group';
+  group.add(shopSkinGroup);
+  const shopSkinHeadGroup = new THREE.Group();
+  shopSkinHeadGroup.name = 'shop-skin-head-group';
+  headGroup.add(shopSkinHeadGroup);
+
+  const shopAccessoryGroup = new THREE.Group();
+  shopAccessoryGroup.name = 'shop-accessory-group';
+  group.add(shopAccessoryGroup);
+  const shopAccessoryHeadGroup = new THREE.Group();
+  shopAccessoryHeadGroup.name = 'shop-accessory-head-group';
+  headGroup.add(shopAccessoryHeadGroup);
+
+  let currentShopSkinId = skin.shopSkinId && isShopSkinId(skin.shopSkinId) ? skin.shopSkinId : null;
+  let currentShopAccessoryId =
+    skin.equippedTrail && isShopAccessoryId(skin.equippedTrail) ? skin.equippedTrail : null;
+  let shopSkinDyn = null;
+  let shopAccDyn = null;
+
+  const freezeStaticShopNodes = (root, dynNodes) => {
+    root.traverse((child) => {
+      if (child === root || dynNodes.has(child)) return;
+      child.updateMatrix();
+      child.matrixAutoUpdate = false;
+    });
+  };
+
+  const buildShopSkinVisuals = (shopId) => {
+    disposeObject3D(shopSkinGroup);
+    disposeObject3D(shopSkinHeadGroup);
+    shopSkinGroup.clear();
+    shopSkinHeadGroup.clear();
+    shopSkinDyn = null;
+    const spec = getShopSkinById(shopId);
+    if (!spec) {
+      shopSkinGroup.visible = false;
+      shopSkinHeadGroup.visible = false;
+      return;
+    }
+    shopSkinGroup.visible = true;
+    shopSkinHeadGroup.visible = true;
+
+    const accentMat = new THREE.MeshStandardMaterial({
+      color: spec.accentColor,
+      emissive: spec.emissiveColor || spec.accentColor,
+      emissiveIntensity: 1.5,
+      metalness: 0.85,
+      roughness: 0.18
+    });
+    const armorMat = new THREE.MeshStandardMaterial({
+      color: spec.outfitColor,
+      metalness: 0.78,
+      roughness: 0.24
+    });
+    const trimMat = new THREE.MeshStandardMaterial({
+      color: spec.trimColor || spec.accentColor,
+      emissive: spec.emissiveColor || spec.accentColor,
+      emissiveIntensity: 0.9,
+      metalness: 0.7,
+      roughness: 0.25
+    });
+    const dynNodes = new Set();
+
+    if (spec.id === 'shop_neon_tech') {
+      for (const sx of [-0.26, 0.26]) {
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.24), armorMat);
+        pad.position.set(sx, 1.38, 0);
+        const strip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.025, 0.26), accentMat);
+        strip.position.set(sx, 1.42, 0);
+        shopSkinGroup.add(pad, strip);
+      }
+      const chestBar = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.06, 0.04), accentMat);
+      chestBar.position.set(0, 1.2, 0.16);
+      shopSkinGroup.add(chestBar);
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.08, 0.08), accentMat);
+      visor.position.set(0, 0.04, 0.16);
+      shopSkinHeadGroup.add(visor);
+    } else if (spec.id === 'shop_agent_soc') {
+      const shield = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), accentMat);
+      shield.scale.set(1, 1.2, 0.35);
+      shield.position.set(0, 1.18, 0.16);
+      shopSkinGroup.add(shield);
+      const rig = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.26, 0.08), armorMat);
+      rig.position.set(0, 1.12, -0.15);
+      const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.3, 8), accentMat);
+      antenna.position.set(-0.14, 1.4, -0.16);
+      shopSkinGroup.add(rig, antenna);
+      const micBoom = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.025, 0.04), trimMat);
+      micBoom.position.set(0.15, -0.02, 0.12);
+      shopSkinHeadGroup.add(micBoom);
+      dynNodes.add(shield);
+      shopSkinDyn = { shield };
+    } else if (spec.id === 'shop_fiber_eng') {
+      const pack = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.38, 0.12), armorMat);
+      pack.position.set(0, 1.12, -0.17);
+      shopSkinGroup.add(pack);
+      const strands = [];
+      for (let i = -1; i <= 1; i++) {
+        const strand = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.42, 8), accentMat);
+        strand.position.set(i * 0.08, 1.26, -0.23);
+        strand.rotation.z = i * 0.18;
+        shopSkinGroup.add(strand);
+        strands.push(strand);
+        dynNodes.add(strand);
+      }
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.09, 0.1), accentMat);
+      visor.position.set(0, 0.04, 0.16);
+      shopSkinHeadGroup.add(visor);
+      shopSkinDyn = { strands };
+    } else if (spec.id === 'shop_steampunk_copper') {
+      const gear1 = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.025, 8, 12), accentMat);
+      gear1.position.set(-0.1, 1.14, -0.16);
+      const gear2 = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.02, 8, 10), accentMat);
+      gear2.position.set(0.1, 1.02, -0.16);
+      shopSkinGroup.add(gear1, gear2);
+      for (const gx of [-0.085, 0.085]) {
+        const goggle = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.014, 8, 16), trimMat);
+        goggle.position.set(gx, 0.05, 0.18);
+        shopSkinHeadGroup.add(goggle);
+      }
+      dynNodes.add(gear1, gear2);
+      shopSkinDyn = { gear1, gear2 };
+    } else if (spec.id === 'shop_hacker_matrix') {
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.08, 0.08), accentMat);
+      visor.position.set(0, 0.04, 0.16);
+      shopSkinHeadGroup.add(visor);
+      const bars = [];
+      for (let i = 0; i < 4; i++) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.24, 0.04), i % 2 === 0 ? accentMat : trimMat);
+        bar.position.set((i - 1.5) * 0.11, 1.14, -0.18);
+        shopSkinGroup.add(bar);
+        bars.push({ mesh: bar, idx: i });
+        dynNodes.add(bar);
+      }
+      shopSkinDyn = { bars };
+    } else if (spec.id === 'shop_network_astro') {
+      const pack = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.44, 0.16), armorMat);
+      pack.position.set(0, 1.1, -0.2);
+      shopSkinGroup.add(pack);
+      const dish = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.08, 12), accentMat);
+      dish.position.set(0.14, 1.38, -0.22);
+      dish.rotation.x = -Math.PI / 3;
+      shopSkinGroup.add(dish);
+      const astroHelmet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.24, 14, 12),
+        new THREE.MeshStandardMaterial({
+          color: '#38bdf8',
+          transparent: true,
+          opacity: 0.38,
+          roughness: 0.12,
+          metalness: 0.3
+        })
+      );
+      astroHelmet.position.set(0, 0.04, 0.02);
+      shopSkinHeadGroup.add(astroHelmet);
+      dynNodes.add(dish);
+      shopSkinDyn = { dish };
+    } else if (spec.id === 'shop_cyber_samurai') {
+      [-0.31, 0.31].forEach((px) => {
+        const pauldron = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.28), armorMat);
+        pauldron.position.set(px, 1.38, 0);
+        shopSkinGroup.add(pauldron);
+        const trim = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.03, 0.3), accentMat);
+        trim.position.set(px, 1.44, 0);
+        shopSkinGroup.add(trim);
+      });
+      const katanaBlade = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.78, 0.045), accentMat);
+      katanaBlade.position.set(0.14, 1.16, -0.18);
+      katanaBlade.rotation.z = -0.58;
+      shopSkinGroup.add(katanaBlade);
+      const crest = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.22, 4), accentMat);
+      crest.position.set(0, 0.28, 0.12);
+      shopSkinHeadGroup.add(crest);
+    } else if (spec.id === 'shop_overclocked_gold') {
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.024, 10, 28), accentMat);
+      halo.rotation.x = Math.PI / 2;
+      halo.position.set(0, 0.36, 0);
+      shopSkinHeadGroup.add(halo);
+      const coreRing = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.018, 8, 24), accentMat);
+      coreRing.position.set(0, 1.14, 0.16);
+      shopSkinGroup.add(coreRing);
+      for (const side of [-1, 1]) {
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.38, 0.03), trimMat);
+        fin.position.set(side * 0.22, 1.2, -0.18);
+        fin.rotation.z = -side * 0.32;
+        shopSkinGroup.add(fin);
+      }
+      dynNodes.add(halo, coreRing);
+      shopSkinDyn = { halo, coreRing };
+    } else {
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.08, 0.08), accentMat);
+      visor.position.set(0, 0.04, 0.16);
+      shopSkinHeadGroup.add(visor);
+      const backNode = new THREE.Mesh(new THREE.OctahedronGeometry(0.08, 0), accentMat);
+      backNode.position.set(0, 1.12, -0.18);
+      shopSkinGroup.add(backNode);
+      dynNodes.add(backNode);
+      shopSkinDyn = { backNode };
+    }
+
+    freezeStaticShopNodes(shopSkinGroup, dynNodes);
+    freezeStaticShopNodes(shopSkinHeadGroup, dynNodes);
+  };
+
+  const buildShopAccessoryVisuals = (accId) => {
+    disposeObject3D(shopAccessoryGroup);
+    disposeObject3D(shopAccessoryHeadGroup);
+    shopAccessoryGroup.clear();
+    shopAccessoryHeadGroup.clear();
+    shopAccDyn = null;
+    const spec = getShopAccessoryById(accId);
+    if (!spec) {
+      shopAccessoryGroup.visible = false;
+      shopAccessoryHeadGroup.visible = false;
+      return;
+    }
+    shopAccessoryGroup.visible = true;
+    shopAccessoryHeadGroup.visible = true;
+
+    const glowMat = new THREE.MeshStandardMaterial({
+      color: spec.primaryColor,
+      emissive: spec.emissiveColor || spec.primaryColor,
+      emissiveIntensity: 1.8,
+      roughness: 0.15,
+      metalness: 0.5
+    });
+    const accentMat = new THREE.MeshStandardMaterial({
+      color: spec.accentColor,
+      emissive: spec.accentColor,
+      emissiveIntensity: 1.5,
+      roughness: 0.2,
+      metalness: 0.4
+    });
+    const dynNodes = new Set();
+
+    if (spec.id === 'acc_holo_visor') {
+      const holoVisor = new THREE.Mesh(
+        new THREE.BoxGeometry(0.38, 0.1, 0.14),
+        new THREE.MeshStandardMaterial({
+          color: spec.primaryColor,
+          emissive: spec.emissiveColor,
+          emissiveIntensity: 1.8,
+          transparent: true,
+          opacity: 0.78
+        })
+      );
+      holoVisor.position.set(0, 0.04, 0.17);
+      shopAccessoryHeadGroup.add(holoVisor);
+    } else if (spec.id === 'acc_binary_aura') {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.02, 8, 32), glowMat);
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.95;
+      shopAccessoryGroup.add(ring);
+      dynNodes.add(ring);
+      const nodes = [];
+      for (let i = 0; i < 8; i++) {
+        const node = new THREE.Mesh(
+          new THREE.BoxGeometry(0.05, 0.09, 0.05),
+          i % 2 === 0 ? glowMat : accentMat
+        );
+        shopAccessoryGroup.add(node);
+        dynNodes.add(node);
+        nodes.push({ mesh: node, idx: i });
+      }
+      shopAccDyn = { kind: 'aura', ring, nodes };
+    } else if (spec.id === 'acc_neon_circuit_trail') {
+      const baseDisc = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.024, 8, 28), glowMat);
+      baseDisc.rotation.x = Math.PI / 2;
+      baseDisc.position.y = 0.04;
+      shopAccessoryGroup.add(baseDisc);
+      dynNodes.add(baseDisc);
+      const sparks = [];
+      for (let i = 0; i < 10; i++) {
+        const spark = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.04, 0),
+          i % 2 === 0 ? glowMat : accentMat
+        );
+        shopAccessoryGroup.add(spark);
+        dynNodes.add(spark);
+        sparks.push({ mesh: spark, idx: i });
+      }
+      shopAccDyn = { kind: 'trail', baseDisc, sparks };
+    } else if (spec.id === 'acc_cyber_halo_ears') {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.022, 8, 20, Math.PI), glowMat);
+      band.position.set(0, 0.12, 0);
+      shopAccessoryHeadGroup.add(band);
+      for (const side of [-1, 1]) {
+        const ear = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.13, 4), accentMat);
+        ear.position.set(side * 0.14, 0.28, 0);
+        ear.rotation.z = -side * 0.25;
+        shopAccessoryHeadGroup.add(ear);
+      }
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.015, 8, 24), glowMat);
+      halo.rotation.x = Math.PI / 2;
+      halo.position.set(0, 0.38, 0);
+      shopAccessoryHeadGroup.add(halo);
+      dynNodes.add(halo);
+      shopAccDyn = { kind: 'ears', halo };
+    } else if (spec.id === 'acc_quantum_wings') {
+      const wings = [];
+      for (const side of [-1, 1]) {
+        const wPivot = new THREE.Group();
+        wPivot.position.set(side * 0.14, 1.24, -0.16);
+        dynNodes.add(wPivot);
+        for (let b = 0; b < 3; b++) {
+          const feather = new THREE.Mesh(
+            new THREE.BoxGeometry(0.42 - b * 0.08, 0.06, 0.02),
+            b % 2 === 0 ? glowMat : accentMat
+          );
+          feather.position.set(side * (0.22 - b * 0.03), 0.12 - b * 0.11, 0);
+          feather.rotation.z = side * (0.35 - b * 0.18);
+          wPivot.add(feather);
+          dynNodes.add(feather);
+        }
+        shopAccessoryGroup.add(wPivot);
+        wings.push({ pivot: wPivot, side });
+      }
+      const crown = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.02, 8, 24), glowMat);
+      crown.rotation.x = Math.PI / 2;
+      crown.position.set(0, 0.38, 0);
+      shopAccessoryHeadGroup.add(crown);
+      dynNodes.add(crown);
+      shopAccDyn = { kind: 'wings', wings, crown };
+    }
+
+    freezeStaticShopNodes(shopAccessoryGroup, dynNodes);
+    freezeStaticShopNodes(shopAccessoryHeadGroup, dynNodes);
+  };
+
+  buildShopSkinVisuals(currentShopSkinId);
+  buildShopAccessoryVisuals(currentShopAccessoryId);
+
+  updaters.push((t) => {
+    if (shopSkinDyn) {
+      if (shopSkinDyn.halo) {
+        shopSkinDyn.halo.rotation.z = t * 1.6;
+      }
+      if (shopSkinDyn.coreRing) {
+        shopSkinDyn.coreRing.rotation.z = -t * 2.2;
+      }
+      if (shopSkinDyn.shield) {
+        shopSkinDyn.shield.rotation.y = t * 1.8;
+      }
+      if (shopSkinDyn.dish) {
+        shopSkinDyn.dish.rotation.y = Math.sin(t * 1.4) * 0.45;
+      }
+      if (shopSkinDyn.strands) {
+        for (let i = 0; i < shopSkinDyn.strands.length; i++) {
+          shopSkinDyn.strands[i].position.y = 1.26 + Math.sin(t * 3.2 + i) * 0.03;
+        }
+      }
+      if (shopSkinDyn.bars) {
+        for (const b of shopSkinDyn.bars) {
+          b.mesh.position.y = 1.14 + Math.sin(t * 4.0 + b.idx * 0.9) * 0.08;
+        }
+      }
+      if (shopSkinDyn.gear1 && shopSkinDyn.gear2) {
+        shopSkinDyn.gear1.rotation.z = t * 1.8;
+        shopSkinDyn.gear2.rotation.z = -t * 2.4;
+      }
+      if (shopSkinDyn.backNode) {
+        shopSkinDyn.backNode.rotation.y = t * 2.0;
+      }
+    }
+    if (shopAccDyn) {
+      if (shopAccDyn.kind === 'aura') {
+        shopAccDyn.ring.rotation.z = t * 1.4;
+        for (const n of shopAccDyn.nodes) {
+          const a = (n.idx / shopAccDyn.nodes.length) * Math.PI * 2 + t * 2.0;
+          n.mesh.position.set(
+            Math.cos(a) * 0.56,
+            0.75 + Math.sin(t * 3.2 + n.idx) * 0.35,
+            Math.sin(a) * 0.56
+          );
+          n.mesh.rotation.y = -a;
+        }
+      } else if (shopAccDyn.kind === 'trail') {
+        shopAccDyn.baseDisc.rotation.z = -t * 1.8;
+        for (const sp of shopAccDyn.sparks) {
+          const a = (sp.idx / shopAccDyn.sparks.length) * Math.PI * 2 + t * 2.4;
+          const r = 0.32 + (sp.idx % 3) * 0.12;
+          sp.mesh.position.set(
+            Math.cos(a) * r,
+            0.08 + ((t * 0.7 + sp.idx * 0.14) % 1.1),
+            Math.sin(a) * r - 0.12
+          );
+          sp.mesh.rotation.y = t * 3.0;
+        }
+      } else if (shopAccDyn.kind === 'ears' && shopAccDyn.halo) {
+        shopAccDyn.halo.rotation.z = t * 1.5;
+      } else if (shopAccDyn.kind === 'wings') {
+        for (const w of shopAccDyn.wings) {
+          w.pivot.rotation.y = w.side * (0.2 + Math.sin(t * 3.4) * 0.16);
+        }
+        if (shopAccDyn.crown) {
+          shopAccDyn.crown.rotation.z = t * 1.4;
+        }
+      }
+    }
+  });
+
+  const setShopSkin = (nextId) => {
+    currentShopSkinId = isShopSkinId(nextId) ? nextId : null;
+    if (currentShopSkinId) {
+      skin.shopSkinId = currentShopSkinId;
+    } else {
+      delete skin.shopSkinId;
+    }
+    buildShopSkinVisuals(currentShopSkinId);
+    updateEffects(0);
+    return getShopSkinById(currentShopSkinId);
+  };
+
+  const setShopAccessory = (nextId) => {
+    currentShopAccessoryId = isShopAccessoryId(nextId) ? nextId : null;
+    if (currentShopAccessoryId) {
+      skin.equippedTrail = currentShopAccessoryId;
+    } else {
+      delete skin.equippedTrail;
+    }
+    buildShopAccessoryVisuals(currentShopAccessoryId);
+    updateEffects(0);
+    return getShopAccessoryById(currentShopAccessoryId);
+  };
+
+  const hasShopSkin = () => Boolean(currentShopSkinId && shopSkinGroup.visible);
+  const getShopSkinId = () => currentShopSkinId;
+  const hasShopAccessory = () => Boolean(currentShopAccessoryId && shopAccessoryGroup.visible);
+  const getShopAccessoryId = () => currentShopAccessoryId;
+
   const updateEffects = (elapsed = 0) => {
     for (const fn of updaters) fn(elapsed);
   };
@@ -1968,6 +2488,10 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     quantumRingsGroup,
     cosmicHaloGroup,
     particleTrailGroup,
+    shopSkinGroup,
+    shopSkinHeadGroup,
+    shopAccessoryGroup,
+    shopAccessoryHeadGroup,
     setDivineSpecialty,
     setSecretSkin,
     hasSecretSkin,
@@ -1975,6 +2499,12 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     getDivineSpecialty,
     hasBattlePassSkin,
     getBattlePassTier,
+    setShopSkin,
+    hasShopSkin,
+    getShopSkinId,
+    setShopAccessory,
+    hasShopAccessory,
+    getShopAccessoryId,
     setFirstPersonVrHidden,
     updateEffects
   };

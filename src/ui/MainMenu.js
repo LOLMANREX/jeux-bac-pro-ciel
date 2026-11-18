@@ -26,6 +26,7 @@ export class MainMenu {
       onOpenFaq,
       onOpenChangelog,
       onOpenBattlePass,
+      onOpenShop,
       onOpenLeaderboard,
       onLogout,
       onAccountRestored
@@ -40,6 +41,7 @@ export class MainMenu {
     this.onOpenFaq = onOpenFaq;
     this.onOpenChangelog = onOpenChangelog;
     this.onOpenBattlePass = onOpenBattlePass;
+    this.onOpenShop = onOpenShop;
     this.onOpenLeaderboard = onOpenLeaderboard;
     this.onLogout = onLogout;
     this.onAccountRestored = onAccountRestored;
@@ -73,6 +75,7 @@ export class MainMenu {
     this.badgeNameEl = document.getElementById('menu-badge-name');
     this.badgeLevelEl = document.getElementById('menu-badge-level');
     this.badgeAvgEl = document.getElementById('menu-badge-avg');
+    this.badgeCoinsEl = document.getElementById('menu-badge-coins');
 
     this.roomSelect = document.getElementById('room-select');
     this.roomsModal = document.getElementById('rooms-modal');
@@ -251,10 +254,13 @@ export class MainMenu {
     const level = Math.max(1, Math.floor(xp / 100) + 1);
     const avg = typeof stats?.average === 'number' ? `${stats.average.toFixed(1)}/20` : '--/20';
 
+    const coins = Math.max(0, Math.floor(Number(stats?.coins ?? this.gameState.coins ?? this.gameState.profile?.coins) || 0));
+
     if (this.previewTag) this.previewTag.textContent = displayName;
     if (this.badgeNameEl) this.badgeNameEl.textContent = displayName;
     if (this.badgeLevelEl) this.badgeLevelEl.textContent = `Niv. ${level}`;
     if (this.badgeAvgEl) this.badgeAvgEl.textContent = avg;
+    if (this.badgeCoinsEl) this.badgeCoinsEl.textContent = `🪙 ${coins} CC`;
   }
 
   renderSkinUi() {
@@ -448,6 +454,11 @@ export class MainMenu {
     document.getElementById('nav-btn-battlepass')?.addEventListener('click', () => {
       sfx.click();
       this.onOpenBattlePass?.();
+    });
+
+    document.getElementById('nav-btn-shop')?.addEventListener('click', () => {
+      sfx.click();
+      this.onOpenShop?.();
     });
 
     document.getElementById('menu-btn-settings')?.addEventListener('click', () => {

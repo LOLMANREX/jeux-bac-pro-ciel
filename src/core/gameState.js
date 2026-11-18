@@ -1,6 +1,7 @@
 import {
   applyBattlePassSkin,
   applySessionDivineSkin,
+  applyShopSkin,
   ASCENSION_SPECIALTIES,
   DEFAULT_SKIN,
   isUltimateSecretSkinId,
@@ -8,6 +9,15 @@ import {
   resolveAscensionSpecialty,
   ULTIMATE_SECRET_SKIN_ID
 } from '../world/AvatarBuilder.js';
+import {
+  getShopAccessoryById,
+  getShopItemById,
+  getShopPetById,
+  getShopSkinById,
+  isShopAccessoryId,
+  isShopPetId,
+  isShopSkinId
+} from '../world/ShopCatalog.js';
 import {
   getBattlePassTierSpec,
   hasVipChambreAccess,
@@ -217,6 +227,13 @@ export class GameState {
       unlockedBattlePassTiers: [],
       vipChambreAccess: false,
       prestigeCount: 0,
+      coins: 0,
+      ownedItems: [],
+      equippedSkin: null,
+      equippedPet: null,
+      equippedTrail: null,
+      validatedTps: [],
+      arcadeHighScores: {},
       selectedSkin: 'standard',
       xp: 0,
       questAccepted: false,
@@ -237,6 +254,13 @@ export class GameState {
     this.unlockedBattlePassTiers = [];
     this.vipChambreAccess = false;
     this.prestigeCount = 0;
+    this.coins = 0;
+    this.ownedItems = [];
+    this.equippedSkin = null;
+    this.equippedPet = null;
+    this.equippedTrail = null;
+    this.validatedTps = [];
+    this.arcadeHighScores = {};
     this.selectedSkin = 'standard';
     this.room = 'plateau-u300';
     this.roomRoster = [];
@@ -328,34 +352,76 @@ export class GameState {
       hasVipChambreAccess(bpTiers, account.username);
     this.prestigeCount = Math.max(0, Number(account.prestigeCount ?? profile?.prestigeCount) || 0);
 
+    const rawOwned = Array.isArray(account.ownedItems)
+      ? account.ownedItems
+      : Array.isArray(profile?.ownedItems)
+        ? profile.ownedItems
+        : [];
+    this.ownedItems = rawOwned.filter((id, idx) => Boolean(getShopItemById(id)) && rawOwned.indexOf(id) === idx);
+    this.coins = Math.max(0, Math.floor(Number(account.coins ?? profile?.coins) || 0));
+    this.validatedTps = Array.isArray(account.validatedTps)
+      ? [...account.validatedTps]
+      : Array.isArray(profile?.validatedTps)
+        ? [...profile.validatedTps]
+        : [];
+    this.arcadeHighScores = {
+      ...(profile?.arcadeHighScores || {}),
+      ...(account.arcadeHighScores || {})
+    };
+
     const customSkin = normalizeSkin(
       account.avatarCustomization || profile?.skin || this.skin || DEFAULT_SKIN
     );
+    const rawEqPet = account.equippedPet ?? profile?.equippedPet ?? customSkin.equippedPet ?? null;
+    this.equippedPet =
+      rawEqPet && isShopPetId(rawEqPet) && this.ownedItems.includes(rawEqPet) ? rawEqPet : null;
+    const rawEqTrail =
+      account.equippedTrail ?? profile?.equippedTrail ?? customSkin.equippedTrail ?? null;
+    this.equippedTrail =
+      rawEqTrail && isShopAccessoryId(rawEqTrail) && this.ownedItems.includes(rawEqTrail)
+        ? rawEqTrail
+        : null;
+    if (this.equippedPet) customSkin.equippedPet = this.equippedPet;
+    else delete customSkin.equippedPet;
+    if (this.equippedTrail) customSkin.equippedTrail = this.equippedTrail;
+    else delete customSkin.equippedTrail;
+
     const rawSel =
       account.selectedSkin ||
+      account.equippedSkin ||
       customSkin.divineSpecialty ||
-      (customSkin.battlePassTier ? `bp_tier_${customSkin.battlePassTier}` : 'standard');
+      (customSkin.battlePassTier ? `bp_tier_${customSkin.battlePassTier}` : customSkin.shopSkinId || 'standard');
     const wantSecret =
       Boolean(customSkin.secretSkin) || isUltimateSecretSkinId(rawSel);
     const matchedSel = wantSecret ? null : matchDivineSpecialtyId(rawSel);
     const matchedBp = !wantSecret && !matchedSel ? getBattlePassTierSpec(rawSel) : null;
+    const matchedShop = !wantSecret && !matchedSel && !matchedBp ? getShopSkinById(rawSel) : null;
     if (wantSecret && this.secretSkinUnlocked) {
       this.selectedSkin = ULTIMATE_SECRET_SKIN_ID;
+      this.equippedSkin = null;
       this.skin = applySessionDivineSkin(customSkin, ULTIMATE_SECRET_SKIN_ID);
     } else if (matchedSel && this.unlockedDivineSkins.includes(matchedSel)) {
       const spec = resolveAscensionSpecialty(matchedSel);
       this.selectedSkin = spec.id;
+      this.equippedSkin = null;
       this.skin = applySessionDivineSkin(customSkin, spec.id);
     } else if (matchedBp && this.unlockedBattlePassTiers.includes(matchedBp.tier)) {
       this.selectedSkin = matchedBp.id;
+      this.equippedSkin = null;
       this.skin = applyBattlePassSkin(customSkin, matchedBp.tier);
+    } else if (matchedShop && this.ownedItems.includes(matchedShop.id)) {
+      this.selectedSkin = matchedShop.id;
+      this.equippedSkin = matchedShop.id;
+      this.skin = applyShopSkin(customSkin, matchedShop.id);
     } else {
       this.selectedSkin = 'standard';
+      this.equippedSkin = null;
       const plainSkin = { ...customSkin };
       delete plainSkin.divineSpecialty;
       delete plainSkin.secretSkin;
       delete plainSkin.battlePassTier;
       delete plainSkin.showcase;
+      delete plainSkin.shopSkinId;
       this.skin = plainSkin;
     }
 
@@ -389,6 +455,13 @@ export class GameState {
       unlockedBattlePassTiers: [...this.unlockedBattlePassTiers],
       vipChambreAccess: this.vipChambreAccess,
       prestigeCount: this.prestigeCount,
+      coins: this.coins,
+      ownedItems: [...this.ownedItems],
+      equippedSkin: this.equippedSkin,
+      equippedPet: this.equippedPet,
+      equippedTrail: this.equippedTrail,
+      validatedTps: [...this.validatedTps],
+      arcadeHighScores: { ...this.arcadeHighScores },
       selectedSkin: this.selectedSkin,
       grades: nextGrades,
       average: avg,
@@ -408,6 +481,13 @@ export class GameState {
     this.unlockedBattlePassTiers = [];
     this.vipChambreAccess = false;
     this.prestigeCount = 0;
+    this.coins = 0;
+    this.ownedItems = [];
+    this.equippedSkin = null;
+    this.equippedPet = null;
+    this.equippedTrail = null;
+    this.validatedTps = [];
+    this.arcadeHighScores = {};
     this.selectedSkin = 'standard';
     this.skin = { ...DEFAULT_SKIN };
     removeStorage('ciel_auth_token');
@@ -423,6 +503,13 @@ export class GameState {
       unlockedBattlePassTiers: [],
       vipChambreAccess: false,
       prestigeCount: 0,
+      coins: 0,
+      ownedItems: [],
+      equippedSkin: null,
+      equippedPet: null,
+      equippedTrail: null,
+      validatedTps: [],
+      arcadeHighScores: {},
       selectedSkin: 'standard',
       xp: 0,
       questAccepted: false,
@@ -502,10 +589,13 @@ export class GameState {
         delete nextSkin.secretSkin;
         delete nextSkin.battlePassTier;
         delete nextSkin.showcase;
+        delete nextSkin.shopSkinId;
         this.skin = nextSkin;
         this.selectedSkin = 'standard';
+        this.equippedSkin = null;
       } else {
         this.selectedSkin = ULTIMATE_SECRET_SKIN_ID;
+        this.equippedSkin = null;
         this.skin = applySessionDivineSkin(this.skin, ULTIMATE_SECRET_SKIN_ID);
       }
     } else if (bpSpec) {
@@ -515,12 +605,19 @@ export class GameState {
         delete nextSkin.secretSkin;
         delete nextSkin.battlePassTier;
         delete nextSkin.showcase;
+        delete nextSkin.shopSkinId;
         this.skin = nextSkin;
         this.selectedSkin = 'standard';
+        this.equippedSkin = null;
       } else {
         this.selectedSkin = bpSpec.id;
+        this.equippedSkin = null;
         this.skin = applyBattlePassSkin(this.skin, bpSpec.tier);
       }
+    } else if (isShopSkinId(specialtyOrStandard) && this.hasOwnedItem(specialtyOrStandard)) {
+      this.selectedSkin = specialtyOrStandard;
+      this.equippedSkin = specialtyOrStandard;
+      this.skin = applyShopSkin(this.skin, specialtyOrStandard);
     } else {
       const matchedId = matchDivineSpecialtyId(specialtyOrStandard);
       if (!matchedId || !this.unlockedDivineSkins.includes(matchedId)) {
@@ -529,11 +626,14 @@ export class GameState {
         delete nextSkin.secretSkin;
         delete nextSkin.battlePassTier;
         delete nextSkin.showcase;
+        delete nextSkin.shopSkinId;
         this.skin = nextSkin;
         this.selectedSkin = 'standard';
+        this.equippedSkin = null;
       } else {
         const spec = resolveAscensionSpecialty(matchedId);
         this.selectedSkin = spec.id;
+        this.equippedSkin = null;
         this.skin = applySessionDivineSkin(this.skin, spec.id);
       }
     }
@@ -542,6 +642,7 @@ export class GameState {
       ...this.profile,
       skin: { ...this.skin },
       selectedSkin: this.selectedSkin,
+      equippedSkin: this.equippedSkin,
       unlockedDivineSkins: [...this.unlockedDivineSkins],
       secretSkinUnlocked: this.secretSkinUnlocked,
       unlockedBattlePassTiers: [...this.unlockedBattlePassTiers],
@@ -551,6 +652,7 @@ export class GameState {
       this.account = {
         ...this.account,
         selectedSkin: this.selectedSkin,
+        equippedSkin: this.equippedSkin,
         avatarCustomization: { ...this.skin },
         unlockedDivineSkins: [...this.unlockedDivineSkins],
         secretSkinUnlocked: this.secretSkinUnlocked,
@@ -561,10 +663,61 @@ export class GameState {
     this.emit();
   }
 
+  hasOwnedItem(itemId) {
+    return Array.isArray(this.ownedItems) && this.ownedItems.includes(itemId);
+  }
+
+  applyEconomySnapshot(data = {}) {
+    if (!data || typeof data !== 'object') return;
+    if (data.profile) {
+      this.setProfile(data.profile);
+      return;
+    }
+    if (data.coins !== undefined) {
+      this.coins = Math.max(0, Math.floor(Number(data.coins) || 0));
+    }
+    if (Array.isArray(data.ownedItems)) {
+      this.ownedItems = data.ownedItems.filter((id) => Boolean(getShopItemById(id)));
+    }
+    if (data.equippedSkin !== undefined) {
+      this.equippedSkin = data.equippedSkin && isShopSkinId(data.equippedSkin) ? data.equippedSkin : null;
+    }
+    if (data.equippedPet !== undefined) {
+      this.equippedPet = data.equippedPet && isShopPetId(data.equippedPet) ? data.equippedPet : null;
+    }
+    if (data.equippedTrail !== undefined) {
+      this.equippedTrail =
+        data.equippedTrail && isShopAccessoryId(data.equippedTrail) ? data.equippedTrail : null;
+    }
+    this.profile = {
+      ...this.profile,
+      coins: this.coins,
+      ownedItems: [...this.ownedItems],
+      equippedSkin: this.equippedSkin,
+      equippedPet: this.equippedPet,
+      equippedTrail: this.equippedTrail
+    };
+    this.emit();
+  }
+
   setProfile(profile) {
     if (!profile) return;
     if (profile.introSeen !== undefined) {
       this.introSeen = Boolean(profile.introSeen);
+    }
+    if (profile.coins !== undefined) {
+      this.coins = Math.max(0, Math.floor(Number(profile.coins) || 0));
+    }
+    if (Array.isArray(profile.ownedItems)) {
+      this.ownedItems = profile.ownedItems.filter(
+        (id, idx) => Boolean(getShopItemById(id)) && profile.ownedItems.indexOf(id) === idx
+      );
+    }
+    if (Array.isArray(profile.validatedTps)) {
+      this.validatedTps = [...profile.validatedTps];
+    }
+    if (profile.arcadeHighScores && typeof profile.arcadeHighScores === 'object') {
+      this.arcadeHighScores = { ...profile.arcadeHighScores };
     }
     if (Array.isArray(profile.unlockedDivineSkins)) {
       this.unlockedDivineSkins = filterValidDivineIds(profile.unlockedDivineSkins);
@@ -588,6 +741,26 @@ export class GameState {
     if (profile.prestigeCount !== undefined) {
       this.prestigeCount = Math.max(0, Number(profile.prestigeCount) || 0);
     }
+    if (profile.equippedSkin !== undefined) {
+      this.equippedSkin =
+        profile.equippedSkin && isShopSkinId(profile.equippedSkin) && this.ownedItems.includes(profile.equippedSkin)
+          ? profile.equippedSkin
+          : null;
+    }
+    if (profile.equippedPet !== undefined) {
+      this.equippedPet =
+        profile.equippedPet && isShopPetId(profile.equippedPet) && this.ownedItems.includes(profile.equippedPet)
+          ? profile.equippedPet
+          : null;
+    }
+    if (profile.equippedTrail !== undefined) {
+      this.equippedTrail =
+        profile.equippedTrail &&
+        isShopAccessoryId(profile.equippedTrail) &&
+        this.ownedItems.includes(profile.equippedTrail)
+          ? profile.equippedTrail
+          : null;
+    }
     if (profile.selectedSkin) {
       if (isUltimateSecretSkinId(profile.selectedSkin)) {
         this.selectedSkin = this.secretSkinUnlocked ? ULTIMATE_SECRET_SKIN_ID : 'standard';
@@ -595,6 +768,9 @@ export class GameState {
         const bpSpec = getBattlePassTierSpec(profile.selectedSkin);
         if (bpSpec) {
           this.selectedSkin = this.unlockedBattlePassTiers.includes(bpSpec.tier) ? bpSpec.id : 'standard';
+        } else if (isShopSkinId(profile.selectedSkin)) {
+          this.selectedSkin = this.ownedItems.includes(profile.selectedSkin) ? profile.selectedSkin : 'standard';
+          this.equippedSkin = this.selectedSkin === 'standard' ? null : this.selectedSkin;
         } else {
           const selId = matchDivineSpecialtyId(profile.selectedSkin);
           this.selectedSkin = selId && this.unlockedDivineSkins.includes(selId) ? selId : 'standard';
@@ -611,14 +787,24 @@ export class GameState {
         delete merged.battlePassTier;
         delete merged.showcase;
       }
+      if (!profile.skin.shopSkinId && profile.selectedSkin === 'standard') {
+        delete merged.shopSkinId;
+      }
       if (!profile.skin.secretSkin && !isUltimateSecretSkinId(profile.skin.divineSpecialty)) {
         delete merged.secretSkin;
+      }
+      if (!profile.skin.equippedPet && profile.equippedPet === null) {
+        delete merged.equippedPet;
+      }
+      if (!profile.skin.equippedTrail && profile.equippedTrail === null) {
+        delete merged.equippedTrail;
       }
       const nextSkin = normalizeSkin(merged);
       const bpSpecSkin = getBattlePassTierSpec(nextSkin.battlePassTier);
       if (nextSkin.secretSkin || isUltimateSecretSkinId(nextSkin.divineSpecialty)) {
         delete nextSkin.battlePassTier;
         delete nextSkin.showcase;
+        delete nextSkin.shopSkinId;
         if (!this.secretSkinUnlocked) {
           delete nextSkin.divineSpecialty;
           delete nextSkin.secretSkin;
@@ -627,12 +813,14 @@ export class GameState {
       } else if (nextSkin.divineSpecialty) {
         delete nextSkin.battlePassTier;
         delete nextSkin.showcase;
+        delete nextSkin.shopSkinId;
         if (!this.unlockedDivineSkins.includes(nextSkin.divineSpecialty)) {
           delete nextSkin.divineSpecialty;
           delete nextSkin.secretSkin;
           this.selectedSkin = 'standard';
         }
       } else if (bpSpecSkin) {
+        delete nextSkin.shopSkinId;
         if (!this.unlockedBattlePassTiers.includes(bpSpecSkin.tier)) {
           delete nextSkin.battlePassTier;
           delete nextSkin.showcase;
@@ -640,6 +828,27 @@ export class GameState {
         } else {
           this.selectedSkin = bpSpecSkin.id;
         }
+      } else if (nextSkin.shopSkinId) {
+        if (!this.ownedItems.includes(nextSkin.shopSkinId)) {
+          delete nextSkin.shopSkinId;
+          this.equippedSkin = null;
+          this.selectedSkin = 'standard';
+        } else {
+          this.selectedSkin = nextSkin.shopSkinId;
+          this.equippedSkin = nextSkin.shopSkinId;
+        }
+      }
+      if (nextSkin.equippedPet && !this.ownedItems.includes(nextSkin.equippedPet)) {
+        delete nextSkin.equippedPet;
+        this.equippedPet = null;
+      } else if (nextSkin.equippedPet) {
+        this.equippedPet = nextSkin.equippedPet;
+      }
+      if (nextSkin.equippedTrail && !this.ownedItems.includes(nextSkin.equippedTrail)) {
+        delete nextSkin.equippedTrail;
+        this.equippedTrail = null;
+      } else if (nextSkin.equippedTrail) {
+        this.equippedTrail = nextSkin.equippedTrail;
       }
       this.skin = nextSkin;
       writeStorage('ciel_skin', JSON.stringify(this.skin));
@@ -648,6 +857,13 @@ export class GameState {
       ...this.profile,
       ...profile,
       introSeen: this.introSeen,
+      coins: this.coins,
+      ownedItems: [...this.ownedItems],
+      equippedSkin: this.equippedSkin,
+      equippedPet: this.equippedPet,
+      equippedTrail: this.equippedTrail,
+      validatedTps: [...this.validatedTps],
+      arcadeHighScores: { ...this.arcadeHighScores },
       unlockedDivineSkins: [...this.unlockedDivineSkins],
       secretSkinUnlocked: this.secretSkinUnlocked,
       unlockedBattlePassTiers: [...this.unlockedBattlePassTiers],
@@ -660,6 +876,13 @@ export class GameState {
         ...this.account,
         introSeen: this.introSeen,
         ...(profile.grades ? { tpScores: { ...profile.grades } } : {}),
+        coins: this.coins,
+        ownedItems: [...this.ownedItems],
+        equippedSkin: this.equippedSkin,
+        equippedPet: this.equippedPet,
+        equippedTrail: this.equippedTrail,
+        validatedTps: [...this.validatedTps],
+        arcadeHighScores: { ...this.arcadeHighScores },
         unlockedDivineSkins: [...this.unlockedDivineSkins],
         secretSkinUnlocked: this.secretSkinUnlocked,
         unlockedBattlePassTiers: [...this.unlockedBattlePassTiers],
@@ -684,19 +907,43 @@ export class GameState {
       merged.battlePassTier = this.skin.battlePassTier;
       if (this.skin?.showcase) merged.showcase = this.skin.showcase;
     }
+    if (skin && !('shopSkinId' in skin) && this.skin?.shopSkinId) {
+      merged.shopSkinId = this.skin.shopSkinId;
+    }
+    if (skin && !('equippedPet' in skin) && this.skin?.equippedPet) {
+      merged.equippedPet = this.skin.equippedPet;
+    }
+    if (skin && !('equippedTrail' in skin) && this.skin?.equippedTrail) {
+      merged.equippedTrail = this.skin.equippedTrail;
+    }
     if (skin && skin.divineSpecialty === null) {
       delete merged.divineSpecialty;
       delete merged.secretSkin;
-      if (!merged.battlePassTier) this.selectedSkin = 'standard';
+      if (!merged.battlePassTier && !merged.shopSkinId) this.selectedSkin = 'standard';
     }
     if (skin && skin.battlePassTier === null) {
       delete merged.battlePassTier;
       delete merged.showcase;
-      if (!merged.divineSpecialty && !merged.secretSkin) this.selectedSkin = 'standard';
+      if (!merged.divineSpecialty && !merged.secretSkin && !merged.shopSkinId) this.selectedSkin = 'standard';
+    }
+    if (skin && skin.shopSkinId === null) {
+      delete merged.shopSkinId;
+      this.equippedSkin = null;
+      if (!merged.divineSpecialty && !merged.secretSkin && !merged.battlePassTier) this.selectedSkin = 'standard';
+    }
+    if (skin && skin.equippedPet === null) {
+      delete merged.equippedPet;
+      this.equippedPet = null;
+    }
+    if (skin && skin.equippedTrail === null) {
+      delete merged.equippedTrail;
+      this.equippedTrail = null;
     }
     if (merged.secretSkin || isUltimateSecretSkinId(merged.divineSpecialty)) {
       delete merged.battlePassTier;
       delete merged.showcase;
+      delete merged.shopSkinId;
+      this.equippedSkin = null;
       if (this.secretSkinUnlocked) {
         this.selectedSkin = ULTIMATE_SECRET_SKIN_ID;
       } else {
@@ -707,8 +954,12 @@ export class GameState {
     } else if (merged.divineSpecialty) {
       delete merged.battlePassTier;
       delete merged.showcase;
+      delete merged.shopSkinId;
+      this.equippedSkin = null;
       this.selectedSkin = merged.divineSpecialty;
     } else if (merged.battlePassTier) {
+      delete merged.shopSkinId;
+      this.equippedSkin = null;
       const bpSpec = getBattlePassTierSpec(merged.battlePassTier);
       if (bpSpec && this.unlockedBattlePassTiers.includes(bpSpec.tier)) {
         this.selectedSkin = bpSpec.id;
@@ -717,18 +968,35 @@ export class GameState {
         delete merged.showcase;
         this.selectedSkin = 'standard';
       }
+    } else if (merged.shopSkinId) {
+      if (isShopSkinId(merged.shopSkinId) && this.hasOwnedItem(merged.shopSkinId)) {
+        this.selectedSkin = merged.shopSkinId;
+        this.equippedSkin = merged.shopSkinId;
+      } else {
+        delete merged.shopSkinId;
+        this.equippedSkin = null;
+        this.selectedSkin = 'standard';
+      }
     }
     this.skin = normalizeSkin(merged);
+    this.equippedPet = this.skin.equippedPet || null;
+    this.equippedTrail = this.skin.equippedTrail || null;
     writeStorage('ciel_skin', JSON.stringify(this.skin));
     this.profile = {
       ...this.profile,
       skin: { ...this.skin },
-      selectedSkin: this.selectedSkin
+      selectedSkin: this.selectedSkin,
+      equippedSkin: this.equippedSkin,
+      equippedPet: this.equippedPet,
+      equippedTrail: this.equippedTrail
     };
     if (this.account) {
       this.account = {
         ...this.account,
         selectedSkin: this.selectedSkin,
+        equippedSkin: this.equippedSkin,
+        equippedPet: this.equippedPet,
+        equippedTrail: this.equippedTrail,
         avatarCustomization: { ...this.skin }
       };
     }

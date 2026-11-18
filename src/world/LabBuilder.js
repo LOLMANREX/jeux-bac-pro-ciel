@@ -691,17 +691,21 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   const hidingSpots = [];
   const pcStations = [];
   const pcInteractiveSurfaces = [];
+  const shopKiosks = [];
   let ceilingPanelsInst = null;
   const animatedRefs = {
     rings: [],
     leds: [],
-    survivalBeacons: []
+    survivalBeacons: [],
+    shopHolograms: []
   };
   let leaderboardBoards = [];
   let materialPack = null;
   let currentMapData = normalizeMapData(initialMapData || createDefaultMap());
   let lastLeaderboardEntries = [];
   let lastLocalPlayerName = '';
+  let lastLocalCoins = 0;
+  let arcadeGameEndHandler = null;
   let lastGrades = {};
   const showSprites = !options.hideSprites;
   let hoveredItem = null;
@@ -841,6 +845,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       stationId: obj.id,
       stationLabel: obj.label || cat.shortLabel || 'Poste PC CIEL',
       playerName: lastLocalPlayerName || 'Eleve_CIEL',
+      coins: lastLocalCoins,
+      onGameFinished: arcadeGameEndHandler,
       themeId: defaultTheme
     });
 
@@ -2224,12 +2230,180 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       grp.add(fallback);
     }
 
+    const buildShopKioskInHall = () => {
+      const kioskX = -5.1;
+      const kioskZ = -1.95;
+      const kMinX = kioskX - 0.52;
+      const kMaxX = kioskX + 0.52;
+      const kMinZ = kioskZ - 0.33;
+      const kMaxZ = kioskZ + 0.33;
+      const collidesExisting = colliders.some((c) => {
+        if (c.type === 'obb') {
+          return Math.abs(kioskX - c.cx) < c.hx + 0.6 && Math.abs(kioskZ - c.cz) < c.hz + 0.6;
+        }
+        return kMaxX > c.minX && kMinX < c.maxX && kMaxZ > c.minZ && kMinZ < c.maxZ;
+      });
+
+      const kioskGrp = new THREE.Group();
+      kioskGrp.name = 'shop-kiosk-hall';
+      kioskGrp.position.set(kioskX, 0, kioskZ);
+      kioskGrp.rotation.y = 0.46;
+      worldGroup.add(kioskGrp);
+
+      const kioskBodyMat = new THREE.MeshStandardMaterial({
+        color: '#0f172a',
+        metalness: 0.72,
+        roughness: 0.28,
+        emissive: '#000000',
+        emissiveIntensity: 0
+      });
+      const kioskTrimMat = new THREE.MeshStandardMaterial({
+        color: '#fbbf24',
+        metalness: 0.82,
+        roughness: 0.22,
+        emissive: '#d97706',
+        emissiveIntensity: 0.45
+      });
+
+      const basePlinth = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.12, 0.64), kioskBodyMat);
+      basePlinth.position.y = 0.06;
+      kioskGrp.add(basePlinth);
+
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.06, 2.02, 0.52), kioskBodyMat);
+      body.position.y = 1.13;
+      body.castShadow = true;
+      kioskGrp.add(body);
+
+      const topFrame = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.28, 0.56), kioskTrimMat);
+      topFrame.position.y = 2.22;
+      kioskGrp.add(topFrame);
+
+      for (const sx of [-0.54, 0.54]) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.035, 1.98, 0.045), kioskTrimMat);
+        rail.position.set(sx, 1.13, 0.26);
+        kioskGrp.add(rail);
+      }
+
+      const signTex = makeDoorSignTexture('🛒 BOUTIQUE CIEL • 🪙 CC', '#fbbf24');
+      const signMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.04, 0.22),
+        new THREE.MeshBasicMaterial({ map: signTex })
+      );
+      signMesh.position.set(0, 2.22, 0.286);
+      kioskGrp.add(signMesh);
+
+      const kioskCanvas =
+        typeof document !== 'undefined' && typeof document.createElement === 'function'
+          ? document.createElement('canvas')
+          : null;
+      let screenTex = null;
+      if (kioskCanvas && typeof kioskCanvas.getContext === 'function') {
+        kioskCanvas.width = 512;
+        kioskCanvas.height = 512;
+        const kctx = kioskCanvas.getContext('2d');
+        if (kctx) {
+          kctx.fillStyle = '#071024';
+          kctx.fillRect(0, 0, 512, 512);
+          kctx.strokeStyle = '#fbbf24';
+          kctx.lineWidth = 8;
+          kctx.strokeRect(12, 12, 488, 488);
+          kctx.fillStyle = '#fde047';
+          kctx.font = 'bold 34px system-ui, sans-serif';
+          kctx.textAlign = 'center';
+          kctx.fillText('🛒 BOUTIQUE CIEL', 256, 76);
+          kctx.fillStyle = '#38bdf8';
+          kctx.font = 'bold 24px system-ui, sans-serif';
+          kctx.fillText('SKINS • PETS 3D • AURAs', 256, 124);
+          kctx.fillStyle = '#e2e8f0';
+          kctx.font = '22px system-ui, sans-serif';
+          kctx.fillText('👕 8 Skins Exclusifs', 256, 200);
+          kctx.fillText('🐾 6 Compagnons Pets 3D', 256, 250);
+          kctx.fillText('✨ 5 Accessoires & Effets', 256, 300);
+          kctx.fillStyle = '#10b981';
+          kctx.fillRect(76, 360, 360, 88);
+          kctx.fillStyle = '#04101f';
+          kctx.font = 'bold 28px system-ui, sans-serif';
+          kctx.fillText('[E] OUVRIR BOUTIQUE', 256, 414);
+          kctx.textAlign = 'left';
+        }
+        screenTex = new THREE.CanvasTexture(kioskCanvas);
+        screenTex.colorSpace = THREE.SRGBColorSpace;
+      }
+
+      const touchScreen = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.84, 0.84),
+        new THREE.MeshBasicMaterial({ map: screenTex, color: screenTex ? '#ffffff' : '#0ea5e9' })
+      );
+      touchScreen.position.set(0, 1.38, 0.268);
+      kioskGrp.add(touchScreen);
+
+      const holoCore = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.14, 0),
+        new THREE.MeshStandardMaterial({
+          color: '#fde047',
+          emissive: '#fbbf24',
+          emissiveIntensity: 1.5,
+          metalness: 0.8,
+          roughness: 0.2
+        })
+      );
+      holoCore.position.set(0, 2.58, 0);
+      kioskGrp.add(holoCore);
+      animatedRefs.shopHolograms.push(holoCore);
+
+      const shopRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.76, 0.96, 32),
+        new THREE.MeshBasicMaterial({
+          color: '#fbbf24',
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.88
+        })
+      );
+      shopRing.rotation.x = -Math.PI / 2;
+      shopRing.position.set(0, 0.03, 0);
+      kioskGrp.add(shopRing);
+
+      if (showSprites) {
+        const sprite = makeStationLabelSprite('Boutique CIEL', '🛒', '#fbbf24');
+        sprite.position.set(0, 2.98, 0);
+        kioskGrp.add(sprite);
+      }
+
+      if (!collidesExisting) {
+        colliders.push({
+          minX: kMinX,
+          maxX: kMaxX,
+          minZ: kMinZ,
+          maxZ: kMaxZ
+        });
+      }
+
+      const kioskEntry = {
+        id: 'shop-kiosk-hall',
+        type: 'shop_kiosk',
+        label: '[E] 🛒 Ouvrir la Boutique CIEL',
+        position: new THREE.Vector3(kioskX, 0, kioskZ),
+        interactRadius: 2.8,
+        ring: shopRing,
+        mesh: kioskGrp,
+        highlightMats: [kioskBodyMat, kioskTrimMat]
+      };
+      shopKiosks.push(kioskEntry);
+      interactables.push(kioskEntry);
+    };
+
+    buildShopKioskInHall();
+
     worldGroup.updateMatrixWorld(true);
     const dynamicNodes = new Set();
     for (const tr of teacherRefs) {
       if (tr?.root) {
         tr.root.traverse((n) => dynamicNodes.add(n));
       }
+    }
+    for (const h of animatedRefs.shopHolograms) {
+      dynamicNodes.add(h);
     }
     worldGroup.traverse((node) => {
       if (node === worldGroup || dynamicNodes.has(node)) return;
@@ -2270,10 +2444,12 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     hidingSpots.length = 0;
     pcStations.length = 0;
     pcInteractiveSurfaces.length = 0;
+    shopKiosks.length = 0;
     ceilingPanelsInst = null;
     animatedRefs.rings.length = 0;
     animatedRefs.leds.length = 0;
     animatedRefs.survivalBeacons.length = 0;
+    animatedRefs.shopHolograms.length = 0;
     leaderboardBoards = [];
 
     disposeNodeTree(worldGroup);
@@ -2347,6 +2523,11 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         tr.update(elapsed, playerPos, diplomaEarned);
       }
     }
+    for (let i = 0; i < animatedRefs.shopHolograms.length; i++) {
+      const h = animatedRefs.shopHolograms[i];
+      h.rotation.y = elapsed * 1.4;
+      h.position.y = 2.58 + Math.sin(elapsed * 2.6 + i) * 0.05;
+    }
 
     const hasCamera = Boolean(camera && typeof camera.getWorldPosition === 'function');
     if (hasCamera) {
@@ -2392,6 +2573,22 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     }
   }
 
+  function setArcadeGameEndHandler(fn) {
+    arcadeGameEndHandler = typeof fn === 'function' ? fn : null;
+    for (const pc of pcStations) {
+      if (pc.desktop) {
+        pc.desktop.onGameFinished = arcadeGameEndHandler;
+      }
+    }
+  }
+
+  function setLocalCoins(coins) {
+    lastLocalCoins = Math.max(0, Math.floor(Number(coins) || 0));
+    for (const pc of pcStations) {
+      pc.desktop?.setCoins?.(lastLocalCoins);
+    }
+  }
+
   function getPcStationById(id) {
     return pcStations.find((pc) => pc.id === id || `pc-${pc.id}` === id) || null;
   }
@@ -2422,7 +2619,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     hidingSpots,
     pcStations,
     pcInteractiveSurfaces,
+    shopKiosks,
     getPcStationById,
+    setArcadeGameEndHandler,
+    setLocalCoins,
     get mapData() {
       return currentMapData;
     },

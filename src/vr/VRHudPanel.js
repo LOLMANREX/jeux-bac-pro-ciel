@@ -188,6 +188,9 @@ export function createWristHudPanel(options = {}) {
     completedCount: 0,
     totalTps: 5,
     xp: 0,
+    coins: 0,
+    coinGainAmount: 0,
+    coinGainUntil: 0,
     micEnabled: false,
     isSpeaking: false,
     nearbySpeakers: [],
@@ -209,6 +212,11 @@ export function createWristHudPanel(options = {}) {
     rimMat.emissive.set(state.isSpeaking ? '#10b981' : conn.rimColor);
 
     if (!ctx || !texture) {
+      hitBoxes = [
+        { id: 'btn_mic', x: 22, y: 396, w: 148, h: 64 },
+        { id: 'btn_shop', x: 182, y: 396, w: 148, h: 64 },
+        { id: 'btn_vr_exit', x: 342, y: 396, w: 148, h: 64 }
+      ];
       dirty = false;
       return;
     }
@@ -266,10 +274,16 @@ export function createWristHudPanel(options = {}) {
         : String(state.average || '--/20');
     const doneCnt = Number.isFinite(Number(state.completedCount)) ? Number(state.completedCount) : 0;
     const totalCnt = Number.isFinite(Number(state.totalTps)) && Number(state.totalTps) > 0 ? Number(state.totalTps) : 5;
+    const coinVal = Math.max(0, Math.floor(Number(state.coins) || 0));
     ctx.fillStyle = '#fbbf24';
-    ctx.font = 'bold 16px system-ui, sans-serif';
+    ctx.font = 'bold 15px system-ui, sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(`${avgDisplay} • ${doneCnt}/${totalCnt} • ${state.xp || 0} XP`, canvasW - 34, 78);
+    ctx.fillText(`🪙 ${coinVal} CC • ${avgDisplay} • ${doneCnt}/${totalCnt}`, canvasW - 34, 78);
+    if (state.coinGainAmount > 0 && Date.now() < (state.coinGainUntil || 0)) {
+      ctx.fillStyle = '#fde047';
+      ctx.font = 'bold 14px system-ui, sans-serif';
+      ctx.fillText(`+${state.coinGainAmount} 🪙`, canvasW - 34, 98);
+    }
     ctx.textAlign = 'left';
 
     ctx.fillStyle = state.zoneColor || '#38bdf8';
@@ -375,13 +389,14 @@ export function createWristHudPanel(options = {}) {
         ? '#34d399'
         : '#38bdf8';
     const micTxt = state.isSpeaking
-      ? '🔴 En direct'
+      ? '🔴 Direct'
       : state.micEnabled
         ? '🎙️ Micro ON'
         : '🔇 Micro OFF';
 
-    drawBtn('btn_mic', 22, 396, 224, 64, micTxt, micBg, micBorder, '#f8fafc');
-    drawBtn('btn_vr_exit', 266, 396, 224, 64, `🚪 ${state.vrLabel}`, '#3f1d2b', '#fb7185', '#ffe4e6');
+    drawBtn('btn_mic', 22, 396, 148, 64, micTxt, micBg, micBorder, '#f8fafc');
+    drawBtn('btn_shop', 182, 396, 148, 64, '🛒 Boutique', '#78350f', '#fbbf24', '#fef08a');
+    drawBtn('btn_vr_exit', 342, 396, 148, 64, `🚪 ${state.vrLabel}`, '#3f1d2b', '#fb7185', '#ffe4e6');
 
     texture.needsUpdate = true;
     dirty = false;
@@ -586,6 +601,7 @@ export function createWristHudPanel(options = {}) {
     getState,
     hasMiniMapData: () => Boolean(currentMapData && Array.isArray(currentMapData.zones)),
     getMiniMapBounds: () => currentMapData?.bounds || null,
+    getHitBoxes: () => [...hitBoxes],
     dispose
   };
 }
@@ -689,6 +705,7 @@ export function createTpSpatialPanel() {
     jumpscare: null,
     detention: null,
     survivalEnd: null,
+    shop: null,
     onSelectStage: null,
     onSelectTool: null,
     onSelectCamera: null,
@@ -704,6 +721,7 @@ export function createTpSpatialPanel() {
     if (state.survivalHidden) return 'survival_hidden';
     if (state.survivalIntro) return 'survival_intro';
     if (state.survivalLobby) return 'survival_lobby';
+    if (state.shop) return 'shop';
     if (state.ascension) return 'ascension';
     if (state.dialogue) return 'dialogue';
     if (state.result) return 'result';
@@ -711,6 +729,10 @@ export function createTpSpatialPanel() {
   };
 
   const handleExitAction = (uv) => {
+    if (typeof state.shop?.onClose === 'function') {
+      state.shop.onClose(uv);
+      return;
+    }
     if (typeof state.survivalIntro?.onSkip === 'function') {
       state.survivalIntro.onSkip(uv);
       return;
@@ -981,12 +1003,16 @@ export function createTpSpatialPanel() {
                       : '#f87171'
                     : mode === 'ascension'
                       ? '#fbbf24'
-                      : '#38bdf8';
+                      : mode === 'shop'
+                        ? '#fbbf24'
+                        : '#38bdf8';
       ctx.fillStyle = headerColor;
       ctx.font = 'bold 26px system-ui, sans-serif';
       const headerTitle =
-        mode === 'dialogue'
-          ? state.dialogue?.title || '👨‍🏫 ENTRETIEN PROFESSEUR CIEL'
+        mode === 'shop'
+          ? state.shop?.title || '🛒 BOUTIQUE CIEL — SKINS, PETS 3D & AURAs'
+          : mode === 'dialogue'
+            ? state.dialogue?.title || '👨‍🏫 ENTRETIEN PROFESSEUR CIEL'
           : mode === 'ascension'
             ? state.ascension?.title || '👑 CÉRÉMONIE D’ASCENSION BAC PRO CIEL'
             : mode === 'survival_intro'
@@ -1035,15 +1061,199 @@ export function createTpSpatialPanel() {
               ? '📺 Salle 3D'
               : mode === 'survival_end'
                 ? '🏫 Hall Principal'
-                : mode === 'dialogue' || mode === 'ascension'
+                : mode === 'dialogue' || mode === 'ascension' || mode === 'shop'
                   ? '✕ Fermer'
                   : '✕ Quitter le TP';
-      addBtn('vr_tp_exit', 1006, 16, 250, 44, exitLabel, {
+      addBtn(mode === 'shop' ? 'vr_shop_close' : 'vr_tp_exit', 1006, 16, 250, 44, exitLabel, {
         danger: true,
         maxChars: 20,
         fontSize: 19,
         onClick: handleExitAction
       });
+    }
+
+    if (mode === 'shop' && state.shop) {
+      const sh = state.shop;
+      const cats = Array.isArray(sh.categories) ? sh.categories : [
+        { id: 'skins', shortLabel: 'Skins', icon: '👕' },
+        { id: 'pets', shortLabel: 'Pets 3D', icon: '🐾' },
+        { id: 'accessories', shortLabel: 'Accessoires', icon: '✨' }
+      ];
+      const items = Array.isArray(sh.items) ? sh.items : [];
+      const sel = sh.selectedItem || items[0] || null;
+      const coinsVal = Math.max(0, Math.floor(Number(sh.coins) || 0));
+
+      if (ctx) {
+        roundRectPath(ctx, 730, 16, 256, 44, 10);
+        ctx.fillStyle = 'rgba(120, 53, 15, 0.88)';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#fbbf24';
+        ctx.stroke();
+        ctx.fillStyle = '#fde047';
+        ctx.font = 'bold 21px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`🪙 ${coinsVal} CC`, 858, 45);
+        ctx.textAlign = 'left';
+      }
+
+      const catW = Math.floor((736 - (cats.length - 1) * 10) / Math.max(1, cats.length));
+      cats.forEach((cat, idx) => {
+        const cx = 28 + idx * (catW + 10);
+        addBtn(`vr_shop_cat_${cat.id}`, cx, 78, catW, 48, `${cat.icon || ''} ${cat.shortLabel || cat.label}`, {
+          active: sh.activeCategory === cat.id,
+          fontSize: 18,
+          maxChars: 20,
+          onClick: () => sh.onSelectCategory?.(cat.id)
+        });
+      });
+
+      const gridX = 28;
+      const gridY = 140;
+      const colW = 362;
+      const rowH = 142;
+      const gap = 12;
+      items.slice(0, 8).forEach((item, idx) => {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const ix = gridX + col * (colW + gap);
+        const iy = gridY + row * (rowH + gap);
+        const isSel = sel?.id === item.id;
+        const rarColor = item.rarityMeta?.color || '#38bdf8';
+
+        if (ctx) {
+          roundRectPath(ctx, ix, iy, colW, rowH, 14);
+          ctx.fillStyle = isSel ? 'rgba(12, 42, 74, 0.96)' : 'rgba(15, 29, 52, 0.9)';
+          ctx.fill();
+          ctx.lineWidth = isSel ? 3 : 1.5;
+          ctx.strokeStyle = item.equipped ? '#34d399' : isSel ? '#38bdf8' : rarColor;
+          ctx.stroke();
+
+          ctx.fillStyle = rarColor;
+          ctx.font = 'bold 14px system-ui, sans-serif';
+          ctx.fillText(String(item.rarityMeta?.label || item.rarity || '').toUpperCase(), ix + 16, iy + 28);
+
+          const statusTxt = item.equipped
+            ? 'ÉQUIPÉ'
+            : item.owned
+              ? 'POSSÉDÉ'
+              : `${item.price} 🪙`;
+          ctx.fillStyle = item.equipped ? '#6ee7b7' : item.owned ? '#7dd3fc' : item.canAfford ? '#fbbf24' : '#f87171';
+          ctx.font = 'bold 16px system-ui, sans-serif';
+          ctx.textAlign = 'right';
+          ctx.fillText(statusTxt, ix + colW - 16, iy + 28);
+          ctx.textAlign = 'left';
+
+          ctx.fillStyle = '#f8fafc';
+          ctx.font = 'bold 21px system-ui, sans-serif';
+          ctx.fillText(`${item.icon || ''} ${item.name}`.slice(0, 26), ix + 16, iy + 78);
+
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = '14px system-ui, sans-serif';
+          ctx.fillText(String(item.description || '').slice(0, 40), ix + 16, iy + 114);
+        }
+
+        hitBoxes.push({
+          id: `vr_shop_item_${item.id}`,
+          kind: 'button',
+          x: ix,
+          y: iy,
+          w: colW,
+          h: rowH,
+          label: item.name,
+          onClick: () => sh.onSelectItem?.(item.id)
+        });
+      });
+
+      const inspX = 788;
+      const inspY = 78;
+      const inspW = 468;
+      const inspH = 684;
+      if (ctx) {
+        roundRectPath(ctx, inspX, inspY, inspW, inspH, 16);
+        ctx.fillStyle = 'rgba(10, 22, 44, 0.94)';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = sel?.rarityMeta?.color || 'rgba(56, 189, 248, 0.45)';
+        ctx.stroke();
+
+        if (sel) {
+          ctx.fillStyle = sel.rarityMeta?.color || '#38bdf8';
+          ctx.font = 'bold 18px system-ui, sans-serif';
+          ctx.fillText(String(sel.rarityMeta?.label || '').toUpperCase(), inspX + 24, inspY + 42);
+
+          ctx.fillStyle = '#f8fafc';
+          ctx.font = 'bold 26px system-ui, sans-serif';
+          ctx.fillText(`${sel.icon || ''} ${sel.name}`.slice(0, 26), inspX + 24, inspY + 86);
+
+          const descLines = wrapTextLines(ctx, sel.description || '', inspW - 48, 5);
+          ctx.fillStyle = '#cbd5e1';
+          ctx.font = '18px system-ui, sans-serif';
+          descLines.forEach((ln, idx) => {
+            ctx.fillText(ln, inspX + 24, inspY + 132 + idx * 28);
+          });
+
+          ctx.fillStyle = sel.equipped ? '#34d399' : sel.owned ? '#7dd3fc' : '#fbbf24';
+          ctx.font = 'bold 22px system-ui, sans-serif';
+          ctx.fillText(
+            sel.equipped
+              ? '✅ Actuellement équipé'
+              : sel.owned
+                ? '📦 Dans votre inventaire'
+                : `🪙 Prix : ${sel.price} CIEL Coins`,
+            inspX + 24,
+            inspY + 324
+          );
+
+          if (sh.feedback?.message) {
+            roundRectPath(ctx, inspX + 24, inspY + 356, inspW - 48, 54, 10);
+            ctx.fillStyle = sh.feedback.kind === 'error' ? 'rgba(127, 29, 29, 0.85)' : 'rgba(6, 78, 59, 0.85)';
+            ctx.fill();
+            ctx.fillStyle = '#f8fafc';
+            ctx.font = 'bold 17px system-ui, sans-serif';
+            ctx.fillText(String(sh.feedback.message).slice(0, 42), inspX + 38, inspY + 389);
+          }
+
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = '15px system-ui, sans-serif';
+          ctx.fillText('👀 Aperçu 3D rotatif à droite du panneau', inspX + 24, inspY + 454);
+        }
+      }
+
+      if (sel) {
+        if (!sel.owned) {
+          addBtn(
+            'vr_shop_buy',
+            inspX + 24,
+            inspY + 500,
+            inspW - 48,
+            78,
+            sel.canAfford ? `🛒 Acheter — ${sel.price} 🪙` : `🔒 Solde insuffisant (${sel.price} 🪙)`,
+            {
+              gold: sel.canAfford,
+              disabled: !sel.canAfford,
+              fontSize: 22,
+              maxChars: 32,
+              onClick: () => sh.onBuy?.(sel)
+            }
+          );
+        } else if (!sel.equipped) {
+          addBtn('vr_shop_equip', inspX + 24, inspY + 500, inspW - 48, 78, '✨ Équiper', {
+            primary: true,
+            fontSize: 24,
+            onClick: () => sh.onEquip?.(sel, true)
+          });
+        } else {
+          addBtn('vr_shop_unequip', inspX + 24, inspY + 500, inspW - 48, 78, '↩️ Retirer', {
+            danger: true,
+            fontSize: 24,
+            onClick: () => sh.onEquip?.(sel, false)
+          });
+        }
+      }
+
+      if (texture) texture.needsUpdate = true;
+      return;
     }
 
     if (mode === 'dialogue' && state.dialogue) {

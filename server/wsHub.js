@@ -241,9 +241,81 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
     return moveClientToRoom(ws, state, targetRoom);
   }
 
+  function findClientByIdOrName(id, name) {
+    if (id) {
+      for (const [sock, s] of clients.entries()) {
+        if (s.id === id && sock.readyState === 1) {
+          return { sock, state: s };
+        }
+      }
+    }
+    if (name) {
+      const key = String(name).trim().toLowerCase();
+      for (const [sock, s] of clients.entries()) {
+        if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
+          return { sock, state: s };
+        }
+      }
+    }
+    return null;
+  }
+
+  function sendCoinsEarnedToPlayer(targetName, profile, meta = {}) {
+    if (!profile?.name) return;
+    const key = profile.name.toLowerCase();
+    for (const [sock, s] of clients.entries()) {
+      if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
+        sock.send(
+          JSON.stringify({
+            type: 'coins_earned',
+            coinsEarned: Number(meta.coinsEarned) || 0,
+            coins: profile.coins ?? 0,
+            source: meta.source || 'reward',
+            ...meta,
+            profile
+          })
+        );
+        sock.send(
+          JSON.stringify({
+            type: 'profile_updated',
+            profile
+          })
+        );
+      }
+    }
+  }
+
   function finishSurvivalMatchInRoom(roomId, ctrl, ended) {
     if (!ended) return;
     clearPendingSurvivalRoom(roomId);
+    if (!ctrl._rewardedSurvivalKeys) {
+      ctrl._rewardedSurvivalKeys = new Set();
+    }
+    const coinRewards = {};
+    for (const p of ctrl.participants.values()) {
+      const rewardKey = `${ctrl.matchId}:${p.id}`;
+      if (ctrl._rewardedSurvivalKeys.has(rewardKey)) continue;
+      ctrl._rewardedSurvivalKeys.add(rewardKey);
+      const rewardRes = store.recordSurvivalReward(p.name, {
+        outcome: ended.outcome,
+        solvedTables: 0,
+        matchId: rewardKey
+      });
+      if (rewardRes?.ok && rewardRes.profile) {
+        coinRewards[p.id] = {
+          coinsEarned: rewardRes.coinsEarned,
+          coins: rewardRes.coins,
+          outcome: rewardRes.outcome
+        };
+        sendCoinsEarnedToPlayer(p.name, rewardRes.profile, {
+          coinsEarned: rewardRes.coinsEarned,
+          source: 'survival',
+          outcome: ended.outcome,
+          matchId: ctrl.matchId
+        });
+      }
+    }
+    ended.coinRewards = { ...(ended.coinRewards || {}), ...coinRewards };
     broadcastToRoom(roomId, {
       type: 'survival_ended',
       ended,
@@ -294,13 +366,38 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           const res = ctrl.step(dt, now);
           const snap = ctrl.getPublicSnapshot(now);
           if (res.caught.length > 0) {
+            if (!ctrl._rewardedSurvivalKeys) {
+              ctrl._rewardedSurvivalKeys = new Set();
+            }
             for (const c of res.caught) {
+              let soloCoinsEarned = 0;
+              if (ctrl.isSoloDetentionActive()) {
+                const rewardKey = `${ctrl.matchId}:${c.playerId}`;
+                if (!ctrl._rewardedSurvivalKeys.has(rewardKey)) {
+                  ctrl._rewardedSurvivalKeys.add(rewardKey);
+                  const soloRes = store.recordSurvivalReward(c.playerName, {
+                    outcome: 'defeat',
+                    solvedTables: 0,
+                    matchId: rewardKey
+                  });
+                  if (soloRes?.ok && soloRes.profile) {
+                    soloCoinsEarned = soloRes.coinsEarned;
+                    sendCoinsEarnedToPlayer(c.playerName, soloRes.profile, {
+                      coinsEarned: soloRes.coinsEarned,
+                      source: 'survival',
+                      outcome: 'defeat',
+                      matchId: ctrl.matchId
+                    });
+                  }
+                }
+              }
               broadcastToRoom(roomId, {
                 type: 'survival_caught',
                 playerId: c.playerId,
                 playerName: c.playerName,
                 aliveCount: snap.aliveCount,
                 detainedCount: snap.detainedCount,
+                coinsEarned: soloCoinsEarned,
                 state: snap
               });
             }
@@ -509,6 +606,10 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
       name: state.name,
       color: state.color,
       skin: state.skin,
+      equippedSkin: profile?.equippedSkin ?? state.skin?.shopSkinId ?? null,
+      equippedPet: profile?.equippedPet ?? state.skin?.equippedPet ?? null,
+      equippedTrail: profile?.equippedTrail ?? state.skin?.equippedTrail ?? null,
+      coins: profile?.coins ?? 0,
       x: state.x,
       y: state.y,
       z: state.z,
@@ -1151,11 +1252,72 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
               id: state.id,
               name: state.name,
               skin: state.skin,
+              equippedSkin: state.skin?.shopSkinId || null,
+              equippedPet: state.skin?.equippedPet || null,
+              equippedTrail: state.skin?.equippedTrail || null,
               color: state.color
             },
             ws
           );
           broadcastLeaderboard();
+          break;
+        }
+
+        case 'shop_buy': {
+          if (!state.name) return;
+          const res = store.buyShopItem(state.name, msg.itemId);
+          ws.send(JSON.stringify({ type: 'shop_buy_result', ...res }));
+          if (res.ok && res.profile) {
+            ws.send(JSON.stringify({ type: 'profile_updated', profile: res.profile }));
+            broadcastLeaderboard();
+          }
+          break;
+        }
+
+        case 'shop_equip': {
+          if (!state.name) return;
+          const res = store.equipShopItem(state.name, msg);
+          ws.send(JSON.stringify({ type: 'shop_equip_result', ...res }));
+          if (res.ok && res.profile) {
+            state.skin = res.profile.skin;
+            state.color = res.profile.color;
+            ws.send(JSON.stringify({ type: 'profile_updated', profile: res.profile }));
+            broadcastToRoom(
+              state.room,
+              {
+                type: 'player_skin_updated',
+                id: state.id,
+                name: state.name,
+                skin: state.skin,
+                equippedSkin: res.equippedSkin || state.skin?.shopSkinId || null,
+                equippedPet: res.equippedPet || state.skin?.equippedPet || null,
+                equippedTrail: res.equippedTrail || state.skin?.equippedTrail || null,
+                color: state.color
+              },
+              ws
+            );
+            broadcastLeaderboard();
+          }
+          break;
+        }
+
+        case 'arcade_score': {
+          if (!state.name) return;
+          const res = store.recordArcadeScore(state.name, {
+            gameId: msg.gameId,
+            score: msg.score
+          });
+          ws.send(JSON.stringify({ type: 'arcade_score_result', ...res }));
+          if (res.ok && res.profile) {
+            sendCoinsEarnedToPlayer(state.name, res.profile, {
+              coinsEarned: res.coinsEarned,
+              source: 'arcade',
+              gameId: res.gameId,
+              gameLabel: res.gameLabel,
+              isNewRecord: res.isNewRecord,
+              highScore: res.highScore
+            });
+          }
           break;
         }
 
@@ -1434,9 +1596,22 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           const ctrl = getSurvivalController(state.room);
           const pulse = ctrl.recordDetentionSolved(state.id, Date.now());
           if (pulse) {
+            const prevSolved = Math.max(0, (pulse.detentionSolvedCount || 1) - 1);
+            const coinRes = store.recordDetentionTableReward(state.name, {
+              solvedInMatch: prevSolved
+            });
+            if (coinRes?.coinsEarned > 0 && coinRes.profile) {
+              sendCoinsEarnedToPlayer(state.name, coinRes.profile, {
+                coinsEarned: coinRes.coinsEarned,
+                source: 'detention',
+                solvedTables: pulse.detentionSolvedCount
+              });
+            }
             broadcastToRoom(state.room, {
               type: 'survival_detention_pulse',
               ...pulse,
+              coinsEarned: coinRes?.coinsEarned || 0,
+              capped: Boolean(coinRes?.capped),
               state: ctrl.getPublicSnapshot()
             });
           }
@@ -1512,6 +1687,9 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
               id: state.id,
               name: state.name,
               skin: state.skin,
+              equippedSkin: state.skin?.shopSkinId || null,
+              equippedPet: state.skin?.equippedPet || null,
+              equippedTrail: state.skin?.equippedTrail || null,
               color: state.color
             },
             ws
@@ -1590,6 +1768,9 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
                   id: state.id,
                   name: state.name,
                   skin: state.skin,
+                  equippedSkin: state.skin?.shopSkinId || null,
+                  equippedPet: state.skin?.equippedPet || null,
+                  equippedTrail: state.skin?.equippedTrail || null,
                   color: state.color
                 },
                 ws
@@ -1604,6 +1785,14 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
               tpLabel: msg.tpLabel,
               reason: 'debug'
             });
+          } else if (msg.action === 'add_coins') {
+            const res = store.awardCoins(state.name, msg.amount ?? 1000, 'debug');
+            if (res?.ok && res.profile) {
+              sendCoinsEarnedToPlayer(state.name, res.profile, {
+                coinsEarned: res.coinsEarned,
+                source: 'debug'
+              });
+            }
           }
           break;
         }
@@ -1805,6 +1994,9 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
               id: s.id,
               name: s.name,
               skin: s.skin,
+              equippedSkin: s.skin?.shopSkinId || null,
+              equippedPet: s.skin?.equippedPet || null,
+              equippedTrail: s.skin?.equippedTrail || null,
               color: s.color
             },
             sock
@@ -1812,6 +2004,26 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
         }
       }
       broadcastLeaderboard();
+    },
+    notifyProfileUpdated: (profile) => {
+      if (!profile?.name) return;
+      const key = profile.name.toLowerCase();
+      for (const [sock, s] of clients.entries()) {
+        if (s.name && s.name.toLowerCase() === key && sock.readyState === 1) {
+          s.skin = profile.skin;
+          s.color = profile.color;
+          sock.send(
+            JSON.stringify({
+              type: 'profile_updated',
+              profile
+            })
+          );
+        }
+      }
+    },
+    notifyCoinsEarned: (profile, meta = {}) => {
+      if (!profile?.name) return;
+      sendCoinsEarnedToPlayer(profile.name, profile, meta);
     },
     notifyAccountUpdated: (profile) => {
       if (!profile?.name) return;
@@ -1833,6 +2045,9 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
               id: s.id,
               name: s.name,
               skin: s.skin,
+              equippedSkin: s.skin?.shopSkinId || null,
+              equippedPet: s.skin?.equippedPet || null,
+              equippedTrail: s.skin?.equippedTrail || null,
               color: s.color
             },
             sock

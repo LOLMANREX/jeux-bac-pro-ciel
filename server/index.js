@@ -12,6 +12,11 @@ import {
   TP_LABELS,
   hasAllTpsAt20InScores
 } from './store.js';
+import {
+  SHOP_CATALOG,
+  SHOP_CATEGORIES,
+  SHOP_RARITIES
+} from '../src/world/ShopCatalog.js';
 import { attachWsHub, isCreatorPseudo, isPrivateDebugRoom } from './wsHub.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -235,6 +240,116 @@ export function createGameServer(options = {}) {
     });
   });
 
+  const resolveAuthorizedEconomyTarget = (req) => {
+    const tokenUser = resolveStudentFromRequest(req);
+    const bodyName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    if (tokenUser) {
+      if (bodyName && bodyName.toLowerCase() !== tokenUser.toLowerCase()) {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Session élève incompatible avec le compte ciblé.'
+        };
+      }
+      return { ok: true, target: tokenUser };
+    }
+    if (!bodyName) {
+      return {
+        ok: false,
+        status: 401,
+        error: 'Authentification ou pseudo élève requis.'
+      };
+    }
+    if (store.getAdminAccount(bodyName)) {
+      return {
+        ok: false,
+        status: 401,
+        error: 'Jeton de session requis pour ce compte élève.'
+      };
+    }
+    return { ok: true, target: bodyName };
+  };
+
+  app.get('/api/shop/catalog', (_req, res) => {
+    res.json({
+      ok: true,
+      catalog: SHOP_CATALOG,
+      categories: SHOP_CATEGORIES,
+      rarities: SHOP_RARITIES
+    });
+  });
+
+  app.post('/api/shop/buy', (req, res) => {
+    const auth = resolveAuthorizedEconomyTarget(req);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ ok: false, error: auth.error });
+    }
+    const { itemId } = req.body || {};
+    const result = store.buyShopItem(auth.target, itemId);
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ ok: false, error: result.error });
+    }
+    if (result.profile) {
+      wsHub.notifyProfileUpdated?.(result.profile);
+    }
+    return res.json(result);
+  });
+
+  app.post('/api/shop/equip', (req, res) => {
+    const auth = resolveAuthorizedEconomyTarget(req);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ ok: false, error: auth.error });
+    }
+    const result = store.equipShopItem(auth.target, req.body || {});
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ ok: false, error: result.error });
+    }
+    if (result.profile) {
+      wsHub.notifySkinUpdated(result.profile);
+      wsHub.notifyProfileUpdated?.(result.profile);
+    }
+    return res.json(result);
+  });
+
+  app.post('/api/economy/arcade', (req, res) => {
+    const auth = resolveAuthorizedEconomyTarget(req);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ ok: false, error: auth.error });
+    }
+    const result = store.recordArcadeScore(auth.target, req.body || {});
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ ok: false, error: result.error });
+    }
+    if (result.profile) {
+      wsHub.notifyCoinsEarned?.(result.profile, {
+        coinsEarned: result.coinsEarned,
+        source: 'arcade',
+        gameId: result.gameId,
+        isNewRecord: result.isNewRecord
+      });
+    }
+    return res.json(result);
+  });
+
+  app.post('/api/economy/survival', (req, res) => {
+    const auth = resolveAuthorizedEconomyTarget(req);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ ok: false, error: auth.error });
+    }
+    const result = store.recordSurvivalReward(auth.target, req.body || {});
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ ok: false, error: result.error });
+    }
+    if (result.profile) {
+      wsHub.notifyCoinsEarned?.(result.profile, {
+        coinsEarned: result.coinsEarned,
+        source: 'survival',
+        outcome: result.outcome
+      });
+    }
+    return res.json(result);
+  });
+
   app.get('/api/map', (_req, res) => {
     res.json(mapStore.getMap());
   });
@@ -280,6 +395,15 @@ export function createGameServer(options = {}) {
     }
     const result = store.recordTpScore(name, tpId, score, durationSec, skin);
     wsHub.notifyScore(name, tpId, result);
+    if (result.coinsEarned > 0 && result.profile) {
+      wsHub.notifyCoinsEarned?.(result.profile, {
+        coinsEarned: result.coinsEarned,
+        source: 'tp',
+        tpId,
+        score: result.score,
+        isFirstValidation: result.isFirstValidation
+      });
+    }
     res.json(result);
   };
 

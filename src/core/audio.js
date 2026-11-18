@@ -708,6 +708,21 @@ export class SoundEngine {
       this.playTone(n, 0.12, 'triangle', 0.075, idx * 0.065);
     });
   }
+
+  coinEarned() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    this.playTone(987.77, 0.09, 'sine', 0.07, 0);
+    this.playTone(1318.51, 0.16, 'triangle', 0.08, 0.07);
+  }
+
+  shopPurchase() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    [523.25, 659.25, 783.99, 1046.5].forEach((n, idx) => {
+      this.playTone(n, 0.11, 'triangle', 0.07, idx * 0.055);
+    });
+  }
 }
 
 export const sfx = new SoundEngine();

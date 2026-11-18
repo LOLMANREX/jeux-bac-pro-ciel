@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.23 - Optimisation Massive des Performances FPS, Correction Déblocage Baie de Brassage & Heure de Colle en Solo';
+    : 'v4.24 - Économie CIEL Coins, Boutique Complète, Skins & Pets 3D';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.23 — Optimisation Massive des Performances FPS, Correction Déblocage Baie de Brassage & Heure de Colle en Solo',
+    version: 'v4.24 — Économie Virtuelle CIEL Coins, Boutique Complète, Skins & Compagnons Pets 3D',
     date: '18/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'ÉCONOMIE CIEL COINS',
+        title: 'Monnaie Virtuelle Sécurisée, Persistance Atomique & Gains Équilibrés',
+        desc: 'Introduction des CIEL Coins (🪙 CC) persistés côté serveur avec protection anti-triche : gains proportionnels aux notes de TPs 3D (25 CC à 10/20, 50 CC à 15/20, 100 CC à 20/20 + 50 CC de première validation), mode Survie Horreur (150 CC en victoire, 40 CC en défaite, +15 CC par tableau de variation résolu en heure de colle) et mini-jeux CIEL OS sur les PC (10 à 45 CC selon le palier + bonus record personnel), affichés en temps réel dans le HUD PC et la montre VR.'
+      },
+      {
+        badge: 'BOUTIQUE & SKINS 3D',
+        title: 'Boutique Complète (PC & VR), Borne 3D en Salle, Skins Exclusifs, Pets 3D Animés & Accessoires',
+        desc: 'Nouveau catalogue structuré en 4 raretés (Commun, Rare, Épique, Légendaire) de 150 à 2 500 CC : 8 skins exclusifs 3D (Technicien Néon, Hacker Matrix, Ingénieur Fibre Optique, Cyber-Samouraï, Steampunk Cuivre, Agent SOC, Astronaute Réseau, Overclocked Gold), 6 compagnons Pets 3D animés suivant le joueur en multijoueur (Mini-Drone Quadri, Bot Serveur Rack 1U, Berger Cyber-K9, Cube Hologramme, Petit Routeur Wi-Fi 7, Faucon Laser) et 5 accessoires/auras équipables via la borne 3D du hall, le HUD ou le panneau spatial VR avec aperçu 3D rotatif.'
+      }
+    ]
+  },
+  {
+    version: 'v4.23 — Optimisation Massive des Performances FPS, Correction Déblocage Baie de Brassage & Heure de Colle en Solo',
+    date: '18/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'PERFORMANCES & FPS MASSIFS',

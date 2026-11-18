@@ -1,4 +1,11 @@
 import * as THREE from 'three';
+import {
+  applyShopSkin,
+  buildStudentAvatarMesh,
+  DEFAULT_SKIN,
+  disposeObject3D
+} from '../world/AvatarBuilder.js';
+import { buildPetMesh } from '../world/PetBuilder.js';
 import { pickLabInteractable } from '../world/SceneManager.js';
 import { hasFullMapLineOfSight, pointCollidesWithColliders } from '../world/SurvivalEngine.js';
 import { buildArticulatedVRHand } from './VRHandBuilder.js';
@@ -99,6 +106,10 @@ export class VRManager {
     this.tpPanel = null;
     this.worldPanel = null;
     this.activePcStation = null;
+    this.shopPreviewGroup = null;
+    this.shopPreviewObject = null;
+    this.shopPreviewItemId = null;
+    this.shopPreviewKind = null;
     this.tpContext = null;
     this.tpCamOffsetYaw = 0;
     this.tpZoomScale = 1;
@@ -792,6 +803,7 @@ export class VRManager {
     if (this.tpContext) {
       this.detachTpContext();
     }
+    this._clearVrShopPreview();
     if (this.worldPanel) {
       this.worldPanel.group.parent?.remove(this.worldPanel.group);
       this.worldPanel.dispose();
@@ -807,6 +819,93 @@ export class VRManager {
     }
     this.worldPanel.updateState({ mode, ...state }, { immediate: true });
     return this.worldPanel;
+  }
+
+  _clearVrShopPreview() {
+    if (this.shopPreviewGroup) {
+      this.shopPreviewGroup.parent?.remove(this.shopPreviewGroup);
+    }
+    if (this.shopPreviewObject?.dispose) {
+      this.shopPreviewObject.dispose();
+    } else if (this.shopPreviewGroup) {
+      disposeObject3D(this.shopPreviewGroup);
+    }
+    this.shopPreviewGroup = null;
+    this.shopPreviewObject = null;
+    this.shopPreviewItemId = null;
+    this.shopPreviewKind = null;
+  }
+
+  _syncVrShopPreview(shopState) {
+    const item = shopState?.selectedItem || null;
+    if (!this.worldPanel || !item) {
+      this._clearVrShopPreview();
+      return;
+    }
+    if (this.shopPreviewItemId === item.id && this.shopPreviewGroup) {
+      return;
+    }
+    this._clearVrShopPreview();
+    const previewRoot = new THREE.Group();
+    previewRoot.name = 'vr-shop-preview-root';
+    previewRoot.position.set(0.92, -0.24, 0.08);
+    this.worldPanel.group.add(previewRoot);
+
+    const base = this.skin || DEFAULT_SKIN;
+    if (item.category === 'pets') {
+      const pet = buildPetMesh(item.id);
+      pet.group.scale.setScalar(0.76);
+      previewRoot.add(pet.group);
+      this.shopPreviewObject = pet;
+      this.shopPreviewKind = 'pets';
+    } else if (item.category === 'skins') {
+      const av = buildStudentAvatarMesh(applyShopSkin(base, item.id));
+      av.group.scale.setScalar(0.36);
+      previewRoot.add(av.group);
+      this.shopPreviewObject = av;
+      this.shopPreviewKind = 'skins';
+    } else {
+      const av = buildStudentAvatarMesh({ ...base, equippedTrail: item.id });
+      av.group.scale.setScalar(0.36);
+      previewRoot.add(av.group);
+      this.shopPreviewObject = av;
+      this.shopPreviewKind = 'accessories';
+    }
+    this.shopPreviewGroup = previewRoot;
+    this.shopPreviewItemId = item.id;
+  }
+
+  openShopSpatialPanel(shopState, options = {}) {
+    const panel = this.openWorldSpatialPanel(
+      'shop',
+      {
+        title: '🛒 BOUTIQUE CIEL',
+        shop: shopState
+      },
+      {
+        dist: options.dist ?? 1.24,
+        yOffset: options.yOffset ?? 0.04
+      }
+    );
+    if (panel) {
+      this._syncVrShopPreview(shopState);
+    }
+    return panel;
+  }
+
+  updateShopSpatialPanel(shopState) {
+    if (!this.worldPanel || this.worldPanel.getState?.()?.mode !== 'shop') return;
+    this.worldPanel.updateState({ mode: 'shop', shop: shopState });
+    this._syncVrShopPreview(shopState);
+  }
+
+  closeShopSpatialPanel() {
+    this._clearVrShopPreview();
+    if (this.worldPanel?.getState?.()?.mode === 'shop') {
+      this.closeWorldSpatialPanel();
+      return true;
+    }
+    return false;
   }
 
   pulseBothHands(intensity = 0.9, durationMs = 280) {
@@ -1103,6 +1202,7 @@ export class VRManager {
   }
 
   closeWorldSpatialPanel() {
+    this._clearVrShopPreview();
     this.slots.left.panelDrag = null;
     this.slots.right.panelDrag = null;
     this.slots.left.worldPanelTouchPressed = false;
@@ -1515,6 +1615,7 @@ export class VRManager {
           hitDist = wristHits[0].distance;
           hitAction = () => {
             if (btn.id === 'btn_mic') this.options.onToggleMic?.();
+            if (btn.id === 'btn_shop') this.options.onOpenShop?.();
             if (btn.id === 'btn_vr_exit') this.exitVr();
           };
         }
@@ -2155,6 +2256,7 @@ export class VRManager {
           this.wristTouchPressed = true;
           this._pulseHaptic(this.slots.right, 0.55, 35);
           if (btn.id === 'btn_mic') this.options.onToggleMic?.();
+          if (btn.id === 'btn_shop') this.options.onOpenShop?.();
           if (btn.id === 'btn_vr_exit') this.exitVr();
         } else if (this.tempVecC.z > 0.024) {
           this.wristTouchPressed = false;
@@ -2207,6 +2309,14 @@ export class VRManager {
     if (this.activePcStation?.desktop) {
       this.activePcStation.desktop.update(dt, elapsed);
     }
+    if (this.shopPreviewGroup && this.shopPreviewObject) {
+      this.shopPreviewGroup.rotation.y += dt * 0.75;
+      if (this.shopPreviewKind === 'pets') {
+        this.shopPreviewObject.animateParts?.(elapsed, 0.85);
+      } else {
+        this.shopPreviewObject.updateEffects?.(elapsed);
+      }
+    }
 
     this._updateWristDirectTouch();
     this._worldSurfHoverThisFrame.clear();
@@ -2235,6 +2345,7 @@ export class VRManager {
     if (this.active) {
       this._teardownSession();
     }
+    this._clearVrShopPreview();
     this.wristPanel?.dispose?.();
     this.debugPanel?.dispose?.();
     this.tpPanel?.dispose?.();

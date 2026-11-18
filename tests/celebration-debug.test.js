@@ -657,26 +657,28 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
   }
 });
 
-test('v4.23 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
-  assert.ok(APP_VERSION.startsWith('v4.23'));
-  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.23'));
+test('v4.24 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
+  assert.ok(APP_VERSION.startsWith('v4.24'));
+  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.24'));
   assert.equal(CHANGELOG_RELEASES[0].tag, 'DERNIÈRE MÀJ');
-  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.22'));
+  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.23'));
   assert.equal(CHANGELOG_RELEASES[1].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[2].version.startsWith('v4.21'));
+  assert.ok(CHANGELOG_RELEASES[2].version.startsWith('v4.22'));
   assert.equal(CHANGELOG_RELEASES[2].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[3].version.startsWith('v4.20'));
+  assert.ok(CHANGELOG_RELEASES[3].version.startsWith('v4.21'));
   assert.equal(CHANGELOG_RELEASES[3].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[4].version.startsWith('v4.19'));
+  assert.ok(CHANGELOG_RELEASES[4].version.startsWith('v4.20'));
   assert.equal(CHANGELOG_RELEASES[4].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[5].version.startsWith('v4.18'));
+  assert.ok(CHANGELOG_RELEASES[5].version.startsWith('v4.19'));
   assert.equal(CHANGELOG_RELEASES[5].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[6].version.startsWith('v4.17'));
+  assert.ok(CHANGELOG_RELEASES[6].version.startsWith('v4.18'));
   assert.equal(CHANGELOG_RELEASES[6].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[7].version.startsWith('v4.16'));
+  assert.ok(CHANGELOG_RELEASES[7].version.startsWith('v4.17'));
   assert.equal(CHANGELOG_RELEASES[7].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[8].version.startsWith('v4.15'));
+  assert.ok(CHANGELOG_RELEASES[8].version.startsWith('v4.16'));
   assert.equal(CHANGELOG_RELEASES[8].tag, 'HISTORIQUE');
+  assert.ok(CHANGELOG_RELEASES[9].version.startsWith('v4.15'));
+  assert.equal(CHANGELOG_RELEASES[9].tag, 'HISTORIQUE');
 
   const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
   for (const id of [
@@ -754,7 +756,15 @@ test('v4.23 : DOM index.html, admin.html et ChangelogModal exposent tous les él
     'detention-3d-cam-prev',
     'detention-3d-cam-next',
     'survival-end-overlay',
-    'survival-end-inspect-btn'
+    'survival-end-inspect-btn',
+    'nav-btn-shop',
+    'menu-badge-coins',
+    'hud-coins-pill',
+    'hud-player-coins',
+    'btn-shop-ingame',
+    'shop-modal',
+    'shop-preview-canvas',
+    'shop-items-grid'
   ]) {
     assert.ok(indexHtml.includes(`id="${id}"`), `ID manquant dans index.html: ${id}`);
   }

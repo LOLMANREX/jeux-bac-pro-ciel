@@ -172,6 +172,9 @@ export class CielOsDesktop {
     this.onRequestExit = options.onRequestExit || null;
     this.onToggleComfort = options.onToggleComfort || null;
     this.onChange = options.onChange || null;
+    this.onGameFinished = options.onGameFinished || null;
+    this.coins = Math.max(0, Math.floor(Number(options.coins) || 0));
+    this.coinToast = null;
 
     this.canvas = null;
     this.ctx = null;
@@ -230,7 +233,7 @@ export class CielOsDesktop {
 
     this.terminalHistory = [
       '╔══════════════════════════════════════════════════════════════╗',
-      '║  CIEL OS v4.23 LTS — Noyau Cyber & Réseau Plateau U300       ║',
+      '║  CIEL OS v4.24 LTS — Noyau Cyber & Réseau Plateau U300       ║',
       '║  Tapez "help" ou cliquez sur une commande rapide ci-dessous. ║',
       '╚══════════════════════════════════════════════════════════════╝'
     ];
@@ -280,6 +283,27 @@ export class CielOsDesktop {
     }
   }
 
+  setCoins(coins) {
+    const clean = Math.max(0, Math.floor(Number(coins) || 0));
+    if (clean !== this.coins) {
+      this.coins = clean;
+      this.dirty = true;
+      this.redraw();
+    }
+  }
+
+  showCoinToast(amount, label = '') {
+    const n = Math.max(0, Math.floor(Number(amount) || 0));
+    if (n <= 0) return;
+    this.coinToast = {
+      amount: n,
+      label: String(label || 'Gain CIEL Coins').slice(0, 32),
+      untilMs: Date.now() + 3400
+    };
+    this.dirty = true;
+    this.redraw();
+  }
+
   lockSession() {
     this.sessionLocked = true;
     this.startMenuOpen = false;
@@ -319,6 +343,17 @@ export class CielOsDesktop {
             this.highScores[id] = Math.max(high, score);
             writeStorageJson('ciel_os_high_scores', this.highScores);
           }
+          this.dirty = true;
+        },
+        onGameEnd: (id, score, meta = {}) => {
+          this.onGameFinished?.({
+            gameId: id,
+            score,
+            highScore: meta.highScore ?? (this.highScores[id] || score),
+            won: Boolean(meta.won),
+            estimatedCoins: Number(meta.estimatedCoins) || 0,
+            desktop: this
+          });
           this.dirty = true;
         }
       });
@@ -989,7 +1024,7 @@ export class CielOsDesktop {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
     ctx.font = 'bold 68px system-ui, sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText('CIEL OS 4.22', W - 32, H - 96);
+    ctx.fillText('CIEL OS 4.24', W - 32, H - 96);
     ctx.font = 'bold 20px system-ui, sans-serif';
     ctx.fillStyle = 'rgba(148, 163, 184, 0.28)';
     ctx.fillText(`PLATEAU U300 • ${this.stationLabel.toUpperCase()}`, W - 34, H - 66);
@@ -1347,7 +1382,7 @@ export class CielOsDesktop {
         ctx.textAlign = 'center';
         ctx.fillStyle = theme.accent;
         ctx.font = 'bold 28px system-ui, sans-serif';
-        ctx.fillText('🖥️ CIEL OS v4.22', W / 2, H / 2 - 82);
+        ctx.fillText('🖥️ CIEL OS v4.24', W / 2, H / 2 - 82);
 
         ctx.fillStyle = '#f8fafc';
         ctx.font = 'bold 22px system-ui, sans-serif';
@@ -1375,9 +1410,9 @@ export class CielOsDesktop {
       ctx.fillStyle = theme.accent;
       ctx.font = 'bold 13px system-ui, sans-serif';
       ctx.fillText(`🖥️ CIEL OS • ${this.stationLabel}`, 24, 24);
-      ctx.fillStyle = '#6ee7b7';
+      ctx.fillStyle = '#fbbf24';
       ctx.textAlign = 'right';
-      ctx.fillText(`👤 Connecté : ${this.playerName}  •  🏆 Arcade : ${this.getTotalArcadeScore()} pts`, W - 24, 24);
+      ctx.fillText(`🪙 ${this.coins} CC  •  👤 ${this.playerName}  •  🏆 ${this.getTotalArcadeScore()} pts`, W - 24, 24);
       ctx.textAlign = 'left';
     }
 
@@ -1471,13 +1506,27 @@ export class CielOsDesktop {
       tabX += maxTabW + 6;
     });
 
-    this._drawBtn('taskbar_theme', W - 472, tbY + 6, 98, 34, `🎨 ${theme.label.split(' ')[0]}`, {
+    this._drawBtn('taskbar_theme', W - 536, tbY + 6, 78, 34, `🎨 ${theme.label.split(' ')[0]}`, {
       fontSize: 12,
       onClick: () => this.cycleTheme()
     });
 
+    if (ctx) {
+      roundRect(ctx, W - 452, tbY + 7, 86, 32, 8);
+      ctx.fillStyle = 'rgba(120, 53, 15, 0.55)';
+      ctx.fill();
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = '#fde047';
+      ctx.font = 'bold 12px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`🪙 ${this.coins}`, W - 409, tbY + 27);
+      ctx.textAlign = 'left';
+    }
+
     const volPct = Math.round(sfx.getVolume() * 100);
-    this._drawBtn('taskbar_mute', W - 368, tbY + 6, 62, 34, sfx.muted ? '🔇 0%' : `🔊${volPct}%`, {
+    this._drawBtn('taskbar_mute', W - 360, tbY + 6, 56, 34, sfx.muted ? '🔇 0%' : `🔊${volPct}%`, {
       active: !sfx.muted,
       fontSize: 11,
       onClick: () => {
@@ -1486,7 +1535,7 @@ export class CielOsDesktop {
         this.redraw();
       }
     });
-    this._drawBtn('taskbar_vol_down', W - 302, tbY + 6, 28, 34, '−', {
+    this._drawBtn('taskbar_vol_down', W - 300, tbY + 6, 26, 34, '−', {
       fontSize: 15,
       onClick: () => {
         sfx.setVolume(Math.max(0, (sfx.volume || 0.8) - 0.2));
@@ -1495,7 +1544,7 @@ export class CielOsDesktop {
         this.redraw();
       }
     });
-    this._drawBtn('taskbar_vol_up', W - 270, tbY + 6, 28, 34, '+', {
+    this._drawBtn('taskbar_vol_up', W - 270, tbY + 6, 26, 34, '+', {
       fontSize: 15,
       onClick: () => {
         sfx.setVolume(Math.min(1, (sfx.volume || 0.8) + 0.2));
@@ -1506,7 +1555,7 @@ export class CielOsDesktop {
     });
 
     if (this.onToggleComfort) {
-      this._drawBtn('taskbar_comfort', W - 236, tbY + 6, 86, 34, '⛶ Confort', {
+      this._drawBtn('taskbar_comfort', W - 238, tbY + 6, 84, 34, '⛶ Confort', {
         active: true,
         fontSize: 12,
         onClick: () => this.onToggleComfort?.()
@@ -1521,7 +1570,7 @@ export class CielOsDesktop {
       ctx.fillStyle = '#e2e8f0';
       ctx.font = 'bold 13px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`${hh}:${mm}:${ss}`, W - 112, tbY + 28);
+      ctx.fillText(`${hh}:${mm}:${ss}`, W - 114, tbY + 28);
       ctx.textAlign = 'left';
     }
 
@@ -1532,6 +1581,24 @@ export class CielOsDesktop {
     });
 
     this._drawStartMenu(W, H, theme);
+
+    if (ctx && this.coinToast) {
+      if (Date.now() <= this.coinToast.untilMs) {
+        roundRect(ctx, W / 2 - 170, 44, 340, 38, 12);
+        ctx.fillStyle = 'rgba(120, 53, 15, 0.94)';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#fbbf24';
+        ctx.stroke();
+        ctx.fillStyle = '#fef08a';
+        ctx.font = 'bold 15px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`+${this.coinToast.amount} 🪙 CC • ${this.coinToast.label}`, W / 2, 68);
+        ctx.textAlign = 'left';
+      } else {
+        this.coinToast = null;
+      }
+    }
 
     if (ctx && this.cursorPos?.visible) {
       ctx.save();

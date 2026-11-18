@@ -1,4 +1,5 @@
 import { sfx } from '../core/audio.js';
+import { computeArcadeCoinReward } from '../world/ShopCatalog.js';
 
 export const CIEL_OS_GAMES_CATALOG = [
   {
@@ -116,6 +117,7 @@ export class CyberSnakeGame {
     this.cols = 20;
     this.rows = 13;
     this.onScoreChange = options.onScoreChange || null;
+    this.onGameEnd = options.onGameEnd || null;
     this.highScore = Number(options.initialHighScore) || 0;
     this.portalWalls = true;
     this.stickCooldown = 0;
@@ -136,6 +138,8 @@ export class CyberSnakeGame {
     this.gameOver = false;
     this.won = false;
     this.paused = false;
+    this._endReported = false;
+    this.lastCoinsEarned = 0;
     this.stepAccum = 0;
     this.baseStepInterval = 0.135;
     this.boostRemaining = 0;
@@ -155,6 +159,22 @@ export class CyberSnakeGame {
     this.onScoreChange?.(this.id, this.score, this.highScore);
   }
 
+  _emitGameEnd(won = false) {
+    if (this._endReported) return;
+    this._endReported = true;
+    const reward = computeArcadeCoinReward({
+      gameId: this.id,
+      score: this.score,
+      isNewRecord: this.score > 0 && this.score >= this.highScore
+    });
+    this.lastCoinsEarned = reward.totalCoins;
+    this.onGameEnd?.(this.id, this.score, {
+      won: Boolean(won),
+      highScore: this.highScore,
+      estimatedCoins: this.lastCoinsEarned
+    });
+  }
+
   addScore(points) {
     this.score = Math.max(0, this.score + Number(points || 0));
     this._notifyScore();
@@ -164,6 +184,7 @@ export class CyberSnakeGame {
     this.gameOver = true;
     sfx.arcadeGameOver?.();
     this._notifyScore();
+    this._emitGameEnd(false);
   }
 
   setDirection(dx, dy) {
@@ -429,7 +450,11 @@ export class CyberSnakeGame {
         ctx.fillText('💥 CONNEXION INTERROMPUE (GAME OVER)', gx + gridW / 2, gy + gridH / 2 - 14);
         ctx.fillStyle = '#e2e8f0';
         ctx.font = 'bold 16px system-ui, sans-serif';
-        ctx.fillText(`Score : ${this.score} pts • Record : ${this.highScore} pts`, gx + gridW / 2, gy + gridH / 2 + 22);
+        ctx.fillText(`Score : ${this.score} pts • Record : ${this.highScore} pts`, gx + gridW / 2, gy + gridH / 2 + 12);
+        if (this.lastCoinsEarned > 0) {
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillText(`+${this.lastCoinsEarned} 🪙 CC`, gx + gridW / 2, gy + gridH / 2 + 38);
+        }
         ctx.textAlign = 'left';
       }
     }
@@ -534,6 +559,7 @@ export class CielMinesweeperGame {
     this.title = 'Démineur CIEL';
     this.icon = '💣';
     this.onScoreChange = options.onScoreChange || null;
+    this.onGameEnd = options.onGameEnd || null;
     this.highScore = Number(options.initialHighScore) || 0;
     this.difficulty = 'easy';
     this.flagMode = false;
@@ -579,6 +605,8 @@ export class CielMinesweeperGame {
     this.gameOver = false;
     this.won = false;
     this.paused = false;
+    this._endReported = false;
+    this.lastCoinsEarned = 0;
     this._placeInitialMines();
     this._notifyScore();
   }
@@ -635,6 +663,22 @@ export class CielMinesweeperGame {
     this.onScoreChange?.(this.id, this.score, this.highScore);
   }
 
+  _emitGameEnd(won = false) {
+    if (this._endReported) return;
+    this._endReported = true;
+    const reward = computeArcadeCoinReward({
+      gameId: this.id,
+      score: this.score,
+      isNewRecord: this.score > 0 && this.score >= this.highScore
+    });
+    this.lastCoinsEarned = reward.totalCoins;
+    this.onGameEnd?.(this.id, this.score, {
+      won: Boolean(won),
+      highScore: this.highScore,
+      estimatedCoins: this.lastCoinsEarned
+    });
+  }
+
   toggleFlag(r, c) {
     if (this.gameOver || this.won) return false;
     const cell = this.board[r]?.[c];
@@ -673,6 +717,7 @@ export class CielMinesweeperGame {
       this.gameOver = true;
       sfx.arcadeGameOver?.();
       this._notifyScore();
+      this._emitGameEnd(false);
       return false;
     }
 
@@ -711,11 +756,13 @@ export class CielMinesweeperGame {
       const bonus = (this.difficulty === 'medium' ? 250 : 120) + Math.max(0, 120 - Math.floor(this.elapsedSec));
       this.score += bonus;
       sfx.arcadeVictory?.();
+      this._notifyScore();
+      this._emitGameEnd(true);
     } else {
       sfx.arcadeBeep?.(640, 0.035, 'sine');
+      this._notifyScore();
     }
 
-    this._notifyScore();
     return true;
   }
 
@@ -858,6 +905,10 @@ export class CielMinesweeperGame {
         ctx.fillStyle = this.won ? '#34d399' : '#fda4af';
         ctx.font = 'bold 14px system-ui, sans-serif';
         ctx.fillText(this.won ? '🏆 SECTEUR SÉCURISÉ !' : '💥 INTRUSION DÉTECTÉE !', px + 14, py + 98);
+        if (this.lastCoinsEarned > 0) {
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillText(`+${this.lastCoinsEarned} 🪙 CC`, px + 14, py + 112);
+        }
       }
     }
 
@@ -965,6 +1016,7 @@ export class CielBlocksGame {
     this.cols = 10;
     this.rows = 18;
     this.onScoreChange = options.onScoreChange || null;
+    this.onGameEnd = options.onGameEnd || null;
     this.highScore = Number(options.initialHighScore) || 0;
     this.stickCooldown = 0;
     this.reset();
@@ -978,6 +1030,8 @@ export class CielBlocksGame {
     this.gameOver = false;
     this.won = false;
     this.paused = false;
+    this._endReported = false;
+    this.lastCoinsEarned = 0;
     this.dropAccum = 0;
     this.nextPiece = this._randomDef();
     this._spawnPiece();
@@ -1000,6 +1054,22 @@ export class CielBlocksGame {
     this.onScoreChange?.(this.id, this.score, this.highScore);
   }
 
+  _emitGameEnd(won = false) {
+    if (this._endReported) return;
+    this._endReported = true;
+    const reward = computeArcadeCoinReward({
+      gameId: this.id,
+      score: this.score,
+      isNewRecord: this.score > 0 && this.score >= this.highScore
+    });
+    this.lastCoinsEarned = reward.totalCoins;
+    this.onGameEnd?.(this.id, this.score, {
+      won: Boolean(won),
+      highScore: this.highScore,
+      estimatedCoins: this.lastCoinsEarned
+    });
+  }
+
   _spawnPiece() {
     const cur = this.nextPiece || this._randomDef();
     this.nextPiece = this._randomDef();
@@ -1014,6 +1084,7 @@ export class CielBlocksGame {
       this.gameOver = true;
       sfx.arcadeGameOver?.();
       this._notifyScore();
+      this._emitGameEnd(false);
     }
   }
 
@@ -1244,7 +1315,11 @@ export class CielBlocksGame {
         ctx.fillText('PILE SATURÉE !', gx + gridW / 2, gy + gridH / 2 - 8);
         ctx.fillStyle = '#e2e8f0';
         ctx.font = 'bold 14px system-ui, sans-serif';
-        ctx.fillText(`Score : ${this.score}`, gx + gridW / 2, gy + gridH / 2 + 18);
+        ctx.fillText(`Score : ${this.score}`, gx + gridW / 2, gy + gridH / 2 + 12);
+        if (this.lastCoinsEarned > 0) {
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillText(`+${this.lastCoinsEarned} 🪙 CC`, gx + gridW / 2, gy + gridH / 2 + 34);
+        }
         ctx.textAlign = 'left';
       }
     }
@@ -1353,6 +1428,7 @@ export class NetworkBreakoutGame {
     this.worldW = 540;
     this.worldH = 360;
     this.onScoreChange = options.onScoreChange || null;
+    this.onGameEnd = options.onGameEnd || null;
     this.highScore = Number(options.initialHighScore) || 0;
     this.reset();
   }
@@ -1374,6 +1450,8 @@ export class NetworkBreakoutGame {
     this.gameOver = false;
     this.won = false;
     this.paused = false;
+    this._endReported = false;
+    this.lastCoinsEarned = 0;
     this._buildBricks();
     this._notifyScore();
   }
@@ -1409,6 +1487,22 @@ export class NetworkBreakoutGame {
       this.highScore = this.score;
     }
     this.onScoreChange?.(this.id, this.score, this.highScore);
+  }
+
+  _emitGameEnd(won = false) {
+    if (this._endReported) return;
+    this._endReported = true;
+    const reward = computeArcadeCoinReward({
+      gameId: this.id,
+      score: this.score,
+      isNewRecord: this.score > 0 && this.score >= this.highScore
+    });
+    this.lastCoinsEarned = reward.totalCoins;
+    this.onGameEnd?.(this.id, this.score, {
+      won: Boolean(won),
+      highScore: this.highScore,
+      estimatedCoins: this.lastCoinsEarned
+    });
   }
 
   setPaddleRatio(ratio) {
@@ -1509,6 +1603,7 @@ export class NetworkBreakoutGame {
         this.gameOver = true;
         sfx.arcadeGameOver?.();
         this._notifyScore();
+        this._emitGameEnd(false);
       } else {
         this.balls.push({
           x: this.paddle.x + this.paddle.w / 2,
@@ -1645,7 +1740,11 @@ export class NetworkBreakoutGame {
         ctx.fillText('PARE-FEU VERROUILLÉ (GAME OVER)', ax + arenaW / 2, ay + arenaH / 2 - 8);
         ctx.fillStyle = '#e2e8f0';
         ctx.font = 'bold 15px system-ui, sans-serif';
-        ctx.fillText(`Score : ${this.score} • Vague : ${this.wave}`, ax + arenaW / 2, ay + arenaH / 2 + 20);
+        ctx.fillText(`Score : ${this.score} • Vague : ${this.wave}`, ax + arenaW / 2, ay + arenaH / 2 + 12);
+        if (this.lastCoinsEarned > 0) {
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillText(`+${this.lastCoinsEarned} 🪙 CC`, ax + arenaW / 2, ay + arenaH / 2 + 36);
+        }
         ctx.textAlign = 'left';
       }
     }
@@ -1728,6 +1827,7 @@ export class FlappyPacketGame {
     this.worldW = 540;
     this.worldH = 360;
     this.onScoreChange = options.onScoreChange || null;
+    this.onGameEnd = options.onGameEnd || null;
     this.highScore = Number(options.initialHighScore) || 0;
     this.stickFlapReady = true;
     this.reset();
@@ -1746,6 +1846,8 @@ export class FlappyPacketGame {
     this.gameOver = false;
     this.won = false;
     this.paused = false;
+    this._endReported = false;
+    this.lastCoinsEarned = 0;
     this._notifyScore();
   }
 
@@ -1754,6 +1856,22 @@ export class FlappyPacketGame {
       this.highScore = this.score;
     }
     this.onScoreChange?.(this.id, this.score, this.highScore);
+  }
+
+  _emitGameEnd(won = false) {
+    if (this._endReported) return;
+    this._endReported = true;
+    const reward = computeArcadeCoinReward({
+      gameId: this.id,
+      score: this.score,
+      isNewRecord: this.score > 0 && this.score >= this.highScore
+    });
+    this.lastCoinsEarned = reward.totalCoins;
+    this.onGameEnd?.(this.id, this.score, {
+      won: Boolean(won),
+      highScore: this.highScore,
+      estimatedCoins: this.lastCoinsEarned
+    });
   }
 
   flap() {
@@ -1777,6 +1895,7 @@ export class FlappyPacketGame {
       this.gameOver = true;
       sfx.arcadeGameOver?.();
       this._notifyScore();
+      this._emitGameEnd(false);
       return;
     }
 
@@ -1792,6 +1911,7 @@ export class FlappyPacketGame {
         this.gameOver = true;
         sfx.arcadeGameOver?.();
         this._notifyScore();
+        this._emitGameEnd(false);
         return;
       }
       if (!p.passed && p.x + p.w < this.packet.x) {
@@ -1912,8 +2032,12 @@ export class FlappyPacketGame {
         ctx.fillText(
           `Score : ${this.score} pts (${this.packetsPassed} pare-feux franchis)`,
           ax + arenaW / 2,
-          ay + arenaH / 2 + 20
+          ay + arenaH / 2 + 12
         );
+        if (this.lastCoinsEarned > 0) {
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillText(`+${this.lastCoinsEarned} 🪙 CC`, ax + arenaW / 2, ay + arenaH / 2 + 36);
+        }
         ctx.textAlign = 'left';
       }
     }
@@ -1991,6 +2115,7 @@ export class Ciel2048Game {
     this.icon = '🔢';
     this.size = 4;
     this.onScoreChange = options.onScoreChange || null;
+    this.onGameEnd = options.onGameEnd || null;
     this.highScore = Number(options.initialHighScore) || 0;
     this.stickReady = true;
     this.dragStart = null;
@@ -2005,6 +2130,8 @@ export class Ciel2048Game {
     this.gameOver = false;
     this.won = false;
     this.paused = false;
+    this._endReported = false;
+    this.lastCoinsEarned = 0;
     this.spawnTile();
     this.spawnTile();
     this._notifyScore();
@@ -2015,6 +2142,22 @@ export class Ciel2048Game {
       this.highScore = this.score;
     }
     this.onScoreChange?.(this.id, this.score, this.highScore);
+  }
+
+  _emitGameEnd(won = false) {
+    if (this._endReported) return;
+    this._endReported = true;
+    const reward = computeArcadeCoinReward({
+      gameId: this.id,
+      score: this.score,
+      isNewRecord: this.score > 0 && this.score >= this.highScore
+    });
+    this.lastCoinsEarned = reward.totalCoins;
+    this.onGameEnd?.(this.id, this.score, {
+      won: Boolean(won),
+      highScore: this.highScore,
+      estimatedCoins: this.lastCoinsEarned
+    });
   }
 
   spawnTile(forcedValue = null) {
@@ -2101,8 +2244,11 @@ export class Ciel2048Game {
       if (!this.canMove()) {
         this.gameOver = true;
         sfx.arcadeGameOver?.();
+        this._notifyScore();
+        this._emitGameEnd(this.won);
+      } else {
+        this._notifyScore();
       }
-      this._notifyScore();
     }
     return moved;
   }
@@ -2235,7 +2381,11 @@ export class Ciel2048Game {
         ctx.fillText('GRILLE COMPLÈTE !', bx + boardSize / 2, by + boardSize / 2 - 8);
         ctx.fillStyle = '#e2e8f0';
         ctx.font = 'bold 15px system-ui, sans-serif';
-        ctx.fillText(`Score : ${this.score} • Max : ${this.maxTile}`, bx + boardSize / 2, by + boardSize / 2 + 18);
+        ctx.fillText(`Score : ${this.score} • Max : ${this.maxTile}`, bx + boardSize / 2, by + boardSize / 2 + 12);
+        if (this.lastCoinsEarned > 0) {
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillText(`+${this.lastCoinsEarned} 🪙 CC`, bx + boardSize / 2, by + boardSize / 2 + 34);
+        }
         ctx.textAlign = 'left';
       }
     }

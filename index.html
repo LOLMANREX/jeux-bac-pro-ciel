@@ -48,6 +48,7 @@
             <nav class="aaa-nav-tabs" aria-label="Navigation du menu principal">
               <button type="button" id="nav-btn-play" class="aaa-nav-tab active" data-nav="home">JOUER</button>
               <button type="button" id="nav-btn-skin" class="aaa-nav-tab" data-nav="skin">SKINS</button>
+              <button type="button" id="nav-btn-shop" class="aaa-nav-tab aaa-nav-tab-shop">🛒 BOUTIQUE</button>
               <button type="button" id="nav-btn-battlepass" class="aaa-nav-tab aaa-nav-tab-bp">PASSE 👑</button>
               <button type="button" id="menu-btn-faq" class="aaa-nav-tab">POSTS</button>
             </nav>
@@ -59,6 +60,8 @@
                 <span id="menu-badge-level" class="aaa-pc-lvl">Niv. 1</span>
                 <span class="aaa-pill-sep">•</span>
                 <strong id="menu-badge-avg" class="aaa-pc-avg">--/20</strong>
+                <span class="aaa-pill-sep">•</span>
+                <span id="menu-badge-coins" class="aaa-pc-coins" title="Solde CIEL Coins">🪙 0 CC</span>
               </div>
               <button type="button" id="menu-btn-platform" class="aaa-icon-action" title="Changer de plateforme (PC / Mobile)">💻</button>
               <button type="button" id="menu-btn-settings" class="aaa-icon-action" title="Paramètres du jeu">⚙️</button>
@@ -303,6 +306,12 @@
               <span id="hud-player-name">Élève</span>
               <span id="hud-player-xp" class="xp-pill">0 XP</span>
             </div>
+            <button type="button" id="hud-coins-pill" class="coins-pill" title="Solde CIEL Coins — Cliquer pour ouvrir la Boutique">
+              <span class="coins-ico">🪙</span>
+              <strong id="hud-player-coins">0</strong>
+              <span class="coins-unit">CC</span>
+              <span id="hud-coins-gain-layer" class="coins-gain-layer"></span>
+            </button>
             <div class="grade-pill" title="Moyenne générale sur les 5 TPs">
               Moyenne : <strong id="hud-average">-- / 20</strong>
             </div>
@@ -414,6 +423,7 @@
             <button id="btn-chat-toggle" class="btn-hud" title="Chat de classe multijoueur (Touche T)">
               💬 Chat <span id="chat-unread-badge" class="unread-badge hidden">0</span>
             </button>
+            <button type="button" id="btn-shop-ingame" class="btn-hud btn-shop-hud" title="Ouvrir la Boutique CIEL (Skins, Pets 3D &amp; Accessoires)">🛒 Boutique</button>
             <button id="btn-skin-ingame" class="btn-hud" title="Modifier mon Skin 3D &amp; Skins Divins">🎨 Casier</button>
             <button type="button" id="btn-replay-intro" class="btn-hud" title="Revoir la cinématique d'introduction du Professeur CIEL">🎬 Revoir l'intro</button>
             <button id="btn-settings" class="btn-hud" title="Paramètres (FOV, Qualité, Souris, Audio)">⚙️ Paramètres</button>
@@ -1354,6 +1364,50 @@
             <button type="button" id="survival-end-inspect-btn" class="btn-secondary hidden">👀 Observer Salle de Colle 3D</button>
             <button type="button" id="survival-end-btn" class="btn-primary">🏫 Retourner au Hall Principal</button>
           </div>
+        </div>
+      </div>
+
+      <div id="shop-modal" class="modal-backdrop hidden">
+        <div class="dialogue-card shop-modal-card" role="dialog" aria-label="Boutique CIEL">
+          <div class="shop-modal-head">
+            <div class="shop-title-block">
+              <div class="prof-tag">BOUTIQUE OFFICIELLE ATELIER CIEL</div>
+              <h2>🛒 Boutique CIEL — Skins, Pets 3D &amp; Accessoires</h2>
+            </div>
+            <div class="shop-head-right">
+              <div class="shop-balance-pill" title="Solde CIEL Coins disponible">
+                <span>🪙</span>
+                <strong id="shop-balance-value">0 CC</strong>
+              </div>
+              <button type="button" id="shop-modal-close" class="icon-close" title="Fermer (Échap)">✕</button>
+            </div>
+          </div>
+
+          <div id="shop-tabs" class="shop-tabs"></div>
+
+          <div class="shop-modal-body">
+            <div id="shop-items-grid" class="shop-grid"></div>
+
+            <div class="shop-inspector-col">
+              <div class="shop-preview-stage">
+                <canvas id="shop-preview-canvas" width="300" height="320"></canvas>
+                <div class="preview-hint">Glisser horizontalement pour faire pivoter 360°</div>
+              </div>
+              <div class="shop-inspector-meta">
+                <span id="shop-preview-rarity" class="shop-preview-rarity">COMMUN</span>
+                <h3 id="shop-preview-name">Sélectionnez un article</h3>
+                <p id="shop-preview-desc" class="shop-preview-desc"></p>
+                <div id="shop-preview-price" class="shop-preview-price"></div>
+                <div id="shop-feedback" class="shop-feedback hidden"></div>
+                <div class="shop-actions-row">
+                  <button type="button" id="shop-btn-action" class="btn-primary btn-lg">🛒 Acheter</button>
+                  <button type="button" id="shop-btn-unequip" class="btn-secondary hidden">↩️ Retirer</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="shop-equipped-summary" class="shop-equipped-summary"></div>
         </div>
       </div>
 

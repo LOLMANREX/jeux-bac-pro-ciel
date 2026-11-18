@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.23 - Optimisation Massive des Performances FPS, Correction Déblocage Baie de Brassage & Heure de Colle en Solo'),
+    __APP_VERSION__: JSON.stringify('v4.24 - Économie CIEL Coins, Boutique Complète, Skins & Pets 3D'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

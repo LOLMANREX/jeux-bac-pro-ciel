@@ -737,6 +737,176 @@ export class NetworkClient {
     return null;
   }
 
+  async fetchShopCatalog(timeoutMs = 3500) {
+    try {
+      const res = await this._fetchWithTimeout('/api/shop/catalog', { cache: 'no-store' }, timeoutMs);
+      if (!res.ok) return { ok: false, catalog: [], categories: [], rarities: {} };
+      return await res.json();
+    } catch {
+      return { ok: false, catalog: [], categories: [], rarities: {} };
+    }
+  }
+
+  async buyShopItem(itemId, playerName = '', timeoutMs = 4500) {
+    try {
+      const res = await this._fetchWithTimeout(
+        '/api/shop/buy',
+        {
+          method: 'POST',
+          headers: this._buildAuthHeaders(),
+          body: JSON.stringify({
+            itemId,
+            name: playerName || this.pendingJoin?.name || ''
+          })
+        },
+        timeoutMs
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          error: data.error || 'Achat impossible.'
+        };
+      }
+      if (data.profile) {
+        this.emit('profile_updated', { profile: data.profile });
+      }
+      return data;
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Serveur inaccessible pour l’achat.'
+      };
+    }
+  }
+
+  async equipShopItem({ itemId = null, category = null, equip = true, name = '' } = {}, timeoutMs = 4500) {
+    try {
+      const res = await this._fetchWithTimeout(
+        '/api/shop/equip',
+        {
+          method: 'POST',
+          headers: this._buildAuthHeaders(),
+          body: JSON.stringify({
+            itemId,
+            category,
+            equip,
+            name: name || this.pendingJoin?.name || ''
+          })
+        },
+        timeoutMs
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          error: data.error || 'Équipement impossible.'
+        };
+      }
+      if (data.profile) {
+        if (this.pendingJoin) {
+          this.pendingJoin.skin = { ...data.profile.skin };
+        }
+        this.emit('profile_updated', { profile: data.profile });
+      }
+      return data;
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Serveur inaccessible pour équiper l’article.'
+      };
+    }
+  }
+
+  async submitArcadeScore(gameId, score, playerName = '', timeoutMs = 4000) {
+    try {
+      const res = await this._fetchWithTimeout(
+        '/api/economy/arcade',
+        {
+          method: 'POST',
+          headers: this._buildAuthHeaders(),
+          body: JSON.stringify({
+            gameId,
+            score,
+            name: playerName || this.pendingJoin?.name || ''
+          })
+        },
+        timeoutMs
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          error: data.error || 'Score mini-jeu refusé.'
+        };
+      }
+      if (data.profile) {
+        this.emit('profile_updated', { profile: data.profile });
+      }
+      return data;
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Serveur inaccessible.'
+      };
+    }
+  }
+
+  async submitSurvivalReward({ outcome = 'defeat', solvedTables = 0, matchId = null, name = '' } = {}, timeoutMs = 4000) {
+    try {
+      const res = await this._fetchWithTimeout(
+        '/api/economy/survival',
+        {
+          method: 'POST',
+          headers: this._buildAuthHeaders(),
+          body: JSON.stringify({
+            outcome,
+            solvedTables,
+            matchId,
+            name: name || this.pendingJoin?.name || ''
+          })
+        },
+        timeoutMs
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          error: data.error || 'Récompense Survie refusée.'
+        };
+      }
+      if (data.profile) {
+        this.emit('profile_updated', { profile: data.profile });
+      }
+      return data;
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Serveur inaccessible.'
+      };
+    }
+  }
+
+  sendShopBuyWs(itemId) {
+    return this.send({ type: 'shop_buy', itemId });
+  }
+
+  sendShopEquipWs(payload = {}) {
+    return this.send({ type: 'shop_equip', ...payload });
+  }
+
+  sendArcadeScoreWs(gameId, score) {
+    return this.send({ type: 'arcade_score', gameId, score });
+  }
+
   async fetchMap(timeoutMs = 3500) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;

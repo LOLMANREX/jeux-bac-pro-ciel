@@ -82,6 +82,10 @@ export class HudManager {
     this.hudEl = document.getElementById('hud');
     this.nameEl = document.getElementById('hud-player-name');
     this.xpEl = document.getElementById('hud-player-xp');
+    this.coinsEl = document.getElementById('hud-player-coins');
+    this.coinsPillEl = document.getElementById('hud-coins-pill');
+    this.coinsGainLayerEl = document.getElementById('hud-coins-gain-layer');
+    this.shopHudBtn = document.getElementById('btn-shop-ingame');
     this.avgEl = document.getElementById('hud-average');
     this.netPill = document.getElementById('net-pill');
     this.netText = document.getElementById('net-text');
@@ -840,6 +844,16 @@ export class HudManager {
       this.openSkinModal();
     });
 
+    this.shopHudBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onOpenShop?.();
+    });
+
+    this.coinsPillEl?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onOpenShop?.();
+    });
+
     document.getElementById('hud-skin-close')?.addEventListener('click', () => {
       sfx.click();
       this.closeSkinModal();
@@ -1452,6 +1466,9 @@ export class HudManager {
     const p = this.gameState.profile;
     this.nameEl.textContent = p.name;
     this.xpEl.textContent = `${p.xp} XP`;
+    if (this.coinsEl) {
+      this.coinsEl.textContent = String(Math.max(0, Math.floor(Number(this.gameState.coins ?? p.coins) || 0)));
+    }
     this.avgEl.textContent = p.average !== null ? `${p.average.toFixed(1)} / 20` : '-- / 20';
     this.syncCreatorUi();
 
@@ -1706,6 +1723,27 @@ export class HudManager {
     el.textContent = message;
     this.toastContainer.appendChild(el);
     setTimeout(() => el.remove(), 4200);
+  }
+
+  showCoinGain(amount, label = '') {
+    const n = Math.max(0, Math.floor(Number(amount) || 0));
+    if (n <= 0) return;
+    if (this.coinsEl) {
+      const total = Math.max(0, Math.floor(Number(this.gameState.coins ?? this.gameState.profile?.coins) || 0));
+      this.coinsEl.textContent = String(total);
+    }
+    if (this.coinsPillEl) {
+      this.coinsPillEl.classList.remove('pulse-gain');
+      void this.coinsPillEl.offsetWidth;
+      this.coinsPillEl.classList.add('pulse-gain');
+    }
+    if (this.coinsGainLayerEl && typeof document !== 'undefined') {
+      const pop = document.createElement('span');
+      pop.className = 'coins-gain-float';
+      pop.textContent = `+${n} 🪙${label ? ` (${label})` : ''}`;
+      this.coinsGainLayerEl.appendChild(pop);
+      setTimeout(() => pop.remove(), 1800);
+    }
   }
 
   _escape(str) {

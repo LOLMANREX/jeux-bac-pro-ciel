@@ -13,6 +13,8 @@ import { VariationTableSession, getVariationSheetHitBoxes } from '../src/minigam
 import { PlayerController } from '../src/world/PlayerController.js';
 import { RemotePlayersManager } from '../src/world/RemotePlayers.js';
 import { SceneManager, pickLabInteractable } from '../src/world/SceneManager.js';
+import { buildShopViewModel } from '../src/ui/ShopModal.js';
+import { SHOP_PETS } from '../src/world/ShopCatalog.js';
 import { createSurvivalPocketRooms, getDetentionCameraHitBoxes } from '../src/world/SurvivalArena3D.js';
 import {
   hasFullMapLineOfSight,
@@ -1659,6 +1661,118 @@ test('VR WebXR v4.22 : interaction sur tous les PC de bureaux (raycast écran 3D
     assert.equal(vr.closeCielOsPanel(), true);
     assert.equal(vr.activePcStation, null);
     assert.equal(pcStation.isActiveSession, false);
+  } finally {
+    vr?.dispose?.();
+    lab.dispose();
+    stubs.restore();
+  }
+});
+
+test('VR WebXR v4.24 : montre VR CIEL Coins, bouton Boutique, panneau spatial Boutique 3D & borne kiosque', () => {
+  const stubs = createFakeDomStubs();
+  const mockScene = new THREE.Scene();
+  const mockCam = new THREE.PerspectiveCamera(72, 1.77, 0.1, 180);
+  const mockSceneMgr = {
+    scene: mockScene,
+    camera: mockCam,
+    renderer: null,
+    getFps: () => 72,
+    getXrErrors: () => [],
+    setVrPresentingState() {},
+    bindVrManager() {}
+  };
+
+  const mapData = createDefaultMap();
+  const lab = buildLabWorld(mockScene, mapData, { hideSprites: true });
+  let vr = null;
+
+  try {
+    const player = new PlayerController(mockCam, stubs.canvas, lab.colliders);
+    player.setBounds(mapData.bounds);
+
+    let openShopTriggered = 0;
+    vr = new VRManager(mockSceneMgr, player, {
+      playerName: 'ShopperVR424',
+      mapData,
+      getInteractables: () => lab.interactables,
+      onOpenShop: () => {
+        openShopTriggered += 1;
+      }
+    });
+
+    assert.equal(vr.enterSimulationMode(), true);
+    vr.updateHudInfo({
+      coins: 650,
+      coinGainAmount: 150,
+      coinGainUntil: Date.now() + 3000
+    });
+    const wristHits = vr.wristPanel.getHitBoxes();
+    const shopWatchBtn = wristHits.find((b) => b.id === 'btn_shop');
+    assert.ok(shopWatchBtn);
+
+    vr.options.onOpenShop?.();
+    assert.equal(openShopTriggered, 1);
+
+    const kiosk = lab.interactables.find((it) => it.type === 'shop_kiosk');
+    assert.ok(kiosk);
+    assert.equal(kiosk.label, '[E] 🛒 Ouvrir la Boutique CIEL');
+
+    let activeCat = 'skins';
+    let closeCalls = 0;
+    const makeShopPayload = (cat, selId) => ({
+      ...buildShopViewModel(
+        {
+          coins: 1200,
+          ownedItems: ['shop_neon_tech'],
+          equippedSkin: null,
+          equippedPet: null,
+          equippedTrail: null
+        },
+        cat,
+        selId
+      ),
+      onSelectCategory: (nextCat) => {
+        activeCat = nextCat;
+      },
+      onSelectItem: () => {},
+      onBuy: () => {},
+      onEquip: () => {},
+      onClose: () => {
+        closeCalls += 1;
+        vr.closeShopSpatialPanel();
+      }
+    });
+
+    const panel = vr.openShopSpatialPanel(makeShopPayload('skins', 'shop_neon_tech'));
+    assert.ok(panel);
+    assert.equal(panel.getState().mode, 'shop');
+    assert.ok(vr.shopPreviewGroup);
+    assert.equal(vr.shopPreviewKind, 'skins');
+
+    const rotBefore = vr.shopPreviewGroup.rotation.y;
+    vr.update(0.05, 0.2, 200);
+    assert.ok(vr.shopPreviewGroup.rotation.y > rotBefore);
+
+    const hitIds = new Set(panel.getHitBoxes().map((b) => b.id));
+    assert.ok(hitIds.has('vr_shop_cat_skins'));
+    assert.ok(hitIds.has('vr_shop_cat_pets'));
+    assert.ok(hitIds.has('vr_shop_cat_accessories'));
+    assert.ok(hitIds.has('vr_shop_item_shop_neon_tech'));
+    assert.ok(hitIds.has('vr_shop_equip'));
+    assert.ok(hitIds.has('vr_shop_close'));
+
+    panel.getHitBoxes().find((b) => b.id === 'vr_shop_cat_pets').onClick();
+    assert.equal(activeCat, 'pets');
+
+    vr.updateShopSpatialPanel(makeShopPayload('pets', SHOP_PETS[0].id));
+    assert.equal(vr.shopPreviewKind, 'pets');
+    assert.equal(vr.shopPreviewItemId, SHOP_PETS[0].id);
+    assert.ok(vr.shopPreviewObject);
+
+    panel.getHitBoxes().find((b) => b.id === 'vr_shop_close').onClick();
+    assert.equal(closeCalls, 1);
+    assert.equal(vr.shopPreviewGroup, null);
+    assert.equal(vr.worldPanel, null);
   } finally {
     vr?.dispose?.();
     lab.dispose();
