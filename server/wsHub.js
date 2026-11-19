@@ -7,7 +7,7 @@ import {
   ULTIMATE_SECRET_SKIN_ID
 } from '../src/world/AvatarBuilder.js';
 import { computeAscensionGatheringLayout } from '../src/world/SceneManager.js';
-import { createDefaultMap } from '../src/world/mapSchema.js';
+import { MAX_FLOOR, MAX_MAP_SIZE, MIN_FLOOR, createDefaultMap } from '../src/world/mapSchema.js';
 import { CombatMatchController } from '../src/world/CombatEngine.js';
 import { SurvivalMatchController } from '../src/world/SurvivalEngine.js';
 import { sanitizeName, sanitizeSkin, ALL_TP_IDS, TP_IDS, TP_LABELS } from './store.js';
@@ -102,11 +102,12 @@ function clamp(val, min, max) {
 }
 
 export function attachWsHub(httpServer, store, mapStore = null, survivalOptions = {}, combatOptions = {}) {
+  const maxWorldHalf = MAX_MAP_SIZE * 0.5 + 100;
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
     perMessageDeflate: false,
-    maxPayload: 20 * 1024 * 1024
+    maxPayload: 50 * 1024 * 1024
   });
   const clients = new Map();
   const roomChats = new Map();
@@ -814,7 +815,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
       y: state.y,
       z: state.z,
       yaw: state.yaw,
-      floor: clamp(Math.round(Number(state.floor) || 0), -1, 5),
+      floor: clamp(Math.round(Number(state.floor) || 0), MIN_FLOOR, MAX_FLOOR),
       activity: state.activity,
       zoneId: state.zoneId || 'U300',
       zoneLabel: state.zoneLabel || 'U300 - Couloir Central',
@@ -1373,11 +1374,11 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           state.zoneId = String(msg.zoneId || 'U300').slice(0, 16);
           state.zoneLabel = String(msg.zoneLabel || 'U300 - Couloir Central').slice(0, 34);
           state.lastPlaytimeFlushMs = Date.now();
-          state.x = clamp(msg.x ?? -3.95, -160, 160);
-          state.y = clamp(msg.y ?? 0, -10, 40);
-          state.z = clamp(msg.z ?? 0.65, -160, 160);
+          state.x = clamp(msg.x ?? -3.95, -maxWorldHalf, maxWorldHalf);
+          state.y = clamp(msg.y ?? 0, -24, 80);
+          state.z = clamp(msg.z ?? 0.65, -maxWorldHalf, maxWorldHalf);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : -1.35;
-          state.floor = clamp(Math.round(Number(msg.floor) || 0), -1, 5);
+          state.floor = clamp(Math.round(Number(msg.floor) || 0), MIN_FLOOR, MAX_FLOOR);
           state.micEnabled = false;
           state.isSpeaking = false;
           state.vrData = null;
@@ -1421,12 +1422,12 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
 
         case 'move': {
           if (!state.name) return;
-          state.x = clamp(msg.x, -160, 160);
-          state.y = clamp(msg.y ?? 0, -10, 40);
-          state.z = clamp(msg.z, -160, 160);
+          state.x = clamp(msg.x, -maxWorldHalf, maxWorldHalf);
+          state.y = clamp(msg.y ?? 0, -24, 80);
+          state.z = clamp(msg.z, -maxWorldHalf, maxWorldHalf);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : state.yaw;
           if (msg.floor !== undefined) {
-            state.floor = clamp(Math.round(Number(msg.floor) || 0), -1, 5);
+            state.floor = clamp(Math.round(Number(msg.floor) || 0), MIN_FLOOR, MAX_FLOOR);
           }
           if ('vrData' in msg) {
             state.vrData = sanitizeVrData(msg.vrData);

@@ -1,89 +1,76 @@
-# Rapport Technique — v4.32 : Map Géante Multi-Étages, Escaliers 3D & Moteur de Culling Intelligent dans le Champ de Vision
+# Rapport Technique — v4.33 : Map Campus Immense jusqu'à 2000m × 2000m, Éditeur Virtualisé & Chunks Dynamiques Sparse
 
 Date : 19/11/2026  
-Version : `v4.32 - Map Géante Multi-Étages, Escaliers 3D & Culling Champ de Vision`
+Version : `v4.33 - Map Campus Immense jusqu'à 2000m × 2000m, Éditeur Virtualisé & Chunks Sparse`
 
 ---
 
-## 1. Extension du Format de Map & Architecture Multi-Étages (`src/world/mapSchema.js`, `src/world/LabBuilder.js`, `server/`)
+## 1. Déblocage Total des Dimensions du Monde & Limites Serveur
 
-1. **Extension des limites et étages (`-1` à `+5`)** :
-   - Passage de `MAX_MAP_SIZE` à `240` (`240 m × 240 m`), `MIN_FLOOR = -1` (Sous-sol), `MAX_FLOOR = 5` (`R+5`), `DEFAULT_FLOOR_HEIGHT = 3.8` m et `SLAB_THICKNESS = 0.22` m.
-   - Support natif du champ `floor` sur les murs, zones, objets, ouvertures (`openings`), et `spawn`, ainsi que de `floors` (avec `index`, `label`/`name`, `hasFullSlab`, `hasCeiling`) et `floorHeight`.
-   - **Rétrocompatibilité absolue** : toute carte sans propriété `floor` (notamment `createDefaultMap()` / Plateau U300 et `server/data/map.json`) est normalisée proprement sur l’étage `0` (RDC) avec hauteur `4.6 m` par défaut, zéro décalage et zéro perte de données.
+### Schéma de Carte (`src/world/mapSchema.js`)
+- **Dimensions étendues** : `DEFAULT_CAMPUS_SIZE = 1000` (`-500m` à `+500m`), `MAX_MAP_SIZE = 2000` (`-1000m` à `+1000m`), `CAMPUS_SIZE_PRESETS = [250, 500, 1000, 2000]` et helper `createCampusMap(size)`.
+- **Multi-étages étendu** : `MIN_FLOOR = -2` (Sous-sols `-2` et `-1`) jusqu'à `MAX_FLOOR = 8` (11 niveaux complets `-2..+8`).
+- **Capacité d'entités débloquée dans `normalizeMapData`** : plafonds relevés à `50 000` murs, `4 000` zones, `50 000` objets et `3 000` trémies, plus prise en charge native du tableau de repères `bookmarks` (jusqu'à 64 signets persistés) et de la propriété `surfaceKind` (`asphalt`, `concrete`, `grass`, `path`, `sport`).
+- **Catalogue enrichi** : ajout de l'outil `room_builder` (Salle / Bâtiment Express) et des 5 pinceaux extérieurs (`exterior_asphalt`, `exterior_concrete`, `exterior_grass`, `exterior_path`, `exterior_sport`).
+- **Rétrocompatibilité absolue** : `createDefaultMap()`, `createEmptyMap()`, `server/data/map.json` et `server/data/db.json` restent 100 % intacts et centrés sans aucun décalage.
 
-2. **Dalles, Trémies Automatiques, Escaliers 3D & Éléments de Lycée** :
-   - **Dalles et plafonds découpés par trémies** : `computeEffectiveFloorOpenings()` agrège les ouvertures manuelles (`slab_opening`) et les trémies automatiques générées à l’étage supérieur par chaque escalier (`autoOpening !== false`). `computeSlabRectangles()` soustrait exactement chaque trémie et cour extérieure (`outdoor`) des dalles et des plafonds/éclairages (`LabBuilder.js`), tout en générant des margelles propres autour des ouvertures.
-   - **Escaliers 3D paramétrables** (`computeStairGeometry` & `buildStaircaseMeshGroup`) :
-     * `stair_straight` (Escalier Droit), `stair_l` (Quart tournant en L avec palier intermédiaire), `stair_u` (Double volée en U avec palier et séparation centrale).
-     * Marches 3D visibles, paliers porteurs, garde-corps et rampes latérales activables (`hasRailings`), sens de rotation (`turnDir`), orientation `0°/90°/180°/270°` (et angle libre), choix `floor -> targetFloor` (montée ou descente vers Sous-sol `-1` avec placement correct du garde-corps haut côté extrémité profonde).
-   - **Éléments de lycée** : `wall_exterior` (façade épaisse, occludeur enregistré dans le culling), `wall_window_bay` (grande baie vitrée à meneaux), `railing_guard` (garde-corps vitré de mezzanine), `pillar_column` (poteau structurel), `floor_slab` (dalle sur mesure / mezzanine), `slab_opening` (trémie manuelle) et `courtyard_zone` (zone extérieure cour sans plafond ni occlusion intérieure).
-
-3. **Capacité Serveur & Persistance** :
-   - Augmentation de la limite de payload HTTP `express.json({ limit: '20mb' })` dans `server/index.js` et `maxPayload: 20 * 1024 * 1024` dans `server/wsHub.js` pour supporter la sauvegarde et la diffusion WebSocket de grandes maps JSON multi-étages.
-
----
-
-## 2. Refonte de l’Éditeur de Map (`src/admin/MapEditor.js`, `src/admin/admin.css`)
-
-- **Barre de gestionnaire d’étages (`#me-floor-bar`)** :
-  - Pilules de sélection rapide des étages (`SS (-1)`, `RDC`, `R+1`...`R+5`), boutons `+ Ajouter un étage` et `+ Sous-sol`, case à cocher `Dalle complète` (mezzanine partielle vs dalle pleine) et filtre d’aperçu 3D (`3D : Jusqu'à l'étage`, `3D : Étage actif seul`, `3D : Tous les étages`).
-  - **Calque Fantôme (Onion Skinning)** (`#me-btn-onion`) : bascule en 1 clic (`Dessous`, `Dessus + Haut`, `Dessus`, `Off`) affichant en filaire semi-transparent les murs et escaliers des niveaux adjacents pour aligner trémies et murs porteurs.
-  - **Duplication de structure (`#me-btn-dup-floor` / `duplicateFloorStructure`)** : copie en 1 clic les murs, zones intérieures et poteaux vers l’étage supérieur.
-- **Navigation Grande Surface & Productivité** :
-  - Plage de zoom 2D élargie jusqu’à `0.8` pour englober `240 m × 240 m`, grille dynamique adaptative et **mini-plan interactif** (`#me-minimap-canvas`) avec déplacement panoramique au clic/glisser.
-  - **Tracé continu de murs** (`wallChainLastPt` + aperçu pointillé cyan + aimantation aux extrémités `_snapToWallEndpoint`), **sélection rectangulaire par zone (`marquee`)** avec déplacement groupé, rotation `90°` (`R`), duplication (`Ctrl+D`) et suppression groupée.
-  - Inspecteur complet pour les escaliers (étage d’implantation, étage d’arrivée, nombre de marches, sens tournant, trémie auto N+1, rampes, boutons cardinaux `0°/90°/180°/270°`) et visualisation 2D des trémies automatiques (`TRÉMIE`).
+### Moteur 3D, Atmosphère, Physique & Serveur
+- **`src/world/SceneManager.js` & `src/vr/VRManager.js`** :
+  - `camera.far` portée à `600m` (`potato`), `750m` (`eco`), `950m` (`balanced`) et `1200m` (`high`) avec extension dynamique jusqu'à `2400m` sur campus géants (`_applyCampusAtmosphereRange`), et plancher VR relevé à `600m`.
+  - Brouillard atmosphérique progressif adapté au preset qualité (`fogNear`/`fogFar` calés sous `camera.far`) pour un horizon naturel sans coupure brutale des bâtiments.
+  - Ancrage dynamique de la caméra d'ombres soleil (`updateShadowAnchor(x, z)` appelé dans `src/main.js`, demi-portée bornée à `90m`) afin de conserver des ombres nettes même aux extrémités d'une carte de `2000m × 2000m`.
+- **`src/world/PlayerController.js` & `src/world/SurvivalEngine.js`** :
+  - Clé de grille spatiale corrigée `(gx + 2048) * 4096 + (gz + 2048)` pour éliminer tout risque de collision d'index sur coordonnées négatives ou éloignées jusqu'à `±1000m+`.
+  - Adaptation de `buildNavGrid` (`maxSpan / 100` au-delà de 120m) évitant toute sur-allocation mémoire sur les grandes maps.
+- **`server/index.js` & `server/wsHub.js`** :
+  - Limite HTTP JSON augmentée à `50mb` (`express.json({ limit: '50mb' })`).
+  - Limite WebSocket augmentée à `50 Mo` (`maxPayload: 50 * 1024 * 1024`).
+  - Suppression du bridage joueur `±160m` / étages `-1..5` dans `wsHub.js` : coordonnées synchronisées sur `±1100m` (`MAX_MAP_SIZE * 0.5 + 100`), altitude `Y` sur `-24m..+80m` et étages sur `MIN_FLOOR..MAX_FLOOR` (`-2..+8`).
 
 ---
 
-## 3. Physique des Escaliers, VR Quest 3S & Synchronisation Verticale (`PlayerController.js`, `VRManager.js`, `RemotePlayers.js`, `PetBuilder.js`, `wsHub.js`)
+## 2. Éditeur de Map "Échelle Campus" Virtualisé & Outils Rapides (`src/admin/MapEditor.js`, `src/admin/admin.css`)
 
-- **Rampes inclinées lisses & gravité multi-étages (`buildWalkableSurfaceData`, `evaluateSurfaceAt`, `getCeilingHeightAt`)** :
-  - Chaque escalier génère des plans de marche inclinés continus (`flights`) et paliers associés à une détection de hauteur par étage (`PlayerController._updateVerticalPhysics`) : montée et descente sans secousse ni tremblement de caméra, sauts bornés par la sous-face du plafond (`getCeilingHeightAt`), gravité propre au-dessus des trémies et collisions 3D filtrées verticalement (`minY`/`maxY` sur `PlayerController._collides` et `SurvivalEngine.pointCollidesWithColliders`).
-- **Compatibilité VR WebXR (Meta Quest 3S)** :
-  - Suivi fluide au joystick de la rampe d’escalier (`VRManager._stabilizeFloor` interpolant sur `player.getFeetY()` sans écraser la chute libre ni provoquer de double pas physique dans `_updateLocomotion`/`setVrPose`).
-  - **Téléportation parabolique multi-étages** (`VRManager.computeVrTeleportTarget` + `executeVrTeleport` + arc/anneau 3D pré-alloué) détectant les marches, paliers, rampes et dalles supérieures.
-- **Synchronisation Multijoueur Verticale (`network.js`, `server/wsHub.js`, `RemotePlayers.js`, `PetBuilder.js`, `PlateauMiniMap.js`, `NpcTeacher.js`)** :
-  - Validation et diffusion WebSocket des coordonnées `y` (`-10..40`) et `floor` (`-1..5`), suivi vertical fluide des avatars distants et de leurs **Pets 3D** (y compris lors d’un changement d’étage sans déplacement horizontal), support multi-étages des PNJ/bornes/zones et affichage des joueurs d’autres étages en semi-transparence avec badge `R+N` sur la minimap.
-
----
-
-## 4. Moteur de Partitionnement Spatial & Culling FOV Temps Réel (`src/world/SpatialCulling.js`, `src/world/LabBuilder.js`, `src/main.js`, `src/ui/HudManager.js`, `index.html`)
-
-- **Découpage en Chunks 3D par étage (`16 m × 16 m × étage`)** :
-  - `LabBuilder` regroupe automatiquement dalles (découpées aux frontières de chunks), plafonds, rampes LED (instanciées par chunk), murs (segmentés à ≤ 14 m), escaliers et mobiliers en `chunk.structureGroup` et `chunk.detailGroup`, avec `Box3` englobante pré-calculée et `matrixAutoUpdate = false`, plus batching `InstancedMesh` par chunk.
-- **Pipeline de Culling à Zéro Allocation (`SpatialCullingEngine.update`)** :
-  1. **Frustum Culling Strict** (`THREE.Frustum` + `THREE.Matrix4` pré-alloués, tolérance stéréo `+0.75 m` en VR) : tout chunk hors champ de vision passe à `visible = false`.
-  2. **Distance Culling & LOD par catégorie** (`CULLING_QUALITY_PROFILES` : `potato`, `eco`, `balanced`, `high`) : distance d’affichage étendue pour la structure (`structureDist`) et réduite pour le mobilier/détails (`detailDist`).
-  3. **Culling par Étage & Occlusion par Murs Opaques** (`isChunkOccludedByWalls`) : en intérieur, masque les chunks éloignés verticalement (`|Δfloor| >= 2`), masque les détails (`detailGroup`) des autres étages derrière des dalles pleines (tout en préservant cours extérieures et cages d’escalier/trémies), et masque les chunks entièrement occultés par des murs opaques (`solid`/`exterior`).
-  4. **Mise en veille automatique des animations & `CanvasTexture`** : lorsque `chunk.visible` ou `chunk.detailsVisible` est faux, `LabBuilder.update()` saute les anneaux, LEDs, PNJ et écrans `CIEL OS` (`sleepMode = true`, zéro upload GPU), et `SpatialCullingEngine` est exécuté juste avant `lab.update()` dans `src/main.js`.
-- **Grille Spatiale `O(1)` (`SpatialHash`)** :
-  - Collisions joueur (`queryColliders`), interactions `[E]` (`queryInteractables`), surfaces tactiles PC (`getActiveWorldSurfaces`) et occludeurs de raycast (`queryOccluders` / `queryOccludersAt`) ne testent que les cellules locales de l’étage courant.
-- **Mini Moniteur de Performance (`index.html`, `src/ui/HudManager.js`)** :
-  - Ajout de `Chunks: visibles/total` (`#perf-mon-chunks`) et `Étage: RDC / R+N / SS` (`#perf-mon-floor`) mis à jour via cache DOM différentiel.
+- **Rendu Virtualisé 2D Anti-Lag** :
+  - Fonction pure `isBoxInViewport2D(...)` appliquée aux zones, trémies, murs, objets, repères et calque fantôme (`_drawGhostFloor`).
+  - Grille multi-échelles adaptative (`100m`, `50m`, `25m`, `10m`, `5m`, `2m`, `1m`, `0.5m`, `0.25m`, `0.1m`) dessinée uniquement dans le rectangle visible et regroupée en 2 appels `stroke()` groupés.
+  - Mise en cache des trémies effectives par révision de carte (`_mapRev`).
+- **Zoom Ultra-Large & Navigation Rapide** :
+  - Plage de zoom étendue de `MIN_ZOOM_2D = 0.22 px/m` (vue satellite 2000m) jusqu'à `MAX_ZOOM_2D = 220 px/m` (précision au décimètre avec aimant `0.1m`).
+  - Panoramique par clic milieu, clic droit, `Espace + glisser` et touches `ZQSD / WASD / Flèches` avec accélération `Shift` (boucle `requestAnimationFrame` arrêtée proprement à la sortie).
+  - Affichage temps réel des coordonnées `(X, Z)`, du zoom et des dimensions en mètres (`L × P` et surface en `m²`).
+  - **Minimap cliquable** enrichie (zones colorées, murs, escaliers, repères dorés et cadre caméra) et **barre de Signets / Repères Campus** (`#me-bookmarks-bar`) avec saut 1 clic 2D + 3D et sélecteur de zones existantes.
+- **Outils de Construction Rapide** :
+  - **Outil Salle / Bâtiment Express (`#me-tool-room` / `room_builder`)** : 1 clic-glisser génère 4 murs (plein / façade / vitré), une zone intérieure, une porte automatique optionnelle, une dalle de sol et un plafond/toit optionnel à l'étage supérieur avec cotes temps réel sur le canvas.
+  - **Copier / Coller / Dupliquer multi-étages** : `Ctrl+C`, `Ctrl+V` au curseur sur l'étage actif et bouton `⬆️ → Étage +1` pour cloner une salle entière ou une sélection multiple vers le niveau supérieur.
+  - **Pinceaux Extérieurs** : Bitume / Parking, Cour Béton, Pelouse, Allée Piétonne et Terrain de Sport avec rendu dédié 2D et matériaux PBR 3D (`RealisticMaterials.js`).
+  - **Redimensionnement en Direct** : boutons presets `250m`, `500m`, `1000m`, `2000m` (`#me-size-presets`) sans effacer le contenu existant.
 
 ---
 
-## 5. Bilans Chiffrés Mesurés & Validation Automatisée
+## 3. Optimisation "Sparse Chunks" 1000m+ à Haut FPS (`src/world/SpatialCulling.js`, `src/world/LabBuilder.js`)
 
-### Mesures réelles (`buildLabWorld` + `SpatialCullingEngine` + `SpatialHash`)
+- **Structure Sparse Strict (`Map` creuse `floor:cx:cz`)** :
+  - Sur campus (`> 260m`), `LabBuilder` ne découpe plus l'intégralité du rectangle `2000m × 2000m` : seuls les chunks `16m × 16m` réellement occupés par des murs, zones intérieures, escaliers, trémies ou objets sont créés.
+  - Un sol de base campus léger, une jupe d'horizon et un dôme céleste dégradé sont attachés directement à `worldGroup` sans créer de chunks vides.
+  - `SpatialCullingEngine.finalize()` purge automatiquement tout chunk vide et expose `isSparse`, `hasChunk`, `getChunk`, `getChunkAt` et `stats.sparseChunks`.
+- **Frustum, Distance & Occlusion Culling Zéro Allocation** :
+  - Profils de portée mis à jour (`potato: 90m/24m`, `eco: 160m/34m`, `balanced: 320m/48m`, `high: 520m/75m`).
+  - Pré-filtrage AABB de l'occlusion murale (`isChunkOccludedByWalls`) avec zéro allocation par frame.
+  - Mise en veille automatique des `CanvasTexture` CIEL OS hors champ ou hors portée (`sleepMode = true`).
+  - Grille `SpatialHash` en `O(1)` couvrant sans collision jusqu'à `±16 384m` et étages `-8..+120`.
 
-| Métrique mesurée | Scénario Lycée 240×240 (5 étages `-1..+3`, 221 murs, 3 escaliers) | Gain |
-| :--- | :---: | :---: |
-| Chunks spatiaux `16m×16m×étage` générés | **1 280 chunks** | Partitionnement complet |
-| Chunks rendus en vue caméra (Qualité `Élevée`) | **185 / 1 280** (853 frustum, 168 étage, 74 occlusion ; **11** détails) | **−85,5 % chunks rendus** |
-| Chunks rendus en vue caméra (Qualité `Ultra-Fluide`) | **49 / 1 280** (1 020 distance, 163 frustum, 36 étage, 12 occlusion ; **5** détails) | **−96,2 % chunks rendus** |
-| Colliders testés par pas joueur (`SpatialHash`) | **3 / 237 colliders** | **−98,7 %** (`O(1)`) |
-| Murs occludeurs testés en raycast (`queryOccludersAt`) | **4 / 224 murs** | **−98,2 %** (`O(1)`) |
-| Rétrocompatibilité Plateau U300 (`createDefaultMap`) | **4 / 4 chunks**, **64 `InstancedMesh` (619 instances)**, **15 PC CIEL OS** | **100 % préservé** |
-| Fichiers protégés `server/data/map.json` & `server/data/db.json` | **0 octet modifié** | **100 % intact** |
+---
 
-### Suite de tests & Build
+## 4. Validation Automatisée, Build & Publication
 
-- **Nouvelle suite dédiée (`tests/multifloor-culling.test.js`)** : 6 suites complètes vérifiant la rétrocompatibilité U300 & la protection de `server/data/`, la map géante `240×240` multi-étages avec trémies auto `N+1` et duplication d’étage, la physique fluide des escaliers (droit, L, U, descente Sous-sol `-1`, chute par gravité dans une trémie ouverte, téléportation VR et tracking rig), `SpatialCullingEngine` (frustum, occlusion, étages, LOD, pause `CanvasTexture` et `SpatialHash`), la synchronisation WebSocket verticale (`y`, `floor` et Pets 3D), et les indicateurs UI/éditeur.
-- **Validation complète** :
-  - `node --test --test-force-exit tests/*.test.js` : **136 / 136 tests passés (0 échec)**.
-  - `npm test` : **136 / 136 tests passés (0 échec)**.
-  - `npm run build` : **build Vite production réussi sans erreur** (`dist/` généré pour `index.html` et `admin.html`).
-  - Audit strict des règles dépôt : **0 commentaire** dans les fichiers `.js`/`.css`/`.html` modifiés ou créés, **0 occurrence** interdite, version `v4.32` cohérente dans `vite.config.js` et `src/ui/ChangelogModal.js`.
+- **Versionning & Changelog** : `vite.config.js` (`__APP_VERSION__`) et `src/ui/ChangelogModal.js` (`APP_VERSION` + nouvelle entrée `v4.33` en tête de `CHANGELOG_RELEASES`, `v4.32` passée à `HISTORIQUE`).
+- **Tests ajoutés (`tests/multifloor-culling.test.js`)** :
+  - Validation de cartes `1000m × 1000m` et `2000m × 2000m` avec bâtiments à `(450, -420)` étage `3` et `(-480, 460)` étage `0`, étages `-2` à `+8`, persistance `MapStore`, repères et pinceaux extérieurs.
+  - Validation du caractère strictement **Sparse** des chunks (aucun chunk vide créé sur `2000m × 2000m`), Frustum & Distance Culling et pause `CanvasTexture`.
+  - Validation de l'absence de bridage joueur local (`PlayerController`) et WebSocket (`wsHub`) sur `±950m` et étages `-2..+8`, limites `50mb`, viewport culling 2D (`isBoxInViewport2D`) et zéro fuite de timers/sockets.
+  - Vérification stricte que `server/data/map.json` et `server/data/db.json` n'ont pas été modifiés.
+- **Résultats d'exécution** :
+  - `node --test --test-force-exit tests/*.test.js` : **139 / 139 tests réussis (0 échec)** en `29.07 s`.
+  - `npm run build` (`vite build`) : **build production réussi sans erreur** en `15.10 s` (`dist/index.html`, `dist/admin.html`, bundles assets).
+  - Audit strict : **0 commentaire** dans tout le code généré/modifié, **0 occurrence** de nom interdit, `server/data/` intact.

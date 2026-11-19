@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { buildLabWorld } from '../world/LabBuilder.js';
 import {
+  CAMPUS_SIZE_PRESETS,
+  DEFAULT_CAMPUS_SIZE,
   DEFAULT_FLOOR_HEIGHT,
   MAP_ITEM_CATEGORIES,
   MAP_ITEM_CATALOG,
@@ -13,6 +15,7 @@ import {
   computePolygonArea,
   computePolygonCentroid,
   computeWallSnap,
+  createCampusMap,
   createDefaultMap,
   createEmptyMap,
   duplicateFloorStructure,
@@ -24,6 +27,13 @@ import {
   isPointInPolygon,
   normalizeMapData
 } from '../world/mapSchema.js';
+
+export const MIN_ZOOM_2D = 0.22;
+export const MAX_ZOOM_2D = 220;
+
+export function isBoxInViewport2D(minX, maxX, minZ, maxZ, viewMinX, viewMaxX, viewMinZ, viewMaxZ) {
+  return maxX >= viewMinX && minX <= viewMaxX && maxZ >= viewMinZ && minZ <= viewMaxZ;
+}
 
 function cloneMap(data) {
   return JSON.parse(JSON.stringify(data));
@@ -97,6 +107,29 @@ export class MapEditor {
     this.rawHoverWorld = null;
     this.activeWallSnap = null;
     this.altPressed = false;
+    this.spacePressed = false;
+    this.shiftPressed = false;
+    this.panKeys = new Set();
+    this._panRafId = 0;
+    this._panLastTime = 0;
+    this.clipboard = null;
+    this.roomOpts = {
+      wallKind: 'solid',
+      includeFloorSlab: false,
+      includeCeiling: true,
+      includeDoor: true
+    };
+    this._mapRev = 1;
+    this._cachedOpeningsRev = -1;
+    this._cachedOpenings = [];
+    this.lastDrawStats = {
+      drawnWalls: 0,
+      drawnZones: 0,
+      drawnObjects: 0,
+      totalWalls: 0,
+      totalZones: 0,
+      totalObjects: 0
+    };
     this.underlay = { img: null, opacity: 0.38, scale: 1, name: '' };
 
     this.three = {
@@ -115,6 +148,7 @@ export class MapEditor {
     this._renderShell();
     this._bindEvents();
     this._renderFloorBar();
+    this._renderBookmarksBar();
     this._renderCatalog();
     this._renderInspector();
     this.fitCamera2D();
@@ -131,11 +165,14 @@ export class MapEditor {
           </div>
 
           <div class="me-tb-group">
-            <label class="me-tb-label">Dimensions (m)</label>
+            <label class="me-tb-label">Dimensions Campus (m)</label>
             <div class="me-dims">
               <input type="number" id="me-bounds-w" class="me-input me-input-num" min="10" max="${MAX_MAP_SIZE}" step="1" value="${this.mapData.bounds.width}" title="Largeur X (m) — jusqu'à ${MAX_MAP_SIZE} m" />
               <span>×</span>
               <input type="number" id="me-bounds-d" class="me-input me-input-num" min="10" max="${MAX_MAP_SIZE}" step="1" value="${this.mapData.bounds.depth}" title="Profondeur Z (m) — jusqu'à ${MAX_MAP_SIZE} m" />
+              <div class="me-size-presets" id="me-size-presets" title="Redimensionner le campus en direct sans rien effacer">
+                ${CAMPUS_SIZE_PRESETS.map((sz) => `<button type="button" class="me-btn me-btn-xs" data-size="${sz}">${sz}m</button>`).join('')}
+              </div>
             </div>
           </div>
 
@@ -147,9 +184,11 @@ export class MapEditor {
           <div class="me-tb-group">
             <label class="me-tb-label">Aimant Grille</label>
             <select id="me-snap-select" class="me-select">
+              <option value="2">2 m</option>
               <option value="1">1 m</option>
               <option value="0.5" selected>0.5 m</option>
               <option value="0.25">0.25 m</option>
+              <option value="0.1">0.1 m</option>
               <option value="0">Libre</option>
             </select>
           </div>
@@ -199,10 +238,10 @@ export class MapEditor {
         </div>
 
         <div class="me-floor-bar" id="me-floor-bar">
-          <span class="me-floor-bar-label">🏢 Étages :</span>
+          <span class="me-floor-bar-label">🏢 Étages (${MIN_FLOOR}..+${MAX_FLOOR}) :</span>
           <div class="me-floor-pills" id="me-floor-pills"></div>
-          <button type="button" id="me-btn-add-floor" class="me-btn" title="Ajouter un étage supérieur (+1)">+ Ajouter un étage</button>
-          <button type="button" id="me-btn-add-basement" class="me-btn" title="Ajouter le Sous-sol (-1)">+ Sous-sol</button>
+          <button type="button" id="me-btn-add-floor" class="me-btn" title="Ajouter un étage supérieur (+1 jusqu'à +${MAX_FLOOR})">+ Ajouter un étage</button>
+          <button type="button" id="me-btn-add-basement" class="me-btn" title="Ajouter un Sous-sol (-1 / -2)">+ Sous-sol</button>
           <label class="me-check-pill" title="Dalle complète sur cet étage (décocher pour mezzanine partielle)">
             <input type="checkbox" id="me-chk-full-slab" checked /> Dalle complète
           </label>
@@ -215,11 +254,38 @@ export class MapEditor {
           </select>
         </div>
 
+        <div class="me-bookmarks-bar" id="me-bookmarks-bar">
+          <span class="me-floor-bar-label">📍 Repères Campus :</span>
+          <div class="me-bookmark-pills" id="me-bookmark-pills"></div>
+          <div class="me-bookmark-add">
+            <input type="text" id="me-bm-name" class="me-input me-input-bm" maxlength="32" placeholder="Ex: Bâtiment A, Gymnase, Cour..." />
+            <button type="button" id="me-btn-add-bm" class="me-btn" title="Enregistrer la position actuelle comme repère">+ Repère ici</button>
+          </div>
+          <select id="me-zone-jump" class="me-select me-select-compact" title="Aller directement à une salle / zone existante">
+            <option value="">🧭 Aller à une zone...</option>
+          </select>
+        </div>
+
         <div class="me-workspace">
           <aside class="me-sidebar">
-            <div class="me-tools-row">
-              <button type="button" id="me-tool-select" class="me-tool-btn active">🖱️ Sélection</button>
-              <button type="button" id="me-tool-pan" class="me-tool-btn">✋ Déplacer vue</button>
+            <div class="me-tools-row me-tools-row-3">
+              <button type="button" id="me-tool-select" class="me-tool-btn active" title="Sélectionner / Sélection multiple par rectangle">🖱️ Sélection</button>
+              <button type="button" id="me-tool-pan" class="me-tool-btn" title="Déplacer la vue (ou Espace + glisser / ZQSD)">✋ Vue</button>
+              <button type="button" id="me-tool-room" class="me-tool-btn" title="Tracer une salle ou un bâtiment complet en 1 clic-glisser">🏗️ Salle</button>
+            </div>
+            <div class="me-room-opts hidden" id="me-room-opts">
+              <div class="me-room-opts-row">
+                <select id="me-room-wall-kind" class="me-select me-select-compact" title="Type de murs générés">
+                  <option value="solid" selected>🧱 Murs pleins</option>
+                  <option value="exterior">🏢 Façades ext.</option>
+                  <option value="glazed">🪟 Cloisons vitrées</option>
+                </select>
+              </div>
+              <div class="me-room-opts-checks">
+                <label class="me-check-mini"><input type="checkbox" id="me-room-door" checked /> Porte auto</label>
+                <label class="me-check-mini"><input type="checkbox" id="me-room-slab" /> Dalle sol</label>
+                <label class="me-check-mini"><input type="checkbox" id="me-room-ceil" checked /> Plafond</label>
+              </div>
             </div>
             <div class="me-cat-tabs" id="me-cat-tabs"></div>
             <div class="me-catalog-list" id="me-catalog-list"></div>
@@ -233,11 +299,12 @@ export class MapEditor {
                 <div class="me-zoom-btns">
                   <button type="button" id="me-zoom-in" class="me-icon-btn" title="Zoom +">＋</button>
                   <button type="button" id="me-zoom-out" class="me-icon-btn" title="Zoom -">－</button>
-                  <button type="button" id="me-zoom-fit" class="me-icon-btn" title="Recentrer la vue">⌖</button>
+                  <button type="button" id="me-zoom-fit" class="me-icon-btn" title="Recentrer sur le campus entier (Vue satellite)">🛰️</button>
+                  <button type="button" id="me-zoom-center" class="me-icon-btn" title="Aller au centre (0, 0)">⌖</button>
                 </div>
               </div>
               <div class="me-minimap-wrap" id="me-minimap-wrap" title="Mini-plan de repérage — cliquez ou glissez pour naviguer">
-                <canvas id="me-minimap-canvas" width="168" height="148"></canvas>
+                <canvas id="me-minimap-canvas" width="184" height="160"></canvas>
               </div>
               <div class="me-hud-2d-bottom">
                 <span id="me-coords-readout">X: 0.00m • Z: 0.00m</span>
@@ -269,6 +336,7 @@ export class MapEditor {
       nameInput: this.container.querySelector('#me-map-name'),
       boundsW: this.container.querySelector('#me-bounds-w'),
       boundsD: this.container.querySelector('#me-bounds-d'),
+      sizePresets: this.container.querySelector('#me-size-presets'),
       floorHeightInput: this.container.querySelector('#me-floor-height'),
       snapSelect: this.container.querySelector('#me-snap-select'),
       viewModes: this.container.querySelector('#me-view-modes'),
@@ -290,8 +358,18 @@ export class MapEditor {
       btnOnion: this.container.querySelector('#me-btn-onion'),
       btnDupFloor: this.container.querySelector('#me-btn-dup-floor'),
       mode3dFloor: this.container.querySelector('#me-3d-floor-mode'),
+      bookmarkPills: this.container.querySelector('#me-bookmark-pills'),
+      bmNameInput: this.container.querySelector('#me-bm-name'),
+      btnAddBm: this.container.querySelector('#me-btn-add-bm'),
+      zoneJump: this.container.querySelector('#me-zone-jump'),
       toolSelect: this.container.querySelector('#me-tool-select'),
       toolPan: this.container.querySelector('#me-tool-pan'),
+      toolRoom: this.container.querySelector('#me-tool-room'),
+      roomOptsWrap: this.container.querySelector('#me-room-opts'),
+      roomWallKind: this.container.querySelector('#me-room-wall-kind'),
+      roomDoorChk: this.container.querySelector('#me-room-door'),
+      roomSlabChk: this.container.querySelector('#me-room-slab'),
+      roomCeilChk: this.container.querySelector('#me-room-ceil'),
       catTabs: this.container.querySelector('#me-cat-tabs'),
       catalogList: this.container.querySelector('#me-catalog-list'),
       stage: this.container.querySelector('#me-stage'),
@@ -314,9 +392,9 @@ export class MapEditor {
       this._markDirty();
     });
 
-    const onBoundsChange = () => {
-      const w = Math.max(10, Math.min(MAX_MAP_SIZE, Number(this.els.boundsW.value) || 26));
-      const d = Math.max(10, Math.min(MAX_MAP_SIZE, Number(this.els.boundsD.value) || 24.4));
+    const applyBoundsSize = (wRaw, dRaw, refit = false) => {
+      const w = Math.max(10, Math.min(MAX_MAP_SIZE, Number(wRaw) || 26));
+      const d = Math.max(10, Math.min(MAX_MAP_SIZE, Number(dRaw) || 24.4));
       this._pushUndo();
       this.mapData.bounds = {
         minX: Number((-w / 2).toFixed(2)),
@@ -329,14 +407,24 @@ export class MapEditor {
       };
       this.mapData = normalizeMapData(this.mapData);
       this._syncTopInputs();
-      this.fitCamera2D();
+      if (refit) this.fitCamera2D();
       this._sync3DEnvironment();
       this.draw2D();
       this._schedule3DRebuild();
       this._markDirty();
     };
+    const onBoundsChange = () => {
+      applyBoundsSize(this.els.boundsW.value, this.els.boundsD.value, true);
+    };
     this.els.boundsW.addEventListener('change', onBoundsChange);
     this.els.boundsD.addEventListener('change', onBoundsChange);
+    this.els.sizePresets?.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-size]');
+      if (!btn) return;
+      const sz = Number(btn.dataset.size) || DEFAULT_CAMPUS_SIZE;
+      applyBoundsSize(sz, sz, false);
+      this.showToast(`Zone de travail redimensionnée à ${sz}m × ${sz}m (contenu préservé)`, 'success');
+    });
 
     this.els.floorHeightInput.addEventListener('change', () => {
       const fh = Math.max(2.8, Math.min(6.0, Number(this.els.floorHeightInput.value) || DEFAULT_FLOOR_HEIGHT));
@@ -373,16 +461,45 @@ export class MapEditor {
 
     this.els.btnAddBasement.addEventListener('click', () => {
       const floors = this.mapData.floors || [];
-      if (floors.some((f) => f.index === MIN_FLOOR)) {
+      const minExisting = floors.reduce((m, f) => Math.min(m, f.index), 0);
+      if (minExisting <= MIN_FLOOR) {
         this._setActiveFloor(MIN_FLOOR);
+        this.showToast(`Sous-sol minimal (${MIN_FLOOR}) atteint`, 'info');
         return;
       }
+      const nextBase = minExisting - 1;
       this._pushUndo();
-      this._ensureFloorExists(MIN_FLOOR);
-      this._setActiveFloor(MIN_FLOOR);
+      this._ensureFloorExists(nextBase);
+      this._setActiveFloor(nextBase);
       this._schedule3DRebuild(true);
       this._markDirty();
-      this.showToast('Sous-sol (-1) ajouté', 'success');
+      this.showToast(`${formatFloorLabel(nextBase)} ajouté`, 'success');
+    });
+
+    this.els.btnAddBm?.addEventListener('click', () => {
+      this._addBookmarkAtCamera(this.els.bmNameInput?.value || '');
+      if (this.els.bmNameInput) this.els.bmNameInput.value = '';
+    });
+    this.els.bmNameInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this._addBookmarkAtCamera(this.els.bmNameInput.value || '');
+        this.els.bmNameInput.value = '';
+      }
+    });
+    this.els.zoneJump?.addEventListener('change', () => {
+      const zId = this.els.zoneJump.value;
+      if (!zId) return;
+      const z = (this.mapData.zones || []).find((item) => item.id === zId);
+      if (z) {
+        const zFl = clampFloor(z.floor ?? 0);
+        if (zFl !== this.activeFloor) this._setActiveFloor(zFl);
+        const span = Math.max(8, z.w || 8, z.d || 8);
+        const rect = this.els.pane2d.getBoundingClientRect();
+        const targetZoom = rect.width > 40 ? Math.max(2, Math.min(48, (Math.min(rect.width, rect.height) * 0.55) / span)) : 18;
+        this.jumpToWorld(z.x, z.z, zFl, targetZoom);
+      }
+      this.els.zoneJump.value = '';
     });
 
     this.els.chkFullSlab.addEventListener('change', () => {
@@ -543,18 +660,34 @@ export class MapEditor {
 
     this.els.toolSelect.addEventListener('click', () => this.setTool('select', null));
     this.els.toolPan.addEventListener('click', () => this.setTool('pan', null));
+    this.els.toolRoom?.addEventListener('click', () => this.setTool('place', 'room_builder'));
+    this.els.roomWallKind?.addEventListener('change', () => {
+      this.roomOpts.wallKind = this.els.roomWallKind.value || 'solid';
+    });
+    this.els.roomDoorChk?.addEventListener('change', () => {
+      this.roomOpts.includeDoor = Boolean(this.els.roomDoorChk.checked);
+    });
+    this.els.roomSlabChk?.addEventListener('change', () => {
+      this.roomOpts.includeFloorSlab = Boolean(this.els.roomSlabChk.checked);
+    });
+    this.els.roomCeilChk?.addEventListener('change', () => {
+      this.roomOpts.includeCeiling = Boolean(this.els.roomCeilChk.checked);
+    });
 
     this.container.querySelector('#me-zoom-in').addEventListener('click', () => {
-      this.cam2d.zoom = Math.min(140, this.cam2d.zoom * 1.2);
+      this.cam2d.zoom = Math.min(MAX_ZOOM_2D, this.cam2d.zoom * 1.28);
       this.draw2D();
     });
     this.container.querySelector('#me-zoom-out').addEventListener('click', () => {
-      this.cam2d.zoom = Math.max(0.8, this.cam2d.zoom / 1.2);
+      this.cam2d.zoom = Math.max(MIN_ZOOM_2D, this.cam2d.zoom / 1.28);
       this.draw2D();
     });
     this.container.querySelector('#me-zoom-fit').addEventListener('click', () => {
       this.fitCamera2D();
       this.draw2D();
+    });
+    this.container.querySelector('#me-zoom-center')?.addEventListener('click', () => {
+      this.jumpToWorld(0, 0, this.activeFloor, Math.max(12, Math.min(28, this.cam2d.zoom < 4 ? 18 : this.cam2d.zoom)));
     });
     this.container.querySelector('#me-3d-reset').addEventListener('click', () => {
       const b = this.mapData.bounds;
@@ -562,10 +695,10 @@ export class MapEditor {
       this.three.orbit = {
         yaw: 0.72,
         pitch: 0.78,
-        dist: Math.max(24, diag * 0.72),
-        tx: (b.minX + b.maxX) / 2,
+        dist: Math.max(24, Math.min(420, diag * 0.62)),
+        tx: this.cam2d.x || 0,
         ty: getFloorBaseY(this.mapData, this.activeFloor) + 1.2,
-        tz: (b.minZ + b.maxZ) / 2
+        tz: this.cam2d.z || 0
       };
       this._updateCamera3D();
     });
@@ -574,14 +707,21 @@ export class MapEditor {
     this._bindCanvas3DEvents();
     this._bindMiniMapEvents();
 
+    const PAN_KEY_CODES = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
     this._keyHandler = (e) => {
       if (!this.isActive) return;
       if (e.key === 'Alt' || e.altKey !== this.altPressed) {
         this.altPressed = Boolean(e.altKey);
         this._refreshAltSnapPreview();
       }
+      this.shiftPressed = Boolean(e.shiftKey);
       const typing = e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
       if (typing) return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        this.spacePressed = true;
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
         e.preventDefault();
         if (e.shiftKey) this.redo();
@@ -589,6 +729,16 @@ export class MapEditor {
       } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY') {
         e.preventDefault();
         this.redo();
+      } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
+        if (this.multiSelected.length > 0 || this.selected) {
+          e.preventDefault();
+          this.copySelection();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') {
+        if (this.clipboard) {
+          e.preventDefault();
+          this.pasteClipboard();
+        }
       } else if (e.code === 'Enter' && this.polyDraft) {
         e.preventDefault();
         this._finishPolygonDraft();
@@ -617,7 +767,7 @@ export class MapEditor {
           this._renderInspector();
           this.draw2D();
         }
-      } else if (e.code === 'KeyR' && (this.multiSelected.length > 1 || this.selected?.kind === 'object')) {
+      } else if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey && (this.multiSelected.length > 1 || this.selected?.kind === 'object')) {
         e.preventDefault();
         if (this.multiSelected.length > 1) this._rotateGroup90();
         else this._rotateSelected(15);
@@ -625,6 +775,10 @@ export class MapEditor {
         e.preventDefault();
         if (this.multiSelected.length > 1) this._duplicateMultiSelected();
         else this.duplicateSelected();
+      } else if (!e.ctrlKey && !e.metaKey && PAN_KEY_CODES.has(e.code)) {
+        e.preventDefault();
+        this.panKeys.add(e.code);
+        this._startKeyboardPanLoop();
       }
     };
     this._keyUpHandler = (e) => {
@@ -633,8 +787,20 @@ export class MapEditor {
         this.altPressed = Boolean(e.altKey);
         this._refreshAltSnapPreview();
       }
+      this.shiftPressed = Boolean(e.shiftKey);
+      if (e.code === 'Space') {
+        this.spacePressed = false;
+      }
+      if (this.panKeys.has(e.code)) {
+        this.panKeys.delete(e.code);
+        if (this.panKeys.size === 0) this._stopKeyboardPanLoop();
+      }
     };
     this._blurHandler = () => {
+      this.spacePressed = false;
+      this.shiftPressed = false;
+      this.panKeys.clear();
+      this._stopKeyboardPanLoop();
       if (this.altPressed) {
         this.altPressed = false;
         this._refreshAltSnapPreview();
@@ -669,6 +835,150 @@ export class MapEditor {
       this.els.floorHeightInput.value = this.mapData.floorHeight || this.mapData.bounds.height || DEFAULT_FLOOR_HEIGHT;
     }
     this._renderFloorBar();
+    this._renderBookmarksBar();
+  }
+
+  _startKeyboardPanLoop() {
+    if (this._panRafId) return;
+    this._panLastTime = performance.now();
+    const step = (now) => {
+      if (!this.isActive || this.panKeys.size === 0) {
+        this._panRafId = 0;
+        return;
+      }
+      const dt = Math.min(0.08, Math.max(0.004, (now - this._panLastTime) / 1000));
+      this._panLastTime = now;
+      let vx = 0;
+      let vz = 0;
+      if (this.panKeys.has('KeyW') || this.panKeys.has('ArrowUp')) vz -= 1;
+      if (this.panKeys.has('KeyS') || this.panKeys.has('ArrowDown')) vz += 1;
+      if (this.panKeys.has('KeyA') || this.panKeys.has('ArrowLeft')) vx -= 1;
+      if (this.panKeys.has('KeyD') || this.panKeys.has('ArrowRight')) vx += 1;
+      if (vx !== 0 || vz !== 0) {
+        const len = Math.hypot(vx, vz) || 1;
+        const speedPx = this.shiftPressed ? 1150 : 420;
+        const speedWorld = speedPx / Math.max(MIN_ZOOM_2D, this.cam2d.zoom);
+        const b = this.mapData.bounds;
+        this.cam2d.x = Math.max(b.minX - 40, Math.min(b.maxX + 40, this.cam2d.x + (vx / len) * speedWorld * dt));
+        this.cam2d.z = Math.max(b.minZ - 40, Math.min(b.maxZ + 40, this.cam2d.z + (vz / len) * speedWorld * dt));
+        this.draw2D();
+      }
+      this._panRafId = requestAnimationFrame(step);
+    };
+    this._panRafId = requestAnimationFrame(step);
+  }
+
+  _stopKeyboardPanLoop() {
+    if (this._panRafId) {
+      cancelAnimationFrame(this._panRafId);
+      this._panRafId = 0;
+    }
+  }
+
+  jumpToWorld(x, z, floor = this.activeFloor, zoom = null) {
+    const fl = clampFloor(floor);
+    if (fl !== this.activeFloor) {
+      this._setActiveFloor(fl);
+    }
+    const b = this.mapData.bounds;
+    this.cam2d.x = Math.max(b.minX, Math.min(b.maxX, Number(x) || 0));
+    this.cam2d.z = Math.max(b.minZ, Math.min(b.maxZ, Number(z) || 0));
+    if (Number.isFinite(Number(zoom))) {
+      this.cam2d.zoom = Math.max(MIN_ZOOM_2D, Math.min(MAX_ZOOM_2D, Number(zoom)));
+    }
+    this.three.orbit.tx = this.cam2d.x;
+    this.three.orbit.tz = this.cam2d.z;
+    this.three.orbit.ty = getFloorBaseY(this.mapData, fl) + 1.2;
+    this._updateCamera3D();
+    this.draw2D();
+  }
+
+  _addBookmarkAtCamera(rawLabel = '') {
+    const clean = String(rawLabel || '').trim().slice(0, 32) || `Repère ${(this.mapData.bookmarks?.length || 0) + 1}`;
+    this._pushUndo();
+    if (!Array.isArray(this.mapData.bookmarks)) {
+      this.mapData.bookmarks = [];
+    }
+    this.mapData.bookmarks.push({
+      id: `bm-${Date.now()}-${Math.floor(Math.random() * 999)}`,
+      label: clean,
+      x: Number(this.cam2d.x.toFixed(2)),
+      z: Number(this.cam2d.z.toFixed(2)),
+      floor: this.activeFloor,
+      zoom: Number(this.cam2d.zoom.toFixed(2))
+    });
+    this._markDirty();
+    this._renderBookmarksBar();
+    this.draw2D();
+    this.showToast(`📍 Repère "${clean}" enregistré`, 'success');
+  }
+
+  _removeBookmark(bmId) {
+    if (!Array.isArray(this.mapData.bookmarks)) return;
+    this._pushUndo();
+    this.mapData.bookmarks = this.mapData.bookmarks.filter((b) => b.id !== bmId);
+    this._markDirty();
+    this._renderBookmarksBar();
+    this.draw2D();
+  }
+
+  _renderBookmarksBar() {
+    if (!this.els?.bookmarkPills) return;
+    const list = Array.isArray(this.mapData.bookmarks) ? this.mapData.bookmarks : [];
+    const defaultQuick = list.length === 0
+      ? `<button type="button" class="me-bm-chip me-bm-default" data-jump-origin="1" title="Centrer sur l'Atelier CIEL (0, 0)">🏛️ Centre (0,0)</button>`
+      : '';
+    this.els.bookmarkPills.innerHTML =
+      defaultQuick +
+      list
+        .map(
+          (bm) => `
+      <span class="me-bm-chip-wrap">
+        <button type="button" class="me-bm-chip" data-bm-id="${escapeHtml(bm.id)}" title="${escapeHtml(bm.label)} — (${bm.x}m, ${bm.z}m, ${escapeHtml(formatFloorShortLabel(bm.floor))})">
+          📍 ${escapeHtml(bm.label)} <small>${escapeHtml(formatFloorShortLabel(bm.floor))}</small>
+        </button>
+        <button type="button" class="me-bm-del" data-bm-del="${escapeHtml(bm.id)}" title="Supprimer ce repère">×</button>
+      </span>`
+        )
+        .join('');
+    this.els.bookmarkPills.onclick = (e) => {
+      const delBtn = e.target.closest('button[data-bm-del]');
+      if (delBtn) {
+        this._removeBookmark(delBtn.dataset.bmDel);
+        return;
+      }
+      const originBtn = e.target.closest('button[data-jump-origin]');
+      if (originBtn) {
+        this.jumpToWorld(0, 0, 0, 16);
+        return;
+      }
+      const jumpBtn = e.target.closest('button[data-bm-id]');
+      if (!jumpBtn) return;
+      const bm = (this.mapData.bookmarks || []).find((item) => item.id === jumpBtn.dataset.bmId);
+      if (bm) {
+        this.jumpToWorld(bm.x, bm.z, bm.floor, bm.zoom);
+      }
+    };
+    if (this.els.zoneJump) {
+      const zones = Array.isArray(this.mapData.zones) ? this.mapData.zones : [];
+      this.els.zoneJump.innerHTML =
+        `<option value="">🧭 Aller à une zone (${zones.length})...</option>` +
+        zones
+          .slice(0, 120)
+          .map(
+            (z) =>
+              `<option value="${escapeHtml(z.id)}">${escapeHtml(formatFloorShortLabel(z.floor ?? 0))} • ${escapeHtml(z.code || '')} ${escapeHtml(z.shortName || '')}</option>`
+          )
+          .join('');
+    }
+  }
+
+  _getEffectiveOpeningsCached() {
+    if (this._cachedOpeningsRev !== this._mapRev) {
+      this._cachedOpenings = computeEffectiveFloorOpenings(this.mapData);
+      this._cachedOpeningsRev = this._mapRev;
+    }
+    return this._cachedOpenings;
   }
 
   _ensureFloorExists(fl) {
@@ -803,8 +1113,10 @@ export class MapEditor {
 
   _markDirty() {
     this.dirty = true;
+    this._mapRev++;
     this.els.saveBadge.textContent = 'Modifié (non publié)';
     this.els.saveBadge.classList.add('dirty');
+    this._renderBookmarksBar();
   }
 
   _markClean() {
@@ -863,29 +1175,34 @@ export class MapEditor {
     this.polyDraft = null;
     this.wallChainLastPt = null;
     this.activeWallSnap = null;
+    const isRoomTool = mode === 'place' && catalogType === 'room_builder';
     this.els.toolSelect.classList.toggle('active', mode === 'select');
     this.els.toolPan.classList.toggle('active', mode === 'pan');
+    this.els.toolRoom?.classList.toggle('active', isRoomTool);
+    this.els.roomOptsWrap?.classList.toggle('hidden', !isRoomTool);
     for (const card of this.els.catalogList.querySelectorAll('.me-cat-item')) {
       card.classList.toggle('active', mode === 'place' && card.dataset.type === catalogType);
     }
     if (mode === 'place' && catalogType) {
       const cat = getCatalogItem(catalogType);
-      const hint = cat?.isWall
-        ? 'Glissez ou cliquez en continu pour chaîner les murs (Échap : finir)'
-        : cat?.isZonePolygon
-          ? 'Cliquez pour poser les sommets • 1er point / Double-clic / Entrée : Fermer • Échap : Annuler'
-          : cat?.isZone
-            ? 'Glissez un rectangle sur la carte'
-            : cat?.isStair
-              ? 'Cliquez pour placer l’escalier + trémie auto N+1'
-              : cat?.wallMount
-                ? 'Approchez d’un mur pour aimanter (Alt : libre)'
-                : 'Cliquez sur la carte pour placer';
+      const hint = cat?.isRoomBuilder
+        ? 'Glissez un rectangle pour générer 4 murs + sol + plafond en 1 geste'
+        : cat?.isWall
+          ? 'Glissez ou cliquez en continu pour chaîner les murs (Échap : finir)'
+          : cat?.isZonePolygon
+            ? 'Cliquez pour poser les sommets • 1er point / Double-clic / Entrée : Fermer • Échap : Annuler'
+            : cat?.isZone
+              ? 'Glissez un rectangle sur la carte (dimensions en m affichées en direct)'
+              : cat?.isStair
+                ? 'Cliquez pour placer l’escalier + trémie auto N+1'
+                : cat?.wallMount
+                  ? 'Approchez d’un mur pour aimanter (Alt : libre)'
+                  : 'Cliquez sur la carte pour placer';
       this.els.modePill.textContent = `${cat?.icon || ''} ${cat?.shortLabel || catalogType} • ${hint} (Clic droit : Sélection)`;
     } else if (mode === 'pan') {
-      this.els.modePill.textContent = 'Mode : Déplacement vue 2D (Pan)';
+      this.els.modePill.textContent = 'Mode : Déplacement vue 2D (Pan • ou Espace+glisser / ZQSD+Shift)';
     } else {
-      this.els.modePill.textContent = 'Mode : Sélection • Glissez dans le vide pour sélection multiple';
+      this.els.modePill.textContent = 'Mode : Sélection • Glissez pour sélection multiple • Ctrl+C/V • ZQSD pour naviguer';
     }
   }
 
@@ -1056,7 +1373,7 @@ export class MapEditor {
     if (rect.width > 40 && rect.height > 40) {
       const zx = (rect.width - 48) / Math.max(4, b.width);
       const zz = (rect.height - 48) / Math.max(4, b.depth);
-      this.cam2d.zoom = Math.max(0.8, Math.min(48, Math.min(zx, zz)));
+      this.cam2d.zoom = Math.max(MIN_ZOOM_2D, Math.min(48, Math.min(zx, zz)));
     }
   }
 
@@ -1173,8 +1490,8 @@ export class MapEditor {
         const sx = e.clientX - rect.left;
         const sy = e.clientY - rect.top;
         const [wx, wz] = this._screenToWorld(sx, sy);
-        const factor = e.deltaY < 0 ? 1.12 : 0.89;
-        this.cam2d.zoom = Math.max(0.8, Math.min(140, this.cam2d.zoom * factor));
+        const factor = e.deltaY < 0 ? 1.15 : 0.87;
+        this.cam2d.zoom = Math.max(MIN_ZOOM_2D, Math.min(MAX_ZOOM_2D, this.cam2d.zoom * factor));
         const w = c.width / (window.devicePixelRatio || 1);
         const h = c.height / (window.devicePixelRatio || 1);
         this.cam2d.x = wx - (sx - w / 2) / this.cam2d.zoom;
@@ -1191,7 +1508,7 @@ export class MapEditor {
       const sy = e.clientY - rect.top;
       const [wx, wz] = this._screenToWorld(sx, sy);
 
-      if (e.button === 1 || e.button === 2 || this.toolMode === 'pan') {
+      if (e.button === 1 || e.button === 2 || this.toolMode === 'pan' || this.spacePressed) {
         this.dragState = {
           mode: 'pan',
           startSx: sx,
@@ -1214,6 +1531,20 @@ export class MapEditor {
           ? [snap.x, snap.z]
           : this._clampToBounds(this._snapVal(wx), this._snapVal(wz));
         const initRotation = snap ? snap.rotation : 0;
+        if (cat?.isRoomBuilder) {
+          this.dragState = {
+            mode: 'draw_room',
+            type: this.activeCatalogType,
+            x1: cx,
+            z1: cz,
+            x2: cx,
+            z2: cz,
+            startSx: sx,
+            startSy: sy
+          };
+          this.draw2D();
+          return;
+        }
         if (cat?.isWall) {
           const [wpx, wpz] = this._snapToWallEndpoint(wx, wz, altDown);
           this.dragState = {
@@ -1393,9 +1724,10 @@ export class MapEditor {
       this.hoverWorld = hoverSnap
         ? [hoverSnap.x, hoverSnap.z]
         : [this._snapVal(wx), this._snapVal(wz)];
+      const zoomTxt = this.cam2d.zoom >= 10 ? `${this.cam2d.zoom.toFixed(0)} px/m` : `${this.cam2d.zoom.toFixed(2)} px/m`;
       this.els.coordsReadout.textContent = hoverSnap
-        ? `X: ${hoverSnap.x.toFixed(2)}m • Z: ${hoverSnap.z.toFixed(2)}m • 🧲 Mur (${Math.round(hoverSnap.rotation)}°)`
-        : `X: ${this.hoverWorld[0].toFixed(2)}m • Z: ${this.hoverWorld[1].toFixed(2)}m`;
+        ? `X: ${hoverSnap.x.toFixed(2)}m • Z: ${hoverSnap.z.toFixed(2)}m • 🧲 Mur (${Math.round(hoverSnap.rotation)}°) • ${zoomTxt}`
+        : `X: ${this.hoverWorld[0].toFixed(2)}m • Z: ${this.hoverWorld[1].toFixed(2)}m • ${zoomTxt}`;
 
       if (!this.dragState) {
         if (this.toolMode === 'place') this.draw2D();
@@ -1451,13 +1783,21 @@ export class MapEditor {
         return;
       }
 
-      if (d.mode === 'draw_wall' || d.mode === 'draw_zone') {
+      if (d.mode === 'draw_wall' || d.mode === 'draw_zone' || d.mode === 'draw_room') {
         const [ex, ez] =
           d.mode === 'draw_wall'
             ? this._snapToWallEndpoint(wx, wz, altDown)
             : this._clampToBounds(this._snapVal(wx), this._snapVal(wz));
         d.x2 = ex;
         d.z2 = ez;
+        if (d.mode === 'draw_wall') {
+          const dist = Math.hypot(d.x2 - d.x1, d.z2 - d.z1);
+          this.els.coordsReadout.textContent = `X: ${ex.toFixed(2)}m • Z: ${ez.toFixed(2)}m • Longueur : ${dist.toFixed(2)} m`;
+        } else {
+          const rw = Math.abs(d.x2 - d.x1);
+          const rd = Math.abs(d.z2 - d.z1);
+          this.els.coordsReadout.textContent = `X: ${ex.toFixed(2)}m • Z: ${ez.toFixed(2)}m • ${rw.toFixed(1)}m × ${rd.toFixed(1)}m (${(rw * rd).toFixed(0)} m²)`;
+        }
         this.draw2D();
         return;
       }
@@ -1689,6 +2029,136 @@ export class MapEditor {
         return;
       }
 
+      if (d.mode === 'draw_room') {
+        let minX = Math.min(d.x1, d.x2);
+        let maxX = Math.max(d.x1, d.x2);
+        let minZ = Math.min(d.z1, d.z2);
+        let maxZ = Math.max(d.z1, d.z2);
+        if (maxX - minX < 2.0 || maxZ - minZ < 2.0) {
+          minX = Number((d.x1 - 5).toFixed(2));
+          maxX = Number((d.x1 + 5).toFixed(2));
+          minZ = Number((d.z1 - 4).toFixed(2));
+          maxZ = Number((d.z1 + 4).toFixed(2));
+        }
+        const [cMinX, cMinZ] = this._clampToBounds(minX, minZ);
+        const [cMaxX, cMaxZ] = this._clampToBounds(maxX, maxZ);
+        const rw = Number(Math.max(2.0, cMaxX - cMinX).toFixed(2));
+        const rd = Number(Math.max(2.0, cMaxZ - cMinZ).toFixed(2));
+        const cx = Number(((cMinX + cMaxX) * 0.5).toFixed(2));
+        const cz = Number(((cMinZ + cMaxZ) * 0.5).toFixed(2));
+        const defaultH = this.mapData.floorHeight || this.mapData.bounds.height || DEFAULT_FLOOR_HEIGHT;
+        const wk = this.roomOpts?.wallKind || 'solid';
+        const thick = wk === 'exterior' ? 0.3 : 0.2;
+        const wColor = wk === 'glazed' ? '#38bdf8' : wk === 'exterior' ? '#334155' : '#1e293b';
+        const stamp = Date.now();
+        this._pushUndo();
+        const createdRefs = [];
+        const wallSpecs = [
+          { suf: 'n', x1: cMinX, z1: cMinZ, x2: cMaxX, z2: cMinZ },
+          { suf: 's', x1: cMinX, z1: cMaxZ, x2: cMaxX, z2: cMaxZ },
+          { suf: 'w', x1: cMinX, z1: cMinZ, x2: cMinX, z2: cMaxZ },
+          { suf: 'e', x1: cMaxX, z1: cMinZ, x2: cMaxX, z2: cMaxZ }
+        ];
+        for (const ws of wallSpecs) {
+          const wid = `w-room-${stamp}-${ws.suf}`;
+          this.mapData.walls.push({
+            id: wid,
+            kind: wk,
+            floor: this.activeFloor,
+            x1: ws.x1,
+            z1: ws.z1,
+            x2: ws.x2,
+            z2: ws.z2,
+            thickness: thick,
+            height: defaultH,
+            color: wColor,
+            doorLabel: ''
+          });
+          createdRefs.push({ kind: 'wall', id: wid });
+        }
+        if (this.roomOpts?.includeDoor && rw >= 3.2) {
+          const doorHalf = rw >= 5.5 ? 1.0 : 0.65;
+          const doorKind = rw >= 5.5 ? 'door_double' : 'door_single';
+          const did = `w-room-${stamp}-door`;
+          this.mapData.walls.push({
+            id: did,
+            kind: doorKind,
+            floor: this.activeFloor,
+            x1: Number((cx - doorHalf).toFixed(2)),
+            z1: cMaxZ,
+            x2: Number((cx + doorHalf).toFixed(2)),
+            z2: cMaxZ,
+            thickness: thick,
+            height: defaultH,
+            color: '#0ea5e9',
+            doorLabel: `SALLE ${this.mapData.zones.length + 1}`
+          });
+          createdRefs.push({ kind: 'wall', id: did });
+        }
+        const zIdx = this.mapData.zones.length + 1;
+        const zCode = `B${zIdx < 10 ? '0' : ''}${zIdx}`;
+        const zid = `Z-room-${stamp}`;
+        this.mapData.zones.push({
+          id: zid,
+          code: zCode,
+          shortName: `Salle ${rw.toFixed(0)}×${rd.toFixed(0)}m`,
+          fullLabel: `${zCode} - Salle (${rw.toFixed(1)}m × ${rd.toFixed(1)}m)`,
+          badgeText: `📍 ${zCode} - Salle`,
+          color: '#38bdf8',
+          floor: this.activeFloor,
+          outdoor: false,
+          x: cx,
+          z: cz,
+          w: rw,
+          d: rd
+        });
+        createdRefs.push({ kind: 'zone', id: zid });
+        if (this.roomOpts?.includeFloorSlab) {
+          const sid = `obj-slab-${stamp}`;
+          this.mapData.objects.push({
+            id: sid,
+            type: 'floor_slab',
+            floor: this.activeFloor,
+            x: cx,
+            z: cz,
+            rotation: 0,
+            w: rw,
+            d: rd,
+            color: '#94a3b8',
+            label: `Dalle ${zCode}`,
+            dialogue: ''
+          });
+          createdRefs.push({ kind: 'object', id: sid });
+        }
+        if (this.roomOpts?.includeCeiling && this.activeFloor < MAX_FLOOR) {
+          const ceilFloor = this.activeFloor + 1;
+          this._ensureFloorExists(ceilFloor);
+          const cid = `obj-ceil-${stamp}`;
+          this.mapData.objects.push({
+            id: cid,
+            type: 'floor_slab',
+            floor: ceilFloor,
+            x: cx,
+            z: cz,
+            rotation: 0,
+            w: rw,
+            d: rd,
+            color: '#cbd5e1',
+            label: `Plafond / Toit ${zCode}`,
+            dialogue: ''
+          });
+        }
+        this.selected = null;
+        this.multiSelected = createdRefs;
+        this._markDirty();
+        this._renderFloorBar();
+        this._renderInspector();
+        this.draw2D();
+        this._schedule3DRebuild(true);
+        this.showToast(`🏗️ Salle ${rw.toFixed(1)}m × ${rd.toFixed(1)}m générée (${(rw * rd).toFixed(0)} m²)`, 'success');
+        return;
+      }
+
       if (d.mode === 'draw_zone') {
         const zCat = d.type ? getCatalogItem(d.type) : null;
         let minX = Math.min(d.x1, d.x2);
@@ -1704,12 +2174,23 @@ export class MapEditor {
         this._pushUndo();
         const idx = this.mapData.zones.length + 1;
         const isCour = Boolean(zCat?.isOutdoor || d.type === 'courtyard_zone');
+        const surfaceKind = zCat?.surfaceKind || '';
+        const surfaceLabels = {
+          asphalt: { code: 'PARK', name: 'Bitume / Parking', icon: '🛣️' },
+          concrete: { code: 'COUR', name: 'Cour Béton', icon: '⬜' },
+          grass: { code: 'PARC', name: 'Pelouse / Vert', icon: '🌿' },
+          path: { code: 'ALLEE', name: 'Allée Piétonne', icon: '🚶' },
+          sport: { code: 'SPORT', name: 'Terrain Sport', icon: '🏀' }
+        };
+        const sm = surfaceLabels[surfaceKind] || null;
+        const code = sm ? sm.code : isCour ? 'COUR' : `S${idx < 10 ? '0' : ''}${idx}`;
+        const shortName = sm ? sm.name : isCour ? 'Cour extérieure' : 'Nouvelle Salle';
         const zone = {
           id: `Z-${Date.now()}`,
-          code: isCour ? 'COUR' : `S${idx < 10 ? '0' : ''}${idx}`,
-          shortName: isCour ? 'Cour extérieure' : 'Nouvelle Salle',
-          fullLabel: isCour ? 'Cour extérieure du lycée' : `Salle S${idx < 10 ? '0' : ''}${idx} - Lycée CIEL`,
-          badgeText: isCour ? '🌳 Cour extérieure' : `📍 S${idx < 10 ? '0' : ''}${idx} - Nouvelle Salle`,
+          code,
+          shortName,
+          fullLabel: sm ? `${sm.name} du campus` : isCour ? 'Cour extérieure du lycée' : `Salle ${code} - Lycée CIEL`,
+          badgeText: sm ? `${sm.icon} ${sm.name}` : isCour ? '🌳 Cour extérieure' : `📍 ${code} - Nouvelle Salle`,
           color: zCat?.defaultColor || '#38bdf8',
           floor: this.activeFloor,
           outdoor: isCour,
@@ -1718,6 +2199,9 @@ export class MapEditor {
           w: Number(Math.max(1.5, maxX - minX).toFixed(2)),
           d: Number(Math.max(1.5, maxZ - minZ).toFixed(2))
         };
+        if (surfaceKind) {
+          zone.surfaceKind = surfaceKind;
+        }
         this.mapData.zones.push(zone);
         this.selected = { kind: 'zone', id: zone.id };
         this._markDirty();
@@ -2083,6 +2567,141 @@ export class MapEditor {
     return html;
   }
 
+  copySelection() {
+    const refs =
+      this.multiSelected.length > 0
+        ? [...this.multiSelected]
+        : this.selected
+          ? [this.selected]
+          : [];
+    if (refs.length === 0) return false;
+    const items = [];
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const ref of refs) {
+      const ent = this._findEntityByRef(ref);
+      if (!ent) continue;
+      if (ref.kind === 'object' && ent.type === 'spawn_point') continue;
+      items.push({ kind: ref.kind, data: cloneMap(ent) });
+      if (ref.kind === 'wall') {
+        minX = Math.min(minX, ent.x1, ent.x2);
+        maxX = Math.max(maxX, ent.x1, ent.x2);
+        minZ = Math.min(minZ, ent.z1, ent.z2);
+        maxZ = Math.max(maxZ, ent.z1, ent.z2);
+      } else {
+        minX = Math.min(minX, ent.x);
+        maxX = Math.max(maxX, ent.x);
+        minZ = Math.min(minZ, ent.z);
+        maxZ = Math.max(maxZ, ent.z);
+      }
+    }
+    if (items.length === 0) {
+      this.showToast('Aucun élément copiable sélectionné', 'info');
+      return false;
+    }
+    const cx = Number(((minX + maxX) * 0.5).toFixed(2));
+    const cz = Number(((minZ + maxZ) * 0.5).toFixed(2));
+    this.clipboard = { cx, cz, sourceFloor: this.activeFloor, items };
+    this._renderInspector();
+    this.showToast(`📄 ${items.length} élément(s) copié(s) — Ctrl+V pour coller sur l'étage actif`, 'info');
+    return true;
+  }
+
+  pasteClipboard(targetFloorOverride = null, exactAnchor = null) {
+    if (!this.clipboard || !Array.isArray(this.clipboard.items) || this.clipboard.items.length === 0) {
+      return false;
+    }
+    const dstFloor = targetFloorOverride !== null ? clampFloor(targetFloorOverride) : this.activeFloor;
+    this._ensureFloorExists(dstFloor);
+    let anchorX;
+    let anchorZ;
+    if (exactAnchor && Number.isFinite(exactAnchor.x) && Number.isFinite(exactAnchor.z)) {
+      anchorX = exactAnchor.x;
+      anchorZ = exactAnchor.z;
+    } else if (Array.isArray(this.hoverWorld)) {
+      anchorX = this.hoverWorld[0];
+      anchorZ = this.hoverWorld[1];
+    } else if (dstFloor !== this.clipboard.sourceFloor) {
+      anchorX = this.clipboard.cx;
+      anchorZ = this.clipboard.cz;
+    } else {
+      anchorX = this.clipboard.cx + 2.0;
+      anchorZ = this.clipboard.cz + 2.0;
+    }
+    const dx = Number((anchorX - this.clipboard.cx).toFixed(2));
+    const dz = Number((anchorZ - this.clipboard.cz).toFixed(2));
+    const stamp = Date.now();
+    let seq = 1;
+    this._pushUndo();
+    const pastedRefs = [];
+    for (const item of this.clipboard.items) {
+      const cloned = cloneMap(item.data);
+      const id = `${item.kind[0]}-cp-${stamp}-${seq++}`;
+      cloned.id = id;
+      cloned.floor = dstFloor;
+      if (item.kind === 'wall') {
+        const [nx1, nz1] = this._clampToBounds(cloned.x1 + dx, cloned.z1 + dz);
+        const [nx2, nz2] = this._clampToBounds(cloned.x2 + dx, cloned.z2 + dz);
+        cloned.x1 = Number(nx1.toFixed(2));
+        cloned.z1 = Number(nz1.toFixed(2));
+        cloned.x2 = Number(nx2.toFixed(2));
+        cloned.z2 = Number(nz2.toFixed(2));
+        this.mapData.walls.push(cloned);
+      } else if (item.kind === 'object') {
+        const [nx, nz] = this._clampToBounds(cloned.x + dx, cloned.z + dz);
+        cloned.x = Number(nx.toFixed(2));
+        cloned.z = Number(nz.toFixed(2));
+        if (cloned.targetFloor !== undefined) {
+          const deltaFl = cloned.targetFloor - (item.data.floor ?? 0);
+          cloned.targetFloor = clampFloor(dstFloor + deltaFl);
+        }
+        this.mapData.objects.push(cloned);
+      } else if (item.kind === 'zone') {
+        const [nx, nz] = this._clampToBounds(cloned.x + dx, cloned.z + dz);
+        cloned.x = Number(nx.toFixed(2));
+        cloned.z = Number(nz.toFixed(2));
+        if (Array.isArray(cloned.points) && cloned.points.length >= 3) {
+          cloned.points = cloned.points.map((p) => {
+            const [px, pz] = this._clampToBounds(p.x + dx, p.z + dz);
+            return { x: Number(px.toFixed(2)), z: Number(pz.toFixed(2)) };
+          });
+          this._syncPolygonZoneMetrics(cloned);
+        }
+        this.mapData.zones.push(cloned);
+      }
+      pastedRefs.push({ kind: item.kind, id });
+    }
+    if (dstFloor !== this.activeFloor) {
+      this._setActiveFloor(dstFloor);
+    }
+    if (pastedRefs.length === 1) {
+      this.selected = pastedRefs[0];
+      this.multiSelected = [];
+    } else {
+      this.selected = null;
+      this.multiSelected = pastedRefs;
+    }
+    this._markDirty();
+    this._renderFloorBar();
+    this._renderInspector();
+    this.draw2D();
+    this._schedule3DRebuild(true);
+    this.showToast(`📥 ${pastedRefs.length} élément(s) collé(s) sur ${formatFloorShortLabel(dstFloor)}`, 'success');
+    return true;
+  }
+
+  _copySelectionToNextFloor() {
+    const nextFl = this.activeFloor + 1;
+    if (nextFl > MAX_FLOOR) {
+      this.showToast(`Impossible de coller au-delà de +${MAX_FLOOR}`, 'info');
+      return false;
+    }
+    if (!this.copySelection()) return false;
+    return this.pasteClipboard(nextFl, { x: this.clipboard.cx, z: this.clipboard.cz });
+  }
+
   _renderInspector() {
     if (this.multiSelected.length > 1) {
       this.els.inspBody.innerHTML = `
@@ -2091,10 +2710,14 @@ export class MapEditor {
           Glissez un élément sélectionné pour déplacer tout le groupe ensemble sur l'étage actif (${escapeHtml(formatFloorShortLabel(this.activeFloor))}).
         </div>
         <div class="me-insp-actions">
+          <button type="button" id="me-grp-copy" class="me-btn">📄 Copier (Ctrl+C)</button>
+          <button type="button" id="me-grp-paste-up" class="me-btn">⬆️ Coller → Étage +1</button>
           <button type="button" id="me-grp-rot90" class="me-btn">↻ Pivoter 90° (R)</button>
           <button type="button" id="me-grp-dup" class="me-btn">📋 Dupliquer</button>
           <button type="button" id="me-grp-del" class="me-btn me-btn-danger">🗑️ Supprimer tout</button>
         </div>`;
+      this.els.inspBody.querySelector('#me-grp-copy').onclick = () => this.copySelection();
+      this.els.inspBody.querySelector('#me-grp-paste-up').onclick = () => this._copySelectionToNextFloor();
       this.els.inspBody.querySelector('#me-grp-rot90').onclick = () => this._rotateGroup90();
       this.els.inspBody.querySelector('#me-grp-dup').onclick = () => this._duplicateMultiSelected();
       this.els.inspBody.querySelector('#me-grp-del').onclick = () => this._deleteMultiSelected();
@@ -2106,10 +2729,17 @@ export class MapEditor {
       this.els.inspBody.innerHTML = `
         <div class="me-insp-empty">
           <p>Étage actif : <strong>${escapeHtml(formatFloorLabel(this.activeFloor))}</strong>. Sélectionnez un élément ou glissez dans le vide pour tracer une sélection multiple.</p>
+          ${
+            this.clipboard
+              ? `<button type="button" id="me-insp-paste-now" class="me-btn" style="width:100%;margin-bottom:8px;">📥 Coller (${this.clipboard.items.length} élém.) sur ${escapeHtml(formatFloorShortLabel(this.activeFloor))} (Ctrl+V)</button>`
+              : ''
+          }
           <div class="me-shortcuts-box">
-            <div><strong>Molette</strong> : Zoomer</div>
-            <div><strong>Clic droit / Molette</strong> : Déplacer vue</div>
-            <div><strong>Clic sur mini-plan</strong> : Téléporter la caméra 2D</div>
+            <div><strong>Molette</strong> : Zoom Satellite ↔ Décimètre</div>
+            <div><strong>ZQSD / Flèches (+ Shift)</strong> : Navigation rapide</div>
+            <div><strong>Espace + Glisser / Clic milieu</strong> : Panoramique</div>
+            <div><strong>Clic sur mini-plan / Repères</strong> : Saut immédiat</div>
+            <div><strong>Ctrl+C / Ctrl+V / Ctrl+D</strong> : Copier / Coller / Dupliquer</div>
             <div><strong>R</strong> : Tourner (+15° ou +90° groupe)</div>
             <div><strong>Alt (maintenu)</strong> : Placer librement sans aimantation</div>
             <div><strong>Ctrl+Z / Ctrl+Y</strong> : Annuler / Rétablir</div>
@@ -2117,6 +2747,7 @@ export class MapEditor {
             <div><strong>Suppr</strong> : Supprimer la sélection</div>
           </div>
         </div>`;
+      this.els.inspBody.querySelector('#me-insp-paste-now')?.addEventListener('click', () => this.pasteClipboard());
       return;
     }
 
@@ -2211,6 +2842,8 @@ export class MapEditor {
             : ''
         }
         <div class="me-insp-actions">
+          <button type="button" id="me-insp-copy" class="me-btn">📄 Copier</button>
+          <button type="button" id="me-insp-up" class="me-btn">⬆️ → Étage +1</button>
           <button type="button" id="me-insp-dup" class="me-btn">📋 Dupliquer</button>
           <button type="button" id="me-insp-del" class="me-btn me-btn-danger">🗑️ Supprimer</button>
         </div>`;
@@ -2383,6 +3016,8 @@ export class MapEditor {
             : ''
         }
         <div class="me-insp-actions">
+          <button type="button" id="me-insp-copy" class="me-btn">📄 Copier</button>
+          <button type="button" id="me-insp-up" class="me-btn">⬆️ → Étage +1</button>
           <button type="button" id="me-insp-dup" class="me-btn">📋 Dupliquer</button>
           <button type="button" id="me-insp-del" class="me-btn me-btn-danger">🗑️ Supprimer</button>
         </div>`;
@@ -2483,6 +3118,8 @@ export class MapEditor {
         <label class="me-check-pill"><input type="checkbox" id="me-z-outdoor" ${ent.outdoor ? 'checked' : ''} /> Extérieur / Cour (sans plafond ni occlusion)</label>
         ${polyVertsHtml}
         <div class="me-insp-actions">
+          <button type="button" id="me-insp-copy" class="me-btn">📄 Copier</button>
+          <button type="button" id="me-insp-up" class="me-btn">⬆️ → Étage +1</button>
           <button type="button" id="me-insp-dup" class="me-btn">📋 Dupliquer</button>
           <button type="button" id="me-insp-del" class="me-btn me-btn-danger">🗑️ Supprimer</button>
         </div>`;
@@ -2619,6 +3256,8 @@ export class MapEditor {
       }
     }
 
+    this.els.inspBody.querySelector('#me-insp-copy')?.addEventListener('click', () => this.copySelection());
+    this.els.inspBody.querySelector('#me-insp-up')?.addEventListener('click', () => this._copySelectionToNextFloor());
     this.els.inspBody.querySelector('#me-insp-dup')?.addEventListener('click', () => this.duplicateSelected());
     this.els.inspBody.querySelector('#me-insp-del')?.addEventListener('click', () => this.deleteSelected());
   }
@@ -2664,46 +3303,104 @@ export class MapEditor {
     }
 
     let step = 1;
-    if (this.cam2d.zoom < 4) step = 10;
-    else if (this.cam2d.zoom < 8) step = 5;
-    else if (this.cam2d.zoom < 16) step = 2;
-    else if (this.cam2d.zoom >= 36 && this.snap === 0.25) step = 0.25;
-    else if (this.cam2d.zoom >= 24 && (this.snap === 0.5 || this.snap === 0.25)) step = 0.5;
+    let majorStep = 10;
+    if (this.cam2d.zoom < 0.45) {
+      step = 100;
+      majorStep = 500;
+    } else if (this.cam2d.zoom < 1.0) {
+      step = 50;
+      majorStep = 100;
+    } else if (this.cam2d.zoom < 2.2) {
+      step = 25;
+      majorStep = 100;
+    } else if (this.cam2d.zoom < 4.5) {
+      step = 10;
+      majorStep = 50;
+    } else if (this.cam2d.zoom < 9) {
+      step = 5;
+      majorStep = 25;
+    } else if (this.cam2d.zoom < 16) {
+      step = 2;
+      majorStep = 10;
+    } else if (this.cam2d.zoom >= 85 && this.snap === 0.1) {
+      step = 0.1;
+      majorStep = 1;
+    } else if (this.cam2d.zoom >= 36 && (this.snap === 0.25 || this.snap === 0.1)) {
+      step = 0.25;
+      majorStep = 1;
+    } else if (this.cam2d.zoom >= 24 && (this.snap === 0.5 || this.snap === 0.25 || this.snap === 0.1)) {
+      step = 0.5;
+      majorStep = 5;
+    }
 
     const [visMinX, visMinZ] = this._screenToWorld(0, 0);
     const [visMaxX, visMaxZ] = this._screenToWorld(w, h);
+    const padWorld = Math.max(4, 48 / Math.max(MIN_ZOOM_2D, this.cam2d.zoom));
+    const cullMinX = visMinX - padWorld;
+    const cullMaxX = visMaxX + padWorld;
+    const cullMinZ = visMinZ - padWorld;
+    const cullMaxZ = visMaxZ + padWorld;
+
     const startGx = Math.max(Math.ceil(b.minX / step) * step, Math.floor(visMinX / step) * step);
     const endGx = Math.min(Math.floor(b.maxX / step) * step, Math.ceil(visMaxX / step) * step);
     const startGz = Math.max(Math.ceil(b.minZ / step) * step, Math.floor(visMinZ / step) * step);
     const endGz = Math.min(Math.floor(b.maxZ / step) * step, Math.ceil(visMaxZ / step) * step);
+    const clampBx1 = Math.max(0, bx1);
+    const clampBx2 = Math.min(w, bx2);
+    const clampBz1 = Math.max(0, bz1);
+    const clampBz2 = Math.min(h, bz2);
 
     ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.09)';
+    ctx.beginPath();
     for (let gx = startGx; gx <= endGx + 1e-6; gx += step) {
       const rx = Math.round(gx * 100) / 100;
+      if (rx === 0 || Math.abs(rx % majorStep) < 1e-4) continue;
       const [px] = this._worldToScreen(rx, 0);
-      ctx.strokeStyle =
-        rx === 0
-          ? 'rgba(56, 189, 248, 0.35)'
-          : Math.abs(rx % 10) < 1e-4
-            ? 'rgba(148, 163, 184, 0.2)'
-            : 'rgba(148, 163, 184, 0.09)';
-      ctx.beginPath();
-      ctx.moveTo(px, bz1);
-      ctx.lineTo(px, bz2);
-      ctx.stroke();
+      ctx.moveTo(px, clampBz1);
+      ctx.lineTo(px, clampBz2);
     }
     for (let gz = startGz; gz <= endGz + 1e-6; gz += step) {
       const rz = Math.round(gz * 100) / 100;
+      if (rz === 0 || Math.abs(rz % majorStep) < 1e-4) continue;
       const [, py] = this._worldToScreen(0, rz);
-      ctx.strokeStyle =
-        rz === 0
-          ? 'rgba(56, 189, 248, 0.35)'
-          : Math.abs(rz % 10) < 1e-4
-            ? 'rgba(148, 163, 184, 0.2)'
-            : 'rgba(148, 163, 184, 0.09)';
+      ctx.moveTo(clampBx1, py);
+      ctx.lineTo(clampBx2, py);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+    ctx.beginPath();
+    for (let gx = startGx; gx <= endGx + 1e-6; gx += step) {
+      const rx = Math.round(gx * 100) / 100;
+      if (rx === 0 || Math.abs(rx % majorStep) >= 1e-4) continue;
+      const [px] = this._worldToScreen(rx, 0);
+      ctx.moveTo(px, clampBz1);
+      ctx.lineTo(px, clampBz2);
+    }
+    for (let gz = startGz; gz <= endGz + 1e-6; gz += step) {
+      const rz = Math.round(gz * 100) / 100;
+      if (rz === 0 || Math.abs(rz % majorStep) >= 1e-4) continue;
+      const [, py] = this._worldToScreen(0, rz);
+      ctx.moveTo(clampBx1, py);
+      ctx.lineTo(clampBx2, py);
+    }
+    ctx.stroke();
+
+    if (0 >= b.minX && 0 <= b.maxX && 0 >= visMinX && 0 <= visMaxX) {
+      const [ox] = this._worldToScreen(0, 0);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.38)';
       ctx.beginPath();
-      ctx.moveTo(bx1, py);
-      ctx.lineTo(bx2, py);
+      ctx.moveTo(ox, clampBz1);
+      ctx.lineTo(ox, clampBz2);
+      ctx.stroke();
+    }
+    if (0 >= b.minZ && 0 <= b.maxZ && 0 >= visMinZ && 0 <= visMaxZ) {
+      const [, oz] = this._worldToScreen(0, 0);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.38)';
+      ctx.beginPath();
+      ctx.moveTo(clampBx1, oz);
+      ctx.lineTo(clampBx2, oz);
       ctx.stroke();
     }
 
@@ -2713,14 +3410,32 @@ export class MapEditor {
 
     const curFl = this.activeFloor;
     if (this.onionSkinMode === 'below' || this.onionSkinMode === 'both') {
-      this._drawGhostFloor(ctx, curFl - 1, 'rgba(56, 189, 248, 0.26)');
+      this._drawGhostFloor(ctx, curFl - 1, 'rgba(56, 189, 248, 0.26)', cullMinX, cullMaxX, cullMinZ, cullMaxZ);
     }
     if (this.onionSkinMode === 'above' || this.onionSkinMode === 'both') {
-      this._drawGhostFloor(ctx, curFl + 1, 'rgba(167, 139, 250, 0.24)');
+      this._drawGhostFloor(ctx, curFl + 1, 'rgba(167, 139, 250, 0.24)', cullMinX, cullMaxX, cullMinZ, cullMaxZ);
     }
+
+    let drawnZones = 0;
+    let drawnWalls = 0;
+    let drawnObjects = 0;
+
+    const surfaceFillMap = {
+      asphalt: 'rgba(51, 65, 85, 0.55)',
+      concrete: 'rgba(148, 163, 184, 0.34)',
+      grass: 'rgba(34, 197, 94, 0.28)',
+      path: 'rgba(203, 213, 225, 0.34)',
+      sport: 'rgba(234, 88, 12, 0.34)'
+    };
 
     for (const z of this.mapData.zones) {
       if (clampFloor(z.floor ?? 0) !== curFl) continue;
+      const zhw = (z.w || 4) * 0.5;
+      const zhd = (z.d || 4) * 0.5;
+      if (!isBoxInViewport2D(z.x - zhw, z.x + zhw, z.z - zhd, z.z + zhd, cullMinX, cullMaxX, cullMinZ, cullMaxZ)) {
+        continue;
+      }
+      drawnZones++;
       const pts = getZonePolygonPoints(z);
       if (pts.length < 3) continue;
       const rw = z.w * this.cam2d.zoom;
@@ -2734,20 +3449,22 @@ export class MapEditor {
         else ctx.lineTo(sx, sy);
       });
       ctx.closePath();
-      ctx.fillStyle = z.outdoor
-        ? `rgba(16, 185, 129, ${isSel ? '0.24' : '0.12'})`
-        : `${z.color || '#38bdf8'}${isSel ? '34' : '1c'}`;
+      ctx.fillStyle = z.surfaceKind && surfaceFillMap[z.surfaceKind]
+        ? surfaceFillMap[z.surfaceKind]
+        : z.outdoor
+          ? `rgba(16, 185, 129, ${isSel ? '0.24' : '0.14'})`
+          : `${z.color || '#38bdf8'}${isSel ? '34' : '1c'}`;
       ctx.fill();
-      ctx.strokeStyle = isSel ? '#facc15' : z.outdoor ? '#34d399' : z.color || '#38bdf8';
+      ctx.strokeStyle = isSel ? '#facc15' : z.outdoor ? (z.color || '#34d399') : z.color || '#38bdf8';
       ctx.lineWidth = isSel ? 2.5 : 1.2;
       ctx.setLineDash([5, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      if (isSel || (rw >= 18 && rd >= 12)) {
+      if (isSel || (rw >= 26 && rd >= 14)) {
         const [lx, ly] = this._worldToScreen(z.x, z.z);
         ctx.fillStyle = '#e2e8f0';
-        const zFont = Math.max(8, Math.min(14, Math.min(rw, rd) * 0.22, this.cam2d.zoom * 0.5));
+        const zFont = Math.max(8, Math.min(14, Math.min(rw, rd) * 0.22, this.cam2d.zoom * 0.5 + 7));
         ctx.font = `bold ${zFont.toFixed(1)}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -2775,9 +3492,12 @@ export class MapEditor {
       }
     }
 
-    const openings = computeEffectiveFloorOpenings(this.mapData);
+    const openings = this._getEffectiveOpeningsCached();
     for (const op of openings) {
       if (clampFloor(op.floor) !== curFl) continue;
+      if (!isBoxInViewport2D(op.minX, op.maxX, op.minZ, op.maxZ, cullMinX, cullMaxX, cullMinZ, cullMaxZ)) {
+        continue;
+      }
       const [ox1, oz1] = this._worldToScreen(op.minX, op.minZ);
       const [ox2, oz2] = this._worldToScreen(op.maxX, op.maxZ);
       ctx.save();
@@ -2794,16 +3514,26 @@ export class MapEditor {
       ctx.lineTo(ox1, oz2);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = '#fbbf24';
-      ctx.font = 'bold 10px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('TRÉMIE', (ox1 + ox2) * 0.5, (oz1 + oz2) * 0.5);
+      if (ox2 - ox1 >= 34 && oz2 - oz1 >= 16) {
+        ctx.fillStyle = '#fbbf24';
+        ctx.font = 'bold 10px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('TRÉMIE', (ox1 + ox2) * 0.5, (oz1 + oz2) * 0.5);
+      }
       ctx.restore();
     }
 
     for (const wall of this.mapData.walls) {
       if (clampFloor(wall.floor ?? 0) !== curFl) continue;
+      const wMinX = wall.x1 < wall.x2 ? wall.x1 : wall.x2;
+      const wMaxX = wall.x1 > wall.x2 ? wall.x1 : wall.x2;
+      const wMinZ = wall.z1 < wall.z2 ? wall.z1 : wall.z2;
+      const wMaxZ = wall.z1 > wall.z2 ? wall.z1 : wall.z2;
+      if (!isBoxInViewport2D(wMinX, wMaxX, wMinZ, wMaxZ, cullMinX, cullMaxX, cullMinZ, cullMaxZ)) {
+        continue;
+      }
+      drawnWalls++;
       const [wx1, wz1] = this._worldToScreen(wall.x1, wall.z1);
       const [wx2, wz2] = this._worldToScreen(wall.x2, wall.z2);
       const isSel = (this.selected?.kind === 'wall' && this.selected.id === wall.id) || this._isMultiSelected('wall', wall.id);
@@ -2846,7 +3576,7 @@ export class MapEditor {
               : wall.kind === 'exterior'
                 ? '#e2e8f0'
                 : '#cbd5e1';
-        ctx.lineWidth = wall.kind === 'exterior' ? Math.max(3, thickPx * 1.25) : thickPx;
+        ctx.lineWidth = wall.kind === 'exterior' ? Math.max(2.5, thickPx * 1.25) : thickPx;
         ctx.beginPath();
         ctx.moveTo(wx1, wz1);
         ctx.lineTo(wx2, wz2);
@@ -2871,10 +3601,17 @@ export class MapEditor {
     for (const obj of this.mapData.objects) {
       if (clampFloor(obj.floor ?? 0) !== curFl) continue;
       const cat = getCatalogItem(obj.type);
+      const ow = obj.w || cat?.defaultW || 1;
+      const od = obj.d || cat?.defaultD || 1;
+      const ext = Math.max(ow, od) * 0.75 + 0.5;
+      if (!isBoxInViewport2D(obj.x - ext, obj.x + ext, obj.z - ext, obj.z + ext, cullMinX, cullMaxX, cullMinZ, cullMaxZ)) {
+        continue;
+      }
+      drawnObjects++;
       const isWallMount = Boolean(cat?.wallMount);
       const [px, py] = this._worldToScreen(obj.x, obj.z);
-      const pw = Math.max(4, (obj.w || cat?.defaultW || 1) * this.cam2d.zoom);
-      const pd = Math.max(4, (obj.d || cat?.defaultD || 1) * this.cam2d.zoom);
+      const pw = Math.max(3, ow * this.cam2d.zoom);
+      const pd = Math.max(3, od * this.cam2d.zoom);
       const rad = ((obj.rotation || 0) * Math.PI) / 180;
       const isSel = (this.selected?.kind === 'object' && this.selected.id === obj.id) || this._isMultiSelected('object', obj.id);
       const accent = obj.color || cat?.defaultColor || '#38bdf8';
@@ -3001,18 +3738,35 @@ export class MapEditor {
       ctx.font = 'bold 12px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(`${dist.toFixed(2)} m`, (sx1 + sx2) / 2, (sz1 + sz2) / 2 - 12);
-    } else if (this.dragState?.mode === 'draw_zone') {
+    } else if (this.dragState?.mode === 'draw_zone' || this.dragState?.mode === 'draw_room') {
       const minX = Math.min(this.dragState.x1, this.dragState.x2);
       const maxX = Math.max(this.dragState.x1, this.dragState.x2);
       const minZ = Math.min(this.dragState.z1, this.dragState.z2);
       const maxZ = Math.max(this.dragState.z1, this.dragState.z2);
       const [rx1, rz1] = this._worldToScreen(minX, minZ);
       const [rx2, rz2] = this._worldToScreen(maxX, maxZ);
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
+      const isRoom = this.dragState.mode === 'draw_room';
+      ctx.fillStyle = isRoom ? 'rgba(250, 204, 21, 0.16)' : 'rgba(56, 189, 248, 0.2)';
       ctx.fillRect(rx1, rz1, rx2 - rx1, rz2 - rz1);
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = isRoom ? '#facc15' : '#38bdf8';
+      ctx.lineWidth = isRoom ? 3.5 : 2;
       ctx.strokeRect(rx1, rz1, rx2 - rx1, rz2 - rz1);
+      const rw = Math.abs(maxX - minX);
+      const rd = Math.abs(maxZ - minZ);
+      const midX = (rx1 + rx2) * 0.5;
+      const midY = (rz1 + rz2) * 0.5;
+      const dimLabel = `${rw.toFixed(1)}m × ${rd.toFixed(1)}m (${(rw * rd).toFixed(0)} m²)`;
+      ctx.font = 'bold 12px monospace';
+      const tw = ctx.measureText(dimLabel).width + 16;
+      ctx.fillStyle = 'rgba(7, 13, 25, 0.88)';
+      ctx.fillRect(midX - tw * 0.5, midY - 12, tw, 24);
+      ctx.strokeStyle = isRoom ? '#facc15' : '#38bdf8';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(midX - tw * 0.5, midY - 12, tw, 24);
+      ctx.fillStyle = isRoom ? '#fde047' : '#e0f2fe';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(dimLabel, midX, midY);
     } else if (this.polyDraft?.points?.length > 0) {
       const pts = this.polyDraft.points;
       const screenPts = pts.map((p) => this._worldToScreen(p.x, p.z));
@@ -3080,7 +3834,7 @@ export class MapEditor {
       });
     } else if (this.toolMode === 'place' && this.activeCatalogType && this.hoverWorld) {
       const cat = getCatalogItem(this.activeCatalogType);
-      if (cat && !cat.isWall && !cat.isZone) {
+      if (cat && !cat.isWall && !cat.isZone && !cat.isRoomBuilder) {
         const snap = cat.wallMount ? this.activeWallSnap : null;
         if (snap) {
           this._drawWallSnapGuide(ctx, snap, cat.defaultW || 1.6);
@@ -3119,14 +3873,39 @@ export class MapEditor {
       }
     }
 
-    const curFlWalls = (this.mapData.walls || []).filter((mw) => clampFloor(mw.floor ?? 0) === this.activeFloor).length;
-    const curFlZones = (this.mapData.zones || []).filter((mz) => clampFloor(mz.floor ?? 0) === this.activeFloor).length;
-    const curFlObjs = (this.mapData.objects || []).filter((mo) => clampFloor(mo.floor ?? 0) === this.activeFloor).length;
-    this.els.countsReadout.textContent = `${formatFloorShortLabel(this.activeFloor)} : ${curFlWalls} murs • ${curFlZones} zones • ${curFlObjs} objets (Total: ${this.mapData.walls.length}/${this.mapData.zones.length}/${this.mapData.objects.length})`;
+    this.lastDrawStats.drawnWalls = drawnWalls;
+    this.lastDrawStats.drawnZones = drawnZones;
+    this.lastDrawStats.drawnObjects = drawnObjects;
+    this.lastDrawStats.totalWalls = this.mapData.walls.length;
+    this.lastDrawStats.totalZones = this.mapData.zones.length;
+    this.lastDrawStats.totalObjects = this.mapData.objects.length;
+
+    for (const bm of this.mapData.bookmarks || []) {
+      if (clampFloor(bm.floor ?? 0) !== curFl) continue;
+      if (!isBoxInViewport2D(bm.x - 2, bm.x + 2, bm.z - 2, bm.z + 2, cullMinX, cullMaxX, cullMinZ, cullMaxZ)) {
+        continue;
+      }
+      const [bmx, bmy] = this._worldToScreen(bm.x, bm.z);
+      ctx.save();
+      ctx.fillStyle = '#f59e0b';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(bmx, bmy, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#fde68a';
+      ctx.font = 'bold 10px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`📍 ${bm.label}`, bmx, bmy - 10);
+      ctx.restore();
+    }
+
+    this.els.countsReadout.textContent = `${formatFloorShortLabel(this.activeFloor)} : ${drawnWalls}/${this.mapData.walls.length} murs • ${drawnZones}/${this.mapData.zones.length} zones • ${drawnObjects}/${this.mapData.objects.length} objets • ${b.width}×${b.depth}m`;
     this._drawMiniMap2D(visMinX, visMaxX, visMinZ, visMaxZ);
   }
 
-  _drawGhostFloor(ctx, ghostFloor, strokeColor) {
+  _drawGhostFloor(ctx, ghostFloor, strokeColor, cullMinX = -Infinity, cullMaxX = Infinity, cullMinZ = -Infinity, cullMaxZ = Infinity) {
     const fl = clampFloor(ghostFloor);
     if (fl !== ghostFloor) return;
     const hasFloor = (this.mapData.floors || []).some((f) => f.index === fl) ||
@@ -3137,19 +3916,30 @@ export class MapEditor {
     ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 4]);
+    ctx.beginPath();
     for (const wall of this.mapData.walls || []) {
       if (clampFloor(wall.floor ?? 0) !== fl) continue;
+      const wMinX = wall.x1 < wall.x2 ? wall.x1 : wall.x2;
+      const wMaxX = wall.x1 > wall.x2 ? wall.x1 : wall.x2;
+      const wMinZ = wall.z1 < wall.z2 ? wall.z1 : wall.z2;
+      const wMaxZ = wall.z1 > wall.z2 ? wall.z1 : wall.z2;
+      if (!isBoxInViewport2D(wMinX, wMaxX, wMinZ, wMaxZ, cullMinX, cullMaxX, cullMinZ, cullMaxZ)) {
+        continue;
+      }
       const [x1, z1] = this._worldToScreen(wall.x1, wall.z1);
       const [x2, z2] = this._worldToScreen(wall.x2, wall.z2);
-      ctx.beginPath();
       ctx.moveTo(x1, z1);
       ctx.lineTo(x2, z2);
-      ctx.stroke();
     }
+    ctx.stroke();
     for (const obj of this.mapData.objects || []) {
       if (clampFloor(obj.floor ?? 0) !== fl) continue;
       const cat = getCatalogItem(obj.type);
       if (!cat?.isStair) continue;
+      const ext = Math.max(obj.w || cat.defaultW || 1, obj.d || cat.defaultD || 1);
+      if (!isBoxInViewport2D(obj.x - ext, obj.x + ext, obj.z - ext, obj.z + ext, cullMinX, cullMaxX, cullMinZ, cullMaxZ)) {
+        continue;
+      }
       const [px, py] = this._worldToScreen(obj.x, obj.z);
       const pw = Math.max(4, (obj.w || cat.defaultW || 1) * this.cam2d.zoom);
       const pd = Math.max(4, (obj.d || cat.defaultD || 1) * this.cam2d.zoom);
@@ -3186,17 +3976,25 @@ export class MapEditor {
     mctx.strokeRect(bx1, by1, bx2 - bx1, by2 - by1);
 
     const curFl = this.activeFloor;
+    for (const z of this.mapData.zones || []) {
+      if (clampFloor(z.floor ?? 0) !== curFl) continue;
+      const [zx1, zy1] = toMini(z.x - (z.w || 4) * 0.5, z.z - (z.d || 4) * 0.5);
+      const [zx2, zy2] = toMini(z.x + (z.w || 4) * 0.5, z.z + (z.d || 4) * 0.5);
+      mctx.fillStyle = `${z.color || '#38bdf8'}44`;
+      mctx.fillRect(zx1, zy1, Math.max(1.5, zx2 - zx1), Math.max(1.5, zy2 - zy1));
+    }
+
+    mctx.strokeStyle = '#cbd5e1';
+    mctx.lineWidth = 1.2;
+    mctx.beginPath();
     for (const wall of this.mapData.walls || []) {
       if (clampFloor(wall.floor ?? 0) !== curFl) continue;
       const [x1, y1] = toMini(wall.x1, wall.z1);
       const [x2, y2] = toMini(wall.x2, wall.z2);
-      mctx.strokeStyle = wall.kind === 'glazed' || wall.kind === 'window_bay' ? '#38bdf8' : '#cbd5e1';
-      mctx.lineWidth = 1.2;
-      mctx.beginPath();
       mctx.moveTo(x1, y1);
       mctx.lineTo(x2, y2);
-      mctx.stroke();
     }
+    mctx.stroke();
 
     for (const obj of this.mapData.objects || []) {
       if (clampFloor(obj.floor ?? 0) !== curFl) continue;
@@ -3205,6 +4003,14 @@ export class MapEditor {
       const [sx, sy] = toMini(obj.x, obj.z);
       mctx.fillStyle = '#f59e0b';
       mctx.fillRect(sx - 2, sy - 2, 4, 4);
+    }
+
+    for (const bm of this.mapData.bookmarks || []) {
+      const [bmx, bmy] = toMini(bm.x, bm.z);
+      mctx.fillStyle = '#facc15';
+      mctx.beginPath();
+      mctx.arc(bmx, bmy, 2.6, 0, Math.PI * 2);
+      mctx.fill();
     }
 
     const [vx1, vy1] = toMini(Math.max(b.minX, visMinX), Math.max(b.minZ, visMinZ));
@@ -3322,7 +4128,7 @@ export class MapEditor {
 
     const b = this.mapData.bounds;
     const diag = Math.hypot(b.width, b.depth);
-    this.three.orbit.dist = Math.max(24, diag * 0.72);
+    this.three.orbit.dist = Math.max(24, Math.min(420, diag * 0.62));
     this.three.orbit.tx = (b.minX + b.maxX) / 2;
     this.three.orbit.ty = getFloorBaseY(this.mapData, this.activeFloor) + 1.2;
     this.three.orbit.tz = (b.minZ + b.maxZ) / 2;
@@ -3338,11 +4144,11 @@ export class MapEditor {
     if (!this.three.scene || !this.three.camera) return;
     const b = this.mapData.bounds;
     const diag = Math.hypot(b.width, b.depth);
-    this.three.camera.far = Math.max(180, diag * 2.2);
+    this.three.camera.far = Math.max(600, Math.min(3600, diag * 1.8));
     this.three.camera.updateProjectionMatrix();
     if (this.three.scene.fog) {
-      this.three.scene.fog.near = Math.max(26, diag * 0.65);
-      this.three.scene.fog.far = Math.max(68, diag * 1.55);
+      this.three.scene.fog.near = Math.max(45, Math.min(900, diag * 0.45));
+      this.three.scene.fog.far = Math.max(160, Math.min(2400, diag * 1.2));
     }
   }
 
@@ -3472,6 +4278,8 @@ export class MapEditor {
 
   deactivate() {
     this.isActive = false;
+    this.panKeys.clear();
+    this._stopKeyboardPanLoop();
     if (this.three.rafId) {
       cancelAnimationFrame(this.three.rafId);
       this.three.rafId = 0;

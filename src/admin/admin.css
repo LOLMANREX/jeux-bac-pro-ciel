@@ -940,6 +940,51 @@ button:active {
   border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 
+.me-tools-row.me-tools-row-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.me-size-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.me-btn-xs {
+  padding: 4px 7px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.me-room-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 8px;
+  background: rgba(250, 204, 21, 0.08);
+  border-bottom: 1px solid rgba(250, 204, 21, 0.25);
+}
+
+.me-room-opts-row select {
+  width: 100%;
+}
+
+.me-room-opts-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.me-check-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
 .me-cat-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1279,6 +1324,79 @@ button:active {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   background: rgba(5, 11, 24, 0.92);
   cursor: crosshair;
+}
+
+.me-bookmarks-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(11, 20, 38, 0.94);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.18);
+}
+
+.me-bookmark-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.me-bm-chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid rgba(250, 204, 21, 0.38);
+  background: rgba(250, 204, 21, 0.1);
+}
+
+.me-bm-chip {
+  padding: 4px 8px;
+  background: transparent;
+  color: #fef08a;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.me-bm-chip.me-bm-default {
+  border-radius: 7px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(15, 23, 42, 0.85);
+  color: #bae6fd;
+}
+
+.me-bm-chip small {
+  color: #94a3b8;
+  font-weight: 600;
+  margin-left: 3px;
+}
+
+.me-bm-del {
+  padding: 4px 6px;
+  background: rgba(244, 63, 94, 0.15);
+  color: #fda4af;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.me-bm-del:hover {
+  background: rgba(244, 63, 94, 0.35);
+}
+
+.me-bookmark-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.me-input-bm {
+  width: 180px;
+  padding: 4px 8px;
+  font-size: 0.76rem;
 }
 
 #me-minimap-canvas {

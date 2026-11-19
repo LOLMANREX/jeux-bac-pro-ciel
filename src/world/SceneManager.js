@@ -9,8 +9,8 @@ export const QUALITY_PRESETS = {
     label: 'Ultra-Fluide / Patate',
     shadows: false,
     shadowMapSize: 512,
-    drawDistance: 72,
-    fogScale: 0.72,
+    drawDistance: 600,
+    fogScale: 0.68,
     particleScale: 0.35,
     textureThrottleMult: 3.0,
     vrFoveation: 1.0,
@@ -21,8 +21,8 @@ export const QUALITY_PRESETS = {
     label: 'Éco — PC Lycée',
     shadows: false,
     shadowMapSize: 512,
-    drawDistance: 96,
-    fogScale: 0.85,
+    drawDistance: 750,
+    fogScale: 0.8,
     particleScale: 0.55,
     textureThrottleMult: 2.0,
     vrFoveation: 1.0,
@@ -33,8 +33,8 @@ export const QUALITY_PRESETS = {
     label: 'Équilibré',
     shadows: true,
     shadowMapSize: 512,
-    drawDistance: 132,
-    fogScale: 0.94,
+    drawDistance: 950,
+    fogScale: 0.92,
     particleScale: 0.8,
     textureThrottleMult: 1.35,
     vrFoveation: 1.0,
@@ -45,7 +45,7 @@ export const QUALITY_PRESETS = {
     label: 'Élevé',
     shadows: true,
     shadowMapSize: 1024,
-    drawDistance: 180,
+    drawDistance: 1200,
     fogScale: 1.0,
     particleScale: 1.0,
     textureThrottleMult: 1.0,
@@ -665,7 +665,7 @@ export class SceneManager {
       68,
       viewW / Math.max(1, viewH),
       0.1,
-      180
+      1200
     );
     this.camera.position.set(-3.95, 1.68, 0.65);
 
@@ -899,9 +899,7 @@ export class SceneManager {
       }
       if (this.scene.fog) {
         this.scene.fog.color.set('#cfe4f7');
-        const diag = Math.hypot(this._worldWidth || 26, this._worldDepth || 24.4);
-        this.scene.fog.near = Math.max(38, diag * 0.82);
-        this.scene.fog.far = Math.max(105, diag * 1.85);
+        this._applyCampusAtmosphereRange();
       }
       this.renderer?.setClearColor?.('#cfe4f7', 1);
       if (this.ambient) {
@@ -1010,6 +1008,52 @@ export class SceneManager {
     return this.renderer?.capabilities?.getMaxAnisotropy?.() || 8;
   }
 
+  _applyCampusAtmosphereRange() {
+    const preset = QUALITY_PRESETS[this.effectiveQuality] || QUALITY_PRESETS.balanced;
+    const width = Math.max(10, Number(this._worldWidth) || 26);
+    const depth = Math.max(10, Number(this._worldDepth) || 24.4);
+    const diag = Math.hypot(width, depth);
+    const baseDraw = Number(preset.drawDistance) || 950;
+    const targetFar =
+      diag > 260
+        ? Math.max(baseDraw, Math.min(2400, diag * (this.effectiveQuality === 'high' ? 0.95 : 0.72)))
+        : baseDraw;
+
+    const xrPresenting = Boolean(this.renderer?.xr?.isPresenting || this.vrPresenting);
+    if (this.camera && Math.abs(this.camera.far - targetFar) > 0.5) {
+      this.camera.far = targetFar;
+      if (!xrPresenting) {
+        this.camera.updateProjectionMatrix();
+      }
+    }
+    if (this.scene.fog && !this.horrorMode && !this.combatMode) {
+      const fogScale = Number(preset.fogScale) || 1.0;
+      if (diag > 120) {
+        const fogFar = Math.min(targetFar * 0.94, Math.max(240, targetFar * 0.84 * fogScale));
+        const fogNear = Math.max(60, Math.min(fogFar * 0.48, fogFar * 0.38));
+        this.scene.fog.near = fogNear;
+        this.scene.fog.far = fogFar;
+      } else {
+        this.scene.fog.near = Math.max(38, diag * 0.82) * fogScale;
+        this.scene.fog.far = Math.max(120, diag * 2.2) * fogScale;
+      }
+    }
+  }
+
+  updateShadowAnchor(x, z) {
+    if (!this.sun || !this.sun.castShadow) return;
+    const span = Math.max(16, Math.min(90, this._shadowHalfSpan || 24));
+    const snap = 4;
+    const sx = Math.round((Number(x) || 0) / snap) * snap;
+    const sz = Math.round((Number(z) || 0) / snap) * snap;
+    if (sx === this._lastShadowAnchorX && sz === this._lastShadowAnchorZ) return;
+    this._lastShadowAnchorX = sx;
+    this._lastShadowAnchorZ = sz;
+    this.sun.target.position.set(sx, 0, sz);
+    this.sun.target.updateMatrixWorld();
+    this.sun.position.set(sx + span * 0.45, Math.max(18, span * 0.95), sz + span * 0.55);
+  }
+
   updateWorldBounds(bounds) {
     const width = Math.max(10, Number(bounds?.width) || 26);
     const depth = Math.max(10, Number(bounds?.depth) || 24.4);
@@ -1019,29 +1063,25 @@ export class SceneManager {
     const maxZ = Number.isFinite(Number(bounds?.maxZ)) ? Number(bounds.maxZ) : depth / 2;
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
-    const diag = Math.hypot(width, depth);
     this._worldWidth = width;
     this._worldDepth = depth;
 
-    this.camera.far = Math.max(180, diag * 1.8);
-    this.camera.updateProjectionMatrix();
+    this._applyCampusAtmosphereRange();
 
-    if (this.scene.fog && !this.horrorMode) {
-      this.scene.fog.near = Math.max(38, diag * 0.82);
-      this.scene.fog.far = Math.max(105, diag * 1.85);
-    }
-
-    const halfSpan = Math.max(16, Math.max(width, depth) * 0.6);
+    const halfSpan = Math.min(90, Math.max(16, Math.max(width, depth) * 0.6));
+    this._shadowHalfSpan = halfSpan;
+    this._lastShadowAnchorX = cx;
+    this._lastShadowAnchorZ = cz;
     if (this.sun) {
       this.sun.target.position.set(cx, 0, cz);
       this.sun.target.updateMatrixWorld();
-      this.sun.position.set(cx + halfSpan * 0.45, Math.max(16, halfSpan * 0.9), cz + halfSpan * 0.55);
+      this.sun.position.set(cx + halfSpan * 0.45, Math.max(18, halfSpan * 0.95), cz + halfSpan * 0.55);
       this.sun.shadow.camera.left = -halfSpan;
       this.sun.shadow.camera.right = halfSpan;
       this.sun.shadow.camera.top = halfSpan;
       this.sun.shadow.camera.bottom = -halfSpan;
       this.sun.shadow.camera.near = 1;
-      this.sun.shadow.camera.far = Math.max(45, halfSpan * 3.2);
+      this.sun.shadow.camera.far = Math.max(60, halfSpan * 3.4);
       const targetMapSize = 1024;
       if (this.sun.shadow.mapSize.x !== targetMapSize) {
         this.sun.shadow.mapSize.set(targetMapSize, targetMapSize);
@@ -1195,20 +1235,7 @@ export class SceneManager {
       }
     }
 
-    const diag = Math.hypot(this._worldWidth || 26, this._worldDepth || 24.4);
-    const targetFar = Math.max(preset.drawDistance, diag * (eff === 'potato' ? 1.15 : eff === 'eco' ? 1.35 : 1.8));
-    if (this.camera && Math.abs(this.camera.far - targetFar) > 0.5) {
-      this.camera.far = targetFar;
-      if (!xrPresenting) {
-        this.camera.updateProjectionMatrix();
-      }
-    }
-    if (this.scene.fog && !this.horrorMode && !this.combatMode) {
-      const baseNear = Math.max(38, diag * 0.82);
-      const baseFar = Math.max(105, diag * 1.85);
-      this.scene.fog.near = Math.max(18, baseNear * preset.fogScale);
-      this.scene.fog.far = Math.max(54, baseFar * preset.fogScale);
-    }
+    this._applyCampusAtmosphereRange();
 
     const scalePenalty = this.dynamicResolutionScale < 0.88 ? 1.45 : this.dynamicResolutionScale < 0.96 ? 1.2 : 1.0;
     this.particleScale = Math.max(0.25, Math.min(1.0, preset.particleScale * this.dynamicResolutionScale));

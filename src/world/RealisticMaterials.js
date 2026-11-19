@@ -766,6 +766,57 @@ export function createRealisticMaterialPack(maxAnisotropy = 8, options = {}) {
     })
   );
 
+  const asphaltMat = registerMat(
+    new THREE.MeshStandardMaterial({
+      ...courtyardTex,
+      color: '#3b424c',
+      roughness: 0.92,
+      metalness: 0.02,
+      bumpScale: 0.018
+    })
+  );
+
+  const grassMat = registerMat(
+    new THREE.MeshStandardMaterial({
+      ...courtyardTex,
+      color: '#4f8f54',
+      roughness: 0.95,
+      metalness: 0.0,
+      bumpScale: 0.016
+    })
+  );
+
+  const pathMat = registerMat(
+    new THREE.MeshStandardMaterial({
+      ...courtyardTex,
+      color: '#cfd7df',
+      roughness: 0.82,
+      metalness: 0.02,
+      bumpScale: 0.01
+    })
+  );
+
+  const sportMat = registerMat(
+    new THREE.MeshStandardMaterial({
+      ...courtyardTex,
+      color: '#c95b34',
+      roughness: 0.84,
+      metalness: 0.02,
+      bumpScale: 0.012
+    })
+  );
+
+  const campusGroundTex = canvasesToTextures(concreteCanvases, anisotropy, 48, 48, textures);
+  const campusGroundMat = registerMat(
+    new THREE.MeshStandardMaterial({
+      ...campusGroundTex,
+      color: '#6b9464',
+      roughness: 0.96,
+      metalness: 0.0,
+      bumpScale: 0.012
+    })
+  );
+
   const stairTreadMat = registerMat(
     new THREE.MeshStandardMaterial({
       ...concreteTex,
@@ -890,6 +941,11 @@ export function createRealisticMaterialPack(maxAnisotropy = 8, options = {}) {
     concreteMat,
     exteriorWallMat,
     courtyardMat,
+    asphaltMat,
+    grassMat,
+    pathMat,
+    sportMat,
+    campusGroundMat,
     stairTreadMat,
     glassMat,
     rackGlassMat,

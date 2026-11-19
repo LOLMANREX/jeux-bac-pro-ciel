@@ -9,9 +9,11 @@ import {
   buildPlateauWalls
 } from './plateauLayout.js';
 
-export const MIN_FLOOR = -1;
-export const MAX_FLOOR = 5;
-export const MAX_MAP_SIZE = 240;
+export const MIN_FLOOR = -2;
+export const MAX_FLOOR = 8;
+export const DEFAULT_CAMPUS_SIZE = 1000;
+export const MAX_MAP_SIZE = 2000;
+export const CAMPUS_SIZE_PRESETS = [250, 500, 1000, 2000];
 export const DEFAULT_FLOOR_HEIGHT = 3.8;
 export const SLAB_THICKNESS = 0.22;
 
@@ -328,18 +330,113 @@ export const MAP_ITEM_CATALOG = [
     collides: false
   },
   {
+    type: 'room_builder',
+    category: 'arch',
+    subGroup: 'Construction Rapide',
+    label: 'Salle / Bâtiment Express (4 murs + sol)',
+    shortLabel: 'Salle Express',
+    icon: '🏗️',
+    isRoomBuilder: true,
+    defaultW: 12.0,
+    defaultD: 8.0,
+    defaultH: 3.8,
+    defaultColor: '#38bdf8',
+    collides: false
+  },
+  {
     type: 'courtyard_zone',
     category: 'arch',
-    subGroup: 'Salles & Signalétique',
+    subGroup: 'Extérieur & Campus',
     label: 'Zone extérieure (Cour du lycée)',
     shortLabel: 'Cour extérieure',
     icon: '🌳',
     isZone: true,
     isOutdoor: true,
+    surfaceKind: 'concrete',
     defaultW: 20.0,
     defaultD: 16.0,
     defaultH: 0.02,
     defaultColor: '#22c55e',
+    collides: false
+  },
+  {
+    type: 'exterior_asphalt',
+    category: 'arch',
+    subGroup: 'Extérieur & Campus',
+    label: 'Pinceau Bitume / Parking',
+    shortLabel: 'Bitume / Parking',
+    icon: '🛣️',
+    isZone: true,
+    isOutdoor: true,
+    surfaceKind: 'asphalt',
+    defaultW: 32.0,
+    defaultD: 22.0,
+    defaultH: 0.02,
+    defaultColor: '#334155',
+    collides: false
+  },
+  {
+    type: 'exterior_concrete',
+    category: 'arch',
+    subGroup: 'Extérieur & Campus',
+    label: 'Pinceau Cour en Béton / Parvis',
+    shortLabel: 'Cour Béton',
+    icon: '⬜',
+    isZone: true,
+    isOutdoor: true,
+    surfaceKind: 'concrete',
+    defaultW: 28.0,
+    defaultD: 20.0,
+    defaultH: 0.02,
+    defaultColor: '#94a3b8',
+    collides: false
+  },
+  {
+    type: 'exterior_grass',
+    category: 'arch',
+    subGroup: 'Extérieur & Campus',
+    label: 'Pinceau Pelouse / Espace Vert',
+    shortLabel: 'Pelouse',
+    icon: '🌿',
+    isZone: true,
+    isOutdoor: true,
+    surfaceKind: 'grass',
+    defaultW: 30.0,
+    defaultD: 24.0,
+    defaultH: 0.02,
+    defaultColor: '#22c55e',
+    collides: false
+  },
+  {
+    type: 'exterior_path',
+    category: 'arch',
+    subGroup: 'Extérieur & Campus',
+    label: 'Pinceau Allée / Chemin Piéton',
+    shortLabel: 'Allée Piétonne',
+    icon: '🚶',
+    isZone: true,
+    isOutdoor: true,
+    surfaceKind: 'path',
+    defaultW: 20.0,
+    defaultD: 4.0,
+    defaultH: 0.02,
+    defaultColor: '#cbd5e1',
+    collides: false
+  },
+  {
+    type: 'exterior_sport',
+    category: 'arch',
+    subGroup: 'Extérieur & Campus',
+    label: 'Pinceau Terrain de Sport',
+    shortLabel: 'Terrain Sport',
+    icon: '🏀',
+    isZone: true,
+    isOutdoor: true,
+    surfaceKind: 'sport',
+    defaultW: 40.0,
+    defaultD: 22.0,
+    defaultH: 0.02,
+    defaultColor: '#ea580c',
     collides: false
   },
   {
@@ -1412,6 +1509,49 @@ export function createEmptyMap() {
   });
 }
 
+export function createCampusMap(size = DEFAULT_CAMPUS_SIZE) {
+  const s = clampNum(size, 60, MAX_MAP_SIZE, DEFAULT_CAMPUS_SIZE);
+  const half = s / 2;
+  return normalizeMapData({
+    version: 2,
+    name: `Campus Lycée CIEL ${s}m × ${s}m`,
+    floorHeight: DEFAULT_FLOOR_HEIGHT,
+    bounds: {
+      minX: -half,
+      maxX: half,
+      minZ: -half,
+      maxZ: half,
+      width: s,
+      depth: s,
+      height: DEFAULT_FLOOR_HEIGHT
+    },
+    floors: [
+      { index: 0, label: 'RDC (0)', hasFullSlab: true, hasCeiling: false }
+    ],
+    spawn: { x: 0, y: 1.68, z: 4, yaw: 0, floor: 0 },
+    bookmarks: [
+      { id: 'bm-center', label: 'Atelier CIEL (Centre)', x: 0, z: 0, floor: 0, zoom: 14 },
+      { id: 'bm-cour', label: 'Cour Centrale', x: 0, z: 36, floor: 0, zoom: 6 }
+    ],
+    zones: [],
+    walls: [],
+    objects: [
+      {
+        id: 'obj-spawn',
+        type: 'spawn_point',
+        floor: 0,
+        x: 0,
+        z: 4,
+        rotation: 0,
+        w: 1.0,
+        d: 1.0,
+        color: '#10b981',
+        label: 'Spawn Campus'
+      }
+    ]
+  });
+}
+
 export function normalizeMapData(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const bSrc = src.bounds && typeof src.bounds === 'object' ? src.bounds : {};
@@ -1458,7 +1598,7 @@ export function normalizeMapData(raw) {
     'door_double'
   ]);
   const walls = [];
-  for (let i = 0; i < rawWalls.length && i < 8000; i++) {
+  for (let i = 0; i < rawWalls.length && i < 50000; i++) {
     const w = rawWalls[i];
     if (!w || typeof w !== 'object') continue;
     const x1 = clampNum(w.x1, minX - 1, maxX + 1, 0);
@@ -1497,12 +1637,14 @@ export function normalizeMapData(raw) {
     });
   }
 
+  const validSurfaces = new Set(['asphalt', 'concrete', 'grass', 'path', 'sport']);
   const zones = [];
-  for (let i = 0; i < rawZones.length && i < 600; i++) {
+  for (let i = 0; i < rawZones.length && i < 4000; i++) {
     const z = rawZones[i];
     if (!z || typeof z !== 'object') continue;
     const floor = clampFloor(z.floor ?? 0);
     const outdoor = Boolean(z.outdoor || z.isOutdoor);
+    const surfaceKind = validSurfaces.has(z.surfaceKind) ? z.surfaceKind : '';
     const code = cleanText(z.code, 16, outdoor ? 'COUR' : `Z${i + 1}`);
     const shortName = cleanText(z.shortName, 28, outdoor ? 'Cour Extérieure' : 'Salle CIEL');
     const color = cleanColor(z.color, outdoor ? '#22c55e' : '#38bdf8');
@@ -1516,6 +1658,9 @@ export function normalizeMapData(raw) {
       badgeText: cleanText(z.badgeText, 44, `📍 ${code} - ${shortName}`),
       color
     };
+    if (surfaceKind) {
+      baseZone.surfaceKind = surfaceKind;
+    }
 
     if (Array.isArray(z.points) && z.points.length >= 3) {
       const pts = [];
@@ -1564,7 +1709,7 @@ export function normalizeMapData(raw) {
   let spawnFromObjects = null;
   const maxObjW = Math.max(120, width);
   const maxObjD = Math.max(120, depth);
-  for (let i = 0; i < rawObjects.length && i < 8000; i++) {
+  for (let i = 0; i < rawObjects.length && i < 50000; i++) {
     const o = rawObjects[i];
     if (!o || typeof o !== 'object') continue;
     const cat = getCatalogItem(o.type);
@@ -1604,7 +1749,7 @@ export function normalizeMapData(raw) {
   }
 
   const openings = [];
-  for (let i = 0; i < rawOpenings.length && i < 400; i++) {
+  for (let i = 0; i < rawOpenings.length && i < 3000; i++) {
     const op = rawOpenings[i];
     if (!op || typeof op !== 'object') continue;
     const floor = clampFloor(op.floor ?? 0);
@@ -1617,6 +1762,21 @@ export function normalizeMapData(raw) {
       d: Number(clampNum(op.d, 0.5, depth, 4.2).toFixed(2)),
       rotation: Number((((Number(op.rotation) || 0) % 360 + 360) % 360).toFixed(1)),
       autoFromStairId: op.autoFromStairId ? cleanText(op.autoFromStairId, 36, '') : ''
+    });
+  }
+
+  const rawBookmarks = Array.isArray(src.bookmarks) ? src.bookmarks : [];
+  const bookmarks = [];
+  for (let i = 0; i < rawBookmarks.length && i < 64; i++) {
+    const bm = rawBookmarks[i];
+    if (!bm || typeof bm !== 'object') continue;
+    bookmarks.push({
+      id: cleanText(bm.id, 36, `bm-${i + 1}`),
+      label: cleanText(bm.label, 36, `Repère ${i + 1}`),
+      x: Number(clampNum(bm.x, minX, maxX, 0).toFixed(2)),
+      z: Number(clampNum(bm.z, minZ, maxZ, 0).toFixed(2)),
+      floor: clampFloor(bm.floor ?? 0),
+      zoom: Number(clampNum(bm.zoom, 0.22, 220, 12).toFixed(2))
     });
   }
 
@@ -1692,6 +1852,9 @@ export function normalizeMapData(raw) {
   };
   if (openings.length > 0) {
     out.openings = openings;
+  }
+  if (bookmarks.length > 0) {
+    out.bookmarks = bookmarks;
   }
   return out;
 }

@@ -5822,6 +5822,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
     _cullOptsScratch.currentFloor = curFloor;
     _cullOptsScratch.isVr = vrOn;
     _cullOptsScratch.quality = effectiveQualityTier;
+    sceneMgr.updateShadowAnchor?.(player.position.x, player.position.z);
     lab.updateCulling?.(sceneMgr.camera, _cullPlayerPosScratch, _cullOptsScratch);
     lab.update(elapsed, player.position, gameState.profile.diplomaEarned, sceneMgr.camera);
   }

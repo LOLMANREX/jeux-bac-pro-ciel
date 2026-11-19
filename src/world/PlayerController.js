@@ -540,7 +540,7 @@ export class PlayerController {
       const z1 = Math.floor((maxZ + 0.6) / cs);
       for (let gx = x0; gx <= x1; gx++) {
         for (let gz = z0; gz <= z1; gz++) {
-          const key = gx * 4096 + gz;
+          const key = (gx + 2048) * 4096 + (gz + 2048);
           let bucket = grid.get(key);
           if (!bucket) {
             bucket = [];
@@ -665,7 +665,10 @@ export class PlayerController {
         this._rebuildColliderGrid();
       }
       candidates = this._colliderGrid
-        ? this._colliderGrid.get(Math.floor(nx / this._colliderCellSize) * 4096 + Math.floor(nz / this._colliderCellSize))
+        ? this._colliderGrid.get(
+            (Math.floor(nx / this._colliderCellSize) + 2048) * 4096 +
+              (Math.floor(nz / this._colliderCellSize) + 2048)
+          )
         : this.colliders;
     }
     if (!candidates || candidates.length === 0) return false;

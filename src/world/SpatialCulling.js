@@ -5,23 +5,23 @@ export const DEFAULT_HASH_CELL_SIZE = 8;
 
 export const CULLING_QUALITY_PROFILES = {
   potato: {
-    structureDist: 56,
-    detailDist: 22,
+    structureDist: 90,
+    detailDist: 24,
     maxIndoorFloorDelta: 2
   },
   eco: {
-    structureDist: 78,
-    detailDist: 30,
+    structureDist: 160,
+    detailDist: 34,
     maxIndoorFloorDelta: 2
   },
   balanced: {
-    structureDist: 110,
-    detailDist: 42,
+    structureDist: 320,
+    detailDist: 48,
     maxIndoorFloorDelta: 2
   },
   high: {
-    structureDist: 180,
-    detailDist: 68,
+    structureDist: 520,
+    detailDist: 75,
     maxIndoorFloorDelta: 2
   }
 };
@@ -309,7 +309,12 @@ export function isChunkOccludedByWalls(camX, camZ, chunk, floorWalls = []) {
   const qx = camX < minX ? minX : camX > maxX ? maxX : camX;
   const qz = camZ < minZ ? minZ : camZ > maxZ ? maxZ : camZ;
   const distSq = (camX - qx) * (camX - qx) + (camZ - qz) * (camZ - qz);
-  if (distSq < 4.0) return false;
+  if (distSq < 4.0 || distSq > 4096.0) return false;
+
+  const segBoundMinX = camX < minX ? camX : minX;
+  const segBoundMaxX = camX > maxX ? camX : maxX;
+  const segBoundMinZ = camZ < minZ ? camZ : minZ;
+  const segBoundMaxZ = camZ > maxZ ? camZ : maxZ;
 
   const centerX = (minX + maxX) * 0.5;
   const centerZ = (minZ + maxZ) * 0.5;
@@ -339,6 +344,12 @@ export function isChunkOccludedByWalls(camX, camZ, chunk, floorWalls = []) {
     const z1 = w.z1;
     const x2 = w.x2;
     const z2 = w.z2;
+    const wMaxX = x1 > x2 ? x1 : x2;
+    const wMinX = x1 < x2 ? x1 : x2;
+    if (wMaxX < segBoundMinX - 2 || wMinX > segBoundMaxX + 2) continue;
+    const wMaxZ = z1 > z2 ? z1 : z2;
+    const wMinZ = z1 < z2 ? z1 : z2;
+    if (wMaxZ < segBoundMinZ - 2 || wMinZ > segBoundMaxZ + 2) continue;
     const wdx = x2 - x1;
     const wdz = z2 - z1;
 
@@ -405,6 +416,7 @@ export class SpatialCullingEngine {
     this.chunkSize = Math.max(4, Number(options.chunkSize) || DEFAULT_CHUNK_SIZE);
     this.floorHeight = Number(options.floorHeight) || 3.8;
     this.quality = CULLING_QUALITY_PROFILES[options.quality] ? options.quality : 'high';
+    this.isSparse = true;
     this.chunksMap = new Map();
     this.chunks = [];
     this.opaqueWallsByFloor = new Map();
@@ -422,6 +434,7 @@ export class SpatialCullingEngine {
     this._statsScratch = {
       visibleChunks: 0,
       totalChunks: 0,
+      sparseChunks: 0,
       culledFrustum: 0,
       culledFloor: 0,
       culledDistance: 0,
@@ -433,6 +446,25 @@ export class SpatialCullingEngine {
 
   _makeChunkKey(cx, cz, floor) {
     return `${floor}:${cx}:${cz}`;
+  }
+
+  hasChunk(cx, cz, floor = 0) {
+    return this.chunksMap.has(this._makeChunkKey(cx, cz, Math.round(Number(floor) || 0)));
+  }
+
+  getChunk(cx, cz, floor = 0) {
+    return this.chunksMap.get(this._makeChunkKey(cx, cz, Math.round(Number(floor) || 0))) || null;
+  }
+
+  getChunkAt(x, z, floor = 0) {
+    const fl = Math.round(Number(floor) || 0);
+    const cx = Math.floor((Number(x) || 0) / this.chunkSize);
+    const cz = Math.floor((Number(z) || 0) / this.chunkSize);
+    return this.chunksMap.get(this._makeChunkKey(cx, cz, fl)) || null;
+  }
+
+  getOccupiedChunkKeys() {
+    return Array.from(this.chunksMap.keys());
   }
 
   getOrCreateChunk(x, z, floor = 0) {
@@ -544,6 +576,16 @@ export class SpatialCullingEngine {
   }
 
   finalize(worldGroup = null) {
+    for (let i = this.chunks.length - 1; i >= 0; i--) {
+      const chunk = this.chunks[i];
+      if (chunk.structureGroup.children.length === 0 && chunk.detailGroup.children.length === 0) {
+        if (chunk.root.parent) {
+          chunk.root.parent.remove(chunk.root);
+        }
+        this.chunksMap.delete(chunk.key);
+        this.chunks.splice(i, 1);
+      }
+    }
     for (let i = 0; i < this.chunks.length; i++) {
       const chunk = this.chunks[i];
       if (worldGroup && chunk.root.parent !== worldGroup) {
@@ -606,6 +648,7 @@ export class SpatialCullingEngine {
       }
     }
     this._statsScratch.totalChunks = this.chunks.length;
+    this._statsScratch.sparseChunks = this.chunksMap.size;
     this._statsScratch.visibleChunks = this.chunks.length;
     this._statsScratch.visibleDetailChunks = this.chunks.length;
   }
@@ -677,6 +720,7 @@ export class SpatialCullingEngine {
     const total = this.chunks.length;
     const stats = this._statsScratch;
     stats.totalChunks = total;
+    stats.sparseChunks = this.chunksMap.size;
     stats.visibleChunks = 0;
     stats.culledFrustum = 0;
     stats.culledFloor = 0;

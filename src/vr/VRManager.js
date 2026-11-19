@@ -690,7 +690,7 @@ export class VRManager {
     this.vrRig.scale.set(1, 1, 1);
     this.camera.scale.set(1, 1, 1);
     this.camera.near = 0.05;
-    this.camera.far = Math.max(180, Number(this.camera.far) || 180);
+    this.camera.far = Math.max(600, Number(this.camera.far) || 600);
     if (!this.renderer?.xr?.isPresenting) {
       this.camera.updateProjectionMatrix();
     }

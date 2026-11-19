@@ -15,17 +15,28 @@ import { RemotePlayersManager } from '../src/world/RemotePlayers.js';
 import { CULLING_QUALITY_PROFILES, SpatialCullingEngine, SpatialHash } from '../src/world/SpatialCulling.js';
 import { VRManager } from '../src/vr/VRManager.js';
 import {
+  CAMPUS_SIZE_PRESETS,
+  DEFAULT_CAMPUS_SIZE,
   DEFAULT_FLOOR_HEIGHT,
+  MAX_FLOOR,
   MAX_MAP_SIZE,
+  MIN_FLOOR,
   buildWalkableSurfaceData,
   computeEffectiveFloorOpenings,
   computeSlabRectangles,
   computeStairGeometry,
+  createCampusMap,
   createDefaultMap,
   duplicateFloorStructure,
   evaluateSurfaceAt,
+  getCatalogItem,
   normalizeMapData
 } from '../src/world/mapSchema.js';
+import {
+  MAX_ZOOM_2D,
+  MIN_ZOOM_2D,
+  isBoxInViewport2D
+} from '../src/admin/MapEditor.js';
 
 function makeMockCanvas() {
   return {
@@ -294,8 +305,8 @@ function makeGiantMultiFloorSchoolMap() {
       maxX: 120,
       minZ: -120,
       maxZ: 120,
-      width: MAX_MAP_SIZE,
-      depth: MAX_MAP_SIZE,
+      width: 240,
+      depth: 240,
       height: fh
     },
     floors: [
@@ -660,5 +671,304 @@ test('Interface HUD Mini Moniteur & Éditeur exposent les indicateurs de chunks,
   assert.ok(editorSrc.includes('me-btn-onion'));
   assert.ok(editorSrc.includes('me-btn-dup-floor'));
   assert.ok(editorSrc.includes('me-minimap-canvas'));
+  assert.ok(editorSrc.includes('me-bookmarks-bar'));
+  assert.ok(editorSrc.includes('me-size-presets'));
+  assert.ok(editorSrc.includes('me-tool-room'));
   assert.ok(editorSrc.includes('MAX_MAP_SIZE'));
+});
+
+function makeImmenseCampusMap(size = 2000) {
+  const fh = DEFAULT_FLOOR_HEIGHT;
+  const half = size * 0.5;
+  return normalizeMapData({
+    version: 2,
+    name: `Campus Lycée CIEL ${size}x${size}`,
+    floorHeight: fh,
+    bounds: {
+      minX: -half,
+      maxX: half,
+      minZ: -half,
+      maxZ: half,
+      width: size,
+      depth: size,
+      height: fh
+    },
+    floors: [
+      { index: -2, label: 'Sous-sol (-2)', hasFullSlab: true },
+      { index: 0, label: 'RDC (0)', hasFullSlab: true, hasCeiling: false },
+      { index: 3, label: 'Étage 3', hasFullSlab: true },
+      { index: 8, label: 'Étage 8', hasFullSlab: true }
+    ],
+    bookmarks: [
+      { id: 'bm-a', label: 'Bâtiment Nord-Est', x: 450, z: -420, floor: 3, zoom: 18 },
+      { id: 'bm-b', label: 'Gymnase Sud-Ouest', x: -480, z: 460, floor: 0, zoom: 14 }
+    ],
+    zones: [
+      {
+        id: 'z-bat-a',
+        code: 'BATA',
+        shortName: 'Bâtiment A',
+        floor: 3,
+        x: 450,
+        z: -420,
+        w: 18,
+        d: 14,
+        color: '#38bdf8'
+      },
+      {
+        id: 'z-bat-b',
+        code: 'GYM',
+        shortName: 'Gymnase',
+        floor: 0,
+        x: -480,
+        z: 460,
+        w: 20,
+        d: 14,
+        color: '#10b981'
+      },
+      {
+        id: 'z-parking',
+        code: 'PARK',
+        shortName: 'Parking Nord',
+        floor: 0,
+        outdoor: true,
+        surfaceKind: 'asphalt',
+        x: 420,
+        z: -460,
+        w: 24,
+        d: 16,
+        color: '#334155'
+      }
+    ],
+    walls: [
+      { id: 'wa-n', kind: 'exterior', floor: 3, x1: 441, z1: -427, x2: 459, z2: -427, thickness: 0.3, height: fh },
+      { id: 'wa-s', kind: 'exterior', floor: 3, x1: 441, z1: -413, x2: 459, z2: -413, thickness: 0.3, height: fh },
+      { id: 'wa-w', kind: 'exterior', floor: 3, x1: 441, z1: -427, x2: 441, z2: -413, thickness: 0.3, height: fh },
+      { id: 'wa-e', kind: 'exterior', floor: 3, x1: 459, z1: -427, x2: 459, z2: -413, thickness: 0.3, height: fh },
+      { id: 'wb-n', kind: 'exterior', floor: 0, x1: -490, z1: 453, x2: -470, z2: 453, thickness: 0.3, height: fh },
+      { id: 'wb-s', kind: 'exterior', floor: 0, x1: -490, z1: 467, x2: -470, z2: 467, thickness: 0.3, height: fh },
+      { id: 'wb-w', kind: 'exterior', floor: 0, x1: -490, z1: 453, x2: -490, z2: 467, thickness: 0.3, height: fh },
+      { id: 'wb-e', kind: 'exterior', floor: 0, x1: -470, z1: 453, x2: -470, z2: 467, thickness: 0.3, height: fh }
+    ],
+    objects: [
+      { id: 'sp-campus', type: 'spawn_point', floor: 0, x: 0, z: 0, rotation: 0, w: 1, d: 1, color: '#10b981', label: 'Spawn' },
+      { id: 'pc-bat-a', type: 'pc_ciel_os', floor: 3, x: 450, z: -420, rotation: 0, w: 1.5, d: 0.85, color: '#38bdf8', label: 'PC Bat A' },
+      { id: 'pc-bat-b', type: 'pc_ciel_os', floor: 0, x: -480, z: 460, rotation: 0, w: 1.5, d: 0.85, color: '#10b981', label: 'PC Gymnase' }
+    ],
+    spawn: { x: 0, y: 1.68, z: 0, yaw: 0, floor: 0 }
+  });
+}
+
+test('v4.33 — Campus 1000m×1000m et 2000m×2000m (-2..+8 étages), persistance MapStore, repères et pinceaux extérieurs', () => {
+  assert.equal(DEFAULT_CAMPUS_SIZE, 1000);
+  assert.equal(MAX_MAP_SIZE, 2000);
+  assert.equal(MIN_FLOOR, -2);
+  assert.equal(MAX_FLOOR, 8);
+  assert.deepEqual(CAMPUS_SIZE_PRESETS, [250, 500, 1000, 2000]);
+
+  assert.ok(getCatalogItem('room_builder')?.isRoomBuilder);
+  assert.equal(getCatalogItem('exterior_asphalt')?.surfaceKind, 'asphalt');
+  assert.equal(getCatalogItem('exterior_concrete')?.surfaceKind, 'concrete');
+  assert.equal(getCatalogItem('exterior_grass')?.surfaceKind, 'grass');
+  assert.equal(getCatalogItem('exterior_path')?.surfaceKind, 'path');
+  assert.equal(getCatalogItem('exterior_sport')?.surfaceKind, 'sport');
+
+  const campus1000 = createCampusMap(1000);
+  assert.equal(campus1000.bounds.minX, -500);
+  assert.equal(campus1000.bounds.maxX, 500);
+  assert.equal(campus1000.bounds.minZ, -500);
+  assert.equal(campus1000.bounds.maxZ, 500);
+
+  const map1000 = makeImmenseCampusMap(1000);
+  assert.equal(map1000.bounds.width, 1000);
+  assert.equal(map1000.bounds.depth, 1000);
+  const pcA1000 = map1000.objects.find((o) => o.id === 'pc-bat-a');
+  const pcB1000 = map1000.objects.find((o) => o.id === 'pc-bat-b');
+  assert.equal(pcA1000.x, 450);
+  assert.equal(pcA1000.z, -420);
+  assert.equal(pcA1000.floor, 3);
+  assert.equal(pcB1000.x, -480);
+  assert.equal(pcB1000.z, 460);
+  assert.equal(pcB1000.floor, 0);
+
+  const map2000 = makeImmenseCampusMap(2000);
+  assert.equal(map2000.bounds.width, 2000);
+  assert.equal(map2000.bounds.depth, 2000);
+  assert.equal(map2000.bounds.minX, -1000);
+  assert.equal(map2000.bounds.maxX, 1000);
+  assert.equal(map2000.bookmarks.length, 2);
+  assert.ok(map2000.floors.some((f) => f.index === -2));
+  assert.ok(map2000.floors.some((f) => f.index === 8));
+
+  const tmpDir = fs.mkdtempSync(path.join('/tmp', 'atelier-campus-2000-'));
+  try {
+    const mapFile = path.join(tmpDir, 'map.json');
+    const store1 = new MapStore(mapFile);
+    store1.saveMap(map2000);
+    const store2 = new MapStore(mapFile);
+    const reloaded = store2.getMap();
+    assert.equal(reloaded.bounds.width, 2000);
+    assert.equal(reloaded.bounds.depth, 2000);
+    const reloadedPcA = reloaded.objects.find((o) => o.id === 'pc-bat-a');
+    assert.equal(reloadedPcA.x, 450);
+    assert.equal(reloadedPcA.z, -420);
+    assert.equal(reloadedPcA.floor, 3);
+    const reloadedPark = reloaded.zones.find((z) => z.id === 'z-parking');
+    assert.equal(reloadedPark.surfaceKind, 'asphalt');
+    assert.equal(reloaded.bookmarks.length, 2);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('v4.33 — Sparse Chunks sur map 2000m×2000m : zéro chunk vide, Frustum & Distance Culling + pause CanvasTexture', () => {
+  const map2000 = makeImmenseCampusMap(2000);
+  const scene = new THREE.Scene();
+  const lab = buildLabWorld(scene, map2000, { hideSprites: true });
+  try {
+    const engine = lab.spatialCulling;
+    assert.equal(engine.isSparse, true);
+    assert.ok(engine.chunks.length > 0 && engine.chunks.length < 40, `Trop de chunks créés sur map sparse 2000m : ${engine.chunks.length}`);
+    assert.equal(engine.hasChunk(10, 10, 0), false);
+    assert.equal(engine.hasChunk(-20, -20, 0), false);
+    assert.equal(engine.hasChunk(50, 50, 0), false);
+    assert.ok(engine.getChunkAt(450, -420, 3));
+    assert.ok(engine.getChunkAt(-480, 460, 0));
+
+    const cam = new THREE.PerspectiveCamera(65, 16 / 9, 0.1, 1200);
+    cam.position.set(450, 3 * DEFAULT_FLOOR_HEIGHT + 1.68, -415);
+    cam.lookAt(450, 3 * DEFAULT_FLOOR_HEIGHT + 1.4, -425);
+    cam.updateMatrixWorld(true);
+
+    const stats = lab.updateCulling(cam, { x: 450, y: 3 * DEFAULT_FLOOR_HEIGHT, z: -415 }, { currentFloor: 3, quality: 'high' });
+    assert.equal(stats.sparseChunks, engine.chunksMap.size);
+    const chunkA = engine.getChunkAt(450, -420, 3);
+    const chunkB = engine.getChunkAt(-480, 460, 0);
+    assert.equal(chunkA.visible, true);
+    assert.equal(chunkB.visible, false);
+    assert.equal(chunkB.cullReason, 'distance');
+
+    const pcB = lab.pcStations.find((pc) => pc.id === 'pc-bat-b');
+    assert.ok(pcB);
+    const drawsBefore = pcB.desktop.idleDrawCount || 0;
+    lab.update(8.0, { x: 450, y: 3 * DEFAULT_FLOOR_HEIGHT + 1.68, z: -415 }, false, cam);
+    assert.equal(pcB.desktop.idleDrawCount || 0, drawsBefore);
+    assert.equal(pcB.desktop.sleepMode, true);
+
+    cam.lookAt(450, 3 * DEFAULT_FLOOR_HEIGHT + 1.4, -390);
+    cam.updateMatrixWorld(true);
+    const turnedStats = lab.updateCulling(cam, { x: 450, y: 3 * DEFAULT_FLOOR_HEIGHT, z: -415 }, { currentFloor: 3, quality: 'high' });
+    assert.ok(turnedStats.culledFrustum >= 0 && turnedStats.culledDistance > 0);
+  } finally {
+    lab.dispose();
+  }
+});
+
+test('v4.33 — Aucun bridage joueur sur grandes coordonnées (±950m, -2..+8) en local et WebSocket + Culling 2D éditeur', async () => {
+  const map2000 = makeImmenseCampusMap(2000);
+  const scene = new THREE.Scene();
+  const lab = buildLabWorld(scene, map2000, { hideSprites: true });
+  const cam = new THREE.PerspectiveCamera(65, 16 / 9, 0.1, 1200);
+  const player = new PlayerController(cam, makeMockCanvas(), lab.colliders);
+  player.setBounds(map2000.bounds);
+  player.setWalkableSurfaces(lab.walkableSurfaces);
+  player.setSpatialHash(lab.spatialHash);
+
+  const tmpDir = fs.mkdtempSync(path.join('/tmp', 'atelier-campus-ws-'));
+  const store = new GameStore(path.join(tmpDir, 'db.json'));
+  const mapStore = new MapStore(path.join(tmpDir, 'map.json'));
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200);
+    res.end('ok');
+  });
+  const wsHub = attachWsHub(server, store, mapStore);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  let wsA;
+  let wsB;
+  try {
+    player.teleportTo({ x: 450, z: -420, floor: 3 });
+    assert.equal(player.position.x, 450);
+    assert.equal(player.position.z, -420);
+    assert.equal(player.getCurrentFloor(), 3);
+    const stepA = player.moveHorizontally(1.2, 0.8, player.position.x, player.position.z, 0.04);
+    assert.ok(Math.abs(stepA.x - 451.2) < 0.05);
+    assert.ok(Math.abs(stepA.z - -419.2) < 0.05);
+
+    player.teleportTo({ x: -480, z: 460, floor: 0 });
+    assert.equal(player.position.x, -480);
+    assert.equal(player.position.z, 460);
+    assert.equal(player.getCurrentFloor(), 0);
+
+    player.teleportTo({ x: 920, z: -910, floor: 8 });
+    assert.equal(player.position.x, 920);
+    assert.equal(player.position.z, -910);
+    assert.equal(player.getCurrentFloor(), 8);
+
+    const connectClient = (name) =>
+      new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+        ws.on('error', reject);
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ type: 'join', name, room: 'plateau-u300', x: 0, y: 0, z: 0, yaw: 0, floor: 0 }));
+        });
+        ws.on('message', (buf) => {
+          const msg = JSON.parse(buf.toString('utf8'));
+          if (msg.type === 'welcome') resolve(ws);
+        });
+      });
+
+    wsA = await connectClient('CampusRunnerA');
+    wsB = await connectClient('CampusRunnerB');
+
+    const waitMove = (pred) =>
+      new Promise((resolve) => {
+        const onMsg = (buf) => {
+          const msg = JSON.parse(buf.toString('utf8'));
+          if (msg.type === 'player_moved' && pred(msg)) {
+            wsB.off('message', onMsg);
+            resolve(msg);
+          }
+        };
+        wsB.on('message', onMsg);
+      });
+
+    const pFarHigh = waitMove((m) => m.x === 450 && m.floor === 3);
+    wsA.send(JSON.stringify({ type: 'move', x: 450, y: 11.4, z: -420, yaw: 0.5, floor: 3 }));
+    const mFarHigh = await pFarHigh;
+    assert.equal(mFarHigh.x, 450);
+    assert.equal(mFarHigh.z, -420);
+    assert.equal(mFarHigh.floor, 3);
+
+    const pDeepBase = waitMove((m) => m.x === -480 && m.floor === -2);
+    wsA.send(JSON.stringify({ type: 'move', x: -480, y: -7.6, z: 460, yaw: 0, floor: -2 }));
+    const mDeepBase = await pDeepBase;
+    assert.equal(mDeepBase.x, -480);
+    assert.equal(mDeepBase.z, 460);
+    assert.equal(mDeepBase.floor, -2);
+
+    const pTopTower = waitMove((m) => m.x === 920 && m.floor === 8);
+    wsA.send(JSON.stringify({ type: 'move', x: 920, y: 30.4, z: -910, yaw: 0, floor: 8 }));
+    const mTopTower = await pTopTower;
+    assert.equal(mTopTower.x, 920);
+    assert.equal(mTopTower.z, -910);
+    assert.equal(mTopTower.floor, 8);
+
+    assert.ok(MIN_ZOOM_2D <= 0.3 && MAX_ZOOM_2D >= 180);
+    assert.equal(isBoxInViewport2D(440, 460, -430, -410, 400, 500, -460, -380), true);
+    assert.equal(isBoxInViewport2D(-490, -470, 450, 470, 400, 500, -460, -380), false);
+
+    const serverSrc = fs.readFileSync(path.resolve('server/index.js'), 'utf8');
+    assert.ok(serverSrc.includes("limit: '50mb'"));
+    const wsSrc = fs.readFileSync(path.resolve('server/wsHub.js'), 'utf8');
+    assert.ok(wsSrc.includes('50 * 1024 * 1024'));
+  } finally {
+    wsA?.close();
+    wsB?.close();
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    lab.dispose();
+  }
 });

@@ -221,7 +221,7 @@ function getSpatialColliderGrid(colliders) {
     const z1 = Math.floor((maxZ + 0.65) / COLLIDER_CELL_SIZE);
     for (let gx = x0; gx <= x1; gx++) {
       for (let gz = z0; gz <= z1; gz++) {
-        const key = gx * 4096 + gz;
+        const key = (gx + 2048) * 4096 + (gz + 2048);
         let bucket = grid.get(key);
         if (!bucket) {
           bucket = [];
@@ -248,7 +248,10 @@ export function pointCollidesWithColliders(nx, nz, colliders = [], bounds = null
   }
   const grid = getSpatialColliderGrid(colliders);
   const list = grid
-    ? grid.get(Math.floor(nx / COLLIDER_CELL_SIZE) * 4096 + Math.floor(nz / COLLIDER_CELL_SIZE))
+    ? grid.get(
+        (Math.floor(nx / COLLIDER_CELL_SIZE) + 2048) * 4096 +
+          (Math.floor(nz / COLLIDER_CELL_SIZE) + 2048)
+      )
     : colliders;
   if (!list || list.length === 0) return false;
   const checkY = feetY !== null && feetY !== undefined && Number.isFinite(Number(feetY));
@@ -501,7 +504,10 @@ export function buildNavGrid(mapData = null, desiredCellSize = 0.45, agentRadius
   const src = mapData || createDefaultMap();
   const b = src.bounds || { minX: -13, maxX: 13, minZ: -12.2, maxZ: 12.2, width: 26, depth: 24.4 };
   const maxSpan = Math.max(b.width || 26, b.depth || 24.4);
-  const cellSize = Math.max(desiredCellSize, Math.min(1.2, maxSpan / 64));
+  const cellSize =
+    maxSpan > 120
+      ? Math.max(desiredCellSize, maxSpan / 100)
+      : Math.max(desiredCellSize, Math.min(1.2, maxSpan / 64));
   const cols = Math.max(4, Math.floor((b.maxX - b.minX) / cellSize) + 1);
   const rows = Math.max(4, Math.floor((b.maxZ - b.minZ) / cellSize) + 1);
   const colliders = getDynamicMapColliders(src);

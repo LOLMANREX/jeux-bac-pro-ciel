@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.32 - Map Géante Multi-Étages, Escaliers 3D & Culling Champ de Vision';
+    : "v4.33 - Map Campus Immense jusqu'à 2000m × 2000m, Éditeur Virtualisé & Chunks Sparse";
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.32 — Map Géante Multi-Étages, Système d’Escaliers 3D & Culling Champ de Vision',
+    version: 'v4.33 — Map Campus Immense jusqu’à 2000m × 2000m, Éditeur Virtualisé & Chunks Dynamiques Sparse',
     date: '19/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'CAMPUS 1000M — 2000M',
+        title: 'Déblocage Total des Dimensions (1000m × 1000m par défaut, jusqu’à 2000m × 2000m, -2 à +8 Étages) & Limites Serveur 50 Mo',
+        desc: 'Suppression intégrale des bridages de coordonnées côté schéma, moteur 3D, physique joueur et WebSocket (support de -1000m à +1000m et 11 niveaux de -2 Sous-sols à +8 Étages), sol de base campus + jupe d’horizon + ciel dégradé 3D, camera.far étendue (600m à 1200m+ selon qualité) avec brouillard atmosphérique progressif, ancrage dynamique des ombres soleil et payloads HTTP/WebSocket augmentés à 50 Mo.'
+      },
+      {
+        badge: 'ÉDITEUR ÉCHELLE CAMPUS',
+        title: 'Rendu 2D Virtualisé Anti-Lag, Zoom Satellite↔Décimètre, Repères, Salle Express & Pinceaux Extérieurs',
+        desc: 'Viewport culling 2D complet des grilles multi-échelles, murs, zones, objets et fantômes (zéro freeze même en 2000m × 2000m), zoom fluide 0,22 à 220 px/m, navigation ZQSD/Flèches + Shift et Espace+glisser, barre de Signets / Repères de zones cliquables, outil Salle / Bâtiment Express en 1 clic-glisser avec dimensions temps réel, Copier/Coller multi-étages (Ctrl+C / Ctrl+V / Étage +1), 5 pinceaux extérieurs (Bitume, Cour béton, Pelouse, Allée, Terrain sport) et presets 250m / 500m / 1000m / 2000m sans perte.'
+      },
+      {
+        badge: 'CHUNKS SPARSE HAUT FPS',
+        title: 'Structure Sparse Map (floor:cx:cz) Zéro Chunk Vide, Frustum/Distance Culling & SpatialHash O(1)',
+        desc: 'Génération strictement creuse des chunks 16m × 16m uniquement sur les zones réellement construites (0 % de CPU/RAM gaspillé sur les zones vides jusqu’à 2000m × 2000m), Frustum Culling strict zéro allocation, Distance Culling adaptatif PC/Mobile/VR avec mise en pause automatique des CanvasTexture hors portée et grille SpatialHash O(1) étendue aux grandes coordonnées.'
+      }
+    ]
+  },
+  {
+    version: 'v4.32 — Map Géante Multi-Étages, Système d’Escaliers 3D & Culling Champ de Vision',
+    date: '19/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'MULTI-ÉTAGES & LYCÉE 240×240',

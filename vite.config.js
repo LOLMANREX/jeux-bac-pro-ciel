@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify("v4.32 - Map Géante Multi-Étages, Escaliers 3D & Culling Champ de Vision"),
+    __APP_VERSION__: JSON.stringify("v4.33 - Map Campus Immense jusqu'à 2000m × 2000m, Éditeur Virtualisé & Chunks Sparse"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {
