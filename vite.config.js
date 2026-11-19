@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify("v4.29 - Correctif Désactivation Bots, Réticules Dynamiques, Visée ADS & Refonte 3D des 8 Armes CIEL"),
+    __APP_VERSION__: JSON.stringify("v4.30 - Correctif Achat Boutique CIEL, Refonte du Menu Casier & Démineur Pro (Difficile, Sécurité Anti-Faux-Clic & Gains Boostés)"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

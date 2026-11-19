@@ -799,7 +799,37 @@ export class NetworkClient {
     }
   }
 
+  _requestViaWs(sendType, resultType, payload = {}, timeoutMs = 4000) {
+    if (!this.connected || !this.ws || this.ws.readyState !== 1) {
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      let done = false;
+      const off = this.on(resultType, (msg) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        off();
+        resolve(msg);
+      });
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        off();
+        resolve(null);
+      }, timeoutMs);
+      const sent = this.send({ type: sendType, ...payload });
+      if (!sent) {
+        done = true;
+        clearTimeout(timer);
+        off();
+        resolve(null);
+      }
+    });
+  }
+
   async buyShopItem(itemId, playerName = '', timeoutMs = 4500) {
+    const cleanName = String(playerName || this.pendingJoin?.name || '').trim();
     try {
       const res = await this._fetchWithTimeout(
         '/api/shop/buy',
@@ -808,24 +838,42 @@ export class NetworkClient {
           headers: this._buildAuthHeaders(),
           body: JSON.stringify({
             itemId,
-            name: playerName || this.pendingJoin?.name || ''
+            name: cleanName
           })
         },
         timeoutMs
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        return {
-          ok: false,
-          status: res.status,
-          error: data.error || 'Achat impossible.'
-        };
+      if (res.ok && data.ok) {
+        if (data.profile) {
+          this.emit('profile_updated', { profile: data.profile });
+        }
+        return data;
       }
-      if (data.profile) {
-        this.emit('profile_updated', { profile: data.profile });
+      if ((res.status === 401 || res.status === 403 || res.status >= 500) && this.connected) {
+        const wsRes = await this._requestViaWs('shop_buy', 'shop_buy_result', { itemId }, timeoutMs);
+        if (wsRes) {
+          if (wsRes.ok && wsRes.profile) {
+            this.emit('profile_updated', { profile: wsRes.profile });
+          }
+          return wsRes;
+        }
       }
-      return data;
+      return {
+        ok: false,
+        status: res.status,
+        error: data.error || 'Achat impossible.'
+      };
     } catch (err) {
+      if (this.connected) {
+        const wsRes = await this._requestViaWs('shop_buy', 'shop_buy_result', { itemId }, timeoutMs);
+        if (wsRes) {
+          if (wsRes.ok && wsRes.profile) {
+            this.emit('profile_updated', { profile: wsRes.profile });
+          }
+          return wsRes;
+        }
+      }
       return {
         ok: false,
         status: 0,
@@ -835,6 +883,7 @@ export class NetworkClient {
   }
 
   async equipShopItem({ itemId = null, category = null, equip = true, name = '' } = {}, timeoutMs = 4500) {
+    const cleanName = String(name || this.pendingJoin?.name || '').trim();
     try {
       const res = await this._fetchWithTimeout(
         '/api/shop/equip',
@@ -845,27 +894,61 @@ export class NetworkClient {
             itemId,
             category,
             equip,
-            name: name || this.pendingJoin?.name || ''
+            name: cleanName
           })
         },
         timeoutMs
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        return {
-          ok: false,
-          status: res.status,
-          error: data.error || 'Équipement impossible.'
-        };
-      }
-      if (data.profile) {
-        if (this.pendingJoin) {
-          this.pendingJoin.skin = { ...data.profile.skin };
+      if (res.ok && data.ok) {
+        if (data.profile) {
+          if (this.pendingJoin) {
+            this.pendingJoin.skin = { ...data.profile.skin };
+          }
+          this.emit('profile_updated', { profile: data.profile });
         }
-        this.emit('profile_updated', { profile: data.profile });
+        return data;
       }
-      return data;
+      if ((res.status === 401 || res.status === 403 || res.status >= 500) && this.connected) {
+        const wsRes = await this._requestViaWs(
+          'shop_equip',
+          'shop_equip_result',
+          { itemId, category, equip },
+          timeoutMs
+        );
+        if (wsRes) {
+          if (wsRes.ok && wsRes.profile) {
+            if (this.pendingJoin) {
+              this.pendingJoin.skin = { ...wsRes.profile.skin };
+            }
+            this.emit('profile_updated', { profile: wsRes.profile });
+          }
+          return wsRes;
+        }
+      }
+      return {
+        ok: false,
+        status: res.status,
+        error: data.error || 'Équipement impossible.'
+      };
     } catch (err) {
+      if (this.connected) {
+        const wsRes = await this._requestViaWs(
+          'shop_equip',
+          'shop_equip_result',
+          { itemId, category, equip },
+          timeoutMs
+        );
+        if (wsRes) {
+          if (wsRes.ok && wsRes.profile) {
+            if (this.pendingJoin) {
+              this.pendingJoin.skin = { ...wsRes.profile.skin };
+            }
+            this.emit('profile_updated', { profile: wsRes.profile });
+          }
+          return wsRes;
+        }
+      }
       return {
         ok: false,
         status: 0,
@@ -874,7 +957,10 @@ export class NetworkClient {
     }
   }
 
-  async submitArcadeScore(gameId, score, playerName = '', timeoutMs = 4000) {
+  async submitArcadeScore(gameId, score, playerName = '', metaOrTimeout = 4000, maybeTimeoutMs = 4000) {
+    const isMetaObj = metaOrTimeout && typeof metaOrTimeout === 'object';
+    const extra = isMetaObj ? metaOrTimeout : {};
+    const timeoutMs = isMetaObj ? maybeTimeoutMs : Number(metaOrTimeout) || 4000;
     try {
       const res = await this._fetchWithTimeout(
         '/api/economy/arcade',
@@ -884,6 +970,9 @@ export class NetworkClient {
           body: JSON.stringify({
             gameId,
             score,
+            difficulty: extra.difficulty || null,
+            won: Boolean(extra.won),
+            elapsedSec: extra.elapsedSec ?? null,
             name: playerName || this.pendingJoin?.name || ''
           })
         },

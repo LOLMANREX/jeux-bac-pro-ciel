@@ -219,12 +219,14 @@ export class HudManager {
       tone: 'hud-skin-tone-list',
       pants: 'hud-skin-pants-list'
     };
-    this.skinPreview = new SkinPreview3D(
-      document.getElementById('hud-skin-preview-canvas'),
-      () => this.gameState.skin,
-      240,
-      290
-    );
+    this.skinPreview = this.handlers.onOpenLocker
+      ? null
+      : new SkinPreview3D(
+          document.getElementById('hud-skin-preview-canvas'),
+          () => this.gameState.skin,
+          240,
+          290
+        );
 
     this.toastContainer = document.getElementById('toast-container');
 
@@ -933,7 +935,11 @@ export class HudManager {
     document.getElementById('btn-skin-ingame')?.addEventListener('click', () => {
       sfx.click();
       this.closeSettings();
-      this.openSkinModal();
+      if (this.handlers.onOpenLocker) {
+        this.handlers.onOpenLocker();
+      } else {
+        this.openSkinModal();
+      }
     });
 
     this.shopHudBtn?.addEventListener('click', () => {
@@ -947,43 +953,56 @@ export class HudManager {
       this.handlers.onOpenShop?.();
     });
 
-    document.getElementById('hud-skin-close')?.addEventListener('click', () => {
-      sfx.click();
-      this.closeSkinModal();
-    });
+    if (!this.handlers.onOpenLocker) {
+      document.getElementById('hud-skin-close')?.addEventListener('click', () => {
+        sfx.click();
+        this.closeSkinModal();
+      });
 
-    document.getElementById('btn-hud-skin-done')?.addEventListener('click', () => {
-      sfx.click();
-      this.closeSkinModal();
-    });
+      document.getElementById('btn-hud-skin-done')?.addEventListener('click', () => {
+        sfx.click();
+        this.closeSkinModal();
+      });
 
-    document.getElementById('btn-hud-skin-random')?.addEventListener('click', () => {
-      sfx.click();
-      this.gameState.setSkin(pickRandomSkin());
-      this._refreshInGameSkinUi();
-      this.handlers.onSkinChange?.(this.gameState.skin);
-    });
+      document.getElementById('btn-hud-skin-random')?.addEventListener('click', () => {
+        sfx.click();
+        this.gameState.setSkin(pickRandomSkin());
+        this._refreshInGameSkinUi();
+        this.handlers.onSkinChange?.(this.gameState.skin);
+      });
+    }
   }
 
   _refreshInGameSkinUi() {
+    if (this.handlers.onRefreshLocker) {
+      this.handlers.onRefreshLocker();
+      return;
+    }
     renderSkinControls(this.skinIds, this.gameState, (updatedSkin) => {
-      this.skinPreview.rebuild();
+      this.skinPreview?.rebuild?.();
       this.handlers.onSkinChange?.(updatedSkin);
     });
-    this.skinPreview.rebuild();
+    this.skinPreview?.rebuild?.();
   }
 
   openSkinModal() {
     if (this.detentionHudHidden) return;
+    if (this.handlers.onOpenLocker) {
+      this.handlers.onOpenLocker();
+      return;
+    }
     this._refreshInGameSkinUi();
     this.skinModal.classList.remove('hidden');
-    this.skinPreview.setActive(true);
+    this.skinPreview?.setActive?.(true);
     this.handlers.onModalOpen?.(true);
   }
 
   closeSkinModal() {
+    if (this.handlers.onCloseLocker) {
+      return this.handlers.onCloseLocker();
+    }
     if (this.skinModal.classList.contains('hidden')) return false;
-    this.skinPreview.setActive(false);
+    this.skinPreview?.setActive?.(false);
     this.skinModal.classList.add('hidden');
     this.handlers.onModalOpen?.(false);
     return true;

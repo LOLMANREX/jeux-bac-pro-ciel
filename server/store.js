@@ -26,6 +26,7 @@ import {
   isShopAccessoryId,
   isShopPetId,
   isShopSkinId,
+  normalizeMinesweeperDifficulty,
   SHOP_CATALOG
 } from '../src/world/ShopCatalog.js';
 
@@ -286,6 +287,12 @@ export function normalizeArcadeHighScores(rawObj) {
       const val = Math.floor(Number(rawObj[gameId]) || 0);
       if (val > 0 && val <= ARCADE_GAME_RULES[gameId].maxValidScore) {
         out[gameId] = val;
+      }
+    }
+    for (const timeKey of ['minesweeper_time_easy', 'minesweeper_time_medium', 'minesweeper_time_hard']) {
+      const t = Math.round(Number(rawObj[timeKey]) * 10) / 10;
+      if (Number.isFinite(t) && t > 0 && t <= 3600) {
+        out[timeKey] = t;
       }
     }
   }
@@ -2214,7 +2221,7 @@ export class GameStore {
     };
   }
 
-  recordArcadeScore(target, { gameId, score } = {}) {
+  recordArcadeScore(target, { gameId, score, difficulty = null, won = false, elapsedSec = null } = {}) {
     const cleanGameId = String(gameId || '').trim();
     const rule = ARCADE_GAME_RULES[cleanGameId];
     const numScore = Math.floor(Number(score) || 0);
@@ -2244,17 +2251,42 @@ export class GameStore {
 
     this.getOrCreatePlayer(name);
     const player = this._normalizePlayer(this.data.players[key], name);
+    if (accKey) {
+      const acc = this.accounts.get(accKey);
+      if (acc && Number(acc.coins) > Number(player.coins || 0)) {
+        player.coins = Math.floor(Number(acc.coins));
+      }
+    }
 
     const prevBest = Number(player.arcadeHighScores[cleanGameId]) || 0;
-    const isNewRecord = numScore > prevBest;
-    if (isNewRecord) {
+    let isNewRecord = numScore > prevBest;
+    if (numScore > prevBest) {
       player.arcadeHighScores[cleanGameId] = numScore;
+    }
+
+    const normDiff =
+      cleanGameId === 'minesweeper' && difficulty
+        ? normalizeMinesweeperDifficulty(difficulty)
+        : null;
+    if (cleanGameId === 'minesweeper' && won && normDiff) {
+      const parsedTime = Math.round(Number(elapsedSec) * 10) / 10;
+      if (Number.isFinite(parsedTime) && parsedTime > 0 && parsedTime <= 3600) {
+        const timeKey = `minesweeper_time_${normDiff}`;
+        const prevTime = Number(player.arcadeHighScores[timeKey]);
+        const isTimeRecord = !Number.isFinite(prevTime) || prevTime <= 0 || parsedTime < prevTime;
+        if (isTimeRecord) {
+          player.arcadeHighScores[timeKey] = parsedTime;
+        }
+        isNewRecord = isTimeRecord;
+      }
     }
 
     const reward = computeArcadeCoinReward({
       gameId: cleanGameId,
       score: numScore,
-      isNewRecord
+      isNewRecord,
+      difficulty: normDiff,
+      won: Boolean(won)
     });
     const coinsEarned = reward.totalCoins;
     player.coins = Math.max(0, (player.coins || 0) + coinsEarned);
@@ -2271,6 +2303,8 @@ export class GameStore {
       status: 200,
       gameId: cleanGameId,
       gameLabel: rule.label,
+      difficulty: normDiff,
+      won: Boolean(won),
       score: numScore,
       isNewRecord,
       highScore: player.arcadeHighScores[cleanGameId] || numScore,
@@ -2294,10 +2328,23 @@ export class GameStore {
     }
 
     const accKey = this._findAccountKey(target);
-    const name = accKey ? this.accounts.get(accKey).username : sanitizeName(target);
+    const acc = accKey ? this.accounts.get(accKey) : null;
+    const name = acc ? acc.username : sanitizeName(target);
     const key = name.toLowerCase();
     this.getOrCreatePlayer(name);
     const player = this._normalizePlayer(this.data.players[key], name);
+    if (acc) {
+      const mergedOwned = normalizeOwnedItems([
+        ...(acc.ownedItems || []),
+        ...(player.ownedItems || [])
+      ]);
+      player.ownedItems = mergedOwned;
+      const accCoins = Math.max(0, Math.floor(Number(acc.coins) || 0));
+      const pCoins = Math.max(0, Math.floor(Number(player.coins) || 0));
+      if (accCoins > pCoins) {
+        player.coins = accCoins;
+      }
+    }
 
     if (player.ownedItems.includes(item.id)) {
       return {
@@ -2338,10 +2385,17 @@ export class GameStore {
 
   equipShopItem(target, { itemId, category = null, equip = true } = {}) {
     const accKey = this._findAccountKey(target);
-    const name = accKey ? this.accounts.get(accKey).username : sanitizeName(target);
+    const acc = accKey ? this.accounts.get(accKey) : null;
+    const name = acc ? acc.username : sanitizeName(target);
     const key = name.toLowerCase();
     this.getOrCreatePlayer(name);
     const player = this._normalizePlayer(this.data.players[key], name);
+    if (acc) {
+      player.ownedItems = normalizeOwnedItems([
+        ...(acc.ownedItems || []),
+        ...(player.ownedItems || [])
+      ]);
+    }
 
     const cleanId = String(itemId || '').trim();
     const isUnequip =

@@ -948,6 +948,39 @@ export class VRManager {
     return false;
   }
 
+  openLockerSpatialPanel(lockerState, options = {}) {
+    const panel = this.openWorldSpatialPanel(
+      'locker',
+      {
+        title: '🎨 CASIER CIEL — SKINS, PETS 3D & ACCESSOIRES',
+        locker: lockerState
+      },
+      {
+        dist: options.dist ?? 1.24,
+        yOffset: options.yOffset ?? 0.04
+      }
+    );
+    if (panel) {
+      this._syncVrShopPreview(lockerState);
+    }
+    return panel;
+  }
+
+  updateLockerSpatialPanel(lockerState) {
+    if (!this.worldPanel || this.worldPanel.getState?.()?.mode !== 'locker') return;
+    this.worldPanel.updateState({ mode: 'locker', locker: lockerState });
+    this._syncVrShopPreview(lockerState);
+  }
+
+  closeLockerSpatialPanel() {
+    this._clearVrShopPreview();
+    if (this.worldPanel?.getState?.()?.mode === 'locker') {
+      this.closeWorldSpatialPanel();
+      return true;
+    }
+    return false;
+  }
+
   pulseBothHands(intensity = 0.9, durationMs = 280) {
     this._pulseHaptic(this.slots.left, intensity, durationMs);
     this._pulseHaptic(this.slots.right, intensity, durationMs);
@@ -1917,6 +1950,7 @@ export class VRManager {
           hitAction = () => {
             if (btn.id === 'btn_mic') this.options.onToggleMic?.();
             if (btn.id === 'btn_shop') this.options.onOpenShop?.();
+            if (btn.id === 'btn_locker') this.options.onOpenLocker?.();
             if (btn.id === 'btn_vr_exit') this.exitVr();
           };
         }
@@ -2575,6 +2609,7 @@ export class VRManager {
           this._pulseHaptic(this.slots.right, 0.55, 35);
           if (btn.id === 'btn_mic') this.options.onToggleMic?.();
           if (btn.id === 'btn_shop') this.options.onOpenShop?.();
+          if (btn.id === 'btn_locker') this.options.onOpenLocker?.();
           if (btn.id === 'btn_vr_exit') this.exitVr();
         } else if (this.tempVecC.z > 0.024) {
           this.wristTouchPressed = false;

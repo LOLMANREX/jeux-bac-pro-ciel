@@ -464,6 +464,43 @@ export function computeDetentionTableCoinReward({ solvedInMatch = 0 } = {}) {
   return DETENTION_TABLE_COIN_REWARD;
 }
 
+export const MINESWEEPER_DIFFICULTY_REWARDS = {
+  easy: {
+    id: 'easy',
+    label: 'Facile',
+    cols: 9,
+    rows: 9,
+    mines: 10,
+    winCoins: 35,
+    recordBonus: 0
+  },
+  medium: {
+    id: 'medium',
+    label: 'Normal',
+    cols: 12,
+    rows: 12,
+    mines: 24,
+    winCoins: 65,
+    recordBonus: 15
+  },
+  hard: {
+    id: 'hard',
+    label: 'Difficile',
+    cols: 16,
+    rows: 16,
+    mines: 48,
+    winCoins: 130,
+    recordBonus: 25
+  }
+};
+
+export function normalizeMinesweeperDifficulty(diff = 'easy') {
+  const clean = String(diff || '').trim().toLowerCase();
+  if (clean === 'hard' || clean === 'difficile') return 'hard';
+  if (clean === 'medium' || clean === 'normal' || clean === 'moyen') return 'medium';
+  return 'easy';
+}
+
 export const ARCADE_GAME_RULES = {
   snake: {
     id: 'snake',
@@ -479,7 +516,7 @@ export const ARCADE_GAME_RULES = {
   minesweeper: {
     id: 'minesweeper',
     label: 'Démineur Réseau',
-    maxValidScore: 5000,
+    maxValidScore: 20000,
     tiers: [
       { min: 20, coins: 10 },
       { min: 90, coins: 22 },
@@ -535,7 +572,13 @@ export const ARCADE_GAME_RULES = {
 
 export const ARCADE_NEW_RECORD_BONUS = 15;
 
-export function computeArcadeCoinReward({ gameId, score = 0, isNewRecord = false } = {}) {
+export function computeArcadeCoinReward({
+  gameId,
+  score = 0,
+  isNewRecord = false,
+  difficulty = null,
+  won = false
+} = {}) {
   const cleanId = String(gameId || '').trim();
   const rule = ARCADE_GAME_RULES[cleanId];
   const numScore = Math.floor(Number(score) || 0);
@@ -547,6 +590,24 @@ export function computeArcadeCoinReward({ gameId, score = 0, isNewRecord = false
       recordBonus: 0,
       tierIndex: 0
     };
+  }
+
+  if (cleanId === 'minesweeper' && won && difficulty) {
+    const normDiff = normalizeMinesweeperDifficulty(difficulty);
+    const diffRule = MINESWEEPER_DIFFICULTY_REWARDS[normDiff];
+    if (diffRule) {
+      const baseCoins = diffRule.winCoins;
+      const recordBonus = isNewRecord ? diffRule.recordBonus : 0;
+      const tierIndex = normDiff === 'hard' ? 6 : normDiff === 'medium' ? 5 : 4;
+      return {
+        valid: true,
+        totalCoins: baseCoins + recordBonus,
+        baseCoins,
+        recordBonus,
+        tierIndex,
+        difficulty: normDiff
+      };
+    }
   }
 
   let baseCoins = 0;

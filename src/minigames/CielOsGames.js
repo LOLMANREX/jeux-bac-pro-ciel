@@ -1,5 +1,9 @@
 import { sfx } from '../core/audio.js';
-import { computeArcadeCoinReward } from '../world/ShopCatalog.js';
+import {
+  computeArcadeCoinReward,
+  MINESWEEPER_DIFFICULTY_REWARDS,
+  normalizeMinesweeperDifficulty
+} from '../world/ShopCatalog.js';
 
 export const CIEL_OS_GAMES_CATALOG = [
   {
@@ -563,25 +567,119 @@ export class CielMinesweeperGame {
     this.highScore = Number(options.initialHighScore) || 0;
     this.difficulty = 'easy';
     this.flagMode = false;
+    this.safeMode = options.safeMode !== undefined ? Boolean(options.safeMode) : true;
+    this.bestTimes = { easy: null, medium: null, hard: null };
+    this.savedSnapshot = null;
+    this.resumePromptActive = false;
     this.reset('easy');
   }
 
-  setDifficulty(diff = 'easy') {
-    this.difficulty = diff === 'medium' ? 'medium' : 'easy';
+  hasInProgressGame() {
+    return this.revealedCount > 0 && !this.gameOver && !this.won;
+  }
+
+  toggleSafeMode() {
+    this.safeMode = !this.safeMode;
+    this.pendingCell = null;
+    sfx.osClick?.();
+    return this.safeMode;
+  }
+
+  exportSnapshot() {
+    return {
+      difficulty: this.difficulty,
+      cols: this.cols,
+      rows: this.rows,
+      mineCount: this.mineCount,
+      minesPlaced: this.minesPlaced,
+      revealedCount: this.revealedCount,
+      flagCount: this.flagCount,
+      elapsedSec: this.elapsedSec,
+      score: this.score,
+      gameOver: this.gameOver,
+      won: this.won,
+      flagMode: this.flagMode,
+      safeMode: this.safeMode,
+      board: this.board.map((row) => row.map((cell) => ({ ...cell })))
+    };
+  }
+
+  saveInProgressSnapshot() {
+    if (this.hasInProgressGame()) {
+      this.savedSnapshot = this.exportSnapshot();
+      this.resumePromptActive = true;
+      return true;
+    }
+    return false;
+  }
+
+  restoreSnapshot(snap = this.savedSnapshot) {
+    if (!snap || !Array.isArray(snap.board) || snap.board.length === 0) return false;
+    this.difficulty = normalizeMinesweeperDifficulty(snap.difficulty);
+    this.cols = Number(snap.cols) || snap.board[0].length;
+    this.rows = Number(snap.rows) || snap.board.length;
+    this.mineCount = Number(snap.mineCount) || 10;
+    this.minesPlaced = Boolean(snap.minesPlaced);
+    this.revealedCount = Number(snap.revealedCount) || 0;
+    this.flagCount = Number(snap.flagCount) || 0;
+    this.elapsedSec = Number(snap.elapsedSec) || 0;
+    this.score = Number(snap.score) || 0;
+    this.gameOver = Boolean(snap.gameOver);
+    this.won = Boolean(snap.won);
+    this.flagMode = Boolean(snap.flagMode);
+    this.safeMode = snap.safeMode !== undefined ? Boolean(snap.safeMode) : this.safeMode;
+    this.board = snap.board.map((row) => row.map((cell) => ({ ...cell })));
+    this.pendingCell = null;
+    this.pendingResetConfirm = null;
+    this.resumePromptActive = false;
+    this._endReported = false;
+    return true;
+  }
+
+  setDifficulty(diff = 'easy', options = {}) {
+    const nextDiff = normalizeMinesweeperDifficulty(diff);
+    if (options.requireConfirm && this.hasInProgressGame() && nextDiff !== this.difficulty) {
+      this.pendingResetConfirm = { type: 'difficulty', difficulty: nextDiff };
+      return false;
+    }
+    this.difficulty = nextDiff;
     this.reset(this.difficulty);
+    return true;
+  }
+
+  requestReset(targetDiff = null) {
+    if (this.hasInProgressGame()) {
+      this.pendingResetConfirm = {
+        type: targetDiff ? 'difficulty' : 'reset',
+        difficulty: targetDiff ? normalizeMinesweeperDifficulty(targetDiff) : this.difficulty
+      };
+      return false;
+    }
+    this.reset(targetDiff || this.difficulty);
+    return true;
+  }
+
+  confirmReset() {
+    if (!this.pendingResetConfirm) return false;
+    const nextDiff = this.pendingResetConfirm.difficulty || this.difficulty;
+    this.pendingResetConfirm = null;
+    this.savedSnapshot = null;
+    this.resumePromptActive = false;
+    this.reset(nextDiff);
+    return true;
+  }
+
+  cancelReset() {
+    this.pendingResetConfirm = null;
+    return true;
   }
 
   reset(diff = this.difficulty) {
-    this.difficulty = diff === 'medium' ? 'medium' : 'easy';
-    if (this.difficulty === 'medium') {
-      this.cols = 12;
-      this.rows = 10;
-      this.mineCount = 20;
-    } else {
-      this.cols = 8;
-      this.rows = 8;
-      this.mineCount = 10;
-    }
+    this.difficulty = normalizeMinesweeperDifficulty(diff);
+    const spec = MINESWEEPER_DIFFICULTY_REWARDS[this.difficulty] || MINESWEEPER_DIFFICULTY_REWARDS.easy;
+    this.cols = spec.cols;
+    this.rows = spec.rows;
+    this.mineCount = spec.mines;
     this.board = [];
     for (let r = 0; r < this.rows; r++) {
       const row = [];
@@ -605,9 +703,11 @@ export class CielMinesweeperGame {
     this.gameOver = false;
     this.won = false;
     this.paused = false;
+    this.pendingCell = null;
+    this.pendingResetConfirm = null;
+    this.resumePromptActive = false;
     this._endReported = false;
     this.lastCoinsEarned = 0;
-    this._placeInitialMines();
     this._notifyScore();
   }
 
@@ -618,16 +718,38 @@ export class CielMinesweeperGame {
         this.board[r][c].neighbors = 0;
       }
     }
-    let placed = 0;
-    let guard = 0;
-    while (placed < this.mineCount && guard < 1000) {
-      guard++;
-      const rr = Math.floor(Math.random() * this.rows);
-      const cc = Math.floor(Math.random() * this.cols);
-      if (rr === excludeR && cc === excludeC) continue;
-      if (this.board[rr][cc].mine) continue;
+    const candidates = [];
+    const fallbackCandidates = [];
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        if (r === excludeR && c === excludeC) continue;
+        const inSafeZone =
+          excludeR >= 0 &&
+          excludeC >= 0 &&
+          Math.abs(r - excludeR) <= 1 &&
+          Math.abs(c - excludeC) <= 1;
+        if (inSafeZone) {
+          fallbackCandidates.push([r, c]);
+        } else {
+          candidates.push([r, c]);
+        }
+      }
+    }
+    const shuffle = (arr) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
+      }
+    };
+    shuffle(candidates);
+    shuffle(fallbackCandidates);
+    const pool = [...candidates, ...fallbackCandidates];
+    const toPlace = Math.min(this.mineCount, pool.length);
+    for (let i = 0; i < toPlace; i++) {
+      const [rr, cc] = pool[i];
       this.board[rr][cc].mine = true;
-      placed++;
     }
     this._recomputeNeighbors();
     this.minesPlaced = true;
@@ -666,14 +788,32 @@ export class CielMinesweeperGame {
   _emitGameEnd(won = false) {
     if (this._endReported) return;
     this._endReported = true;
+    const elapsedRounded = Math.max(1, Math.round(this.elapsedSec * 10) / 10);
+    let isNewRecord = false;
+    if (won) {
+      const prevTime = this.bestTimes[this.difficulty];
+      if (prevTime === null || prevTime === undefined || elapsedRounded < prevTime) {
+        this.bestTimes[this.difficulty] = elapsedRounded;
+        isNewRecord = true;
+      }
+    } else {
+      isNewRecord = this.score > 0 && this.score >= this.highScore;
+    }
     const reward = computeArcadeCoinReward({
       gameId: this.id,
       score: this.score,
-      isNewRecord: this.score > 0 && this.score >= this.highScore
+      isNewRecord,
+      difficulty: this.difficulty,
+      won: Boolean(won)
     });
     this.lastCoinsEarned = reward.totalCoins;
+    this.savedSnapshot = null;
+    this.resumePromptActive = false;
     this.onGameEnd?.(this.id, this.score, {
       won: Boolean(won),
+      difficulty: this.difficulty,
+      elapsedSec: elapsedRounded,
+      isNewRecord,
       highScore: this.highScore,
       estimatedCoins: this.lastCoinsEarned
     });
@@ -683,16 +823,60 @@ export class CielMinesweeperGame {
     if (this.gameOver || this.won) return false;
     const cell = this.board[r]?.[c];
     if (!cell || cell.revealed) return false;
+    if (this.pendingCell && this.pendingCell.r === r && this.pendingCell.c === c) {
+      this.pendingCell = null;
+    }
     cell.flagged = !cell.flagged;
     this.flagCount += cell.flagged ? 1 : -1;
     sfx.arcadeBeep?.(cell.flagged ? 820 : 540, 0.04, 'triangle');
     return cell.flagged;
   }
 
+  handleCellClick(r, c) {
+    if (this.gameOver || this.won) return false;
+    this.resumePromptActive = false;
+    const cell = this.board[r]?.[c];
+    if (!cell || cell.revealed) return false;
+    if (this.flagMode) {
+      return this.toggleFlag(r, c);
+    }
+    if (cell.flagged) {
+      sfx.arcadeBeep?.(260, 0.04, 'sawtooth');
+      return false;
+    }
+    if (this.safeMode) {
+      if (!this.pendingCell || this.pendingCell.r !== r || this.pendingCell.c !== c) {
+        this.pendingCell = { r, c };
+        sfx.osClick?.();
+        return 'pending';
+      }
+      this.pendingCell = null;
+      return this.revealCell(r, c);
+    }
+    return this.revealCell(r, c);
+  }
+
   revealCell(r, c) {
     if (this.gameOver || this.won) return false;
     const cell = this.board[r]?.[c];
     if (!cell || cell.revealed || cell.flagged) return false;
+    this.pendingCell = null;
+    this.pendingResetConfirm = null;
+    this.resumePromptActive = false;
+
+    if (!this.minesPlaced) {
+      let hasManualMines = false;
+      for (let rr = 0; rr < this.rows && !hasManualMines; rr++) {
+        for (let cc = 0; cc < this.cols && !hasManualMines; cc++) {
+          if (this.board[rr][cc].mine) hasManualMines = true;
+        }
+      }
+      if (!hasManualMines) {
+        this._placeInitialMines(r, c);
+      } else {
+        this.minesPlaced = true;
+      }
+    }
 
     if (this.revealedCount === 0 && cell.mine) {
       cell.mine = false;
@@ -753,8 +937,9 @@ export class CielMinesweeperGame {
     if (this.revealedCount >= totalSafe) {
       this.won = true;
       this.gameOver = true;
-      const bonus = (this.difficulty === 'medium' ? 250 : 120) + Math.max(0, 120 - Math.floor(this.elapsedSec));
-      this.score += bonus;
+      const diffBonus = this.difficulty === 'hard' ? 600 : this.difficulty === 'medium' ? 280 : 120;
+      const speedBonus = Math.max(0, 180 - Math.floor(this.elapsedSec));
+      this.score += diffBonus + speedBonus;
       sfx.arcadeVictory?.();
       this._notifyScore();
       this._emitGameEnd(true);
@@ -774,11 +959,16 @@ export class CielMinesweeperGame {
   handleKeyDown(code) {
     if (code === 'KeyF') {
       this.flagMode = !this.flagMode;
+      this.pendingCell = null;
       sfx.osClick?.();
       return true;
     }
+    if (code === 'KeyS') {
+      this.toggleSafeMode();
+      return true;
+    }
     if (code === 'KeyR') {
-      this.reset();
+      this.requestReset();
       return true;
     }
     return false;
@@ -797,7 +987,7 @@ export class CielMinesweeperGame {
       if (button === 2 || this.flagMode) {
         return this.toggleFlag(r, c);
       }
-      return this.revealCell(r, c);
+      return this.handleCellClick(r, c);
     }
     return false;
   }
@@ -807,14 +997,14 @@ export class CielMinesweeperGame {
 
   render(ctx, rect, addHitBox, hoveredId) {
     const { x, y, w, h } = rect;
-    const ctrlW = 200;
-    const boardW = w - ctrlW - 18;
-    const cellW = Math.floor((boardW - 16) / this.cols);
-    const cellH = Math.floor((h - 24) / this.rows);
-    const cell = Math.max(22, Math.min(cellW, cellH));
+    const ctrlW = 216;
+    const boardW = w - ctrlW - 14;
+    const cellW = Math.floor((boardW - 12) / this.cols);
+    const cellH = Math.floor((h - 18) / this.rows);
+    const cell = Math.max(18, Math.min(cellW, cellH));
     const gridW = cell * this.cols;
     const gridH = cell * this.rows;
-    const gx = x + Math.floor((boardW - gridW) / 2) + 8;
+    const gx = x + Math.floor((boardW - gridW) / 2) + 6;
     const gy = y + Math.floor((h - gridH) / 2);
     this._lastGridGeom = { gx, gy, cell, cols: this.cols, rows: this.rows };
 
@@ -827,9 +1017,10 @@ export class CielMinesweeperGame {
         const cy = gy + r * cell;
         const btnId = `mine_${r}_${c}`;
         const isHov = hoveredId === btnId;
+        const isPending = Boolean(this.pendingCell && this.pendingCell.r === r && this.pendingCell.c === c);
 
         if (ctx) {
-          drawRoundRect(ctx, cx + 1.5, cy + 1.5, cell - 3, cell - 3, 5);
+          drawRoundRect(ctx, cx + 1, cy + 1, cell - 2, cell - 2, cell >= 26 ? 5 : 3);
           if (item.revealed) {
             ctx.fillStyle = item.mine ? '#7f1d1d' : '#0f172a';
             ctx.fill();
@@ -840,26 +1031,40 @@ export class CielMinesweeperGame {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             if (item.mine) {
-              ctx.font = `${Math.floor(cell * 0.56)}px system-ui, sans-serif`;
+              ctx.font = `${Math.max(11, Math.floor(cell * 0.56))}px system-ui, sans-serif`;
               ctx.fillText('💣', cx + cell / 2, cy + cell / 2);
             } else if (item.neighbors > 0) {
               ctx.fillStyle = numColors[item.neighbors] || '#f8fafc';
-              ctx.font = `bold ${Math.floor(cell * 0.52)}px monospace`;
+              ctx.font = `bold ${Math.max(11, Math.floor(cell * 0.54))}px monospace`;
               ctx.fillText(String(item.neighbors), cx + cell / 2, cy + cell / 2);
             }
             ctx.textAlign = 'left';
             ctx.textBaseline = 'alphabetic';
           } else {
-            ctx.fillStyle = isHov ? '#0284c7' : item.flagged ? '#1e3a5f' : '#1e293b';
+            ctx.fillStyle = isPending
+              ? '#b45309'
+              : isHov
+                ? '#0284c7'
+                : item.flagged
+                  ? '#1e3a5f'
+                  : '#1e293b';
             ctx.fill();
-            ctx.strokeStyle = isHov ? '#38bdf8' : '#334155';
-            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = isPending ? '#fbbf24' : isHov ? '#38bdf8' : '#334155';
+            ctx.lineWidth = isPending ? 2.5 : 1.4;
             ctx.stroke();
             if (item.flagged) {
               ctx.textAlign = 'center';
               ctx.textBaseline = 'middle';
-              ctx.font = `${Math.floor(cell * 0.52)}px system-ui, sans-serif`;
+              ctx.font = `${Math.max(11, Math.floor(cell * 0.52))}px system-ui, sans-serif`;
               ctx.fillText('🚩', cx + cell / 2, cy + cell / 2);
+              ctx.textAlign = 'left';
+              ctx.textBaseline = 'alphabetic';
+            } else if (isPending) {
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillStyle = '#fef08a';
+              ctx.font = `bold ${Math.max(10, Math.floor(cell * 0.48))}px system-ui, sans-serif`;
+              ctx.fillText('✓', cx + cell / 2, cy + cell / 2);
               ctx.textAlign = 'left';
               ctx.textBaseline = 'alphabetic';
             }
@@ -874,8 +1079,7 @@ export class CielMinesweeperGame {
             w: cell,
             h: cell,
             onClick: () => {
-              if (this.flagMode) this.toggleFlag(r, c);
-              else this.revealCell(r, c);
+              this.handleCellClick(r, c);
             }
           });
         }
@@ -883,33 +1087,70 @@ export class CielMinesweeperGame {
     }
 
     const px = x + w - ctrlW - 6;
-    const py = y + 12;
+    const py = y + 8;
+    const ph = h - 16;
     if (ctx) {
-      drawRoundRect(ctx, px, py, ctrlW, h - 24, 10);
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      drawRoundRect(ctx, px, py, ctrlW, ph, 10);
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
       ctx.fill();
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.35)';
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.38)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
       ctx.fillStyle = '#fbbf24';
-      ctx.font = 'bold 16px system-ui, sans-serif';
-      ctx.fillText(`SCORE : ${this.score}`, px + 14, py + 28);
+      ctx.font = 'bold 15px system-ui, sans-serif';
+      ctx.fillText(`SCORE : ${this.score}`, px + 12, py + 24);
       ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold 14px monospace';
-      ctx.fillText(`⏱ TEMPS : ${Math.floor(this.elapsedSec)}s`, px + 14, py + 52);
-      ctx.fillStyle = '#f43f5e';
-      ctx.fillText(`💣 MINES : ${Math.max(0, this.mineCount - this.flagCount)}`, px + 14, py + 74);
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText(`⏱ ${Math.floor(this.elapsedSec)}s  💣 ${Math.max(0, this.mineCount - this.flagCount)}`, px + 12, py + 44);
+
+      const diffSpec = MINESWEEPER_DIFFICULTY_REWARDS[this.difficulty] || MINESWEEPER_DIFFICULTY_REWARDS.easy;
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillText(`Gain victoire : ${diffSpec.winCoins} 🪙 CC`, px + 12, py + 62);
 
       if (this.won || this.gameOver) {
         ctx.fillStyle = this.won ? '#34d399' : '#fda4af';
-        ctx.font = 'bold 14px system-ui, sans-serif';
-        ctx.fillText(this.won ? '🏆 SECTEUR SÉCURISÉ !' : '💥 INTRUSION DÉTECTÉE !', px + 14, py + 98);
+        ctx.font = 'bold 13px system-ui, sans-serif';
+        ctx.fillText(this.won ? '🏆 SECTEUR SÉCURISÉ !' : '💥 INTRUSION DÉTECTÉE !', px + 12, py + 82);
         if (this.lastCoinsEarned > 0) {
           ctx.fillStyle = '#fbbf24';
-          ctx.fillText(`+${this.lastCoinsEarned} 🪙 CC`, px + 14, py + 112);
+          ctx.fillText(`+${this.lastCoinsEarned} 🪙 CC gagnés`, px + 12, py + 98);
         }
+      } else if (this.pendingCell) {
+        ctx.fillStyle = '#fde047';
+        ctx.font = 'bold 11px system-ui, sans-serif';
+        ctx.fillText('🛡️ 2e clic pour confirmer', px + 12, py + 82);
+      } else if (this.resumePromptActive && this.hasInProgressGame()) {
+        ctx.fillStyle = '#34d399';
+        ctx.font = 'bold 11px system-ui, sans-serif';
+        ctx.fillText('💾 Partie en cours sauvegardée', px + 12, py + 82);
       }
+    }
+
+    let btnY = py + 104;
+
+    if (this.resumePromptActive && this.hasInProgressGame()) {
+      drawUiBtn(
+        ctx,
+        addHitBox,
+        hoveredId,
+        'mine_resume',
+        px + 10,
+        btnY,
+        ctrlW - 20,
+        30,
+        '▶️ Reprendre la partie',
+        {
+          primary: true,
+          fontSize: 12,
+          onClick: () => {
+            this.resumePromptActive = false;
+            sfx.osClick?.();
+          }
+        }
+      );
+      btnY += 34;
     }
 
     drawUiBtn(
@@ -917,70 +1158,155 @@ export class CielMinesweeperGame {
       addHitBox,
       hoveredId,
       'mine_flag_toggle',
-      px + 12,
-      py + 114,
-      ctrlW - 24,
-      42,
-      this.flagMode ? '🚩 Mode : DRAPEAU (ON)' : '⛏️ Mode : RÉVÉLER',
+      px + 10,
+      btnY,
+      ctrlW - 20,
+      34,
+      this.flagMode ? '🚩 Mode : DRAPEAU' : '⛏️ Mode : RÉVÉLER',
       {
         active: this.flagMode,
         primary: !this.flagMode,
-        fontSize: 13,
+        fontSize: 12,
         onClick: () => {
           this.flagMode = !this.flagMode;
+          this.pendingCell = null;
           sfx.osClick?.();
         }
       }
     );
+    btnY += 38;
+
+    drawUiBtn(
+      ctx,
+      addHitBox,
+      hoveredId,
+      'mine_safe_toggle',
+      px + 10,
+      btnY,
+      ctrlW - 20,
+      32,
+      this.safeMode ? '🛡️ Sécurité : ON (2 clics)' : '⚡ Sécurité : OFF (1 clic)',
+      {
+        active: this.safeMode,
+        fontSize: 11,
+        onClick: () => {
+          this.toggleSafeMode();
+        }
+      }
+    );
+    btnY += 38;
 
     drawUiBtn(
       ctx,
       addHitBox,
       hoveredId,
       'mine_diff_easy',
-      px + 12,
-      py + 168,
-      ctrlW - 24,
-      36,
-      '🟢 Facile (8×8 • 10 mines)',
+      px + 10,
+      btnY,
+      ctrlW - 20,
+      30,
+      '🟢 Facile (9×9 • 35 CC)',
       {
         active: this.difficulty === 'easy',
-        fontSize: 12,
+        fontSize: 11,
         onClick: () => {
           sfx.osClick?.();
-          this.setDifficulty('easy');
+          this.setDifficulty('easy', { requireConfirm: true });
         }
       }
     );
+    btnY += 34;
 
     drawUiBtn(
       ctx,
       addHitBox,
       hoveredId,
       'mine_diff_medium',
-      px + 12,
-      py + 212,
-      ctrlW - 24,
-      36,
-      '🟠 Moyen (12×10 • 20 mines)',
+      px + 10,
+      btnY,
+      ctrlW - 20,
+      30,
+      '🟠 Normal (12×12 • 65 CC)',
       {
         active: this.difficulty === 'medium',
-        fontSize: 12,
+        fontSize: 11,
         onClick: () => {
           sfx.osClick?.();
-          this.setDifficulty('medium');
+          this.setDifficulty('medium', { requireConfirm: true });
         }
       }
     );
+    btnY += 34;
 
-    drawUiBtn(ctx, addHitBox, hoveredId, 'mine_reset', px + 12, py + 266, ctrlW - 24, 40, '🔄 Nouvelle Grille', {
-      primary: true,
-      fontSize: 13,
-      onClick: () => {
-        sfx.osClick?.();
-        this.reset();
+    drawUiBtn(
+      ctx,
+      addHitBox,
+      hoveredId,
+      'mine_diff_hard',
+      px + 10,
+      btnY,
+      ctrlW - 20,
+      30,
+      '🔴 Difficile (16×16 • 130 CC)',
+      {
+        active: this.difficulty === 'hard',
+        fontSize: 11,
+        onClick: () => {
+          sfx.osClick?.();
+          this.setDifficulty('hard', { requireConfirm: true });
+        }
       }
-    });
+    );
+    btnY += 38;
+
+    if (this.pendingResetConfirm) {
+      drawUiBtn(
+        ctx,
+        addHitBox,
+        hoveredId,
+        'mine_reset_confirm',
+        px + 10,
+        btnY,
+        Math.floor((ctrlW - 24) / 2),
+        34,
+        '⚠️ Confirmer',
+        {
+          danger: true,
+          fontSize: 11,
+          onClick: () => {
+            sfx.osClick?.();
+            this.confirmReset();
+          }
+        }
+      );
+      drawUiBtn(
+        ctx,
+        addHitBox,
+        hoveredId,
+        'mine_reset_cancel',
+        px + 14 + Math.floor((ctrlW - 24) / 2),
+        btnY,
+        Math.floor((ctrlW - 24) / 2),
+        34,
+        '✖ Annuler',
+        {
+          fontSize: 11,
+          onClick: () => {
+            sfx.osClick?.();
+            this.cancelReset();
+          }
+        }
+      );
+    } else {
+      drawUiBtn(ctx, addHitBox, hoveredId, 'mine_reset', px + 10, btnY, ctrlW - 20, 34, '🔄 Nouvelle Partie', {
+        primary: true,
+        fontSize: 12,
+        onClick: () => {
+          sfx.osClick?.();
+          this.requestReset();
+        }
+      });
+    }
   }
 }
 

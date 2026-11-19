@@ -187,17 +187,23 @@ test('Mini-Jeu 1 — Cyber Snake : déplacement, nourriture, bonus turbo, portai
   assert.equal(game.highScore, best);
 });
 
-test('Mini-Jeu 2 — Démineur CIEL : premier clic sûr, révélation, drapeaux, victoire, game over et niveaux Facile/Moyen', () => {
+test('Mini-Jeu 2 — Démineur CIEL Pro : 3 niveaux (Facile/Normal/Difficile), 1er clic sûr, sécurité anti-faux-clic, drapeaux et reprise de partie', () => {
   const game = new CielMinesweeperGame();
-  assert.equal(game.cols, 8);
-  assert.equal(game.rows, 8);
+  assert.equal(game.cols, 9);
+  assert.equal(game.rows, 9);
   assert.equal(game.mineCount, 10);
+  assert.equal(game.safeMode, true);
+  assert.equal(game.minesPlaced, false);
 
-  game.board[0][0].mine = true;
-  game._recomputeNeighbors();
-  assert.equal(game.revealCell(0, 0), true);
+  assert.equal(game.handleCellClick(4, 4), 'pending');
+  assert.equal(game.revealedCount, 0);
+  assert.deepEqual(game.pendingCell, { r: 4, c: 4 });
+
+  assert.equal(game.handleCellClick(4, 4), true);
   assert.equal(game.gameOver, false);
-  assert.equal(game.board[0][0].revealed, true);
+  assert.equal(game.minesPlaced, true);
+  assert.equal(game.board[4][4].revealed, true);
+  assert.equal(game.board[4][4].mine, false);
 
   let flagCell = null;
   for (let r = 0; r < game.rows && !flagCell; r++) {
@@ -208,8 +214,24 @@ test('Mini-Jeu 2 — Démineur CIEL : premier clic sûr, révélation, drapeaux,
   const [fr, fc] = flagCell;
   assert.equal(game.toggleFlag(fr, fc), true);
   assert.equal(game.flagCount, 1);
+  assert.equal(game.handleCellClick(fr, fc), false);
   assert.equal(game.revealCell(fr, fc), false);
   assert.equal(game.toggleFlag(fr, fc), false);
+
+  assert.equal(game.hasInProgressGame(), true);
+  assert.equal(game.requestReset(), false);
+  assert.ok(game.pendingResetConfirm);
+  assert.equal(game.cancelReset(), true);
+  assert.equal(game.pendingResetConfirm, null);
+
+  const savedOk = game.saveInProgressSnapshot();
+  assert.equal(savedOk, true);
+  assert.equal(game.resumePromptActive, true);
+  const snap = game.exportSnapshot();
+  const resumed = new CielMinesweeperGame();
+  assert.equal(resumed.restoreSnapshot(snap), true);
+  assert.equal(resumed.revealedCount, game.revealedCount);
+  assert.equal(resumed.difficulty, 'easy');
 
   for (let r = 0; r < game.rows; r++) {
     for (let c = 0; c < game.cols; c++) {
@@ -219,28 +241,64 @@ test('Mini-Jeu 2 — Démineur CIEL : premier clic sûr, révélation, drapeaux,
     }
   }
   assert.equal(game.won, true);
-  assert.ok(game.score > 100);
+  assert.equal(game.lastCoinsEarned, 35);
 
   game.setDifficulty('medium');
   assert.equal(game.cols, 12);
-  assert.equal(game.rows, 10);
-  assert.equal(game.mineCount, 20);
-
-  let safeFirst = null;
-  let mineSecond = null;
+  assert.equal(game.rows, 12);
+  assert.equal(game.mineCount, 24);
+  game.revealCell(0, 0);
   for (let r = 0; r < game.rows; r++) {
     for (let c = 0; c < game.cols; c++) {
-      if (!game.board[r][c].mine && !safeFirst) safeFirst = [r, c];
-      if (game.board[r][c].mine && !mineSecond) mineSecond = [r, c];
+      if (!game.board[r][c].mine && !game.board[r][c].revealed) {
+        game.revealCell(r, c);
+      }
     }
   }
-  game.revealCell(safeFirst[0], safeFirst[1]);
-  game.revealCell(mineSecond[0], mineSecond[1]);
+  assert.equal(game.won, true);
+  assert.equal(game.lastCoinsEarned, 80);
+
+  game.setDifficulty('hard');
+  assert.equal(game.cols, 16);
+  assert.equal(game.rows, 16);
+  assert.equal(game.mineCount, 48);
+  game.revealCell(8, 8);
+  assert.equal(game.gameOver, false);
+  assert.equal(game.board[8][8].mine, false);
+
+  let mineCell = null;
+  for (let r = 0; r < game.rows && !mineCell; r++) {
+    for (let c = 0; c < game.cols && !mineCell; c++) {
+      if (game.board[r][c].mine) mineCell = [r, c];
+    }
+  }
+  assert.ok(mineCell);
+  game.revealCell(mineCell[0], mineCell[1]);
   assert.equal(game.gameOver, true);
   assert.equal(game.won, false);
 
-  game.reset();
+  game.reset('hard');
   assert.equal(game.gameOver, false);
+  game.revealCell(0, 0);
+  for (let r = 0; r < game.rows; r++) {
+    for (let c = 0; c < game.cols; c++) {
+      if (!game.board[r][c].mine && !game.board[r][c].revealed) {
+        game.revealCell(r, c);
+      }
+    }
+  }
+  assert.equal(game.won, true);
+  assert.equal(game.lastCoinsEarned, 155);
+
+  const os = new CielOsDesktop({ studentName: 'MineTester' });
+  os.openApp('minesweeper', { silent: true });
+  const deskMine = os.getGameInstance('minesweeper');
+  deskMine.revealCell(2, 2);
+  const revBeforeClose = deskMine.revealedCount;
+  os.closeWindow('minesweeper');
+  assert.equal(deskMine.resumePromptActive, true);
+  os.openApp('minesweeper', { silent: true });
+  assert.equal(os.getGameInstance('minesweeper').revealedCount, revBeforeClose);
 });
 
 test('Mini-Jeu 3 — CIEL-Blocks (Tetris) : rotation, déplacement, hardDrop, suppression de lignes, accélération et game over', () => {

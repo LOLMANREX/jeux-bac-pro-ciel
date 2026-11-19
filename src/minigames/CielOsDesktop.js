@@ -349,6 +349,9 @@ export class CielOsDesktop {
           this.onGameFinished?.({
             gameId: id,
             score,
+            difficulty: meta.difficulty || null,
+            elapsedSec: meta.elapsedSec ?? null,
+            isNewRecord: Boolean(meta.isNewRecord),
             highScore: meta.highScore ?? (this.highScores[id] || score),
             won: Boolean(meta.won),
             estimatedCoins: Number(meta.estimatedCoins) || 0,
@@ -426,6 +429,10 @@ export class CielOsDesktop {
 
   closeWindow(appId = this.activeAppId) {
     if (!this.windows.has(appId)) return false;
+    if (appId === 'minesweeper') {
+      const mineGame = this.gameInstances.get('minesweeper');
+      mineGame?.saveInProgressSnapshot?.();
+    }
     this.windows.delete(appId);
     this.windowOrder = this.windowOrder.filter((id) => id !== appId);
     this._recomputeActiveWindow();

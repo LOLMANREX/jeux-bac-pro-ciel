@@ -250,7 +250,9 @@ export function createGameServer(options = {}) {
     const tokenUser = resolveStudentFromRequest(req);
     const bodyName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     if (tokenUser) {
-      if (bodyName && bodyName.toLowerCase() !== tokenUser.toLowerCase()) {
+      const lowerBody = bodyName.toLowerCase();
+      const isDefaultPlaceholder = !lowerBody || lowerBody === 'eleve_ciel';
+      if (!isDefaultPlaceholder && lowerBody !== tokenUser.toLowerCase()) {
         return {
           ok: false,
           status: 403,

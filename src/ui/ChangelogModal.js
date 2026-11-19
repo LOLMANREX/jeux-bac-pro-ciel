@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : "v4.29 - Correctif Désactivation Bots, Réticules Dynamiques, Visée ADS & Refonte 3D des 8 Armes CIEL";
+    : "v4.30 - Correctif Achat Boutique CIEL, Refonte du Menu Casier & Démineur Pro (Difficile, Sécurité Anti-Faux-Clic & Gains Boostés)";
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.29 — Correctif Désactivation Bots, Réticules Dynamiques, Visée ADS avec Viseurs Dédiés & Refonte 3D des 8 Armes CIEL',
+    version: 'v4.30 — Correctif Achat Boutique CIEL, Refonte du Menu Casier & Démineur Pro (Difficile, Sécurité Anti-Faux-Clic & Gains Boostés)',
     date: '19/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'CORRECTIF BOUTIQUE',
+        title: 'Correction Définitive de l’Achat d’Articles Boutique (PC, Mobile/Tablette & VR)',
+        desc: 'Audit complet et correction de toute la chaîne d’achat Boutique : résolution du clipping CSS sur la colonne d’inspection, élévation du z-index (#shop-modal: 86), priorité à l’identifiant de compte connecté + tolérance de session côté serveur, bascule automatique sur WebSocket si l’appel HTTP échoue, réconciliation atomique du solde et de ownedItems, et affichage d’un message d’erreur clair et précis au lieu d’un bouton muet en cas de solde insuffisant.'
+      },
+      {
+        badge: 'REFONTE MENU CASIER',
+        title: 'Nouveau Casier Moderne avec Onglets, Filtres, Raretés & Prévisualisation 3D Complète (PC, Mobile & VR)',
+        desc: 'Refonte complète du Casier (LockerModal + panneau spatial VR + raccourci Montre VR) : onglets Skins, Pets 3D, Accessoires / Auras et Badges & Titres, grande prévisualisation 3D interactive rotative affichant simultanément l’avatar, le Pet 3D et l’aura, cartes colorées par rareté, compteur d’objets débloqués, filtres rapides (Tous / Possédés / À débloquer), équipement/retrait en 1 clic synchronisé en multijoueur et raccourci direct « Voir dans la Boutique ».'
+      },
+      {
+        badge: 'DÉMINEUR PRO CIEL OS',
+        title: 'Mode Difficile (16×16 / 48 mines), Gains Boostés (35 / 65 / 130 CC) & Sécurité Anti-Faux-Clic',
+        desc: 'Évolution majeure du Démineur sur CIEL OS : 3 niveaux (Facile 9×9 / 10 mines = 35 CC, Normal 12×12 / 24 mines = 65 CC + 15 CC record, Difficile 16×16 / 48 mines = 130 CC + 25 CC record) avec plafonds anti-triche mis à jour côté serveur, 1er clic garanti sûr avec zone dégagée, mode Sécurité anti-faux-clic activé par défaut (confirmation au 2e clic + protection absolue des drapeaux + bascule Révéler/Drapeau), sauvegarde automatique de la partie en cours et confirmation avant réinitialisation.'
+      }
+    ]
+  },
+  {
+    version: 'v4.29 — Correctif Désactivation Bots, Réticules Dynamiques, Visée ADS avec Viseurs Dédiés & Refonte 3D des 8 Armes CIEL',
+    date: '19/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'CORRECTIF BOTS IA',

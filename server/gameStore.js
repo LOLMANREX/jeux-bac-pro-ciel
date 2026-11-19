@@ -43,6 +43,8 @@ export {
   isShopPetId,
   isShopSkinId,
   MAX_DETENTION_TABLES_PER_MATCH,
+  MINESWEEPER_DIFFICULTY_REWARDS,
+  normalizeMinesweeperDifficulty,
   SHOP_ACCESSORIES,
   SHOP_CATALOG,
   SHOP_CATEGORIES,

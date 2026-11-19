@@ -16,6 +16,7 @@ import {
   NetworkBreakoutGame
 } from '../src/minigames/CielOsGames.js';
 import { buildShopViewModel } from '../src/ui/ShopModal.js';
+import { buildLockerViewModel, LOCKER_CATEGORIES, LOCKER_FILTERS } from '../src/ui/LockerModal.js';
 import { applyShopSkin, buildStudentAvatarMesh } from '../src/world/AvatarBuilder.js';
 import { buildLabWorld } from '../src/world/LabBuilder.js';
 import { createDefaultMap } from '../src/world/mapSchema.js';
@@ -667,5 +668,159 @@ test('v4.24 : builders 3D (8 skins, 6 pets optimisés FPS, accessoires), RemoteP
   } finally {
     remotePlayers.clearAll();
     lab.dispose();
+  }
+});
+
+test('v4.30 : fix achat Boutique (tolérance session Eleve_CIEL, persistance), Casier moderne (onglets/filtres/équipement) & Démineur gains boostés', async () => {
+  const rEasy = computeArcadeCoinReward({
+    gameId: 'minesweeper',
+    score: 900,
+    difficulty: 'easy',
+    won: true,
+    isNewRecord: true
+  });
+  assert.equal(rEasy.valid, true);
+  assert.equal(rEasy.baseCoins, 35);
+  assert.equal(rEasy.totalCoins, 35);
+
+  const rNorm = computeArcadeCoinReward({
+    gameId: 'minesweeper',
+    score: 1600,
+    difficulty: 'medium',
+    won: true,
+    isNewRecord: false
+  });
+  assert.equal(rNorm.baseCoins, 65);
+  assert.equal(rNorm.totalCoins, 65);
+
+  const rNormRec = computeArcadeCoinReward({
+    gameId: 'minesweeper',
+    score: 1600,
+    difficulty: 'medium',
+    won: true,
+    isNewRecord: true
+  });
+  assert.equal(rNormRec.baseCoins, 65);
+  assert.equal(rNormRec.recordBonus, 15);
+  assert.equal(rNormRec.totalCoins, 80);
+
+  const rHard = computeArcadeCoinReward({
+    gameId: 'minesweeper',
+    score: 2800,
+    difficulty: 'hard',
+    won: true,
+    isNewRecord: false
+  });
+  assert.equal(rHard.baseCoins, 130);
+  assert.equal(rHard.totalCoins, 130);
+
+  const rHardRec = computeArcadeCoinReward({
+    gameId: 'minesweeper',
+    score: 2800,
+    difficulty: 'hard',
+    won: true,
+    isNewRecord: true
+  });
+  assert.equal(rHardRec.baseCoins, 130);
+  assert.equal(rHardRec.recordBonus, 25);
+  assert.equal(rHardRec.totalCoins, 155);
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ciel-v430-shop-'));
+  const dbPath = path.join(tmpDir, 'db.json');
+  const accountsPath = path.join(tmpDir, 'accounts.json');
+  const mapPath = path.join(tmpDir, 'map.json');
+  const { server, wsHub } = createGameServer({ dbPath, accountsPath, mapPath });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const reg = await apiJson(baseUrl, '/api/auth/register', {
+      method: 'POST',
+      body: { username: 'AcheteurV430', password: 'shop-password-430' }
+    });
+    assert.equal(reg.status, 201);
+    const token = reg.data.token;
+
+    const hardWin1 = await apiJson(baseUrl, '/api/economy/arcade', {
+      method: 'POST',
+      token,
+      body: {
+        gameId: 'minesweeper',
+        score: 2800,
+        difficulty: 'hard',
+        won: true,
+        elapsedSec: 95,
+        name: 'Eleve_CIEL'
+      }
+    });
+    assert.equal(hardWin1.status, 200);
+    assert.equal(hardWin1.data.coinsEarned, 155);
+    assert.equal(hardWin1.data.coins, 155);
+
+    const normWin1 = await apiJson(baseUrl, '/api/economy/arcade', {
+      method: 'POST',
+      token,
+      body: {
+        gameId: 'minesweeper',
+        score: 1600,
+        difficulty: 'medium',
+        won: true,
+        elapsedSec: 42
+      }
+    });
+    assert.equal(normWin1.status, 200);
+    assert.equal(normWin1.data.coinsEarned, 80);
+    assert.equal(normWin1.data.coins, 235);
+
+    const tooExpensive = await apiJson(baseUrl, '/api/shop/buy', {
+      method: 'POST',
+      token,
+      body: { itemId: 'shop_overclocked_gold', name: 'Eleve_CIEL' }
+    });
+    assert.equal(tooExpensive.status, 400);
+    assert.ok(String(tooExpensive.data.error || '').includes('insuffisant'));
+
+    const buyOk = await apiJson(baseUrl, '/api/shop/buy', {
+      method: 'POST',
+      token,
+      body: { itemId: 'pet_cube_holo', name: 'Eleve_CIEL' }
+    });
+    assert.equal(buyOk.status, 200);
+    assert.equal(buyOk.data.ok, true);
+    assert.equal(buyOk.data.coins, 35);
+    assert.ok(buyOk.data.ownedItems.includes('pet_cube_holo'));
+
+    const equipOk = await apiJson(baseUrl, '/api/shop/equip', {
+      method: 'POST',
+      token,
+      body: { itemId: 'pet_cube_holo', category: 'pets', equip: true, name: 'Eleve_CIEL' }
+    });
+    assert.equal(equipOk.status, 200);
+    assert.equal(equipOk.data.profile.equippedPet, 'pet_cube_holo');
+
+    const reloaded = new GameStore(dbPath, { accountsPath });
+    const persisted = reloaded.getPublicProfile('acheteurv430');
+    assert.equal(persisted.coins, 35);
+    assert.ok(persisted.ownedItems.includes('pet_cube_holo'));
+    assert.equal(persisted.equippedPet, 'pet_cube_holo');
+
+    assert.equal(LOCKER_CATEGORIES.length, 4);
+    assert.equal(LOCKER_FILTERS.length, 3);
+    const lockerOwned = buildLockerViewModel(persisted, { category: 'pets', filter: 'owned' });
+    assert.equal(lockerOwned.totalUnlocked, 1);
+    assert.equal(lockerOwned.items.length, 1);
+    assert.equal(lockerOwned.items[0].id, 'pet_cube_holo');
+    assert.equal(lockerOwned.items[0].equipped, true);
+
+    const lockerLocked = buildLockerViewModel(persisted, { category: 'pets', filter: 'locked' });
+    assert.equal(lockerLocked.items.length, SHOP_PETS.length - 1);
+    assert.ok(lockerLocked.items.every((it) => !it.owned && it.source === 'shop'));
+
+    const lockerBadges = buildLockerViewModel(persisted, { category: 'badges', filter: 'all' });
+    assert.ok(lockerBadges.items.length >= 4);
+  } finally {
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

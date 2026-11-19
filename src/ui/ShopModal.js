@@ -330,9 +330,14 @@ export class ShopModal {
     return Boolean(this.backdropEl && !this.backdropEl.classList.contains('hidden'));
   }
 
-  open(initialCategory = null) {
+  open(initialCategory = null, initialItemId = null) {
     if (!this.backdropEl) return false;
-    if (initialCategory && SHOP_CATEGORIES.some((c) => c.id === initialCategory)) {
+    this.busy = false;
+    const directItem = initialItemId ? getShopItemById(initialItemId) : null;
+    if (directItem) {
+      this.activeCategory = directItem.category;
+      this.selectedId = directItem.id;
+    } else if (initialCategory && SHOP_CATEGORIES.some((c) => c.id === initialCategory)) {
       this.activeCategory = initialCategory;
       this.selectedId = null;
     }
@@ -345,6 +350,7 @@ export class ShopModal {
 
   close() {
     if (!this.backdropEl || this.backdropEl.classList.contains('hidden')) return false;
+    this.busy = false;
     this.backdropEl.classList.add('hidden');
     this.preview?.setActive(false);
     this.onClose?.();
@@ -384,7 +390,26 @@ export class ShopModal {
     if (this.busy) return;
     const vm = buildShopViewModel(this.gameState, this.activeCategory, this.selectedId);
     const item = vm.selectedItem;
-    if (!item) return;
+    if (!item) {
+      this.setFeedback('Sélectionnez d’abord un article dans la boutique.', 'error');
+      return;
+    }
+
+    if (!item.owned && !item.canAfford) {
+      const missing = Math.max(0, item.price - vm.coins);
+      sfx.error?.();
+      this.setFeedback(
+        `🔒 Solde insuffisant : ${vm.coins} / ${item.price} 🪙 CC (il vous manque ${missing} CC).`,
+        'error'
+      );
+      return;
+    }
+
+    if (item.owned && item.equipped) {
+      sfx.click?.();
+      this.setFeedback(`✅ ${item.name} est déjà équipé sur votre avatar.`, 'info');
+      return;
+    }
 
     sfx.click?.();
     this.busy = true;
@@ -393,18 +418,23 @@ export class ShopModal {
       if (!item.owned) {
         const res = await this.onBuyItem?.(item);
         if (res?.ok) {
-          this.setFeedback(`✅ ${item.name} acheté !`, 'success');
+          this.setFeedback(`✅ ${item.name} acheté ! Cliquez sur « Équiper » ou ouvrez votre Casier.`, 'success');
         } else {
-          this.setFeedback(res?.error || 'Achat impossible.', 'error');
+          sfx.error?.();
+          this.setFeedback(res?.error || 'Achat impossible. Vérifiez votre connexion et votre solde.', 'error');
         }
       } else if (!item.equipped) {
         const res = await this.onEquipItem?.(item, true);
         if (res?.ok) {
           this.setFeedback(`✨ ${item.name} équipé !`, 'success');
         } else {
+          sfx.error?.();
           this.setFeedback(res?.error || 'Équipement impossible.', 'error');
         }
       }
+    } catch (err) {
+      sfx.error?.();
+      this.setFeedback(err?.message || 'Erreur lors de la transaction Boutique.', 'error');
     } finally {
       this.busy = false;
       this.refresh();
@@ -506,7 +536,9 @@ export class ShopModal {
             : `🪙 Prix : ${sel.price} CIEL Coins`;
       }
       if (this.actionBtn) {
-        this.actionBtn.disabled = this.busy || (!sel.owned && !sel.canAfford) || sel.equipped;
+        this.actionBtn.disabled = this.busy;
+        this.actionBtn.classList.toggle('is-locked', !sel.owned && !sel.canAfford);
+        this.actionBtn.classList.toggle('is-equipped', Boolean(sel.equipped));
         this.actionBtn.textContent = this.busy
           ? '⏳ Traitement...'
           : sel.equipped

@@ -214,9 +214,10 @@ export function createWristHudPanel(options = {}) {
 
     if (!ctx || !texture) {
       hitBoxes = [
-        { id: 'btn_mic', x: 22, y: 396, w: 148, h: 64 },
-        { id: 'btn_shop', x: 182, y: 396, w: 148, h: 64 },
-        { id: 'btn_vr_exit', x: 342, y: 396, w: 148, h: 64 }
+        { id: 'btn_mic', x: 16, y: 396, w: 114, h: 64 },
+        { id: 'btn_shop', x: 138, y: 396, w: 116, h: 64 },
+        { id: 'btn_locker', x: 262, y: 396, w: 114, h: 64 },
+        { id: 'btn_vr_exit', x: 384, y: 396, w: 112, h: 64 }
       ];
       dirty = false;
       return;
@@ -439,9 +440,10 @@ export function createWristHudPanel(options = {}) {
         ? '🎙️ Micro ON'
         : '🔇 Micro OFF';
 
-    drawBtn('btn_mic', 22, 396, 148, 64, micTxt, micBg, micBorder, '#f8fafc');
-    drawBtn('btn_shop', 182, 396, 148, 64, '🛒 Boutique', '#78350f', '#fbbf24', '#fef08a');
-    drawBtn('btn_vr_exit', 342, 396, 148, 64, `🚪 ${state.vrLabel}`, '#3f1d2b', '#fb7185', '#ffe4e6');
+    drawBtn('btn_mic', 16, 396, 114, 64, micTxt, micBg, micBorder, '#f8fafc');
+    drawBtn('btn_shop', 138, 396, 116, 64, '🛒 Boutique', '#78350f', '#fbbf24', '#fef08a');
+    drawBtn('btn_locker', 262, 396, 114, 64, '🎨 Casier', '#0c4a6e', '#38bdf8', '#e0f2fe');
+    drawBtn('btn_vr_exit', 384, 396, 112, 64, `🚪 ${state.vrLabel}`, '#3f1d2b', '#fb7185', '#ffe4e6');
 
     texture.needsUpdate = true;
     dirty = false;
@@ -1294,7 +1296,7 @@ export function createTpSpatialPanel() {
             sel.canAfford ? `🛒 Acheter — ${sel.price} 🪙` : `🔒 Solde insuffisant (${sel.price} 🪙)`,
             {
               gold: sel.canAfford,
-              disabled: !sel.canAfford,
+              danger: !sel.canAfford,
               fontSize: 22,
               maxChars: 32,
               onClick: () => sh.onBuy?.(sel)
@@ -1311,6 +1313,220 @@ export function createTpSpatialPanel() {
             danger: true,
             fontSize: 24,
             onClick: () => sh.onEquip?.(sel, false)
+          });
+        }
+      }
+
+      if (texture) texture.needsUpdate = true;
+      return;
+    }
+
+    if (mode === 'locker' && state.locker) {
+      const lk = state.locker;
+      const cats = Array.isArray(lk.categories) ? lk.categories : [];
+      const flts = Array.isArray(lk.filters) ? lk.filters : [];
+      const items = Array.isArray(lk.items) ? lk.items : [];
+      const sel = lk.selectedItem || items[0] || null;
+      const coinsVal = Math.max(0, Math.floor(Number(lk.coins) || 0));
+
+      if (ctx) {
+        roundRectPath(ctx, 730, 14, 182, 42, 20);
+        ctx.fillStyle = 'rgba(12, 74, 110, 0.9)';
+        ctx.fill();
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#e0f2fe';
+        ctx.font = 'bold 17px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`📦 ${lk.totalUnlocked || 0}/${lk.totalItems || 18}`, 821, 41);
+
+        roundRectPath(ctx, 922, 14, 150, 42, 20);
+        ctx.fillStyle = 'rgba(120, 53, 15, 0.92)';
+        ctx.fill();
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#fef08a';
+        ctx.font = 'bold 19px system-ui, sans-serif';
+        ctx.fillText(`🪙 ${coinsVal} CC`, 997, 42);
+        ctx.textAlign = 'left';
+      }
+
+      cats.forEach((cat, idx) => {
+        const active = cat.id === lk.activeCategory;
+        addBtn(
+          `vr_locker_cat_${cat.id}`,
+          26 + idx * 186,
+          78,
+          178,
+          48,
+          `${cat.icon || ''} ${cat.label}`,
+          {
+            primary: active,
+            fontSize: 16,
+            maxChars: 18,
+            onClick: () => lk.onSelectCategory?.(cat.id)
+          }
+        );
+      });
+
+      flts.forEach((flt, idx) => {
+        const active = flt.id === lk.activeFilter;
+        addBtn(
+          `vr_locker_flt_${flt.id}`,
+          26 + idx * 150,
+          134,
+          142,
+          38,
+          flt.label,
+          {
+            primary: active,
+            fontSize: 15,
+            maxChars: 16,
+            onClick: () => lk.onSelectFilter?.(flt.id)
+          }
+        );
+      });
+
+      const listX = 26;
+      const listY = 182;
+      const colW = 362;
+      const rowH = 122;
+      const gapX = 14;
+      const gapY = 12;
+      items.slice(0, 8).forEach((item, idx) => {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const ix = listX + col * (colW + gapX);
+        const iy = listY + row * (rowH + gapY);
+        const isSel = sel && sel.id === item.id;
+        const isHov = hoveredId === `vr_locker_item_${item.id}`;
+        const rColor = item.rarityMeta?.color || '#38bdf8';
+
+        if (ctx) {
+          roundRectPath(ctx, ix, iy, colW, rowH, 14);
+          ctx.fillStyle = isSel
+            ? 'rgba(14, 46, 84, 0.96)'
+            : isHov
+              ? 'rgba(24, 48, 82, 0.92)'
+              : 'rgba(15, 23, 42, 0.9)';
+          ctx.fill();
+          ctx.lineWidth = isSel ? 3 : 1.8;
+          ctx.strokeStyle = isSel ? '#38bdf8' : item.equipped ? '#34d399' : rColor;
+          ctx.stroke();
+
+          ctx.fillStyle = rColor;
+          ctx.font = 'bold 14px system-ui, sans-serif';
+          ctx.fillText(String(item.rarityMeta?.label || '').toUpperCase(), ix + 14, iy + 26);
+
+          ctx.textAlign = 'right';
+          ctx.fillStyle = item.equipped ? '#34d399' : item.owned ? '#7dd3fc' : '#f87171';
+          ctx.font = 'bold 15px system-ui, sans-serif';
+          ctx.fillText(
+            item.equipped ? '✅ ÉQUIPÉ' : item.owned ? 'POSSÉDÉ' : item.price ? `🔒 ${item.price} CC` : '🔒 VERROUILLÉ',
+            ix + colW - 14,
+            iy + 26
+          );
+          ctx.textAlign = 'left';
+
+          ctx.fillStyle = '#f8fafc';
+          ctx.font = 'bold 20px system-ui, sans-serif';
+          ctx.fillText(`${item.icon || ''} ${item.name}`.slice(0, 26), ix + 14, iy + 70);
+
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = '13px system-ui, sans-serif';
+          ctx.fillText(String(item.description || '').slice(0, 40), ix + 14, iy + 102);
+        }
+
+        hitBoxes.push({
+          id: `vr_locker_item_${item.id}`,
+          kind: 'button',
+          x: ix,
+          y: iy,
+          w: colW,
+          h: rowH,
+          label: item.name,
+          onClick: () => lk.onSelectItem?.(item.id)
+        });
+      });
+
+      const inspX = 788;
+      const inspY = 78;
+      const inspW = 468;
+      const inspH = 684;
+      if (ctx) {
+        roundRectPath(ctx, inspX, inspY, inspW, inspH, 16);
+        ctx.fillStyle = 'rgba(10, 22, 44, 0.94)';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = sel?.rarityMeta?.color || 'rgba(56, 189, 248, 0.45)';
+        ctx.stroke();
+
+        if (sel) {
+          ctx.fillStyle = sel.rarityMeta?.color || '#38bdf8';
+          ctx.font = 'bold 18px system-ui, sans-serif';
+          ctx.fillText(String(sel.rarityMeta?.label || '').toUpperCase(), inspX + 24, inspY + 42);
+
+          ctx.fillStyle = '#f8fafc';
+          ctx.font = 'bold 26px system-ui, sans-serif';
+          ctx.fillText(`${sel.icon || ''} ${sel.name}`.slice(0, 26), inspX + 24, inspY + 86);
+
+          const descLines = wrapTextLines(ctx, sel.description || '', inspW - 48, 5);
+          ctx.fillStyle = '#cbd5e1';
+          ctx.font = '18px system-ui, sans-serif';
+          descLines.forEach((ln, idx) => {
+            ctx.fillText(ln, inspX + 24, inspY + 132 + idx * 28);
+          });
+
+          ctx.fillStyle = sel.equipped ? '#34d399' : sel.owned ? '#7dd3fc' : '#fbbf24';
+          ctx.font = 'bold 22px system-ui, sans-serif';
+          ctx.fillText(
+            sel.equipped
+              ? '✅ Actuellement équipé'
+              : sel.owned
+                ? '📦 Débloqué dans votre Casier'
+                : sel.price
+                  ? `🔒 Boutique — ${sel.price} 🪙 CC`
+                  : '🔒 À débloquer en jeu',
+            inspX + 24,
+            inspY + 324
+          );
+
+          if (lk.feedback?.message) {
+            roundRectPath(ctx, inspX + 24, inspY + 356, inspW - 48, 54, 10);
+            ctx.fillStyle = lk.feedback.kind === 'error' ? 'rgba(127, 29, 29, 0.85)' : 'rgba(6, 78, 59, 0.85)';
+            ctx.fill();
+            ctx.fillStyle = '#f8fafc';
+            ctx.font = 'bold 17px system-ui, sans-serif';
+            ctx.fillText(String(lk.feedback.message).slice(0, 42), inspX + 38, inspY + 389);
+          }
+
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = '15px system-ui, sans-serif';
+          ctx.fillText('👀 Aperçu 3D rotatif à droite du panneau', inspX + 24, inspY + 454);
+        }
+      }
+
+      if (sel && sel.source !== 'badge') {
+        if (!sel.owned && sel.source === 'shop') {
+          addBtn('vr_locker_shop', inspX + 24, inspY + 500, inspW - 48, 78, '🛒 Voir dans la Boutique', {
+            gold: true,
+            fontSize: 22,
+            maxChars: 30,
+            onClick: () => lk.onOpenShopItem?.(sel.shopCategory || sel.category, sel.id)
+          });
+        } else if (sel.owned && !sel.equipped) {
+          addBtn('vr_locker_equip', inspX + 24, inspY + 500, inspW - 48, 78, '✨ Équiper', {
+            primary: true,
+            fontSize: 24,
+            onClick: () => lk.onEquip?.(sel, true)
+          });
+        } else if (sel.owned && sel.equipped && sel.source !== 'standard') {
+          addBtn('vr_locker_unequip', inspX + 24, inspY + 500, inspW - 48, 78, '↩️ Retirer', {
+            danger: true,
+            fontSize: 24,
+            onClick: () => lk.onEquip?.(sel, false)
           });
         }
       }

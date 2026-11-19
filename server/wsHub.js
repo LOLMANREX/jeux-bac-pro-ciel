@@ -1468,7 +1468,10 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
         }
 
         case 'shop_buy': {
-          if (!state.name) return;
+          if (!state.name) {
+            ws.send(JSON.stringify({ type: 'shop_buy_result', ok: false, status: 401, error: 'Non connecté au serveur.' }));
+            return;
+          }
           const res = store.buyShopItem(state.name, msg.itemId);
           ws.send(JSON.stringify({ type: 'shop_buy_result', ...res }));
           if (res.ok && res.profile) {
@@ -1479,7 +1482,10 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
         }
 
         case 'shop_equip': {
-          if (!state.name) return;
+          if (!state.name) {
+            ws.send(JSON.stringify({ type: 'shop_equip_result', ok: false, status: 401, error: 'Non connecté au serveur.' }));
+            return;
+          }
           const res = store.equipShopItem(state.name, msg);
           ws.send(JSON.stringify({ type: 'shop_equip_result', ...res }));
           if (res.ok && res.profile) {
@@ -1509,7 +1515,10 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           if (!state.name) return;
           const res = store.recordArcadeScore(state.name, {
             gameId: msg.gameId,
-            score: msg.score
+            score: msg.score,
+            difficulty: msg.difficulty || null,
+            won: Boolean(msg.won),
+            elapsedSec: msg.elapsedSec ?? null
           });
           ws.send(JSON.stringify({ type: 'arcade_score_result', ...res }));
           if (res.ok && res.profile) {

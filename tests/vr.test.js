@@ -2008,3 +2008,180 @@ test('VR WebXR v4.28 : Baie de brassage perforée sans voile opaque & Arène de 
     stubs.restore();
   }
 });
+
+test('VR WebXR v4.30 : Montre VR bouton Casier, Boutique VR achat feedback clair & Panneau Spatial Casier 3D', () => {
+  const stubs = createFakeDomStubs();
+  const mockScene = new THREE.Scene();
+  const mockCam = new THREE.PerspectiveCamera(72, 1.77, 0.1, 180);
+  const sceneMgr = {
+    scene: mockScene,
+    camera: mockCam,
+    renderer: null,
+    getFps: () => 72,
+    getXrErrors: () => [],
+    setVrPresentingState() {},
+    bindVrManager() {}
+  };
+  const mapData = createDefaultMap();
+  const lab = buildLabWorld(mockScene, mapData, { hideSprites: true });
+  let lockerOpened = 0;
+  let vrBuyAttempted = 0;
+  let vrEquipAttempted = 0;
+  let vrShopShortcut = null;
+  let vr = null;
+
+  try {
+    const player = new PlayerController(mockCam, stubs.canvas, lab.colliders);
+    player.setBounds(mapData.bounds);
+    vr = new VRManager(sceneMgr, player, {
+      playerName: 'CasierVR',
+      mapData,
+      getInteractables: () => lab.interactables,
+      onOpenLocker: () => {
+        lockerOpened += 1;
+      }
+    });
+    assert.equal(vr.enterSimulationMode(), true);
+    vr.update(0.05, 0.1, 1000);
+    const watchHits = vr.wristPanel.getHitBoxes();
+    assert.ok(watchHits.find((b) => b.id === 'btn_shop'));
+    assert.ok(watchHits.find((b) => b.id === 'btn_locker'));
+
+    const shopPanel = vr.openShopSpatialPanel({
+      coins: 50,
+      categories: [{ id: 'skins', label: 'Skins', icon: '👕' }],
+      activeCategory: 'skins',
+      items: [
+        {
+          id: 'shop_overclocked_gold',
+          category: 'skins',
+          name: 'Overclocked Gold',
+          price: 2500,
+          owned: false,
+          equipped: false,
+          canAfford: false,
+          rarityMeta: { label: 'Légendaire', color: '#fbbf24' }
+        }
+      ],
+      selectedItem: {
+        id: 'shop_overclocked_gold',
+        category: 'skins',
+        name: 'Overclocked Gold',
+        price: 2500,
+        owned: false,
+        equipped: false,
+        canAfford: false,
+        rarityMeta: { label: 'Légendaire', color: '#fbbf24' }
+      },
+      onBuy: () => {
+        vrBuyAttempted += 1;
+      }
+    });
+    assert.ok(shopPanel);
+    const buyBtn = shopPanel.getHitBoxes().find((b) => b.id === 'vr_shop_buy');
+    assert.ok(buyBtn);
+    assert.equal(Boolean(buyBtn.disabled), false);
+    buyBtn.onClick?.();
+    assert.equal(vrBuyAttempted, 1);
+    vr.closeShopSpatialPanel();
+
+    const lockerPanel = vr.openLockerSpatialPanel({
+      coins: 200,
+      totalUnlocked: 2,
+      totalItems: 18,
+      categories: [
+        { id: 'skins', label: 'Skins', icon: '👕' },
+        { id: 'pets', label: 'Pets 3D', icon: '🐾' }
+      ],
+      filters: [
+        { id: 'all', label: 'Tous' },
+        { id: 'owned', label: 'Possédés' },
+        { id: 'locked', label: 'À débloquer' }
+      ],
+      activeCategory: 'pets',
+      activeFilter: 'all',
+      items: [
+        {
+          id: 'pet_cube_holo',
+          category: 'pets',
+          source: 'shop',
+          shopCategory: 'pets',
+          name: 'Cube Hologramme',
+          price: 200,
+          owned: true,
+          equipped: false,
+          rarityMeta: { label: 'Commun', color: '#38bdf8' }
+        }
+      ],
+      selectedItem: {
+        id: 'pet_cube_holo',
+        category: 'pets',
+        source: 'shop',
+        shopCategory: 'pets',
+        name: 'Cube Hologramme',
+        price: 200,
+        owned: true,
+        equipped: false,
+        rarityMeta: { label: 'Commun', color: '#38bdf8' }
+      },
+      onEquip: () => {
+        vrEquipAttempted += 1;
+      },
+      onOpenShopItem: (cat, id) => {
+        vrShopShortcut = `${cat}:${id}`;
+      }
+    });
+    assert.ok(lockerPanel);
+    const equipBtn = lockerPanel.getHitBoxes().find((b) => b.id === 'vr_locker_equip');
+    assert.ok(equipBtn);
+    equipBtn.onClick?.();
+    assert.equal(vrEquipAttempted, 1);
+
+    vr.updateLockerSpatialPanel({
+      coins: 200,
+      totalUnlocked: 2,
+      totalItems: 18,
+      categories: [{ id: 'pets', label: 'Pets 3D', icon: '🐾' }],
+      filters: [{ id: 'locked', label: 'À débloquer' }],
+      activeCategory: 'pets',
+      activeFilter: 'locked',
+      items: [
+        {
+          id: 'pet_laser_falcon',
+          category: 'pets',
+          source: 'shop',
+          shopCategory: 'pets',
+          name: 'Faucon Laser',
+          price: 2200,
+          owned: false,
+          equipped: false,
+          rarityMeta: { label: 'Légendaire', color: '#fbbf24' }
+        }
+      ],
+      selectedItem: {
+        id: 'pet_laser_falcon',
+        category: 'pets',
+        source: 'shop',
+        shopCategory: 'pets',
+        name: 'Faucon Laser',
+        price: 2200,
+        owned: false,
+        equipped: false,
+        rarityMeta: { label: 'Légendaire', color: '#fbbf24' }
+      },
+      onOpenShopItem: (cat, id) => {
+        vrShopShortcut = `${cat}:${id}`;
+      }
+    });
+    const shopShortcutBtn = lockerPanel.getHitBoxes().find((b) => b.id === 'vr_locker_shop');
+    assert.ok(shopShortcutBtn);
+    shopShortcutBtn.onClick?.();
+    assert.equal(vrShopShortcut, 'pets:pet_laser_falcon');
+    assert.equal(vr.closeLockerSpatialPanel(), true);
+    assert.equal(lockerOpened, 0);
+  } finally {
+    vr?.dispose?.();
+    lab.dispose();
+    stubs.restore();
+  }
+});

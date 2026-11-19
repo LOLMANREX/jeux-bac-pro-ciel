@@ -78,6 +78,7 @@ import { PlatformModal } from './ui/PlatformModal.js';
 import { FaqModal } from './ui/FaqModal.js';
 import { BattlePassModal } from './ui/BattlePassModal.js';
 import { buildShopViewModel, ShopModal } from './ui/ShopModal.js';
+import { buildLockerViewModel, LockerModal } from './ui/LockerModal.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
 import { getCielOsTouchLayout } from './minigames/TouchTpHelpers.js';
 import { VariationTableSession } from './minigames/VariationTableGame.js';
@@ -224,9 +225,14 @@ let changelogModal = null;
 let faqModal = null;
 let battlePassModal = null;
 let shopModal = null;
+let lockerModal = null;
 let vrShopCategory = 'skins';
 let vrShopSelectedId = null;
 let vrShopFeedback = null;
+let vrLockerCategory = 'skins';
+let vrLockerFilter = 'all';
+let vrLockerSelectedId = null;
+let vrLockerFeedback = null;
 let lastCoinDedupKey = '';
 let lastCoinDedupAt = 0;
 
@@ -244,6 +250,7 @@ function handleCoinReward({
   lab.setLocalCoins?.(gameState.coins ?? gameState.profile?.coins ?? 0);
   hud?.refresh?.();
   shopModal?.refresh?.();
+  lockerModal?.refresh?.();
   mainMenu?.syncPlayerBadge?.();
   if (n <= 0) {
     syncVrWatchHud();
@@ -270,7 +277,10 @@ function handleCoinReward({
 
 async function buyShopItemAction(item) {
   if (!item?.id) return { ok: false, error: 'Article invalide.' };
-  const playerName = gameState.profile?.name || gameState.account?.username || 'Eleve_CIEL';
+  if (gameState.authToken && !network.getAuthToken()) {
+    network.setAuthToken(gameState.authToken);
+  }
+  const playerName = gameState.account?.username || gameState.profile?.name || 'Eleve_CIEL';
   const res = await network.buyShopItem(item.id, playerName);
   if (res?.ok) {
     sfx.shopPurchase?.();
@@ -283,13 +293,17 @@ async function buyShopItemAction(item) {
     hud?.refresh?.();
     mainMenu?.syncPlayerBadge?.();
     shopModal?.refresh?.();
+    lockerModal?.refresh?.();
     syncVrWatchHud();
   }
   return res;
 }
 
 async function equipShopItemAction(item, equip = true) {
-  const playerName = gameState.profile?.name || gameState.account?.username || 'Eleve_CIEL';
+  if (gameState.authToken && !network.getAuthToken()) {
+    network.setAuthToken(gameState.authToken);
+  }
+  const playerName = gameState.account?.username || gameState.profile?.name || 'Eleve_CIEL';
   const res = await network.equipShopItem({
     itemId: item?.id || null,
     category: item?.category || null,
@@ -312,6 +326,7 @@ async function equipShopItemAction(item, equip = true) {
     mainMenu?.preview?.rebuild?.();
     battlePassModal?.refresh?.();
     shopModal?.refresh?.();
+    lockerModal?.refresh?.();
     syncVrWatchHud();
   }
   return res;
@@ -324,7 +339,7 @@ function buildVrShopPanelPayload() {
   }
   return {
     ...vm,
-    title: '🛒 BOUTIQUE CIEL — SKINS, PETS 3D & AURAs',
+    title: '🛒 BOUTIQUE CIEL — SKINS, PETS 3D & AURAS',
     feedback: vrShopFeedback,
     onSelectCategory: (cat) => {
       vrShopCategory = cat;
@@ -338,6 +353,15 @@ function buildVrShopPanelPayload() {
       vrManager?.updateShopSpatialPanel?.(buildVrShopPanelPayload());
     },
     onBuy: async (item) => {
+      if (!item.owned && !item.canAfford) {
+        const missing = Math.max(0, item.price - vm.coins);
+        vrShopFeedback = {
+          message: `🔒 Solde insuffisant (${vm.coins}/${item.price} CC, manque ${missing})`,
+          kind: 'error'
+        };
+        vrManager?.updateShopSpatialPanel?.(buildVrShopPanelPayload());
+        return;
+      }
       const res = await buyShopItemAction(item);
       vrShopFeedback = res?.ok
         ? { message: `✅ ${item.name} acheté !`, kind: 'success' }
@@ -357,11 +381,78 @@ function buildVrShopPanelPayload() {
   };
 }
 
-function openShopUi(initialCategory = 'skins') {
+function buildVrLockerPanelPayload() {
+  const vm = buildLockerViewModel(gameState, {
+    category: vrLockerCategory,
+    filter: vrLockerFilter,
+    selectedId: vrLockerSelectedId
+  });
+  if (vm.selectedItem) {
+    vrLockerSelectedId = vm.selectedItem.id;
+  }
+  return {
+    ...vm,
+    title: '🎨 CASIER CIEL — SKINS, PETS 3D & ACCESSOIRES',
+    feedback: vrLockerFeedback,
+    onSelectCategory: (cat) => {
+      vrLockerCategory = cat;
+      vrLockerSelectedId = null;
+      vrLockerFeedback = null;
+      vrManager?.updateLockerSpatialPanel?.(buildVrLockerPanelPayload());
+    },
+    onSelectFilter: (flt) => {
+      vrLockerFilter = flt;
+      vrLockerSelectedId = null;
+      vrLockerFeedback = null;
+      vrManager?.updateLockerSpatialPanel?.(buildVrLockerPanelPayload());
+    },
+    onSelectItem: (itemId) => {
+      vrLockerSelectedId = itemId;
+      vrLockerFeedback = null;
+      vrManager?.updateLockerSpatialPanel?.(buildVrLockerPanelPayload());
+    },
+    onEquip: async (item, eq) => {
+      if (item.source === 'shop') {
+        const res = await equipShopItemAction(item, eq);
+        vrLockerFeedback = res?.ok
+          ? { message: eq ? `✅ ${item.name} équipé !` : `↩️ ${item.name} retiré.`, kind: 'success' }
+          : { message: res?.error || 'Équipement impossible.', kind: 'error' };
+      } else if (item.source === 'standard') {
+        await equipShopItemAction({ id: 'standard', category: 'skins' }, false);
+        gameState.equipDivineSkin(null);
+        rebuildLocalAvatar(gameState.skin);
+        network.sendSkinUpdate(gameState.skin);
+        vrLockerFeedback = { message: '✅ Tenue Standard équipée.', kind: 'success' };
+      } else if (item.source === 'divine' || item.source === 'battlepass' || item.source === 'secret') {
+        gameState.equipDivineSkin(eq ? item.id : null);
+        rebuildLocalAvatar(gameState.skin);
+        network.sendSkinUpdate(gameState.skin);
+        vrLockerFeedback = {
+          message: eq ? `✨ ${item.name} équipé !` : '↩️ Retour à la Tenue Standard.',
+          kind: 'success'
+        };
+      }
+      vrManager?.updateLockerSpatialPanel?.(buildVrLockerPanelPayload());
+    },
+    onOpenShopItem: (cat, itemId) => {
+      vrManager?.closeLockerSpatialPanel?.();
+      openShopUi(cat || 'skins', itemId || null);
+    },
+    onClose: () => {
+      vrManager?.closeLockerSpatialPanel?.();
+    }
+  };
+}
+
+function openShopUi(initialCategory = 'skins', initialItemId = null) {
   hud?.closeSettings?.();
+  lockerModal?.close?.();
+  if (typeof document !== 'undefined' && document.pointerLockElement) {
+    document.exitPointerLock?.();
+  }
   if (vrManager?.isVrActive?.()) {
     vrShopCategory = initialCategory || 'skins';
-    vrShopSelectedId = null;
+    vrShopSelectedId = initialItemId || null;
     vrShopFeedback = null;
     vrManager.openShopSpatialPanel(buildVrShopPanelPayload());
     return true;
@@ -370,7 +461,29 @@ function openShopUi(initialCategory = 'skins') {
   if (joined) {
     setModalActive(true, false, true);
   }
-  shopModal.open(initialCategory);
+  shopModal.open(initialCategory, initialItemId);
+  return true;
+}
+
+function openLockerUi(initialCategory = 'skins') {
+  hud?.closeSettings?.();
+  shopModal?.close?.();
+  if (typeof document !== 'undefined' && document.pointerLockElement) {
+    document.exitPointerLock?.();
+  }
+  if (vrManager?.isVrActive?.()) {
+    vrLockerCategory = initialCategory || 'skins';
+    vrLockerFilter = 'all';
+    vrLockerSelectedId = null;
+    vrLockerFeedback = null;
+    vrManager.openLockerSpatialPanel(buildVrLockerPanelPayload());
+    return true;
+  }
+  if (!lockerModal) return false;
+  if (joined) {
+    setModalActive(true, false, false);
+  }
+  lockerModal.open(initialCategory);
   return true;
 }
 
@@ -405,6 +518,7 @@ vrManager = new VRManager(sceneMgr, player, {
   onInteract: (item) => interactWith(item),
   onToggleMic: () => voiceChat.toggleMicrophone(),
   onOpenShop: () => openShopUi('skins'),
+  onOpenLocker: () => openLockerUi('skins'),
   onOpenChangelog: () => changelogModal?.open?.(),
   onEnterVr: () => {
     activeCameraTweenId++;
@@ -416,6 +530,7 @@ vrManager = new VRManager(sceneMgr, player, {
     faqModal?.close?.();
     battlePassModal?.close?.();
     shopModal?.close?.();
+    lockerModal?.close?.();
     dialogueModal?.close?.();
     hud?.hideIntroCinematic?.();
     hud?.hideAscensionDialogue?.();
@@ -620,10 +735,64 @@ try {
   console.warn('Modale Boutique:', err);
 }
 
-lab.setArcadeGameEndHandler?.(async ({ gameId, score, desktop }) => {
+try {
+  lockerModal = new LockerModal({
+    gameState,
+    onEquipShopItem: (item, eq) => equipShopItemAction(item, eq),
+    onEquipDivineSkin: (specId) => {
+      gameState.equipDivineSkin(specId);
+      const skin = gameState.skin;
+      const selectedId = getSelectedSkinIdFromSkin(skin);
+      sessionDivineSpecialty = skin?.secretSkin
+        ? ULTIMATE_SECRET_SKIN_ID
+        : skin?.divineSpecialty || null;
+      rebuildLocalAvatar(skin);
+      battlePassModal?.refresh?.();
+      shopModal?.refresh?.();
+      mainMenu?.renderSkinUi?.();
+      network.sendSkinUpdate(skin);
+      network.saveAccount({
+        selectedSkin: selectedId,
+        avatarCustomization: skin,
+        unlockedDivineSkins: gameState.unlockedDivineSkins
+      });
+    },
+    onStandardSkinChange: (skin) => {
+      const selectedId = getSelectedSkinIdFromSkin(skin);
+      sessionDivineSpecialty = skin?.secretSkin
+        ? ULTIMATE_SECRET_SKIN_ID
+        : skin?.divineSpecialty || null;
+      rebuildLocalAvatar(skin);
+      battlePassModal?.refresh?.();
+      mainMenu?.renderSkinUi?.();
+      network.sendSkinUpdate(skin);
+      network.saveAccount({
+        selectedSkin: selectedId,
+        avatarCustomization: skin,
+        unlockedDivineSkins: gameState.unlockedDivineSkins
+      });
+    },
+    onOpenShopItem: (category, itemId) => {
+      openShopUi(category || 'skins', itemId || null);
+    },
+    onClose: () => {
+      if (joined) {
+        setModalActive(false, false, false);
+      }
+    }
+  });
+} catch (err) {
+  console.warn('Modale Casier:', err);
+}
+
+lab.setArcadeGameEndHandler?.(async ({ gameId, score, difficulty, won, elapsedSec, desktop }) => {
   if (!Number.isFinite(Number(score)) || Number(score) <= 0) return;
-  const playerName = gameState.profile?.name || gameState.account?.username || 'Eleve_CIEL';
-  const res = await network.submitArcadeScore(gameId, score, playerName);
+  const playerName = gameState.account?.username || gameState.profile?.name || 'Eleve_CIEL';
+  const res = await network.submitArcadeScore(gameId, score, playerName, {
+    difficulty: difficulty || null,
+    won: Boolean(won),
+    elapsedSec: elapsedSec ?? null
+  });
   if (res?.ok) {
     handleCoinReward({
       coinsEarned: res.coinsEarned,
@@ -3469,6 +3638,7 @@ function closeCielOsPc({ restoreCamera = true } = {}) {
   const prev = activePcSession;
   activePcSession = null;
   if (prev.pcStation) {
+    prev.pcStation.desktop?.gameInstances?.get?.('minesweeper')?.saveInProgressSnapshot?.();
     prev.pcStation.isActiveSession = false;
   }
   if (cielOsDom) {
@@ -3634,6 +3804,9 @@ hud = new HudManager(gameState, network, {
     faqModal.open('list', () => setModalActive(false, false, false));
   },
   onOpenShop: () => openShopUi('skins'),
+  onOpenLocker: () => openLockerUi('skins'),
+  onCloseLocker: () => lockerModal?.close?.() || false,
+  onRefreshLocker: () => lockerModal?.refresh?.(),
   onOpenChangelog: () => changelogModal?.open?.(),
   onSensitivityChange: (s) => player.setSensitivity(s),
   onTouchSensitivityChange: (s) => player.setTouchSensitivity(s),
@@ -4085,6 +4258,7 @@ network.on('welcome', (msg) => {
   rebuildLocalAvatar(gameState.skin);
   battlePassModal?.refresh?.();
   shopModal?.refresh?.();
+  lockerModal?.refresh?.();
   lab.setLocalCoins?.(gameState.coins);
   mainMenu?.syncAuthUi?.();
   mainMenu?.renderSkinUi?.();
@@ -4176,6 +4350,7 @@ network.on('profile_updated', ({ profile }) => {
   lab.updateStationBadges(profile.grades);
   battlePassModal?.refresh?.();
   shopModal?.refresh?.();
+  lockerModal?.refresh?.();
   lab.setLocalCoins?.(gameState.coins);
   mainMenu?.syncAuthUi?.();
   mainMenu?.renderSkinUi?.();
@@ -4218,6 +4393,7 @@ network.on('profile_reset', ({ profile, message }) => {
   rebuildLocalAvatar(gameState.skin);
   battlePassModal?.refresh?.();
   shopModal?.refresh?.();
+  lockerModal?.refresh?.();
   lab.setLocalCoins?.(gameState.coins);
   mainMenu?.syncAuthUi?.();
   mainMenu?.renderSkinUi?.();
@@ -4787,6 +4963,7 @@ window.addEventListener('keydown', (e) => {
       battlePassModal?.closeTrollModal?.() ||
       battlePassModal?.close?.() ||
       shopModal?.close?.() ||
+      lockerModal?.close?.() ||
       changelogModal?.close?.() ||
       faqModal?.close?.() ||
       platformModal?.close?.() ||

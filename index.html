@@ -999,58 +999,93 @@
       </div>
 
       <div id="skin-modal" class="modal-backdrop hidden">
-        <div class="dialogue-card skin-modal-card">
-          <div class="dialogue-header">
-            <div class="prof-avatar">🎨</div>
-            <div>
-              <div class="prof-tag">SYNCHRONISATION TEMPS RÉEL</div>
-              <h2>Modifier mon Skin 3D</h2>
+        <div class="dialogue-card locker-modal-card" role="dialog" aria-label="Casier CIEL">
+          <div class="shop-modal-head locker-modal-head">
+            <div class="shop-title-block">
+              <div class="prof-tag">CASIER PERSONNEL — SYNCHRONISATION TEMPS RÉEL</div>
+              <h2>🎨 Casier CIEL — Skins, Pets 3D &amp; Accessoires</h2>
             </div>
-            <button id="hud-skin-close" class="icon-close" title="Fermer (Échap)">✕</button>
+            <div class="shop-head-right">
+              <span id="locker-unlocked-counter" class="locker-counter-pill">📦 0 / 18 débloqués</span>
+              <div class="shop-balance-pill" title="Solde CIEL Coins disponible">
+                <span>🪙</span>
+                <strong id="locker-balance-value">0 CC</strong>
+              </div>
+              <button type="button" id="hud-skin-close" class="icon-close" title="Fermer (Échap)">✕</button>
+            </div>
           </div>
-          <div class="skin-modal-grid">
-            <div class="skin-modal-controls">
-              <div class="view-head-row">
-                <span class="hint-mini">Visible instantanément par toute la classe</span>
-                <button type="button" id="btn-hud-skin-random" class="btn-hud btn-sm">🎲 Aléatoire</button>
-              </div>
-              <div class="skin-controls">
-                <div class="skin-group">
-                  <label>⚡ Skins Divins (Ascension 20/20)</label>
-                  <div id="hud-skin-divine-list" class="btn-group divine-skin-group"></div>
-                </div>
-                <div class="skin-group">
-                  <label>Style de tenue</label>
-                  <div id="hud-skin-style-list" class="btn-group"></div>
-                </div>
-                <div class="skin-group">
-                  <label>Couleur de tenue</label>
-                  <div id="hud-skin-color-list" class="swatch-row"></div>
-                </div>
-                <div class="skin-group">
-                  <label>Tête / Accessoire</label>
-                  <div id="hud-skin-hat-list" class="btn-group"></div>
-                </div>
-                <div class="skin-group-inline">
-                  <div>
-                    <label>Peau</label>
-                    <div id="hud-skin-tone-list" class="swatch-row"></div>
-                  </div>
-                  <div>
-                    <label>Pantalon</label>
-                    <div id="hud-skin-pants-list" class="swatch-row"></div>
-                  </div>
-                </div>
-              </div>
-              <button type="button" id="btn-hud-skin-done" class="btn-primary btn-lg">
-                ✅ Appliquer et Fermer
+
+          <div class="locker-toolbar">
+            <div id="locker-tabs" class="shop-tabs locker-tabs"></div>
+            <div id="locker-filters" class="locker-filters"></div>
+          </div>
+
+          <div class="locker-modal-body">
+            <div class="locker-catalog-col">
+              <div id="locker-items-grid" class="shop-grid locker-grid"></div>
+              <button type="button" id="locker-btn-customize-toggle" class="btn-secondary btn-sm locker-customize-toggle">
+                🎨 Personnaliser Tenue Standard (couleurs, chapeau...)
               </button>
+              <div id="locker-standard-customizer" class="locker-standard-customizer hidden">
+                <div class="view-head-row">
+                  <span class="hint-mini">Visible instantanément par toute la classe</span>
+                  <button type="button" id="btn-hud-skin-random" class="btn-hud btn-sm">🎲 Aléatoire</button>
+                </div>
+                <div class="skin-controls">
+                  <div class="skin-group">
+                    <label>⚡ Skins Divins &amp; VIP</label>
+                    <div id="hud-skin-divine-list" class="btn-group divine-skin-group"></div>
+                  </div>
+                  <div class="skin-group">
+                    <label>Style de tenue</label>
+                    <div id="hud-skin-style-list" class="btn-group"></div>
+                  </div>
+                  <div class="skin-group">
+                    <label>Couleur de tenue</label>
+                    <div id="hud-skin-color-list" class="swatch-row"></div>
+                  </div>
+                  <div class="skin-group">
+                    <label>Tête / Accessoire</label>
+                    <div id="hud-skin-hat-list" class="btn-group"></div>
+                  </div>
+                  <div class="skin-group-inline">
+                    <div>
+                      <label>Peau</label>
+                      <div id="hud-skin-tone-list" class="swatch-row"></div>
+                    </div>
+                    <div>
+                      <label>Pantalon</label>
+                      <div id="hud-skin-pants-list" class="swatch-row"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="menu-right-preview">
-              <div class="preview-badge">APERÇU 3D LIVE</div>
-              <canvas id="hud-skin-preview-canvas" width="240" height="290"></canvas>
-              <div class="preview-hint">Glissez pour pivoter</div>
+
+            <div class="shop-inspector-col locker-inspector-col">
+              <div class="shop-preview-stage locker-preview-stage">
+                <div class="preview-badge">APERÇU 3D LIVE — AVATAR + PET + AURA</div>
+                <canvas id="hud-skin-preview-canvas" width="340" height="360"></canvas>
+                <div class="preview-hint">Glissez à la souris ou au doigt pour pivoter 360°</div>
+              </div>
+              <div class="shop-inspector-meta">
+                <span id="locker-preview-rarity" class="shop-preview-rarity">COMMUN</span>
+                <h3 id="locker-preview-name">Tenue Standard CIEL</h3>
+                <p id="locker-preview-desc" class="shop-preview-desc"></p>
+                <div id="locker-preview-status" class="shop-preview-price"></div>
+                <div id="locker-feedback" class="shop-feedback hidden"></div>
+                <div class="shop-actions-row">
+                  <button type="button" id="locker-btn-action" class="btn-primary btn-lg">✨ Équiper</button>
+                  <button type="button" id="locker-btn-unequip" class="btn-secondary hidden">↩️ Retirer</button>
+                  <button type="button" id="locker-btn-shop" class="btn-primary btn-lg hidden">🛒 Voir dans la Boutique</button>
+                </div>
+              </div>
             </div>
+          </div>
+
+          <div class="locker-footer-bar">
+            <div id="locker-equipped-summary" class="shop-equipped-summary"></div>
+            <button type="button" id="btn-hud-skin-done" class="btn-secondary btn-sm">✅ Fermer le Casier</button>
           </div>
         </div>
       </div>
