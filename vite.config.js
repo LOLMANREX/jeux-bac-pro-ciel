@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify("v4.26 - Adaptation Complète de Tous les TPs et de l'Interface au Mobile & Tablette"),
+    __APP_VERSION__: JSON.stringify("v4.27 - Épuration du HUD Haut, Boutique dans Paramètres, Suppression Meuble Boutique & Écran CIEL OS Simple Face"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

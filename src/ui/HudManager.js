@@ -517,6 +517,7 @@ export class HudManager {
 
     this.vrToggleBtn?.addEventListener('click', () => {
       sfx.click();
+      this.closeSettings();
       this.handlers.onToggleVr?.();
     });
 
@@ -763,7 +764,8 @@ export class HudManager {
       if (
         this.audioSettingsPopover &&
         !this.audioSettingsPopover.classList.contains('hidden') &&
-        !e.target.closest('.audio-settings-wrapper')
+        !e.target.closest('#audio-settings-popover') &&
+        !e.target.closest('#btn-audio-settings')
       ) {
         toggleAudioPopover(false);
       }
@@ -817,6 +819,7 @@ export class HudManager {
 
     document.getElementById('btn-chat-toggle')?.addEventListener('click', () => {
       sfx.click();
+      this.closeSettings();
       this.toggleChat();
     });
     document.getElementById('btn-chat-close')?.addEventListener('click', () => {
@@ -858,13 +861,27 @@ export class HudManager {
       this.closeLeaderboard();
     });
 
+    document.getElementById('btn-leaderboard-settings')?.addEventListener('click', () => {
+      sfx.click();
+      this.closeSettings();
+      this.openLeaderboard();
+    });
+
+    document.getElementById('btn-changelog-settings')?.addEventListener('click', () => {
+      sfx.click();
+      this.closeSettings();
+      this.handlers.onOpenChangelog?.();
+    });
+
     document.getElementById('btn-skin-ingame')?.addEventListener('click', () => {
       sfx.click();
+      this.closeSettings();
       this.openSkinModal();
     });
 
     this.shopHudBtn?.addEventListener('click', () => {
       sfx.click();
+      this.closeSettings();
       this.handlers.onOpenShop?.();
     });
 
@@ -917,6 +934,8 @@ export class HudManager {
 
   closeSettings() {
     if (this.settingsModal.classList.contains('hidden')) return false;
+    this.toggleAudioPopover?.(false);
+    this.creatorPowerPopover?.classList.add('hidden');
     this.settingsModal.classList.add('hidden');
     this.handlers.onModalOpen?.(false);
     return true;

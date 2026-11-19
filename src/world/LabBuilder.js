@@ -858,13 +858,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       osTexture.needsUpdate = true;
     };
 
-    const screenMat = new THREE.MeshBasicMaterial({ map: osTexture });
+    const screenMat = new THREE.MeshBasicMaterial({ map: osTexture, side: THREE.FrontSide });
     const bezelMat = new THREE.MeshStandardMaterial({
       color: '#0f172a',
       roughness: 0.35,
       metalness: 0.65,
       emissive: '#082f49',
-      emissiveIntensity: 0.22
+      emissiveIntensity: 0.22,
+      side: THREE.FrontSide
     });
     const highlightMats = [bezelMat, ...extraHighlightMats];
     const screenMeshes = [];
@@ -873,7 +874,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     const specs =
       Array.isArray(monitorSpecs) && monitorSpecs.length > 0
         ? monitorSpecs
-        : [{ x: 0, y: topH + 0.32, z: -0.15, rotY: 0, w: 0.66, h: 0.41, dualSided: true }];
+        : [{ x: 0, y: topH + 0.32, z: -0.15, rotY: 0, w: 0.66, h: 0.41 }];
 
     specs.forEach((sp, idx) => {
       const mw = sp.w || 0.66;
@@ -904,15 +905,6 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       frontScreen.name = `ciel-os-screen-${obj.id}-${idx}-front`;
       monGrp.add(frontScreen);
       screenMeshes.push(frontScreen);
-
-      if (sp.dualSided !== false) {
-        const backScreen = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), screenMat);
-        backScreen.position.set(0, 0, -0.025);
-        backScreen.rotation.y = Math.PI;
-        backScreen.name = `ciel-os-screen-${obj.id}-${idx}-back`;
-        monGrp.add(backScreen);
-        screenMeshes.push(backScreen);
-      }
 
       if (idx === 0) {
         const kbdDir = Math.cos(sp.rotY || 0) >= 0 ? 1 : -1;
@@ -1773,7 +1765,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
               cat,
               grp,
               topH,
-              [{ x: 0, y: topH + 0.32, z: 0.08, rotY: Math.PI, w: 0.64, h: 0.39, dualSided: true }],
+              [{ x: 0, y: topH + 0.32, z: 0.08, rotY: Math.PI, w: 0.64, h: 0.39 }],
               mats
             );
           } else {
@@ -1782,7 +1774,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
               cat,
               grp,
               topH,
-              [{ x: 0, y: topH + 0.32, z: -d * 0.18, rotY: 0, w: Math.min(0.66, w * 0.56), h: 0.4, dualSided: true }],
+              [{ x: 0, y: topH + 0.32, z: -d * 0.18, rotY: 0, w: Math.min(0.66, w * 0.56), h: 0.4 }],
               mats
             );
           }
@@ -1796,8 +1788,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
             grp,
             topH,
             [
-              { x: -0.36, y: topH + 0.33, z: -0.15, rotY: 0.08, w: 0.62, h: 0.39, dualSided: true },
-              { x: 0.36, y: topH + 0.33, z: -0.15, rotY: -0.08, w: 0.62, h: 0.39, dualSided: true }
+              { x: -0.36, y: topH + 0.33, z: -0.15, rotY: 0.08, w: 0.62, h: 0.39 },
+              { x: 0.36, y: topH + 0.33, z: -0.15, rotY: -0.08, w: 0.62, h: 0.39 }
             ],
             mats
           );
@@ -1816,8 +1808,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
             grp,
             topH,
             [
-              { x: -mxOff, y: topH + 0.32, z: 0.04, rotY: 0, w: 0.62, h: 0.39, dualSided: true },
-              { x: mxOff, y: topH + 0.32, z: -0.04, rotY: Math.PI, w: 0.62, h: 0.39, dualSided: true }
+              { x: -mxOff, y: topH + 0.32, z: 0.04, rotY: 0, w: 0.62, h: 0.39 },
+              { x: mxOff, y: topH + 0.32, z: -0.04, rotY: Math.PI, w: 0.62, h: 0.39 }
             ],
             mats
           );
@@ -2062,10 +2054,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           grp,
           0.78,
           obj.type === 'pc_ciel_os'
-            ? [{ x: -0.06, y: 1.14, z: -0.14, rotY: 0, w: 0.72, h: 0.44, dualSided: true }]
+            ? [{ x: -0.06, y: 1.14, z: -0.14, rotY: 0, w: 0.72, h: 0.44 }]
             : [
-                { x: -0.34, y: 1.14, z: -0.15, rotY: 0.12, w: 0.66, h: 0.41, dualSided: true },
-                { x: 0.28, y: 1.14, z: -0.15, rotY: -0.12, w: 0.66, h: 0.41, dualSided: true }
+                { x: -0.34, y: 1.14, z: -0.15, rotY: 0.12, w: 0.66, h: 0.41 },
+                { x: 0.28, y: 1.14, z: -0.15, rotY: -0.12, w: 0.66, h: 0.41 }
               ],
           mats,
           [rgbMat]
@@ -2099,7 +2091,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           cat,
           grp,
           0.84,
-          [{ x: -0.12, y: 1.18, z: -0.32, rotY: 0, w: 0.64, h: 0.4, dualSided: true }],
+          [{ x: -0.12, y: 1.18, z: -0.32, rotY: 0, w: 0.64, h: 0.4 }],
           mats
         );
         continue;
@@ -2229,171 +2221,6 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       fallback.position.y = (cat.defaultH || 0.8) / 2;
       grp.add(fallback);
     }
-
-    const buildShopKioskInHall = () => {
-      const kioskX = -5.1;
-      const kioskZ = -1.95;
-      const kMinX = kioskX - 0.52;
-      const kMaxX = kioskX + 0.52;
-      const kMinZ = kioskZ - 0.33;
-      const kMaxZ = kioskZ + 0.33;
-      const collidesExisting = colliders.some((c) => {
-        if (c.type === 'obb') {
-          return Math.abs(kioskX - c.cx) < c.hx + 0.6 && Math.abs(kioskZ - c.cz) < c.hz + 0.6;
-        }
-        return kMaxX > c.minX && kMinX < c.maxX && kMaxZ > c.minZ && kMinZ < c.maxZ;
-      });
-
-      const kioskGrp = new THREE.Group();
-      kioskGrp.name = 'shop-kiosk-hall';
-      kioskGrp.position.set(kioskX, 0, kioskZ);
-      kioskGrp.rotation.y = 0.46;
-      worldGroup.add(kioskGrp);
-
-      const kioskBodyMat = new THREE.MeshStandardMaterial({
-        color: '#0f172a',
-        metalness: 0.72,
-        roughness: 0.28,
-        emissive: '#000000',
-        emissiveIntensity: 0
-      });
-      const kioskTrimMat = new THREE.MeshStandardMaterial({
-        color: '#fbbf24',
-        metalness: 0.82,
-        roughness: 0.22,
-        emissive: '#d97706',
-        emissiveIntensity: 0.45
-      });
-
-      const basePlinth = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.12, 0.64), kioskBodyMat);
-      basePlinth.position.y = 0.06;
-      kioskGrp.add(basePlinth);
-
-      const body = new THREE.Mesh(new THREE.BoxGeometry(1.06, 2.02, 0.52), kioskBodyMat);
-      body.position.y = 1.13;
-      body.castShadow = true;
-      kioskGrp.add(body);
-
-      const topFrame = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.28, 0.56), kioskTrimMat);
-      topFrame.position.y = 2.22;
-      kioskGrp.add(topFrame);
-
-      for (const sx of [-0.54, 0.54]) {
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.035, 1.98, 0.045), kioskTrimMat);
-        rail.position.set(sx, 1.13, 0.26);
-        kioskGrp.add(rail);
-      }
-
-      const signTex = makeDoorSignTexture('🛒 BOUTIQUE CIEL • 🪙 CC', '#fbbf24');
-      const signMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.04, 0.22),
-        new THREE.MeshBasicMaterial({ map: signTex })
-      );
-      signMesh.position.set(0, 2.22, 0.286);
-      kioskGrp.add(signMesh);
-
-      const kioskCanvas =
-        typeof document !== 'undefined' && typeof document.createElement === 'function'
-          ? document.createElement('canvas')
-          : null;
-      let screenTex = null;
-      if (kioskCanvas && typeof kioskCanvas.getContext === 'function') {
-        kioskCanvas.width = 512;
-        kioskCanvas.height = 512;
-        const kctx = kioskCanvas.getContext('2d');
-        if (kctx) {
-          kctx.fillStyle = '#071024';
-          kctx.fillRect(0, 0, 512, 512);
-          kctx.strokeStyle = '#fbbf24';
-          kctx.lineWidth = 8;
-          kctx.strokeRect(12, 12, 488, 488);
-          kctx.fillStyle = '#fde047';
-          kctx.font = 'bold 34px system-ui, sans-serif';
-          kctx.textAlign = 'center';
-          kctx.fillText('🛒 BOUTIQUE CIEL', 256, 76);
-          kctx.fillStyle = '#38bdf8';
-          kctx.font = 'bold 24px system-ui, sans-serif';
-          kctx.fillText('SKINS • PETS 3D • AURAs', 256, 124);
-          kctx.fillStyle = '#e2e8f0';
-          kctx.font = '22px system-ui, sans-serif';
-          kctx.fillText('👕 8 Skins Exclusifs', 256, 200);
-          kctx.fillText('🐾 6 Compagnons Pets 3D', 256, 250);
-          kctx.fillText('✨ 5 Accessoires & Effets', 256, 300);
-          kctx.fillStyle = '#10b981';
-          kctx.fillRect(76, 360, 360, 88);
-          kctx.fillStyle = '#04101f';
-          kctx.font = 'bold 28px system-ui, sans-serif';
-          kctx.fillText('[E] OUVRIR BOUTIQUE', 256, 414);
-          kctx.textAlign = 'left';
-        }
-        screenTex = new THREE.CanvasTexture(kioskCanvas);
-        screenTex.colorSpace = THREE.SRGBColorSpace;
-      }
-
-      const touchScreen = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.84, 0.84),
-        new THREE.MeshBasicMaterial({ map: screenTex, color: screenTex ? '#ffffff' : '#0ea5e9' })
-      );
-      touchScreen.position.set(0, 1.38, 0.268);
-      kioskGrp.add(touchScreen);
-
-      const holoCore = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.14, 0),
-        new THREE.MeshStandardMaterial({
-          color: '#fde047',
-          emissive: '#fbbf24',
-          emissiveIntensity: 1.5,
-          metalness: 0.8,
-          roughness: 0.2
-        })
-      );
-      holoCore.position.set(0, 2.58, 0);
-      kioskGrp.add(holoCore);
-      animatedRefs.shopHolograms.push(holoCore);
-
-      const shopRing = new THREE.Mesh(
-        new THREE.RingGeometry(0.76, 0.96, 32),
-        new THREE.MeshBasicMaterial({
-          color: '#fbbf24',
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.88
-        })
-      );
-      shopRing.rotation.x = -Math.PI / 2;
-      shopRing.position.set(0, 0.03, 0);
-      kioskGrp.add(shopRing);
-
-      if (showSprites) {
-        const sprite = makeStationLabelSprite('Boutique CIEL', '🛒', '#fbbf24');
-        sprite.position.set(0, 2.98, 0);
-        kioskGrp.add(sprite);
-      }
-
-      if (!collidesExisting) {
-        colliders.push({
-          minX: kMinX,
-          maxX: kMaxX,
-          minZ: kMinZ,
-          maxZ: kMaxZ
-        });
-      }
-
-      const kioskEntry = {
-        id: 'shop-kiosk-hall',
-        type: 'shop_kiosk',
-        label: '[E] 🛒 Ouvrir la Boutique CIEL',
-        position: new THREE.Vector3(kioskX, 0, kioskZ),
-        interactRadius: 2.8,
-        ring: shopRing,
-        mesh: kioskGrp,
-        highlightMats: [kioskBodyMat, kioskTrimMat]
-      };
-      shopKiosks.push(kioskEntry);
-      interactables.push(kioskEntry);
-    };
-
-    buildShopKioskInHall();
 
     worldGroup.updateMatrixWorld(true);
     const dynamicNodes = new Set();

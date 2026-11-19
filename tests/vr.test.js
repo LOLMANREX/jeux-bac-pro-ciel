@@ -1714,8 +1714,7 @@ test('VR WebXR v4.24 : montre VR CIEL Coins, bouton Boutique, panneau spatial Bo
     assert.equal(openShopTriggered, 1);
 
     const kiosk = lab.interactables.find((it) => it.type === 'shop_kiosk');
-    assert.ok(kiosk);
-    assert.equal(kiosk.label, '[E] 🛒 Ouvrir la Boutique CIEL');
+    assert.equal(kiosk, undefined);
 
     let activeCat = 'skins';
     let closeCalls = 0;

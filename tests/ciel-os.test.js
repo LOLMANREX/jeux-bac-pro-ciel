@@ -496,6 +496,17 @@ test('v4.23 — Throttling intelligent des écrans CIEL OS, matrixAutoUpdate=fal
 
     assert.ok(activePc.desktop.textureUploadCount - activeUploadsBefore >= 25);
     assert.ok(distantPc.desktop.textureUploadCount - distantUploadsBefore <= 1);
+
+    assert.ok(lab.pcStations.length > 0);
+    for (const pc of lab.pcStations) {
+      assert.ok(pc.screenMeshes.length > 0);
+      for (const sm of pc.screenMeshes) {
+        assert.ok(sm.name.endsWith('-front'));
+        assert.equal(sm.name.includes('-back'), false);
+        assert.equal(sm.material.side, THREE.FrontSide);
+        assert.ok(sm.position.z > 0);
+      }
+    }
   } finally {
     lab.dispose();
   }

@@ -623,10 +623,29 @@ test('v4.24 : builders 3D (8 skins, 6 pets optimisés FPS, accessoires), RemoteP
     remotePlayers.removePeer('peer-shop-1');
     assert.equal(remotePlayers.peers.has('peer-shop-1'), false);
 
-    assert.ok(Array.isArray(lab.shopKiosks) && lab.shopKiosks.length >= 1);
+    assert.ok(Array.isArray(lab.shopKiosks) && lab.shopKiosks.length === 0);
     const kiosk = lab.interactables.find((it) => it.type === 'shop_kiosk');
-    assert.ok(kiosk);
-    assert.equal(kiosk.label, '[E] 🛒 Ouvrir la Boutique CIEL');
+    assert.equal(kiosk, undefined);
+
+    const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
+    const hudActionsMatch = indexHtml.match(/<div class="hud-actions">([\s\S]*?)<\/div>/);
+    assert.ok(hudActionsMatch);
+    const hudActionsBlock = hudActionsMatch[1];
+    assert.ok(hudActionsBlock.includes('id="btn-settings"'));
+    assert.ok(hudActionsBlock.includes('id="btn-main-menu"'));
+    assert.equal((hudActionsBlock.match(/<button\b/g) || []).length, 2);
+    assert.equal(hudActionsBlock.includes('id="btn-shop-ingame"'), false);
+    assert.equal(hudActionsBlock.includes('id="btn-audio-settings"'), false);
+
+    const settingsStart = indexHtml.indexOf('id="settings-modal"');
+    const leaderboardStart = indexHtml.indexOf('id="leaderboard-modal"');
+    assert.ok(settingsStart > 0 && leaderboardStart > settingsStart);
+    const settingsBlock = indexHtml.slice(settingsStart, leaderboardStart);
+    assert.ok(settingsBlock.includes('id="btn-shop-ingame"'));
+    assert.ok(settingsBlock.includes('id="btn-voice-toggle"'));
+    assert.ok(settingsBlock.includes('id="btn-audio-settings"'));
+    assert.ok(settingsBlock.includes('id="set-sound"'));
+    assert.ok(settingsBlock.includes('id="set-voice-vol"'));
 
     const vm = buildShopViewModel(
       {

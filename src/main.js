@@ -337,6 +337,7 @@ function buildVrShopPanelPayload() {
 }
 
 function openShopUi(initialCategory = 'skins') {
+  hud?.closeSettings?.();
   if (vrManager?.isVrActive?.()) {
     vrShopCategory = initialCategory || 'skins';
     vrShopSelectedId = null;
@@ -383,6 +384,7 @@ vrManager = new VRManager(sceneMgr, player, {
   onInteract: (item) => interactWith(item),
   onToggleMic: () => voiceChat.toggleMicrophone(),
   onOpenShop: () => openShopUi('skins'),
+  onOpenChangelog: () => changelogModal?.open?.(),
   onEnterVr: () => {
     activeCameraTweenId++;
     mainMenu?.hide?.();
@@ -3090,6 +3092,7 @@ hud = new HudManager(gameState, network, {
     faqModal.open('list', () => setModalActive(false, false, false));
   },
   onOpenShop: () => openShopUi('skins'),
+  onOpenChangelog: () => changelogModal?.open?.(),
   onSensitivityChange: (s) => player.setSensitivity(s),
   onTouchSensitivityChange: (s) => player.setTouchSensitivity(s),
   onQuickNav: (id) => teleportNearTarget(id),
@@ -3896,7 +3899,6 @@ function interactWith(target) {
   else if (target.type === 'survival_detention_terminal') openDetentionTerminal();
   else if (target.type === 'survival_detention_exit') exitDetentionAndReturnToHall();
   else if (target.type === 'ciel_os_pc') openCielOsPc(target);
-  else if (target.type === 'shop_kiosk') openShopUi('skins');
   else openTp(target.tpId || target.id, target);
 }
 

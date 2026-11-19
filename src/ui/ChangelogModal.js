@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : "v4.26 - Adaptation Complète de Tous les TPs et de l'Interface au Mobile & Tablette";
+    : "v4.27 - Épuration du HUD Haut, Boutique dans Paramètres, Suppression Meuble Boutique & Écran CIEL OS Simple Face";
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.26 — Adaptation Complète de Tous les TPs et de l’Interface au Mobile & Tablette',
+    version: 'v4.27 — Épuration du HUD Haut, Boutique dans Paramètres, Suppression Meuble Boutique & Écran CIEL OS Simple Face',
     date: '19/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'HUD ÉPURÉ & PARAMÈTRES',
+        title: 'Barre Supérieure Allégée (Paramètres + Menu Principal) & Boutique / Audio Déplacés dans les Paramètres',
+        desc: 'La barre d’actions supérieure en jeu ne conserve plus que les 2 boutons essentiels (⚙️ Paramètres et 🏠 Menu principal). La Boutique CIEL, le contrôle complet de l’Audio / Micro / Volume / SFX, le Casier, le Mode VR, le Chat, le Classement, les Nouveautés, le Replay Intro et la Déconnexion sont désormais regroupés dans le Menu Paramètres avec fermeture automatique du panneau à l’ouverture de la Boutique.'
+      },
+      {
+        badge: 'ATELIER 3D & ÉCRANS CIEL OS',
+        title: 'Suppression du Meuble 3D Boutique & Affichage Simple Face (FrontSide) sur Tous les PC CIEL OS',
+        desc: 'Suppression complète de la borne 3D Boutique à côté de l’espace professeurs (mesh, collider, sprite et zone d’interaction) tout en conservant la Boutique accessible depuis les Paramètres et la montre VR. Correction de tous les moniteurs PC CIEL OS (élèves, professeurs et PC plaçables) pour n’afficher la CanvasTexture dynamique que sur la face avant (side: THREE.FrontSide) avec un dos et des côtés opaques sombres.'
+      }
+    ]
+  },
+  {
+    version: 'v4.26 — Adaptation Complète de Tous les TPs et de l’Interface au Mobile & Tablette',
+    date: '19/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'ERGONOMIE TACTILE 3D',
