@@ -29,6 +29,7 @@ import {
   SurvivalMatchController,
   buildNavGrid,
   computeRackExitPosition,
+  computeRackInteriorPosition,
   evaluateMicVolumeForAI,
   findPathAStar,
   getSurvivalDoors,
@@ -1349,5 +1350,108 @@ test('v4.23 : Heure de Colle 3D en Solo (1 joueur) — capture sans écran de d�
     wsHub?.close?.();
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('v4.28 : Baies de Brassage Perforées 3D — intérieur, LEDs, visibilité sans voile noir, rotation ±45°/±20° & sortie 1.15m', () => {
+  const defaultMap = createDefaultMap();
+  const scene = new THREE.Scene();
+  const lab = buildLabWorld(scene, defaultMap, { hideSprites: true });
+
+  const prevWin = globalThis.window;
+  const prevDoc = globalThis.document;
+  const noop = () => {};
+  const fakeCanvas = { addEventListener: noop, requestPointerLock: noop };
+  globalThis.window = { addEventListener: noop, removeEventListener: noop };
+  globalThis.document = {
+    pointerLockElement: null,
+    exitPointerLock: noop,
+    addEventListener: noop,
+    getElementById: () => null
+  };
+
+  try {
+    assert.ok(lab.hidingSpots.length >= 1);
+    const spot = lab.hidingSpots[0];
+    assert.equal(spot.hasInterior, true);
+    assert.ok(spot.interiorLeds && spot.interiorLeds.length === 8);
+    assert.ok(spot.perforatedDoor);
+    assert.equal(spot.perforatedDoor.userData.isPerforatedDoor, true);
+    assert.equal(spot.perforatedDoor.castShadow, false);
+    assert.equal(spot.perforatedDoor.material.transparent, true);
+    assert.ok(spot.perforatedDoor.material.alphaTest >= 0.4);
+    assert.equal(spot.perforatedDoor.material.side, THREE.DoubleSide);
+
+    const interior = computeRackInteriorPosition({
+      x: spot.x,
+      z: spot.z,
+      rotRad: spot.rotRad,
+      w: spot.w,
+      d: spot.d
+    });
+    assert.equal(interior.y, 1.52);
+    assert.ok(Math.abs(interior.maxYawDelta - Math.PI / 4) < 0.01);
+    assert.ok(Math.abs(interior.maxPitchDelta - (20 * Math.PI) / 180) < 0.01);
+
+    const exit = computeRackExitPosition(
+      { x: spot.x, z: spot.z, rotRad: spot.rotRad, w: spot.w, d: spot.d },
+      lab.colliders,
+      defaultMap.bounds,
+      0.42
+    );
+    assert.equal(pointCollidesWithColliders(exit.x, exit.z, lab.colliders, defaultMap.bounds, 0.42), false);
+
+    const cam = new THREE.PerspectiveCamera(72, 1.6, 0.1, 150);
+    const player = new PlayerController(cam, fakeCanvas, lab.colliders);
+    player.setBounds(defaultMap.bounds);
+    player.setEnabled(true);
+
+    player.setHidingInRack(true, interior);
+    assert.equal(player.hidingInRack, true);
+    assert.equal(player.movementLocked, true);
+    assert.ok(Math.hypot(player.position.x - interior.x, player.position.z - interior.z) < 0.01);
+    assert.equal(player.position.y, interior.y);
+
+    player.keys.add('ArrowLeft');
+    player.keys.add('ArrowUp');
+    for (let i = 0; i < 20; i++) {
+      player.update(0.1);
+    }
+    player.keys.delete('ArrowLeft');
+    player.keys.delete('ArrowUp');
+    assert.ok(Math.abs(player.yaw - interior.baseYaw) > 0.05);
+    assert.ok(Math.abs(player.yaw - interior.baseYaw) <= interior.maxYawDelta + 0.001);
+    assert.ok(Math.abs(player.pitch) > 0.02);
+    assert.ok(Math.abs(player.pitch) <= interior.maxPitchDelta + 0.001);
+
+    player.keys.add('KeyW');
+    player.update(0.1);
+    player.keys.delete('KeyW');
+    assert.ok(Math.hypot(player.position.x - interior.x, player.position.z - interior.z) < 0.001);
+
+    player.setHidingInRack(false);
+    player.teleportTo(
+      { x: exit.x, z: exit.z },
+      { x: exit.x - Math.sin(exit.yaw || 0) * 4, z: exit.z - Math.cos(exit.yaw || 0) * 4 }
+    );
+    assert.equal(player.hidingInRack, false);
+    assert.equal(player.movementLocked, false);
+    assert.ok(Number.isFinite(player.position.x) && Number.isFinite(player.position.y) && Number.isFinite(player.position.z));
+    assert.ok(Math.hypot(player.position.x - exit.x, player.position.z - exit.z) < 0.02);
+
+    const css = fs.readFileSync(path.resolve('src/styles/main.css'), 'utf8');
+    const hideBlockMatch = css.match(/\.survival-hide-overlay\s*\{[^}]+\}/);
+    assert.ok(hideBlockMatch);
+    assert.ok(hideBlockMatch[0].includes('radial-gradient'));
+    assert.ok(hideBlockMatch[0].includes('pointer-events: none'));
+
+    assert.equal(typeof sfx.startRackServerHum, 'function');
+    assert.equal(typeof sfx.stopRackServerHum, 'function');
+  } finally {
+    lab.dispose();
+    if (prevWin === undefined) delete globalThis.window;
+    else globalThis.window = prevWin;
+    if (prevDoc === undefined) delete globalThis.document;
+    else globalThis.document = prevDoc;
   }
 });

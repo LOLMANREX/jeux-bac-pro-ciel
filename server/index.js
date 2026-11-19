@@ -162,7 +162,13 @@ export function createGameServer(options = {}) {
   });
 
   const server = http.createServer(app);
-  const wsHub = attachWsHub(server, store, mapStore, options.survivalOptions || {});
+  const wsHub = attachWsHub(
+    server,
+    store,
+    mapStore,
+    options.survivalOptions || {},
+    options.combatOptions || {}
+  );
 
   app.get('/api/health', (_req, res) => {
     res.json({
@@ -345,6 +351,26 @@ export function createGameServer(options = {}) {
         coinsEarned: result.coinsEarned,
         source: 'survival',
         outcome: result.outcome
+      });
+    }
+    return res.json(result);
+  });
+
+  app.post('/api/economy/combat', (req, res) => {
+    const auth = resolveAuthorizedEconomyTarget(req);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ ok: false, error: auth.error });
+    }
+    const result = store.recordCombatReward(auth.target, req.body || {});
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ ok: false, error: result.error });
+    }
+    if (result.profile) {
+      wsHub.notifyCoinsEarned?.(result.profile, {
+        coinsEarned: result.coinsEarned,
+        source: 'combat',
+        won: result.won,
+        kills: result.kills
       });
     }
     return res.json(result);

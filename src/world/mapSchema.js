@@ -333,6 +333,21 @@ export const MAP_ITEM_CATALOG = [
     isSurvivalDoor: true
   },
   {
+    type: 'combat_door',
+    category: 'stations',
+    subGroup: 'Arène de Combat CIEL',
+    label: 'Arène de Combat CIEL',
+    shortLabel: 'Arène Combat',
+    icon: '⚔️',
+    interactRadius: 2.6,
+    defaultW: 1.7,
+    defaultD: 0.42,
+    defaultH: 2.7,
+    defaultColor: '#06b6d4',
+    collides: false,
+    isCombatDoor: true
+  },
+  {
     type: 'chair_student',
     category: 'furniture',
     subGroup: 'Assises & Bureaux',
@@ -1095,6 +1110,18 @@ export function createDefaultMap() {
     d: 0.42,
     color: '#e11d48',
     label: 'Porte Survie Horreur'
+  });
+
+  objects.push({
+    id: 'obj-combat-door',
+    type: 'combat_door',
+    x: -1.3,
+    z: -1.85,
+    rotation: 180,
+    w: 1.7,
+    d: 0.42,
+    color: '#06b6d4',
+    label: '⚔️ ARÈNE DE COMBAT CIEL'
   });
 
   const hidingRacks = [

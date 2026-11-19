@@ -420,6 +420,25 @@ export const SURVIVAL_VICTORY_COINS = 150;
 export const SURVIVAL_DEFEAT_COINS = 40;
 export const DETENTION_TABLE_COIN_REWARD = 15;
 export const MAX_DETENTION_TABLES_PER_MATCH = 6;
+export const COMBAT_VICTORY_COINS = 120;
+export const COMBAT_PARTICIPATION_COINS = 40;
+export const COMBAT_KILL_COIN_BONUS = 10;
+export const COMBAT_MAX_COINS_PER_MATCH = 240;
+
+export function computeCombatCoinReward({ won = false, kills = 0 } = {}) {
+  const isWin = Boolean(won);
+  const baseCoins = isWin ? COMBAT_VICTORY_COINS : COMBAT_PARTICIPATION_COINS;
+  const cleanKills = Math.max(0, Math.floor(Number(kills) || 0));
+  const killBonus = Math.min(120, cleanKills * COMBAT_KILL_COIN_BONUS);
+  const totalCoins = Math.min(COMBAT_MAX_COINS_PER_MATCH, baseCoins + killBonus);
+  return {
+    totalCoins,
+    baseCoins,
+    killBonus,
+    kills: cleanKills,
+    won: isWin
+  };
+}
 
 export function computeSurvivalCoinReward({ outcome = 'defeat', solvedTables = 0 } = {}) {
   const isVictory = outcome === 'victory';

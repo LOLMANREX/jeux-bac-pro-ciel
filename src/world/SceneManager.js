@@ -783,6 +783,45 @@ export class SceneManager {
     }
   }
 
+  setCombatAtmosphere(active) {
+    this.combatMode = Boolean(active);
+    if (!this.combatMode) {
+      this.setHorrorAtmosphere(false, 0, 1);
+      return;
+    }
+    this.horrorMode = false;
+    const bgHex = '#060d1f';
+    if (this.scene.background?.isColor) {
+      this.scene.background.set(bgHex);
+    } else {
+      this.scene.background = new THREE.Color(bgHex);
+    }
+    if (this.scene.fog) {
+      this.scene.fog.color.set(bgHex);
+      this.scene.fog.near = 26;
+      this.scene.fog.far = 84;
+    }
+    this.renderer?.setClearColor?.(bgHex, 1);
+    if (this.ambient) {
+      this.ambient.color.set('#cbd5e1');
+      this.ambient.intensity = 0.45;
+    }
+    if (this.hemi) {
+      this.hemi.color.set('#38bdf8');
+      this.hemi.intensity = 0.68;
+    }
+    if (this.sun) this.sun.intensity = 0.72;
+    if (this.fill) {
+      this.fill.color.set('#38bdf8');
+      this.fill.intensity = 0.36;
+    }
+    this.scene.environmentIntensity = 0.55;
+    if (this.flashlight) {
+      this.flashlight.visible = false;
+      this.flashlight.intensity = 0;
+    }
+  }
+
   getMaxAnisotropy() {
     return this.renderer?.capabilities?.getMaxAnisotropy?.() || 8;
   }

@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : "v4.27 - Épuration du HUD Haut, Boutique dans Paramètres, Suppression Meuble Boutique & Écran CIEL OS Simple Face";
+    : "v4.28 - Baies de Brassage Perforées Immersives & Mini-Jeu Arène de Combat CIEL (Fusils & Mêlée)";
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.27 — Épuration du HUD Haut, Boutique dans Paramètres, Suppression Meuble Boutique & Écran CIEL OS Simple Face',
+    version: 'v4.28 — Baies de Brassage Perforées Immersives & Nouveau Mini-Jeu Arène de Combat CIEL (Fusils & Mêlée)',
     date: '19/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'BAIES DE BRASSAGE 3D',
+        title: 'Immersion Intérieure Réelle avec Porte Perforée Transparente & Ventilation Serveur',
+        desc: 'Modélisation complète de l’intérieur 3D de chaque baie de brassage (parois métalliques sombres, rails et LEDs clignotantes) avec porte avant grillagée à véritables fentes et perforations transparentes permettant de voir l’atelier et le Professeur CIEL passer à travers. Rotation limitée à l’intérieur (±45° H, ±20° V sur PC/Mobile, 6DoF libre en VR), léger vignettage périphérique sans voile noir opaque, ambiance audio de ventilation serveur/battement de cœur et sortie anti-blocage à 1.15m strictement préservée.'
+      },
+      {
+        badge: 'ARÈNE DE COMBAT CIEL',
+        title: 'Porte 3D Dédiée, Lobby Cyber & 8 Armes CIEL (Mode Fusils & Mode Mêlée)',
+        desc: 'Nouvelle porte "⚔️ ARÈNE DE COMBAT CIEL" donnant accès à une salle d’attente 3D et une arène Data Center cyber jouables en PvP multijoueur comme en solo avec 3+ bots IA autonomes sur PC, Mobile/Tablette et WebXR VR (détection réelle de swing du bras et montre HUD). Arsenal CIEL complet : Fusil Fibre Optique, Pompe Paquets UDP, Sniper Ping 0ms, Pistolet Plasma, Fer à Souder, Pince RJ45 Géante, Katana RAM DDR5 et Marteau Switch 24 Ports, VFX pré-alloués sans fuite FPS et récompenses jusqu’à 240 CIEL Coins.'
+      }
+    ]
+  },
+  {
+    version: 'v4.27 — Épuration du HUD Haut, Boutique dans Paramètres, Suppression Meuble Boutique & Écran CIEL OS Simple Face',
+    date: '19/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'HUD ÉPURÉ & PARAMÈTRES',

@@ -5,6 +5,7 @@ import {
   DEFAULT_SKIN,
   disposeObject3D
 } from '../world/AvatarBuilder.js';
+import { buildCombatWeaponMesh, getCombatWeaponById } from '../world/CombatWeapons.js';
 import { buildPetMesh } from '../world/PetBuilder.js';
 import { pickLabInteractable } from '../world/SceneManager.js';
 import { hasFullMapLineOfSight, pointCollidesWithColliders } from '../world/SurvivalEngine.js';
@@ -131,7 +132,24 @@ export class VRManager {
     this.seatedPose = null;
     this.seatedAnchorLocalY = 0;
     this.seatedAnchorCaptured = false;
+    this.hidingInRack = false;
+    this.hidingPose = null;
     this.detentionHudHidden = false;
+    this.combatActive = false;
+    this.combatMode = 'guns';
+    this.combatCallbacks = null;
+    this.combatWeaponObj = null;
+    this.combatWeaponId = null;
+    this._combatLastAttackAt = 0;
+    this._combatPrevRightTrigger = false;
+    this._combatPrevRightGrip = false;
+    this._combatPrevRightAction = false;
+    this._combatPrevLeftAction = false;
+    this._hasPrevRightHandPos = false;
+    this._prevRightHandWorldPos = new THREE.Vector3();
+    this._curRightHandWorldPos = new THREE.Vector3();
+    this._combatAimOrigin = new THREE.Vector3();
+    this._combatAimDir = new THREE.Vector3();
 
     this.raycaster = new THREE.Raycaster();
     this.tempMatrix = new THREE.Matrix4();
@@ -710,6 +728,9 @@ export class VRManager {
     this.seatedPose = null;
     this.seatedAnchorLocalY = 0;
     this.seatedAnchorCaptured = false;
+    this.hidingInRack = false;
+    this.hidingPose = null;
+    this.setCombatMode(false);
     this.detentionHudHidden = false;
     this.wristPanel.setHudSuppressed?.(false);
     this.wristPanel.setForceVisible(false);
@@ -772,6 +793,12 @@ export class VRManager {
     if (lookDx || lookDy) {
       this.simLookYaw -= lookDx * 0.004;
       this.simLookPitch = Math.max(-1.1, Math.min(1.1, this.simLookPitch - lookDy * 0.004));
+      if (this.hidingInRack) {
+        const maxY = Math.PI / 4;
+        const maxP = (20 * Math.PI) / 180;
+        this.simLookYaw = Math.max(-maxY, Math.min(maxY, this.simLookYaw));
+        this.simLookPitch = Math.max(-maxP, Math.min(maxP, this.simLookPitch));
+      }
     }
   }
 
@@ -810,6 +837,9 @@ export class VRManager {
       this.worldPanel = null;
     }
     this.worldPanel = createTpSpatialPanel();
+    if (Number.isFinite(Number(opts?.scale))) {
+      this.worldPanel.group.scale.setScalar(Number(opts.scale));
+    }
     this.sceneMgr.scene.add(this.worldPanel.group);
     if (this.camera) {
       this.camera.updateMatrixWorld(true);
@@ -941,18 +971,180 @@ export class VRManager {
     return true;
   }
 
-  exitHidingRackVr(exitX, exitZ, yaw = null) {
-    this.closeWorldSpatialPanel?.();
+  enterHidingRackVr(interiorX, interiorZ, yaw = 0, eyeY = 1.52) {
+    const ix = Number.isFinite(Number(interiorX)) ? Number(interiorX) : Number(this.player?.position?.x) || 0;
+    const iz = Number.isFinite(Number(interiorZ)) ? Number(interiorZ) : Number(this.player?.position?.z) || 0;
+    const nextYaw = Number.isFinite(Number(yaw)) ? Number(yaw) : 0;
+    const ey = Number.isFinite(Number(eyeY)) ? Number(eyeY) : 1.52;
+    this.hidingInRack = true;
+    this.hidingPose = { x: ix, y: ey, z: iz, yaw: nextYaw };
     this.seatedMode = false;
     this.seatedPose = null;
+    if (this.active && this.vrRig && this.camera) {
+      this.syncWorldTeleport(ix, iz, nextYaw);
+      if (this.simMode) {
+        this.simLookYaw = 0;
+        this.simLookPitch = 0;
+        this.camera.position.set(0, ey, 0);
+        this.camera.rotation.set(0, 0, 0, 'YXZ');
+        this.simHandsGroup.position.set(0, ey, 0);
+        this.simHandsGroup.rotation.set(0, 0, 0, 'YXZ');
+      }
+      this.vrRig.updateMatrixWorld(true);
+    }
+    this.player?.setVrPose?.({ x: ix, z: iz, yaw: nextYaw });
+    return true;
+  }
+
+  exitHidingRackVr(exitX, exitZ, yaw = null) {
+    this.closeWorldSpatialPanel?.();
+    this.hidingInRack = false;
+    this.hidingPose = null;
+    this.seatedMode = false;
+    this.seatedPose = null;
+    this.player?.setHidingInRack?.(false);
     if (this.player) {
       this.player.setMovementLocked?.(false);
       this.player.setEnabled?.(true);
     }
     if (this.active) {
+      if (this.simMode && this.camera) {
+        this.simLookYaw = 0;
+        this.simLookPitch = -0.05;
+        this.camera.position.set(0, 1.65, 0);
+        this.simHandsGroup.position.set(0, 1.65, 0);
+      }
       return this.syncWorldTeleport(exitX, exitZ, yaw);
     }
     return false;
+  }
+
+  setCombatWeaponModel(weaponId = null) {
+    const cleanId = weaponId ? String(weaponId) : null;
+    if (this.combatWeaponId === cleanId && Boolean(this.combatWeaponObj) === Boolean(cleanId)) {
+      return this.combatWeaponObj;
+    }
+    if (this.combatWeaponObj) {
+      this.combatWeaponObj.group.parent?.remove(this.combatWeaponObj.group);
+      this.combatWeaponObj.dispose?.();
+      this.combatWeaponObj = null;
+    }
+    this.combatWeaponId = cleanId;
+    if (!cleanId) return null;
+    const obj = buildCombatWeaponMesh(cleanId, { viewModel: true });
+    obj.group.position.set(0.01, -0.02, -0.08);
+    this.slots.right.visualParent.add(obj.group);
+    this.combatWeaponObj = obj;
+    return obj;
+  }
+
+  setCombatMode(active, opts = {}) {
+    this.combatActive = Boolean(active);
+    this._hasPrevRightHandPos = false;
+    this._combatLastAttackAt = 0;
+    this._combatPrevRightTrigger = false;
+    this._combatPrevRightGrip = false;
+    this._combatPrevRightAction = false;
+    this._combatPrevLeftAction = false;
+    if (!this.combatActive) {
+      this.combatMode = 'guns';
+      this.combatCallbacks = null;
+      this.setCombatWeaponModel(null);
+      this.wristPanel?.updateState?.({ combatStatus: null });
+      return false;
+    }
+    this.combatMode = opts.mode === 'melee' ? 'melee' : 'guns';
+    this.combatCallbacks = opts.callbacks || null;
+    if (opts.weaponId) {
+      this.setCombatWeaponModel(opts.weaponId);
+    }
+    return true;
+  }
+
+  _updateCombatVr(dt, nowMs, leftState, rightState) {
+    if (!this.combatActive || !this.active || this.worldPanel || this.tpContext) {
+      this._hasPrevRightHandPos = false;
+      return;
+    }
+
+    const spec = getCombatWeaponById(this.combatWeaponId);
+    const visualParent = this.slots.right.visualParent;
+    visualParent.updateWorldMatrix?.(true, false);
+    visualParent.getWorldPosition(this._curRightHandWorldPos);
+
+    let handSpeed = 0;
+    if (this._hasPrevRightHandPos && dt > 0.002) {
+      handSpeed = this._curRightHandWorldPos.distanceTo(this._prevRightHandWorldPos) / dt;
+    }
+    this._prevRightHandWorldPos.copy(this._curRightHandWorldPos);
+    this._hasPrevRightHandPos = true;
+
+    const rayParent = this.slots.right.rayParent;
+    rayParent.updateWorldMatrix?.(true, false);
+    rayParent.getWorldPosition(this._combatAimOrigin);
+    this.tempMatrix.extractRotation(rayParent.matrixWorld);
+    this._combatAimDir.set(0, 0, -1).applyMatrix4(this.tempMatrix).normalize();
+
+    const triggerNow = Boolean(rightState?.triggerPressed);
+    const triggerJust = triggerNow && !this._combatPrevRightTrigger;
+    this._combatPrevRightTrigger = triggerNow;
+
+    const gripNow = (rightState?.gripVal || 0) > 0.75;
+    const gripJust = gripNow && !this._combatPrevRightGrip;
+    this._combatPrevRightGrip = gripNow;
+
+    const rActionNow = Boolean(rightState?.actionBtn);
+    const rActionJust = rActionNow && !this._combatPrevRightAction;
+    this._combatPrevRightAction = rActionNow;
+
+    const lActionNow = Boolean(leftState?.actionBtn);
+    const lActionJust = lActionNow && !this._combatPrevLeftAction;
+    this._combatPrevLeftAction = lActionNow;
+
+    if (gripJust || lActionJust) {
+      this._pulseHaptic(this.slots.right, 0.35, 30);
+      this.combatCallbacks?.onCycleWeapon?.();
+    }
+
+    if (rActionJust) {
+      if (this.combatMode === 'guns') {
+        this._pulseHaptic(this.slots.right, 0.4, 35);
+        this.combatCallbacks?.onReload?.();
+      } else {
+        this._pulseHaptic(this.slots.right, 0.35, 30);
+        this.combatCallbacks?.onCycleWeapon?.();
+      }
+    }
+
+    const cooldown = spec?.fireRateMs || 280;
+    let shouldAttack = false;
+    let isVrSwing = false;
+
+    if (this.combatMode === 'guns') {
+      shouldAttack = spec?.auto ? triggerNow : triggerJust;
+    } else {
+      isVrSwing = handSpeed >= 1.75;
+      shouldAttack = triggerJust || isVrSwing;
+    }
+
+    if (shouldAttack && nowMs - this._combatLastAttackAt >= cooldown) {
+      this._combatLastAttackAt = nowMs;
+      this._pulseHaptic(this.slots.right, this.combatMode === 'melee' ? 0.85 : 0.7, 45);
+      this.combatCallbacks?.onAttack?.({
+        weaponId: this.combatWeaponId,
+        origin: {
+          x: this._combatAimOrigin.x,
+          y: this._combatAimOrigin.y,
+          z: this._combatAimOrigin.z
+        },
+        dir: {
+          x: this._combatAimDir.x,
+          y: this._combatAimDir.y,
+          z: this._combatAimDir.z
+        },
+        isVrSwing
+      });
+    }
   }
 
   setDetentionHudHidden(hidden) {
@@ -1834,7 +2026,9 @@ export class VRManager {
     }
 
     if (justAction && !this.tpContext) {
-      if (hitAction) {
+      if (this.hidingInRack && this.worldPanel?.getState?.()?.survivalHidden?.onExitRack) {
+        this.worldPanel.getState().survivalHidden.onExitRack();
+      } else if (hitAction) {
         hitAction();
       } else {
         const nearest = this.options.getNearestInteractable?.();
@@ -1944,7 +2138,7 @@ export class VRManager {
 
     let moveX = 0;
     let moveZ = 0;
-    const lockedMove = Boolean(this.seatedMode || this.player?.movementLocked || this.activePcStation);
+    const lockedMove = Boolean(this.seatedMode || this.hidingInRack || this.player?.movementLocked || this.activePcStation);
 
     if (this.activePcStation?.desktop) {
       if (this.simMode) {
@@ -1995,6 +2189,16 @@ export class VRManager {
           moveX = ((fwdX * forward + rightX * right) / len) * speed;
           moveZ = ((fwdZ * forward + rightZ * right) / len) * speed;
         }
+      } else if (this.hidingInRack) {
+        const lookSpeed = 1.65;
+        if (hasKey('ArrowLeft')) this.simLookYaw += lookSpeed * dt;
+        if (hasKey('ArrowRight')) this.simLookYaw -= lookSpeed * dt;
+        if (hasKey('ArrowUp')) this.simLookPitch += lookSpeed * 0.75 * dt;
+        if (hasKey('ArrowDown')) this.simLookPitch -= lookSpeed * 0.75 * dt;
+        const maxY = Math.PI / 4;
+        const maxP = (20 * Math.PI) / 180;
+        this.simLookYaw = Math.max(-maxY, Math.min(maxY, this.simLookYaw));
+        this.simLookPitch = Math.max(-maxP, Math.min(maxP, this.simLookPitch));
       } else if (this.seatedMode) {
         const lookSpeed = 1.85;
         if (hasKey('ArrowLeft')) this.simLookYaw += lookSpeed * dt;
@@ -2003,7 +2207,7 @@ export class VRManager {
         if (hasKey('ArrowDown')) this.simLookPitch = Math.max(-1.15, this.simLookPitch - lookSpeed * 0.85 * dt);
       }
 
-      if (Math.abs(this.simStickState.rx) > 0.62) {
+      if (!this.hidingInRack && Math.abs(this.simStickState.rx) > 0.62) {
         if (!this.snapNeedsRelease || nowMs >= this.snapCooldownUntil) {
           this.snapTurn(Math.sign(this.simStickState.rx));
           this.snapCooldownUntil = nowMs + 280;
@@ -2013,7 +2217,12 @@ export class VRManager {
         this.snapNeedsRelease = false;
       }
 
-      const simHeadY = this.seatedMode && this.seatedPose ? this.seatedPose.y : 1.65;
+      const simHeadY =
+        this.hidingInRack && this.hidingPose
+          ? this.hidingPose.y
+          : this.seatedMode && this.seatedPose
+            ? this.seatedPose.y
+            : 1.65;
       this.camera.position.y = simHeadY;
       this.camera.rotation.set(this.simLookPitch, this.simLookYaw, 0, 'YXZ');
       this.simHandsGroup.position.set(0, simHeadY, 0);
@@ -2332,6 +2541,7 @@ export class VRManager {
     }
     this._updateSlotRayAndInteract(this.slots.left, leftState, dt, elapsed);
     this._updateSlotRayAndInteract(this.slots.right, rightState, dt, elapsed);
+    this._updateCombatVr(dt, nowMs, leftState, rightState);
     if (typeof this.options.getWorldInteractiveSurfaces === 'function') {
       const surfaces = this.options.getWorldInteractiveSurfaces() || [];
       for (const surf of surfaces) {
@@ -2346,6 +2556,7 @@ export class VRManager {
       this._teardownSession();
     }
     this._clearVrShopPreview();
+    this.setCombatMode(false);
     this.wristPanel?.dispose?.();
     this.debugPanel?.dispose?.();
     this.tpPanel?.dispose?.();

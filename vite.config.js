@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify("v4.27 - Épuration du HUD Haut, Boutique dans Paramètres, Suppression Meuble Boutique & Écran CIEL OS Simple Face"),
+    __APP_VERSION__: JSON.stringify("v4.28 - Baies de Brassage Perforées Immersives & Mini-Jeu Arène de Combat CIEL (Fusils & Mêlée)"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

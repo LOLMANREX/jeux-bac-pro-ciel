@@ -697,6 +697,52 @@ export class NetworkClient {
     return this.send({ type: 'survival_restart' });
   }
 
+  sendCombatJoin() {
+    return this.send({ type: 'combat_join' });
+  }
+
+  sendCombatLeave() {
+    return this.send({ type: 'combat_leave' });
+  }
+
+  sendCombatMode(mode = 'guns') {
+    return this.send({ type: 'combat_mode', mode: mode === 'melee' ? 'melee' : 'guns' });
+  }
+
+  sendCombatFillBots(fillBots = true) {
+    return this.send({ type: 'combat_fill_bots', fillBots: Boolean(fillBots) });
+  }
+
+  sendCombatWeapon(weaponId) {
+    return this.send({ type: 'combat_weapon', weaponId });
+  }
+
+  sendCombatReady(ready = true) {
+    return this.send({ type: 'combat_ready', ready: Boolean(ready) });
+  }
+
+  sendCombatAttack({ weaponId, origin, dir, isVrSwing = false } = {}) {
+    return this.send({
+      type: 'combat_attack',
+      weaponId,
+      origin,
+      dir,
+      isVrSwing: Boolean(isVrSwing)
+    });
+  }
+
+  sendCombatReload() {
+    return this.send({ type: 'combat_reload' });
+  }
+
+  sendCombatRestart() {
+    return this.send({ type: 'combat_restart' });
+  }
+
+  sendCombatReturn() {
+    return this.send({ type: 'combat_return' });
+  }
+
   async acceptQuest(name) {
     const sent = this.send({ type: 'accept_quest' });
     if (!sent) {

@@ -743,6 +743,140 @@ export class SoundEngine {
       this.playTone(n, 0.11, 'triangle', 0.07, idx * 0.055);
     });
   }
+
+  startRackServerHum() {
+    const ctx = this._ensureCtx();
+    if (!ctx || this._rackHum) return false;
+    try {
+      const len = Math.max(512, Math.floor((ctx.sampleRate || 44100) * 1.2));
+      const buffer = ctx.createBuffer(1, len, ctx.sampleRate || 44100);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        data[i] = (Math.random() * 2 - 1) * 0.35;
+      }
+      const noiseSrc = ctx.createBufferSource();
+      noiseSrc.buffer = buffer;
+      noiseSrc.loop = true;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 320;
+      filter.Q.value = 1.6;
+
+      const fanOsc = ctx.createOscillator();
+      fanOsc.type = 'sine';
+      fanOsc.frequency.value = 110;
+
+      const fanGain = ctx.createGain();
+      fanGain.gain.value = 0.012;
+
+      const master = ctx.createGain();
+      master.gain.value = 0.026;
+
+      noiseSrc.connect(filter);
+      filter.connect(master);
+      fanOsc.connect(fanGain);
+      fanGain.connect(master);
+      master.connect(this._getOutputNode());
+
+      noiseSrc.start();
+      fanOsc.start();
+      this._rackHum = { noiseSrc, fanOsc, filter, fanGain, master };
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  stopRackServerHum() {
+    if (!this._rackHum) return;
+    const hum = this._rackHum;
+    this._rackHum = null;
+    try {
+      hum.noiseSrc?.stop?.();
+      hum.fanOsc?.stop?.();
+      hum.master?.disconnect?.();
+    } catch {}
+  }
+
+  playCombatShot(weaponId = 'fiber_rifle') {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    if (weaponId === 'udp_shotgun') {
+      this.playTone(160, 0.14, 'sawtooth', 0.12, 0);
+      this.playTone(95, 0.18, 'square', 0.09, 0.015);
+      this._playClapGrain(0, 920, 0.09);
+      return;
+    }
+    if (weaponId === 'ping_sniper') {
+      this.playTone(1380, 0.08, 'triangle', 0.1, 0);
+      this.playTone(420, 0.24, 'sawtooth', 0.11, 0.02);
+      this.playTone(2120, 0.14, 'sine', 0.07, 0.03);
+      return;
+    }
+    if (weaponId === 'plasma_solder_pistol') {
+      this.playTone(920, 0.06, 'sine', 0.08, 0);
+      this.playTone(540, 0.08, 'triangle', 0.07, 0.02);
+      return;
+    }
+    this.playTone(780, 0.055, 'sawtooth', 0.065, 0);
+    this.playTone(510, 0.07, 'triangle', 0.06, 0.02);
+  }
+
+  playCombatMelee(weaponId = 'ddr5_katana') {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    if (weaponId === 'switch24_hammer') {
+      this.playTone(145, 0.22, 'sawtooth', 0.13, 0);
+      this.playTone(72, 0.26, 'sine', 0.14, 0.02);
+      return;
+    }
+    if (weaponId === 'rj45_crimper_heavy') {
+      this.playTone(240, 0.12, 'square', 0.1, 0);
+      this.playTone(115, 0.16, 'triangle', 0.1, 0.04);
+      return;
+    }
+    if (weaponId === 'solder_iron_blade') {
+      this.playTone(680, 0.06, 'triangle', 0.06, 0);
+      this.solderSizzle();
+      return;
+    }
+    this.playTone(860, 0.07, 'triangle', 0.075, 0);
+    this.playTone(420, 0.09, 'sine', 0.06, 0.03);
+  }
+
+  playCombatHitmarker(isKill = false) {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    if (isKill) {
+      this.playTone(1046.5, 0.07, 'triangle', 0.09, 0);
+      this.playTone(1567.98, 0.11, 'sine', 0.095, 0.05);
+    } else {
+      this.playTone(1240, 0.04, 'triangle', 0.075, 0);
+    }
+  }
+
+  playCombatReload() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    this.playTone(420, 0.05, 'square', 0.05, 0);
+    this.playTone(680, 0.06, 'triangle', 0.065, 0.09);
+    this.playTone(960, 0.07, 'sine', 0.065, 0.17);
+  }
+
+  playCombatPickup() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    this.playTone(659.25, 0.08, 'sine', 0.07, 0);
+    this.playTone(987.77, 0.12, 'triangle', 0.08, 0.06);
+  }
+
+  playCombatHurt() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    this.playTone(180, 0.12, 'sawtooth', 0.09, 0);
+    this.playTone(110, 0.16, 'sine', 0.09, 0.04);
+  }
 }
 
 export const sfx = new SoundEngine();

@@ -14,6 +14,7 @@ import {
   ULTIMATE_SECRET_SKIN_ID,
   updateVoiceIndicatorSprite
 } from './AvatarBuilder.js';
+import { buildCombatWeaponMesh } from './CombatWeapons.js';
 import { buildPetMesh } from './PetBuilder.js';
 import { isShopPetId } from './ShopCatalog.js';
 
@@ -653,9 +654,54 @@ export class RemotePlayersManager {
     }
   }
 
+  setPeerCombatWeapon(id, weaponId = null) {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    const nextId = weaponId || null;
+    if (peer.combatWeaponId === nextId && Boolean(peer.combatWeaponObj) === Boolean(nextId)) {
+      return;
+    }
+    if (peer.combatWeaponObj) {
+      peer.combatWeaponObj.group.parent?.remove(peer.combatWeaponObj.group);
+      peer.combatWeaponObj.dispose?.();
+      peer.combatWeaponObj = null;
+    }
+    peer.combatWeaponId = nextId;
+    if (!nextId) return;
+    const obj = buildCombatWeaponMesh(nextId, { viewModel: false });
+    const vrRight = peer.vrTracker?.rightHand?.root;
+    if (peer.vrData?.active && vrRight) {
+      obj.group.position.set(0, -0.02, -0.06);
+      vrRight.add(obj.group);
+    } else if (peer.rightArm) {
+      obj.group.position.set(0, -0.34, -0.14);
+      peer.rightArm.add(obj.group);
+    }
+    peer.combatWeaponObj = obj;
+  }
+
+  triggerPeerAttackAnim(id) {
+    const peer = this.peers.get(id);
+    if (peer) {
+      peer.combatAttackUntil = Date.now() + 220;
+    }
+  }
+
+  clearAllCombatWeapons() {
+    for (const id of this.peers.keys()) {
+      this.setPeerCombatWeapon(id, null);
+    }
+  }
+
   removePeer(id) {
     const peer = this.peers.get(id);
     if (!peer) return;
+    if (peer.combatWeaponObj) {
+      peer.combatWeaponObj.group.parent?.remove(peer.combatWeaponObj.group);
+      peer.combatWeaponObj.dispose?.();
+      peer.combatWeaponObj = null;
+      peer.combatWeaponId = null;
+    }
     if (peer.petMesh) {
       if (peer.petMesh.group) {
         this.scene.remove(peer.petMesh.group);
@@ -713,6 +759,10 @@ export class RemotePlayersManager {
         isGrounded,
         speedRatio: Math.max(0.8, Math.min(1.5, peer.horizSpeed / 5.2))
       });
+      if (peer.combatWeaponId && peer.rightArm) {
+        peer.rightArm.rotation.x =
+          peer.combatAttackUntil && Date.now() < peer.combatAttackUntil ? -1.18 : -0.62;
+      }
 
       peer.updateEffects?.(elapsed);
       if (peer.petMesh) {

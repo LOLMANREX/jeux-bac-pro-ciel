@@ -3,7 +3,7 @@ import { TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import { CielOsDesktop } from '../minigames/CielOsDesktop.js';
 import { createNpcTeacher } from './NpcTeacher.js';
 import { createRealisticMaterialPack } from './RealisticMaterials.js';
-import { computeRackExitPosition } from './SurvivalEngine.js';
+import { computeRackExitPosition, computeRackInteriorPosition } from './SurvivalEngine.js';
 import {
   createDefaultMap,
   getCatalogItem,
@@ -72,6 +72,61 @@ function makeDoorSignTexture(label, accent = '#0284c7') {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(label || 'SALLE CIEL').slice(0, 26), w / 2 + 8, h / 2);
+  });
+}
+
+function makePerforatedRackDoorTexture() {
+  return makeCanvasTexture(512, 1024, (ctx, w, h) => {
+    ctx.fillStyle = '#111827';
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.07)';
+    for (let y = 0; y < h; y += 6) {
+      ctx.fillRect(0, y, w, 2);
+    }
+
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 18;
+    ctx.strokeRect(9, 9, w - 18, h - 18);
+
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = '#000000';
+
+    for (let y = 148; y <= 650; y += 44) {
+      ctx.beginPath();
+      ctx.roundRect(42, y, w - 84, 24, 9);
+      ctx.fill();
+      for (let x = 58; x <= w - 58; x += 26) {
+        ctx.beginPath();
+        ctx.arc(x, y + 33, 6.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    for (let row = 0; row < 4; row++) {
+      const gyTop = 44 + row * 22;
+      const gyBot = 708 + row * 26;
+      for (let col = 56; col <= w - 56; col += 24) {
+        ctx.beginPath();
+        ctx.arc(col, gyTop, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(col, gyBot, 6.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    for (let y = 824; y <= 964; y += 34) {
+      ctx.beginPath();
+      ctx.roundRect(54, y, w - 108, 14, 6);
+      ctx.fill();
+    }
+
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+    ctx.lineWidth = 2;
+    for (let y = 148; y <= 650; y += 44) {
+      ctx.strokeRect(42, y, w - 84, 24);
+    }
   });
 }
 
@@ -688,7 +743,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   const solidWallMeshes = [];
   const teacherRefs = [];
   const survivalDoors = [];
+  const combatDoors = [];
   const hidingSpots = [];
+  let perfRackDoorTex = null;
   const pcStations = [];
   const pcInteractiveSurfaces = [];
   const shopKiosks = [];
@@ -1245,6 +1302,108 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
     const orientTex = makeOrientationMapTexture(mapData);
 
+    const buildSpecialModeDoor = (obj, w, d, rotRad, cat) => {
+      const isCombat = obj.type === 'combat_door';
+      const doorGrp = new THREE.Group();
+      doorGrp.position.set(obj.x, 0, obj.z);
+      doorGrp.rotation.y = rotRad;
+      worldGroup.add(doorGrp);
+
+      const accentColor = obj.color || (isCombat ? '#06b6d4' : '#e11d48');
+      const doorW = Math.max(1.2, w);
+      const doorH = 2.6;
+      const doorD = Math.max(0.28, d);
+      const frameMat = new THREE.MeshStandardMaterial({
+        color: '#1e293b',
+        roughness: 0.35,
+        metalness: 0.72,
+        emissive: '#000000',
+        emissiveIntensity: 0
+      });
+      const leftPost = new THREE.Mesh(new THREE.BoxGeometry(0.16, doorH, doorD), frameMat);
+      leftPost.position.set(-doorW / 2 + 0.08, doorH / 2, 0);
+      leftPost.castShadow = true;
+      doorGrp.add(leftPost);
+
+      const rightPost = new THREE.Mesh(new THREE.BoxGeometry(0.16, doorH, doorD), frameMat);
+      rightPost.position.set(doorW / 2 - 0.08, doorH / 2, 0);
+      rightPost.castShadow = true;
+      doorGrp.add(rightPost);
+
+      const topLintel = new THREE.Mesh(new THREE.BoxGeometry(doorW + 0.14, 0.24, doorD + 0.06), frameMat);
+      topLintel.position.set(0, doorH + 0.12, 0);
+      topLintel.castShadow = true;
+      doorGrp.add(topLintel);
+
+      const portalMat = new THREE.MeshBasicMaterial({
+        color: accentColor,
+        transparent: true,
+        opacity: 0.42,
+        side: THREE.DoubleSide
+      });
+      const portalPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(Math.max(0.8, doorW - 0.32), doorH - 0.08),
+        portalMat
+      );
+      portalPlane.position.set(0, (doorH - 0.08) / 2, 0);
+      doorGrp.add(portalPlane);
+
+      const defaultTitle = isCombat ? '⚔️ ARÈNE DE COMBAT CIEL' : 'SURVIE HORREUR • TRAQUE CIEL';
+      const signTex = makeDoorSignTexture(obj.label || defaultTitle, accentColor);
+      const signMat = new THREE.MeshBasicMaterial({ map: signTex });
+      const signFront = new THREE.Mesh(new THREE.PlaneGeometry(doorW * 0.92, 0.26), signMat);
+      signFront.position.set(0, doorH + 0.12, (doorD + 0.06) / 2 + 0.005);
+      doorGrp.add(signFront);
+      const signBack = new THREE.Mesh(new THREE.PlaneGeometry(doorW * 0.92, 0.26), signMat);
+      signBack.rotation.y = Math.PI;
+      signBack.position.set(0, doorH + 0.12, -(doorD + 0.06) / 2 - 0.005);
+      doorGrp.add(signBack);
+
+      const beaconMat = new THREE.MeshBasicMaterial({ color: isCombat ? '#22d3ee' : '#f43f5e' });
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 12), beaconMat);
+      beacon.position.set(0, doorH + 0.34, 0);
+      doorGrp.add(beacon);
+      animatedRefs.survivalBeacons.push({ mesh: beacon, portal: portalMat, phase: (obj.x + obj.z) * 0.3 });
+
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.75, 0.96, 32),
+        new THREE.MeshBasicMaterial({ color: accentColor, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.03;
+      doorGrp.add(ring);
+
+      if (showSprites) {
+        const sprite = makeStationLabelSprite(
+          obj.label || (isCombat ? 'Arène de Combat CIEL' : 'Mode Survie Horreur'),
+          isCombat ? '⚔️' : '🚪',
+          accentColor
+        );
+        sprite.position.set(0, doorH + 0.72, 0);
+        doorGrp.add(sprite);
+      }
+
+      const doorEntry = {
+        id: obj.id,
+        type: obj.type,
+        label: isCombat
+          ? `[E] ⚔️ ${obj.label || 'Entrer — Arène de Combat CIEL'}`
+          : `[E] 🚪 ${obj.label || 'Entrer — Mode Survie Horreur'}`,
+        position: new THREE.Vector3(obj.x, 0, obj.z),
+        rotation: rotRad,
+        interactRadius: cat?.interactRadius || 2.6,
+        ring,
+        mesh: doorGrp,
+        highlightMats: [frameMat]
+      };
+      if (isCombat) {
+        combatDoors.push(doorEntry);
+      } else {
+        survivalDoors.push(doorEntry);
+      }
+      interactables.push(doorEntry);
+    };
+
     for (const obj of mapData.objects || []) {
       const cat = getCatalogItem(obj.type);
       if (!cat) continue;
@@ -1267,95 +1426,15 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         continue;
       }
 
+      if (obj.type === 'survival_door' || obj.type === 'combat_door') {
+        buildSpecialModeDoor(obj, w, d, rotRad, cat);
+        continue;
+      }
+
       const grp = new THREE.Group();
       grp.position.set(obj.x, 0, obj.z);
       grp.rotation.y = rotRad;
       worldGroup.add(grp);
-
-      if (obj.type === 'survival_door') {
-        const doorW = Math.max(1.2, w);
-        const doorH = 2.6;
-        const doorD = Math.max(0.28, d);
-        const frameMat = new THREE.MeshStandardMaterial({
-          color: '#1e293b',
-          roughness: 0.35,
-          metalness: 0.72,
-          emissive: '#000000',
-          emissiveIntensity: 0
-        });
-        const leftPost = new THREE.Mesh(new THREE.BoxGeometry(0.16, doorH, doorD), frameMat);
-        leftPost.position.set(-doorW / 2 + 0.08, doorH / 2, 0);
-        leftPost.castShadow = true;
-        grp.add(leftPost);
-
-        const rightPost = new THREE.Mesh(new THREE.BoxGeometry(0.16, doorH, doorD), frameMat);
-        rightPost.position.set(doorW / 2 - 0.08, doorH / 2, 0);
-        rightPost.castShadow = true;
-        grp.add(rightPost);
-
-        const topLintel = new THREE.Mesh(new THREE.BoxGeometry(doorW + 0.14, 0.24, doorD + 0.06), frameMat);
-        topLintel.position.set(0, doorH + 0.12, 0);
-        topLintel.castShadow = true;
-        grp.add(topLintel);
-
-        const portalMat = new THREE.MeshBasicMaterial({
-          color: obj.color || '#e11d48',
-          transparent: true,
-          opacity: 0.42,
-          side: THREE.DoubleSide
-        });
-        const portalPlane = new THREE.Mesh(
-          new THREE.PlaneGeometry(Math.max(0.8, doorW - 0.32), doorH - 0.08),
-          portalMat
-        );
-        portalPlane.position.set(0, (doorH - 0.08) / 2, 0);
-        grp.add(portalPlane);
-
-        const signTex = makeDoorSignTexture(obj.label || 'SURVIE HORREUR • TRAQUE CIEL', obj.color || '#e11d48');
-        const signMat = new THREE.MeshBasicMaterial({ map: signTex });
-        const signFront = new THREE.Mesh(new THREE.PlaneGeometry(doorW * 0.92, 0.26), signMat);
-        signFront.position.set(0, doorH + 0.12, (doorD + 0.06) / 2 + 0.005);
-        grp.add(signFront);
-        const signBack = new THREE.Mesh(new THREE.PlaneGeometry(doorW * 0.92, 0.26), signMat);
-        signBack.rotation.y = Math.PI;
-        signBack.position.set(0, doorH + 0.12, -(doorD + 0.06) / 2 - 0.005);
-        grp.add(signBack);
-
-        const beaconMat = new THREE.MeshBasicMaterial({ color: '#f43f5e' });
-        const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 12), beaconMat);
-        beacon.position.set(0, doorH + 0.34, 0);
-        grp.add(beacon);
-        animatedRefs.survivalBeacons.push({ mesh: beacon, portal: portalMat, phase: (obj.x + obj.z) * 0.3 });
-
-        const ring = new THREE.Mesh(
-          new THREE.RingGeometry(0.75, 0.96, 32),
-          new THREE.MeshBasicMaterial({ color: obj.color || '#e11d48', side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
-        );
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.y = 0.03;
-        grp.add(ring);
-
-        if (showSprites) {
-          const sprite = makeStationLabelSprite(obj.label || 'Mode Survie Horreur', '🚪', obj.color || '#e11d48');
-          sprite.position.set(0, doorH + 0.72, 0);
-          grp.add(sprite);
-        }
-
-        const doorEntry = {
-          id: obj.id,
-          type: 'survival_door',
-          label: `[E] 🚪 ${obj.label || 'Entrer — Mode Survie Horreur'}`,
-          position: new THREE.Vector3(obj.x, 0, obj.z),
-          rotation: rotRad,
-          interactRadius: cat.interactRadius || 2.6,
-          ring,
-          mesh: grp,
-          highlightMats: [frameMat]
-        };
-        survivalDoors.push(doorEntry);
-        interactables.push(doorEntry);
-        continue;
-      }
 
       if (obj.type === 'hiding_rack') {
         const rackH = 2.18;
@@ -1365,6 +1444,12 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           metalness: 0.65,
           emissive: '#000000',
           emissiveIntensity: 0
+        });
+        const interiorMat = new THREE.MeshStandardMaterial({
+          color: '#060a12',
+          roughness: 0.56,
+          metalness: 0.72,
+          side: THREE.DoubleSide
         });
         const sideW = 0.08;
         const leftWall = new THREE.Mesh(new THREE.BoxGeometry(sideW, rackH, d), bodyMat);
@@ -1386,22 +1471,95 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         topCap.position.set(0, rackH - 0.05, 0);
         grp.add(topCap);
 
+        const innerFloor = new THREE.Mesh(new THREE.BoxGeometry(w - 0.16, 0.04, d - 0.12), interiorMat);
+        innerFloor.position.set(0, 0.02, -0.02);
+        grp.add(innerFloor);
+
+        const innerBack = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.16, rackH - 0.14), interiorMat);
+        innerBack.position.set(0, rackH / 2, -d / 2 + 0.085);
+        grp.add(innerBack);
+
+        const innerLeft = new THREE.Mesh(new THREE.PlaneGeometry(d - 0.12, rackH - 0.14), interiorMat);
+        innerLeft.rotation.y = Math.PI / 2;
+        innerLeft.position.set(-w / 2 + sideW + 0.004, rackH / 2, -0.02);
+        grp.add(innerLeft);
+
+        const innerRight = new THREE.Mesh(new THREE.PlaneGeometry(d - 0.12, rackH - 0.14), interiorMat);
+        innerRight.rotation.y = -Math.PI / 2;
+        innerRight.position.set(w / 2 - sideW - 0.004, rackH / 2, -0.02);
+        grp.add(innerRight);
+
+        const railGeo = new THREE.BoxGeometry(0.035, rackH - 0.24, 0.035);
+        const railL = new THREE.Mesh(railGeo, mats.brushedMetalMat);
+        railL.position.set(-w / 2 + sideW + 0.04, rackH / 2, d / 2 - 0.14);
+        grp.add(railL);
+        const railR = new THREE.Mesh(railGeo, mats.brushedMetalMat);
+        railR.position.set(w / 2 - sideW - 0.04, rackH / 2, d / 2 - 0.14);
+        grp.add(railR);
+
+        const interiorLeds = [];
+        const ledPalette = ['#22d3ee', '#10b981', '#f59e0b', '#38bdf8'];
+        for (let li = 0; li < 8; li++) {
+          const ledMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(0.022, 0.012, 0.014),
+            new THREE.MeshBasicMaterial({ color: ledPalette[li % ledPalette.length] })
+          );
+          if (li < 4) {
+            const sideSign = li % 2 === 0 ? -1 : 1;
+            ledMesh.position.set(
+              sideSign * (w / 2 - sideW - 0.018),
+              0.72 + (li % 4) * 0.34,
+              -d / 2 + 0.22 + Math.floor(li / 2) * 0.14
+            );
+          } else {
+            ledMesh.position.set(
+              -w * 0.28 + (li - 4) * (w * 0.18),
+              0.88 + ((li - 4) % 2) * 0.42,
+              -d / 2 + 0.098
+            );
+          }
+          grp.add(ledMesh);
+          interiorLeds.push(ledMesh);
+          animatedRefs.leds.push({ mesh: ledMesh, phase: obj.x * 0.7 + li * 0.9, alert: false });
+        }
+
+        const stileW = 0.06;
+        const leftStile = new THREE.Mesh(new THREE.BoxGeometry(stileW, rackH - 0.1, 0.04), bodyMat);
+        leftStile.position.set(-w / 2 + sideW + stileW / 2 - 0.01, rackH / 2, d / 2 - 0.03);
+        grp.add(leftStile);
+        const rightStile = new THREE.Mesh(new THREE.BoxGeometry(stileW, rackH - 0.1, 0.04), bodyMat);
+        rightStile.position.set(w / 2 - sideW - stileW / 2 + 0.01, rackH / 2, d / 2 - 0.03);
+        grp.add(rightStile);
+        const topRail = new THREE.Mesh(new THREE.BoxGeometry(w - 0.14, 0.11, 0.04), bodyMat);
+        topRail.position.set(0, rackH - 0.11, d / 2 - 0.03);
+        grp.add(topRail);
+        const botRail = new THREE.Mesh(new THREE.BoxGeometry(w - 0.14, 0.11, 0.04), bodyMat);
+        botRail.position.set(0, 0.09, d / 2 - 0.03);
+        grp.add(botRail);
+
+        if (!perfRackDoorTex) {
+          perfRackDoorTex = makePerforatedRackDoorTexture();
+        }
         const doorMat = new THREE.MeshStandardMaterial({
           color: '#1e293b',
-          roughness: 0.32,
+          map: perfRackDoorTex,
+          roughness: 0.36,
           metalness: 0.72,
           transparent: true,
-          opacity: 0.84,
+          alphaTest: 0.45,
+          side: THREE.DoubleSide,
           emissive: '#000000',
           emissiveIntensity: 0
         });
-        const doorMesh = new THREE.Mesh(new THREE.BoxGeometry(w - 0.14, rackH - 0.16, 0.04), doorMat);
+        const doorMesh = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.24, rackH - 0.34), doorMat);
         doorMesh.position.set(0, rackH / 2, d / 2 - 0.03);
+        doorMesh.castShadow = false;
+        doorMesh.userData.isPerforatedDoor = true;
         grp.add(doorMesh);
 
-        for (let sl = 0; sl < 5; sl++) {
-          const vent = new THREE.Mesh(new THREE.BoxGeometry(w * 0.68, 0.05, 0.02), mats.brushedMetalMat);
-          vent.position.set(0, 0.42 + sl * 0.34, d / 2 - 0.005);
+        for (const vy of [0.15, rackH - 0.16]) {
+          const vent = new THREE.Mesh(new THREE.BoxGeometry(w * 0.62, 0.035, 0.02), mats.brushedMetalMat);
+          vent.position.set(0, vy, d / 2 - 0.005);
           grp.add(vent);
         }
 
@@ -1427,6 +1585,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           mapData.bounds,
           0.42
         );
+        const interiorPos = computeRackInteriorPosition({ x: obj.x, z: obj.z, rotRad, w, d });
         const hideEntry = {
           id: obj.id,
           hidingId: obj.id,
@@ -1441,6 +1600,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           rotationDeg: Number(obj.rotation) || 0,
           w,
           d,
+          interiorPos,
+          hasInterior: true,
+          interiorLeds,
+          perforatedDoor: doorMesh,
           exitX: exitInfo.x,
           exitZ: exitInfo.z,
           exitPos: new THREE.Vector3(exitInfo.x, 0, exitInfo.z),
@@ -2222,6 +2385,27 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       grp.add(fallback);
     }
 
+    if (combatDoors.length === 0) {
+      const combatCat = getCatalogItem('combat_door');
+      buildSpecialModeDoor(
+        {
+          id: 'obj-combat-door-fallback',
+          type: 'combat_door',
+          x: -1.3,
+          z: -1.85,
+          rotation: 180,
+          w: 1.7,
+          d: 0.42,
+          color: '#06b6d4',
+          label: '⚔️ ARÈNE DE COMBAT CIEL'
+        },
+        1.7,
+        0.42,
+        Math.PI,
+        combatCat
+      );
+    }
+
     worldGroup.updateMatrixWorld(true);
     const dynamicNodes = new Set();
     for (const tr of teacherRefs) {
@@ -2268,7 +2452,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     solidWallMeshes.length = 0;
     teacherRefs.length = 0;
     survivalDoors.length = 0;
+    combatDoors.length = 0;
     hidingSpots.length = 0;
+    perfRackDoorTex = null;
     pcStations.length = 0;
     pcInteractiveSurfaces.length = 0;
     shopKiosks.length = 0;
@@ -2280,6 +2466,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     leaderboardBoards = [];
 
     disposeNodeTree(worldGroup);
+    perfRackDoorTex?.dispose?.();
+    perfRackDoorTex = null;
     if (materialPack) {
       materialPack.dispose();
       materialPack = null;
@@ -2426,6 +2614,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     hoverHaloMesh.geometry.dispose();
     hoverHaloMat.dispose();
     disposeNodeTree(worldGroup);
+    perfRackDoorTex?.dispose?.();
+    perfRackDoorTex = null;
     if (materialPack) {
       materialPack.dispose();
       materialPack = null;
@@ -2443,6 +2633,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     interactables,
     solidWallMeshes,
     survivalDoors,
+    combatDoors,
     hidingSpots,
     pcStations,
     pcInteractiveSurfaces,

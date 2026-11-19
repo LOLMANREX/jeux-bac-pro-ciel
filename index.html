@@ -663,6 +663,20 @@
               <span class="tb-lbl">Micro</span>
             </button>
           </div>
+          <div id="touch-combat-pad" class="touch-combat-pad hidden">
+            <button type="button" id="touch-btn-weapon-next" class="touch-btn touch-combat-btn">
+              <span class="tb-ico">🔄</span>
+              <span class="tb-lbl">Arme</span>
+            </button>
+            <button type="button" id="touch-btn-reload" class="touch-btn touch-combat-btn">
+              <span class="tb-ico">🔋</span>
+              <span class="tb-lbl">Recharger</span>
+            </button>
+            <button type="button" id="touch-btn-fire" class="touch-btn touch-btn-fire">
+              <span class="tb-ico">🔫</span>
+              <span class="tb-lbl">TIRER</span>
+            </button>
+          </div>
         </div>
 
         <div id="orientation-hint" class="orientation-hint hidden">
@@ -1398,6 +1412,85 @@
           <div class="survival-end-actions">
             <button type="button" id="survival-end-inspect-btn" class="btn-secondary hidden">👀 Observer Salle de Colle 3D</button>
             <button type="button" id="survival-end-btn" class="btn-primary">🏫 Retourner au Hall Principal</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="combat-lobby-modal" class="modal-backdrop combat-backdrop hidden">
+        <div class="combat-modal-card">
+          <div class="combat-modal-header">
+            <div>
+              <div class="combat-pill">SALON D’ATTENTE • ARÈNE DE COMBAT CIEL</div>
+              <h2>⚔️ Arène Data Center Bac Pro CIEL</h2>
+            </div>
+            <button type="button" id="combat-lobby-close" class="icon-close" title="Quitter le salon">✕</button>
+          </div>
+          <div class="combat-mode-switch">
+            <button type="button" id="combat-mode-guns-btn" class="combat-mode-btn active">🔫 Mode Fusils (Distance)</button>
+            <button type="button" id="combat-mode-melee-btn" class="combat-mode-btn">⚔️ Mode Mêlée (Corps-à-corps)</button>
+            <button type="button" id="combat-bots-toggle-btn" class="combat-bots-btn active">🤖 Bots IA CIEL : ON</button>
+          </div>
+          <div id="combat-lobby-weapons" class="combat-lobby-weapons"></div>
+          <div id="combat-lobby-status" class="combat-lobby-status">
+            Choisissez votre mode, votre arme CIEL et cliquez sur Prêt (Solo avec Bots IA ou PvP) !
+          </div>
+          <div id="combat-lobby-players" class="combat-lobby-players"></div>
+          <div class="combat-lobby-actions">
+            <button type="button" id="combat-lobby-ready-btn" class="btn-primary combat-ready-btn">⚔️ Prêt / Lancer l’Arène !</button>
+            <button type="button" id="combat-lobby-leave-btn" class="btn-secondary">🚪 Retour au Hall</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="combat-hud" class="combat-hud hidden">
+        <div id="combat-damage-flash" class="combat-damage-flash"></div>
+        <div class="combat-hud-top">
+          <span id="combat-hud-mode" class="combat-top-pill">🔫 MODE FUSILS</span>
+          <span id="combat-hud-timer" class="combat-top-timer">⏱️ 02:30</span>
+          <span id="combat-hud-score" class="combat-top-pill">⚔️ 0 / 10 • 💀 0 • 🔥 Série 0</span>
+          <button type="button" id="combat-hud-scoreboard-btn" class="btn-secondary btn-sm">📊 Scores [Tab]</button>
+          <button type="button" id="combat-hud-leave-btn" class="btn-danger btn-sm">🚪 Quitter</button>
+        </div>
+        <div id="combat-killfeed" class="combat-killfeed"></div>
+        <div id="combat-hitmarker" class="combat-hitmarker hidden"></div>
+        <div id="combat-respawn-banner" class="combat-respawn-banner hidden"></div>
+        <div class="combat-hud-bottom">
+          <div class="combat-hp-card">
+            <div class="combat-hp-head">
+              <span>❤️ SANTÉ</span>
+              <strong id="combat-hp-text">100 / 100</strong>
+            </div>
+            <div class="combat-hp-track">
+              <div id="combat-hp-fill" class="combat-hp-fill"></div>
+            </div>
+          </div>
+          <div class="combat-weapon-card">
+            <div class="combat-weapon-main">
+              <span id="combat-weapon-name">Fusil Fibre Optique</span>
+              <strong id="combat-weapon-ammo">24 / 24</strong>
+            </div>
+            <div id="combat-weapon-slots" class="combat-weapon-slots"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="combat-scoreboard-overlay" class="combat-scoreboard-overlay hidden">
+        <div class="combat-scoreboard-card">
+          <h3>📊 Tableau des Scores — Arène CIEL</h3>
+          <div id="combat-scoreboard-rows" class="combat-scoreboard-rows"></div>
+        </div>
+      </div>
+
+      <div id="combat-end-overlay" class="modal-backdrop combat-backdrop hidden">
+        <div class="combat-end-card">
+          <div id="combat-end-icon" class="combat-end-icon">🏆</div>
+          <h2 id="combat-end-title">FIN DE LA MANCHE</h2>
+          <p id="combat-end-reason" class="combat-end-reason"></p>
+          <div id="combat-end-coins" class="combat-end-coins"></div>
+          <div id="combat-end-table" class="combat-end-table"></div>
+          <div class="combat-end-actions">
+            <button type="button" id="combat-end-replay-btn" class="btn-primary">🔄 Rejouer une Manche</button>
+            <button type="button" id="combat-end-exit-btn" class="btn-secondary">🏫 Retourner au Hall</button>
           </div>
         </div>
       </div>

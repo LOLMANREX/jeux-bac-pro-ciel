@@ -7,6 +7,8 @@ import { buildArticulatedVRHand } from '../src/vr/VRHandBuilder.js';
 import { createTpSpatialPanel, createVrDebugPanel, createWristHudPanel } from '../src/vr/VRHudPanel.js';
 import { VRManager } from '../src/vr/VRManager.js';
 import { attachRemoteVrVisuals, buildStudentAvatarMesh } from '../src/world/AvatarBuilder.js';
+import { CombatMatchController } from '../src/world/CombatEngine.js';
+import { COMBAT_WEAPONS, getCombatWeaponById } from '../src/world/CombatWeapons.js';
 import { buildLabWorld } from '../src/world/LabBuilder.js';
 import { createDefaultMap } from '../src/world/mapSchema.js';
 import { VariationTableSession, getVariationSheetHitBoxes } from '../src/minigames/VariationTableGame.js';
@@ -17,6 +19,8 @@ import { buildShopViewModel } from '../src/ui/ShopModal.js';
 import { SHOP_PETS } from '../src/world/ShopCatalog.js';
 import { createSurvivalPocketRooms, getDetentionCameraHitBoxes } from '../src/world/SurvivalArena3D.js';
 import {
+  computeRackExitPosition,
+  computeRackInteriorPosition,
   hasFullMapLineOfSight,
   pointCollidesWithColliders,
   resolveSurvivalIntroPlacement
@@ -1772,6 +1776,209 @@ test('VR WebXR v4.24 : montre VR CIEL Coins, bouton Boutique, panneau spatial Bo
     assert.equal(closeCalls, 1);
     assert.equal(vr.shopPreviewGroup, null);
     assert.equal(vr.worldPanel, null);
+  } finally {
+    vr?.dispose?.();
+    lab.dispose();
+    stubs.restore();
+  }
+});
+
+test('VR WebXR v4.28 : Baie de brassage perforée sans voile opaque & Arène de Combat CIEL (armes, swing bras, panneaux & montre)', () => {
+  const stubs = createFakeDomStubs();
+  const mockScene = new THREE.Scene();
+  const mockCam = new THREE.PerspectiveCamera(72, 1.77, 0.1, 180);
+  const mockSceneMgr = {
+    scene: mockScene,
+    camera: mockCam,
+    renderer: null,
+    getFps: () => 72,
+    getXrErrors: () => [],
+    setVrPresentingState() {},
+    bindVrManager() {}
+  };
+
+  const mapData = createDefaultMap();
+  const lab = buildLabWorld(mockScene, mapData, { hideSprites: true });
+  let vr = null;
+
+  try {
+    const player = new PlayerController(mockCam, stubs.canvas, lab.colliders);
+    player.setBounds(mapData.bounds);
+
+    vr = new VRManager(mockSceneMgr, player, {
+      playerName: 'CombattantVR',
+      mapData,
+      getInteractables: () => lab.interactables
+    });
+
+    assert.equal(vr.enterSimulationMode(), true);
+    vr.update(0.05, 0.1, 1000);
+
+    const spot = lab.hidingSpots[0];
+    const interior = computeRackInteriorPosition({
+      x: spot.x,
+      z: spot.z,
+      rotRad: spot.rotRad,
+      w: spot.w,
+      d: spot.d
+    });
+    const exit = computeRackExitPosition(
+      { x: spot.x, z: spot.z, rotRad: spot.rotRad, w: spot.w, d: spot.d },
+      lab.colliders,
+      mapData.bounds,
+      0.42
+    );
+
+    assert.equal(vr.enterHidingRackVr(interior.x, interior.z, interior.baseYaw, interior.y), true);
+    assert.equal(vr.hidingInRack, true);
+    const rigXBefore = vr.vrRig.position.x;
+    const rigZBefore = vr.vrRig.position.z;
+
+    vr.setSimInput({ lx: 1, ly: 1, lookDx: 900, lookDy: -900 });
+    vr.update(0.05, 0.15, 1050);
+    assert.equal(vr.vrRig.position.x, rigXBefore);
+    assert.equal(vr.vrRig.position.z, rigZBefore);
+    assert.ok(Math.abs(vr.simLookYaw) <= Math.PI / 4 + 0.001);
+    assert.ok(Math.abs(vr.simLookPitch) <= (20 * Math.PI) / 180 + 0.001);
+
+    const hiddenPanel = vr.openWorldSpatialPanel('survival_hidden', {
+      survivalHidden: {
+        rackLabel: 'Baie Perforée VR',
+        noiseLevel: 12,
+        threatNear: true,
+        onExitRack: () => {}
+      }
+    });
+    assert.ok(hiddenPanel);
+    assert.equal(hiddenPanel.group.children[0].visible, false);
+
+    assert.equal(vr.exitHidingRackVr(exit.x, exit.z, exit.yaw), true);
+    assert.equal(vr.hidingInRack, false);
+    assert.equal(vr.worldPanel, null);
+    assert.equal(pointCollidesWithColliders(exit.x, exit.z, lab.colliders, mapData.bounds, 0.42), false);
+
+    let modeClicks = 0;
+    let readyClicks = 0;
+    const lobbyPanel = vr.openWorldSpatialPanel('combat_lobby', {
+      combatLobby: {
+        mode: 'guns',
+        fillBots: true,
+        players: [{ id: 'p1', name: 'CombattantVR', ready: false, weaponId: 'fiber_rifle' }],
+        weapons: COMBAT_WEAPONS.filter((w) => w.mode === 'guns'),
+        selectedWeaponId: 'fiber_rifle',
+        localReady: false,
+        onSelectMode: () => {
+          modeClicks += 1;
+        },
+        onToggleReady: () => {
+          readyClicks += 1;
+        },
+        onSelectWeapon: () => {},
+        onToggleBots: () => {},
+        onLeave: () => {}
+      }
+    });
+    assert.ok(lobbyPanel);
+    const lobbyHits = new Set(lobbyPanel.getHitBoxes().map((b) => b.id));
+    assert.ok(lobbyHits.has('vr_cbt_mode_guns'));
+    assert.ok(lobbyHits.has('vr_cbt_mode_melee'));
+    assert.ok(lobbyHits.has('vr_cbt_bots'));
+    assert.ok(lobbyHits.has('vr_cbt_ready'));
+    assert.ok(lobbyHits.has('vr_cbt_leave'));
+    lobbyPanel.getHitBoxes().find((b) => b.id === 'vr_cbt_mode_melee').onClick();
+    lobbyPanel.getHitBoxes().find((b) => b.id === 'vr_cbt_ready').onClick();
+    assert.equal(modeClicks, 1);
+    assert.equal(readyClicks, 1);
+    vr.closeWorldSpatialPanel();
+
+    const attacks = [];
+    let reloads = 0;
+    let cycles = 0;
+    vr.setCombatMode(true, {
+      mode: 'guns',
+      weaponId: 'fiber_rifle',
+      callbacks: {
+        onAttack: (payload) => attacks.push(payload),
+        onReload: () => {
+          reloads += 1;
+        },
+        onCycleWeapon: () => {
+          cycles += 1;
+        }
+      }
+    });
+    assert.ok(vr.combatWeaponObj);
+    assert.equal(vr.combatWeaponObj.weaponId, 'fiber_rifle');
+
+    vr.setSimInput({ mouseTrigger: true });
+    vr.update(0.05, 0.25, 1600);
+    assert.equal(attacks.length, 1);
+    assert.equal(attacks[0].weaponId, 'fiber_rifle');
+    assert.equal(attacks[0].isVrSwing, false);
+    vr.setSimInput({ mouseTrigger: false });
+
+    vr.setSimInput({ grip: 1 });
+    vr.update(0.05, 0.3, 1650);
+    assert.equal(cycles, 1);
+    vr.setSimInput({ grip: 0 });
+
+    vr.setCombatMode(true, {
+      mode: 'melee',
+      weaponId: 'ddr5_katana',
+      callbacks: {
+        onAttack: (payload) => attacks.push(payload),
+        onReload: () => {
+          reloads += 1;
+        },
+        onCycleWeapon: () => {
+          cycles += 1;
+        }
+      }
+    });
+    assert.equal(vr.combatWeaponId, 'ddr5_katana');
+    vr.update(0.05, 0.35, 2200);
+    vr.simRightPivot.position.x += 0.35;
+    vr.simRightPivot.updateMatrixWorld?.(true);
+    vr.update(0.05, 0.4, 2260);
+    assert.equal(attacks.length, 2);
+    assert.equal(attacks[1].weaponId, 'ddr5_katana');
+    assert.equal(attacks[1].isVrSwing, true);
+
+    vr.updateHudInfo({
+      combatStatus: {
+        active: true,
+        mode: 'melee',
+        timerText: '02:05',
+        hp: 90,
+        maxHp: 100,
+        weaponName: 'Katana RAM DDR5',
+        kills: 4,
+        killLimit: 10,
+        deaths: 1,
+        streak: 3
+      }
+    });
+    assert.equal(vr.wristPanel.getState().combatStatus.active, true);
+
+    const endPanel = vr.openWorldSpatialPanel('combat_end', {
+      combatEnd: {
+        won: true,
+        reason: 'Victoire VR !',
+        coinsEarned: 160,
+        scoreboard: [{ id: 'p1', name: 'CombattantVR', kills: 10, deaths: 2 }],
+        localId: 'p1',
+        onReplay: () => {},
+        onExit: () => {}
+      }
+    });
+    assert.ok(endPanel);
+    const endHits = new Set(endPanel.getHitBoxes().map((b) => b.id));
+    assert.ok(endHits.has('vr_cbt_replay'));
+    assert.ok(endHits.has('vr_cbt_exit'));
+
+    vr.setCombatMode(false);
+    assert.equal(vr.combatWeaponObj, null);
+    assert.equal(vr.wristPanel.getState().combatStatus, null);
   } finally {
     vr?.dispose?.();
     lab.dispose();

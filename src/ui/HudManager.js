@@ -10,6 +10,7 @@ import {
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 import { PlateauMiniMap } from './PlateauMiniMap.js';
 import { renderVariationTableMarkup } from '../minigames/VariationTableGame.js';
+import { getCombatWeaponById, getWeaponsByMode } from '../world/CombatWeapons.js';
 
 function escapeHtmlSafe(v) {
   return String(v ?? '')
@@ -286,6 +287,47 @@ export class HudManager {
     this.detention3dCamPrevBtn = document.getElementById('detention-3d-cam-prev');
     this.detention3dCamLabelEl = document.getElementById('detention-3d-cam-label');
     this.detention3dCamNextBtn = document.getElementById('detention-3d-cam-next');
+
+    this.combatLobbyModalEl = document.getElementById('combat-lobby-modal');
+    this.combatModeGunsBtn = document.getElementById('combat-mode-guns-btn');
+    this.combatModeMeleeBtn = document.getElementById('combat-mode-melee-btn');
+    this.combatBotsToggleBtn = document.getElementById('combat-bots-toggle-btn');
+    this.combatLobbyWeaponsEl = document.getElementById('combat-lobby-weapons');
+    this.combatLobbyStatusEl = document.getElementById('combat-lobby-status');
+    this.combatLobbyPlayersEl = document.getElementById('combat-lobby-players');
+    this.combatLobbyReadyBtn = document.getElementById('combat-lobby-ready-btn');
+    this.combatLobbyLeaveBtn = document.getElementById('combat-lobby-leave-btn');
+    this.combatLobbyCloseBtn = document.getElementById('combat-lobby-close');
+
+    this.combatHudEl = document.getElementById('combat-hud');
+    this.combatDamageFlashEl = document.getElementById('combat-damage-flash');
+    this.combatHudModeEl = document.getElementById('combat-hud-mode');
+    this.combatHudTimerEl = document.getElementById('combat-hud-timer');
+    this.combatHudScoreEl = document.getElementById('combat-hud-score');
+    this.combatHudScoreboardBtn = document.getElementById('combat-hud-scoreboard-btn');
+    this.combatHudLeaveBtn = document.getElementById('combat-hud-leave-btn');
+    this.combatKillfeedEl = document.getElementById('combat-killfeed');
+    this.combatHitmarkerEl = document.getElementById('combat-hitmarker');
+    this.combatRespawnBannerEl = document.getElementById('combat-respawn-banner');
+    this.combatHpTextEl = document.getElementById('combat-hp-text');
+    this.combatHpFillEl = document.getElementById('combat-hp-fill');
+    this.combatWeaponNameEl = document.getElementById('combat-weapon-name');
+    this.combatWeaponAmmoEl = document.getElementById('combat-weapon-ammo');
+    this.combatWeaponSlotsEl = document.getElementById('combat-weapon-slots');
+
+    this.combatScoreboardEl = document.getElementById('combat-scoreboard-overlay');
+    this.combatScoreboardRowsEl = document.getElementById('combat-scoreboard-rows');
+
+    this.combatEndOverlayEl = document.getElementById('combat-end-overlay');
+    this.combatEndIconEl = document.getElementById('combat-end-icon');
+    this.combatEndTitleEl = document.getElementById('combat-end-title');
+    this.combatEndReasonEl = document.getElementById('combat-end-reason');
+    this.combatEndCoinsEl = document.getElementById('combat-end-coins');
+    this.combatEndTableEl = document.getElementById('combat-end-table');
+    this.combatEndReplayBtn = document.getElementById('combat-end-replay-btn');
+    this.combatEndExitBtn = document.getElementById('combat-end-exit-btn');
+    this._combatHitmarkerTimer = null;
+    this._combatDamageTimer = null;
 
     this.hudEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
@@ -2084,9 +2126,11 @@ export class HudManager {
     this.survivalDetentionOpenBtn?.classList.add('hidden');
   }
 
-  showHidingOverlay({ noiseLevel = 0, micEnabled = false, aiState = 'patrol' } = {}) {
+  showHidingOverlay({ noiseLevel = 0, micEnabled = false, aiState = 'patrol', aiDist = null } = {}) {
     if (!this.survivalHideOverlayEl) return;
     this.survivalHideOverlayEl.classList.remove('hidden');
+    const nearThreat = (Number.isFinite(Number(aiDist)) && Number(aiDist) < 9) || aiState === 'chase';
+    this.survivalHideOverlayEl.classList.toggle('threat-near', nearThreat);
     if (this.survivalHideOverlayEl.style) {
       this.survivalHideOverlayEl.style.display = 'flex';
       this.survivalHideOverlayEl.style.opacity = '1';
@@ -2104,13 +2148,13 @@ export class HudManager {
     if (this.survivalHideStatusEl) {
       if (noiseLevel >= 0.28) {
         this.survivalHideStatusEl.textContent =
-          '⚠️ Votre micro dépasse 28% ! Le Professeur CIEL vous entend à travers la baie de brassage !';
-      } else if (aiState === 'chase') {
+          '⚠️ Votre micro dépasse 28% ! Le Professeur CIEL vous entend à travers les fentes de la baie !';
+      } else if (nearThreat) {
         this.survivalHideStatusEl.textContent =
-          '🚨 Chut ! Restez immobile et silencieux : le Professeur CIEL va perdre votre trace.';
+          '🚨 Chut ! Guettez à travers les trous (Souris/Glisser ±45°) : le Professeur CIEL approche.';
       } else {
         this.survivalHideStatusEl.textContent =
-          '🤫 Vous êtes dissimulé dans la Baie de Brassage. Appuyez sur E pour en sortir.';
+          '🤫 Caché dans la Baie perforée : guettez par les fentes (Souris ±45°) • [E] Sortir.';
       }
     }
   }
@@ -2118,6 +2162,7 @@ export class HudManager {
   hideHidingOverlay() {
     if (!this.survivalHideOverlayEl) return;
     this.survivalHideOverlayEl.classList.add('hidden');
+    this.survivalHideOverlayEl.classList.remove('threat-near');
     if (this.survivalHideOverlayEl.style) {
       this.survivalHideOverlayEl.style.opacity = '0';
       this.survivalHideOverlayEl.style.display = 'none';
@@ -2383,5 +2428,267 @@ export class HudManager {
     this.hideDetentionModal();
     this.hideDetention3dHud();
     this.hideSurvivalEndOverlay();
+  }
+
+  bindCombatHandlers(callbacks = {}) {
+    this.combatCallbacks = callbacks;
+    this.combatModeGunsBtn?.addEventListener('click', () => this.combatCallbacks?.onSelectMode?.('guns'));
+    this.combatModeMeleeBtn?.addEventListener('click', () => this.combatCallbacks?.onSelectMode?.('melee'));
+    this.combatBotsToggleBtn?.addEventListener('click', () => this.combatCallbacks?.onToggleBots?.());
+    this.combatLobbyReadyBtn?.addEventListener('click', () => this.combatCallbacks?.onToggleReady?.());
+    this.combatLobbyLeaveBtn?.addEventListener('click', () => this.combatCallbacks?.onLeaveLobby?.());
+    this.combatLobbyCloseBtn?.addEventListener('click', () => this.combatCallbacks?.onLeaveLobby?.());
+    this.combatHudLeaveBtn?.addEventListener('click', () => this.combatCallbacks?.onLeaveArena?.());
+    this.combatHudScoreboardBtn?.addEventListener('click', () => this.combatCallbacks?.onToggleScoreboard?.());
+    this.combatEndReplayBtn?.addEventListener('click', () => this.combatCallbacks?.onReplay?.());
+    this.combatEndExitBtn?.addEventListener('click', () => this.combatCallbacks?.onExitArena?.());
+  }
+
+  showCombatLobby(snapshot = {}, localId = null) {
+    if (!this.combatLobbyModalEl) return;
+    this.combatLobbyModalEl.classList.remove('hidden');
+    const mode = snapshot?.mode === 'melee' ? 'melee' : 'guns';
+    const fillBots = snapshot?.fillBots !== false;
+    const players = Array.isArray(snapshot?.lobbyPlayers) ? snapshot.lobbyPlayers : [];
+    const localPlayer = players.find((p) => p.id === localId);
+    const localReady = Boolean(localPlayer?.ready);
+    const weapons = getWeaponsByMode(mode);
+    const selectedWeaponId = localPlayer?.weaponId || weapons[0]?.id;
+
+    this.combatModeGunsBtn?.classList.toggle('active', mode === 'guns');
+    this.combatModeMeleeBtn?.classList.toggle('active', mode === 'melee');
+    if (this.combatBotsToggleBtn) {
+      this.combatBotsToggleBtn.classList.toggle('active', fillBots);
+      this.combatBotsToggleBtn.textContent = fillBots ? '🤖 Bots IA CIEL : ON' : '🤖 Bots IA CIEL : OFF';
+    }
+
+    if (this.combatLobbyWeaponsEl) {
+      this.combatLobbyWeaponsEl.innerHTML = weapons
+        .map(
+          (w) => `
+          <button type="button" class="combat-weapon-choice ${w.id === selectedWeaponId ? 'selected' : ''}" data-weapon-id="${escapeHtmlSafe(w.id)}">
+            <strong>${escapeHtmlSafe(w.icon)} ${escapeHtmlSafe(w.name)}</strong>
+            <small>${escapeHtmlSafe(w.description)}</small>
+            <small>Dégâts : ${w.damage} • Portée : ${w.range}m${w.magSize > 0 ? ` • Chargeur : ${w.magSize}` : ''}</small>
+          </button>`
+        )
+        .join('');
+      this.combatLobbyWeaponsEl.querySelectorAll('.combat-weapon-choice').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const wid = btn.getAttribute('data-weapon-id');
+          if (wid) this.combatCallbacks?.onSelectWeapon?.(wid);
+        });
+      });
+    }
+
+    if (this.combatLobbyStatusEl) {
+      const readyCount = players.filter((p) => p.ready).length;
+      this.combatLobbyStatusEl.textContent =
+        `Mode ${mode === 'melee' ? 'Mêlée ⚔️' : 'Fusils 🔫'} • ${readyCount}/${Math.max(1, players.length)} prêt(s) • ${fillBots ? 'Complété par 3+ Bots IA CIEL' : 'PvP uniquement'}`;
+    }
+
+    if (this.combatLobbyPlayersEl) {
+      this.combatLobbyPlayersEl.innerHTML = players
+        .map((p) => {
+          const wSpec = getCombatWeaponById(p.weaponId);
+          return `
+          <div class="survival-player-chip ${p.ready ? 'ready' : ''}">
+            <span>${escapeHtmlSafe(p.name || 'Élève')}${p.id === localId ? ' (Vous)' : ''} • ${escapeHtmlSafe(wSpec?.shortName || '')}</span>
+            <span>${p.ready ? '✅ Prêt' : '⏳ Attente'}</span>
+          </div>`;
+        })
+        .join('');
+    }
+
+    if (this.combatLobbyReadyBtn) {
+      this.combatLobbyReadyBtn.textContent = localReady ? '⏳ Annuler Prêt' : '⚔️ Prêt / Lancer l’Arène !';
+    }
+  }
+
+  hideCombatLobby() {
+    this.combatLobbyModalEl?.classList.add('hidden');
+  }
+
+  updateCombatHud(snapshot = {}, localId = null) {
+    if (!this.combatHudEl) return;
+    this.combatHudEl.classList.remove('hidden');
+    const fighters = Array.isArray(snapshot?.fighters) ? snapshot.fighters : [];
+    const me = fighters.find((f) => f.id === localId) || fighters[0] || null;
+    const mode = snapshot?.mode === 'melee' ? 'melee' : 'guns';
+    const timeSec = Math.max(0, Number(snapshot?.timeLeftSec) || 0);
+    const mm = String(Math.floor(timeSec / 60)).padStart(2, '0');
+    const ss = String(timeSec % 60).padStart(2, '0');
+
+    if (this.combatHudModeEl) {
+      this.combatHudModeEl.textContent = mode === 'melee' ? '⚔️ MODE MÊLÉE' : '🔫 MODE FUSILS';
+    }
+    if (this.combatHudTimerEl) {
+      this.combatHudTimerEl.textContent = `⏱️ ${mm}:${ss}`;
+    }
+    if (this.combatHudScoreEl && me) {
+      this.combatHudScoreEl.textContent = `⚔️ ${me.kills || 0} / ${snapshot?.killLimit || 10} • 💀 ${me.deaths || 0} • 🔥 Série ${me.streak || 0}`;
+    }
+
+    if (me) {
+      const hp = Math.max(0, Math.round(Number(me.hp) || 0));
+      const maxHp = Math.max(1, Math.round(Number(me.maxHp) || 100));
+      const pct = Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100)));
+      if (this.combatHpTextEl) this.combatHpTextEl.textContent = `${hp} / ${maxHp}`;
+      if (this.combatHpFillEl) {
+        this.combatHpFillEl.style.width = `${pct}%`;
+        this.combatHpFillEl.style.background =
+          pct > 50
+            ? 'linear-gradient(90deg, #10b981, #34d399)'
+            : pct > 25
+              ? 'linear-gradient(90deg, #d97706, #fbbf24)'
+              : 'linear-gradient(90deg, #dc2626, #f87171)';
+      }
+
+      if (this.combatRespawnBannerEl) {
+        if (!me.alive) {
+          const sec = Math.max(1, Math.ceil((me.respawnRemainingMs || 3000) / 1000));
+          this.combatRespawnBannerEl.textContent = `💥 Éliminé ! Réapparition dans ${sec}s...`;
+          this.combatRespawnBannerEl.classList.remove('hidden');
+        } else {
+          this.combatRespawnBannerEl.classList.add('hidden');
+        }
+      }
+
+      const wSpec = getCombatWeaponById(me.weaponId) || getWeaponsByMode(mode)[0];
+      if (this.combatWeaponNameEl && wSpec) {
+        this.combatWeaponNameEl.textContent = `${wSpec.icon} ${wSpec.name}`;
+      }
+      if (this.combatWeaponAmmoEl && wSpec) {
+        if (mode === 'melee') {
+          this.combatWeaponAmmoEl.textContent = '∞ Corps-à-corps';
+        } else if (me.reloading) {
+          this.combatWeaponAmmoEl.textContent = '🔄 Rechargement...';
+        } else {
+          this.combatWeaponAmmoEl.textContent = `${me.ammo ?? wSpec.magSize} / ${wSpec.magSize}`;
+        }
+      }
+
+      if (this.combatWeaponSlotsEl) {
+        const modeWeapons = getWeaponsByMode(mode);
+        this.combatWeaponSlotsEl.innerHTML = modeWeapons
+          .map(
+            (w) => `
+            <button type="button" class="combat-slot-pill ${w.id === me.weaponId ? 'active' : ''}" data-slot-weapon="${escapeHtmlSafe(w.id)}">
+              [${w.slot}] ${escapeHtmlSafe(w.shortName)}
+            </button>`
+          )
+          .join('');
+        this.combatWeaponSlotsEl.querySelectorAll('[data-slot-weapon]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const wid = btn.getAttribute('data-slot-weapon');
+            if (wid) this.combatCallbacks?.onSelectWeapon?.(wid);
+          });
+        });
+      }
+    }
+
+    if (this.combatKillfeedEl) {
+      const feed = Array.isArray(snapshot?.killfeed) ? snapshot.killfeed : [];
+      this.combatKillfeedEl.innerHTML = feed
+        .slice(0, 4)
+        .map(
+          (kf) => `
+          <div class="combat-kf-item">
+            ${escapeHtmlSafe(kf.killerName)} ${escapeHtmlSafe(kf.icon || '⚔️')} ${escapeHtmlSafe(kf.victimName)}${kf.headshot ? ' 🎯' : ''}
+          </div>`
+        )
+        .join('');
+    }
+  }
+
+  hideCombatHud() {
+    this.combatHudEl?.classList.add('hidden');
+    this.combatHitmarkerEl?.classList.add('hidden');
+    this.combatRespawnBannerEl?.classList.add('hidden');
+    this.combatDamageFlashEl?.classList.remove('active');
+    this.combatScoreboardEl?.classList.add('hidden');
+    if (this._combatHitmarkerTimer) {
+      clearTimeout(this._combatHitmarkerTimer);
+      this._combatHitmarkerTimer = null;
+    }
+    if (this._combatDamageTimer) {
+      clearTimeout(this._combatDamageTimer);
+      this._combatDamageTimer = null;
+    }
+  }
+
+  triggerCombatHitmarker(isKill = false) {
+    if (!this.combatHitmarkerEl) return;
+    this.combatHitmarkerEl.classList.remove('hidden');
+    this.combatHitmarkerEl.classList.toggle('kill', Boolean(isKill));
+    if (this._combatHitmarkerTimer) clearTimeout(this._combatHitmarkerTimer);
+    this._combatHitmarkerTimer = setTimeout(() => {
+      this._combatHitmarkerTimer = null;
+      this.combatHitmarkerEl?.classList.add('hidden');
+    }, isKill ? 240 : 140);
+  }
+
+  triggerCombatDamageFlash() {
+    if (!this.combatDamageFlashEl) return;
+    this.combatDamageFlashEl.classList.add('active');
+    if (this._combatDamageTimer) clearTimeout(this._combatDamageTimer);
+    this._combatDamageTimer = setTimeout(() => {
+      this._combatDamageTimer = null;
+      this.combatDamageFlashEl?.classList.remove('active');
+    }, 190);
+  }
+
+  toggleCombatScoreboard(show, snapshot = null, localId = null) {
+    if (!this.combatScoreboardEl) return;
+    const nextShow = typeof show === 'boolean' ? show : this.combatScoreboardEl.classList.contains('hidden');
+    this.combatScoreboardEl.classList.toggle('hidden', !nextShow);
+    if (nextShow && snapshot && this.combatScoreboardRowsEl) {
+      const rows = Array.isArray(snapshot.scoreboard) ? snapshot.scoreboard : [];
+      this.combatScoreboardRowsEl.innerHTML = rows
+        .map(
+          (r, i) => `
+          <div class="combat-score-row ${r.id === localId ? 'me' : ''}">
+            <span>#${i + 1}</span>
+            <span>${escapeHtmlSafe(r.name)}${r.isBot ? ' 🤖' : ''}</span>
+            <span>⚔️ ${r.kills} / 💀 ${r.deaths}</span>
+          </div>`
+        )
+        .join('');
+    }
+  }
+
+  showCombatEndOverlay({ won = false, reason = '', coinsEarned = 0, scoreboard = [], localId = null } = {}) {
+    if (!this.combatEndOverlayEl) return;
+    this.combatEndOverlayEl.classList.remove('hidden');
+    if (this.combatEndIconEl) this.combatEndIconEl.textContent = won ? '🏆' : '⚔️';
+    if (this.combatEndTitleEl) {
+      this.combatEndTitleEl.textContent = won ? 'VICTOIRE DANS L’ARÈNE CIEL !' : 'FIN DE LA MANCHE DE COMBAT';
+    }
+    if (this.combatEndReasonEl) this.combatEndReasonEl.textContent = reason;
+    if (this.combatEndCoinsEl) {
+      this.combatEndCoinsEl.textContent = `🪙 Récompense : +${Math.max(0, Math.round(Number(coinsEarned) || 0))} CIEL Coins`;
+    }
+    if (this.combatEndTableEl) {
+      this.combatEndTableEl.innerHTML = (Array.isArray(scoreboard) ? scoreboard : [])
+        .map(
+          (r, i) => `
+          <div class="combat-score-row ${r.id === localId ? 'me' : ''}">
+            <span>#${i + 1}</span>
+            <span>${escapeHtmlSafe(r.name)}${r.isBot ? ' 🤖' : ''}</span>
+            <span>⚔️ ${r.kills} Élim. • 💀 ${r.deaths} Morts</span>
+          </div>`
+        )
+        .join('');
+    }
+  }
+
+  hideCombatEndOverlay() {
+    this.combatEndOverlayEl?.classList.add('hidden');
+  }
+
+  hideAllCombatUi() {
+    this.hideCombatLobby();
+    this.hideCombatHud();
+    this.hideCombatEndOverlay();
   }
 }

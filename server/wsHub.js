@@ -8,12 +8,14 @@ import {
 } from '../src/world/AvatarBuilder.js';
 import { computeAscensionGatheringLayout } from '../src/world/SceneManager.js';
 import { createDefaultMap } from '../src/world/mapSchema.js';
+import { CombatMatchController } from '../src/world/CombatEngine.js';
 import { SurvivalMatchController } from '../src/world/SurvivalEngine.js';
 import { sanitizeName, sanitizeSkin, ALL_TP_IDS, TP_IDS, TP_LABELS } from './store.js';
 
 const DEFAULT_ROOMS = ['plateau-u300', 'salle-reseau'];
 export const PRIVATE_DEBUG_PREFIX = 'priv-debug';
 export const SURVIVAL_ROOM_PREFIX = 'survival-game-';
+export const COMBAT_ROOM_PREFIX = 'combat-arena-';
 export { ASCENSION_SPECIALTIES, resolveAscensionSpecialty };
 
 export function isPrivateDebugRoom(rawRoom) {
@@ -28,6 +30,17 @@ export function isSurvivalRoom(rawRoom) {
     .trim()
     .toLowerCase()
     .startsWith(SURVIVAL_ROOM_PREFIX);
+}
+
+export function isCombatRoom(rawRoom) {
+  return String(rawRoom || '')
+    .trim()
+    .toLowerCase()
+    .startsWith(COMBAT_ROOM_PREFIX);
+}
+
+function isIsolatedInstanceRoom(rawRoom) {
+  return isSurvivalRoom(rawRoom) || isCombatRoom(rawRoom);
 }
 
 export function isCreatorPseudo(rawName) {
@@ -88,7 +101,7 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, num));
 }
 
-export function attachWsHub(httpServer, store, mapStore = null, survivalOptions = {}) {
+export function attachWsHub(httpServer, store, mapStore = null, survivalOptions = {}, combatOptions = {}) {
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
@@ -98,10 +111,15 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
   const roomChats = new Map();
   const roomCelebrations = new Map();
   const roomSurvivals = new Map();
+  const roomCombats = new Map();
   const pendingSurvivalByOrigin = new Map();
+  const pendingCombatByOrigin = new Map();
   const survivalResetTimers = new Set();
+  const combatResetTimers = new Set();
   let survivalTickInterval = null;
+  let combatTickInterval = null;
   let lastSurvivalTickMs = Date.now();
+  let lastCombatTickMs = Date.now();
 
   function getSurvivalController(roomId) {
     const cleanRoom = sanitizeRoom(roomId || 'plateau-u300');
@@ -159,6 +177,62 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
     return nextRoom;
   }
 
+  function getCombatController(roomId) {
+    const cleanRoom = sanitizeRoom(roomId || 'plateau-u300');
+    if (!roomCombats.has(cleanRoom)) {
+      roomCombats.set(
+        cleanRoom,
+        new CombatMatchController({
+          roomId: cleanRoom,
+          minPlayers: combatOptions.minPlayers ?? 1,
+          matchDurationSec: combatOptions.matchDurationSec,
+          killLimit: combatOptions.killLimit,
+          respawnDelayMs: combatOptions.respawnDelayMs,
+          botCount: combatOptions.botCount
+        })
+      );
+    }
+    return roomCombats.get(cleanRoom);
+  }
+
+  function clearPendingCombatRoom(combatRoomId) {
+    for (const [orig, cRoom] of pendingCombatByOrigin.entries()) {
+      if (cRoom === combatRoomId) {
+        pendingCombatByOrigin.delete(orig);
+      }
+    }
+  }
+
+  function cleanupEmptyCombatRoom(roomId) {
+    if (!isCombatRoom(roomId)) return;
+    if (getRoomPeers(roomId, null).length > 0) return;
+    clearPendingCombatRoom(roomId);
+    const ctrl = roomCombats.get(roomId);
+    if (ctrl) {
+      ctrl.lobbyPlayers.clear();
+      ctrl.resetToIdle();
+      roomCombats.delete(roomId);
+    }
+    roomChats.delete(roomId);
+    roomCelebrations.delete(roomId);
+  }
+
+  function resolveOrCreatePendingCombatRoom(originRoom) {
+    const cleanOrigin = sanitizeRoom(originRoom || 'plateau-u300');
+    const existing = pendingCombatByOrigin.get(cleanOrigin);
+    if (existing) {
+      const ctrl = roomCombats.get(existing);
+      if (ctrl && (ctrl.phase === 'idle' || ctrl.phase === 'lobby')) {
+        return existing;
+      }
+      pendingCombatByOrigin.delete(cleanOrigin);
+    }
+    const nextRoom = sanitizeRoom(`${COMBAT_ROOM_PREFIX}${crypto.randomUUID().slice(0, 8)}`);
+    pendingCombatByOrigin.set(cleanOrigin, nextRoom);
+    getCombatController(nextRoom);
+    return nextRoom;
+  }
+
   function moveClientToRoom(ws, state, targetRoom) {
     if (!state?.name || ws.readyState !== 1) return false;
     const prevRoom = state.room;
@@ -178,9 +252,9 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
       );
     }
 
-    if (!isSurvivalRoom(prevRoom) && isSurvivalRoom(nextRoom)) {
+    if (!isIsolatedInstanceRoom(prevRoom) && isIsolatedInstanceRoom(nextRoom)) {
       state.originRoom = prevRoom;
-    } else if (!isSurvivalRoom(nextRoom)) {
+    } else if (!isIsolatedInstanceRoom(nextRoom)) {
       state.originRoom = null;
     }
 
@@ -215,7 +289,8 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
         roomRoster: nextRoster,
         onlineCount: peers.length + 1,
         chatHistory: roomChats.get(nextRoom) || [],
-        survivalState: getSurvivalController(nextRoom).getPublicSnapshot()
+        survivalState: getSurvivalController(nextRoom).getPublicSnapshot(),
+        combatState: getCombatController(nextRoom).getPublicSnapshot()
       })
     );
 
@@ -231,13 +306,21 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
     );
 
     cleanupEmptySurvivalRoom(prevRoom);
+    cleanupEmptyCombatRoom(prevRoom);
     return true;
   }
 
   function returnClientFromSurvival(ws, state) {
     if (!state?.name || !isSurvivalRoom(state.room)) return false;
     const targetRoom =
-      state.originRoom && !isSurvivalRoom(state.originRoom) ? state.originRoom : 'plateau-u300';
+      state.originRoom && !isIsolatedInstanceRoom(state.originRoom) ? state.originRoom : 'plateau-u300';
+    return moveClientToRoom(ws, state, targetRoom);
+  }
+
+  function returnClientFromCombat(ws, state) {
+    if (!state?.name || !isCombatRoom(state.room)) return false;
+    const targetRoom =
+      state.originRoom && !isIsolatedInstanceRoom(state.originRoom) ? state.originRoom : 'plateau-u300';
     return moveClientToRoom(ws, state, targetRoom);
   }
 
@@ -419,6 +502,122 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
     } else if (!anyActive && survivalTickInterval) {
       clearInterval(survivalTickInterval);
       survivalTickInterval = null;
+    }
+  }
+
+  function finishCombatMatchInRoom(roomId, ctrl, ended) {
+    if (!ended) return;
+    clearPendingCombatRoom(roomId);
+    if (!ctrl._rewardedCombatKeys) {
+      ctrl._rewardedCombatKeys = new Set();
+    }
+    const coinRewards = {};
+    if (ended.reasonCode !== 'aborted') {
+      for (const f of ctrl.fighters.values()) {
+        if (f.isBot) continue;
+        const rewardKey = `${ctrl.matchId}:${f.id}`;
+        if (ctrl._rewardedCombatKeys.has(rewardKey)) continue;
+        ctrl._rewardedCombatKeys.add(rewardKey);
+        const won = Boolean(ended.winnerId && ended.winnerId === f.id);
+        const rewardRes = store.recordCombatReward(f.name, {
+          won,
+          kills: f.kills || 0,
+          matchId: rewardKey
+        });
+        if (rewardRes?.ok && rewardRes.profile) {
+          coinRewards[f.id] = {
+            coinsEarned: rewardRes.coinsEarned,
+            baseCoins: rewardRes.baseCoins,
+            killBonus: rewardRes.killBonus,
+            coins: rewardRes.coins,
+            won
+          };
+          sendCoinsEarnedToPlayer(f.name, rewardRes.profile, {
+            coinsEarned: rewardRes.coinsEarned,
+            source: 'combat',
+            won,
+            kills: f.kills || 0,
+            matchId: ctrl.matchId
+          });
+        }
+      }
+    }
+    ended.coinRewards = { ...(ended.coinRewards || {}), ...coinRewards };
+    broadcastToRoom(roomId, {
+      type: 'combat_ended',
+      ended,
+      state: ctrl.getPublicSnapshot()
+    });
+    const resetDelay = Number.isFinite(Number(combatOptions.postEndResetMs))
+      ? Number(combatOptions.postEndResetMs)
+      : 16000;
+    const t = setTimeout(() => {
+      combatResetTimers.delete(t);
+      if (isCombatRoom(roomId)) {
+        const remaining = getRoomPeers(roomId, null);
+        for (const { sock, state: s } of remaining) {
+          returnClientFromCombat(sock, s);
+        }
+        cleanupEmptyCombatRoom(roomId);
+      } else {
+        ctrl.lobbyPlayers.clear();
+        ctrl.resetToIdle();
+        broadcastToRoom(roomId, {
+          type: 'combat_state',
+          state: ctrl.getPublicSnapshot()
+        });
+      }
+    }, resetDelay);
+    t.unref?.();
+    combatResetTimers.add(t);
+  }
+
+  function syncCombatTimer() {
+    let anyActive = false;
+    for (const ctrl of roomCombats.values()) {
+      if (ctrl.phase === 'active') {
+        anyActive = true;
+        break;
+      }
+    }
+    if (anyActive && !combatTickInterval) {
+      lastCombatTickMs = Date.now();
+      combatTickInterval = setInterval(() => {
+        const now = Date.now();
+        const dt = Math.max(0.02, Math.min(0.25, (now - lastCombatTickMs) / 1000));
+        lastCombatTickMs = now;
+        let stillActive = false;
+        for (const [roomId, ctrl] of roomCombats.entries()) {
+          if (ctrl.phase !== 'active') continue;
+          stillActive = true;
+          const res = ctrl.step(dt, now);
+          const snap = ctrl.getPublicSnapshot(now);
+          if (Array.isArray(res.attackEvents)) {
+            for (const ev of res.attackEvents) {
+              broadcastToRoom(roomId, {
+                type: 'combat_attack_fx',
+                ...ev,
+                state: snap
+              });
+            }
+          }
+          broadcastToRoom(roomId, {
+            type: 'combat_tick',
+            state: snap
+          });
+          if (res.ended) {
+            finishCombatMatchInRoom(roomId, ctrl, res.ended);
+          }
+        }
+        if (!stillActive) {
+          clearInterval(combatTickInterval);
+          combatTickInterval = null;
+        }
+      }, 80);
+      combatTickInterval.unref?.();
+    } else if (!anyActive && combatTickInterval) {
+      clearInterval(combatTickInterval);
+      combatTickInterval = null;
     }
   }
 
@@ -1188,7 +1387,8 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
               chatHistory: roomChats.get(room) || [],
               onlineCount: peers.length + 1,
               leaderboard: getEnrichedLeaderboard(50),
-              survivalState: getSurvivalController(room).getPublicSnapshot()
+              survivalState: getSurvivalController(room).getPublicSnapshot(),
+              combatState: getCombatController(room).getPublicSnapshot()
             })
           );
 
@@ -1209,9 +1409,9 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
 
         case 'move': {
           if (!state.name) return;
-          state.x = clamp(msg.x, -35, 35);
+          state.x = clamp(msg.x, -120, 120);
           state.y = clamp(msg.y ?? 0, 0, 3);
-          state.z = clamp(msg.z, -35, 35);
+          state.z = clamp(msg.z, -120, 120);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : state.yaw;
           if ('vrData' in msg) {
             state.vrData = sanitizeVrData(msg.vrData);
@@ -1219,6 +1419,10 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           const moveSurvCtrl = roomSurvivals.get(state.room);
           if (moveSurvCtrl && moveSurvCtrl.phase === 'active') {
             moveSurvCtrl.updatePlayerPose(state.id, state.x, state.z, state.yaw);
+          }
+          const moveCombatCtrl = roomCombats.get(state.room);
+          if (moveCombatCtrl && moveCombatCtrl.phase === 'active') {
+            moveCombatCtrl.updatePlayerPose(state.id, state.x, state.z, state.yaw, state.y);
           }
 
           broadcastToRoom(
@@ -1618,6 +1822,187 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           break;
         }
 
+        case 'combat_join': {
+          if (!state.name) return;
+          const combatRoom = isCombatRoom(state.room)
+            ? state.room
+            : resolveOrCreatePendingCombatRoom(state.room);
+          if (combatRoom !== state.room) {
+            moveClientToRoom(ws, state, combatRoom);
+          }
+          const ctrl = getCombatController(combatRoom);
+          ctrl.joinLobby({
+            id: state.id,
+            name: state.name,
+            color: state.color,
+            skin: state.skin
+          });
+          broadcastToRoom(combatRoom, {
+            type: 'combat_state',
+            state: ctrl.getPublicSnapshot()
+          });
+          break;
+        }
+
+        case 'combat_leave': {
+          if (!state.name) return;
+          const prevRoom = state.room;
+          const ctrl = getCombatController(prevRoom);
+          const leaveRes = ctrl.leaveLobby(state.id);
+          const snap = ctrl.getPublicSnapshot();
+          if (isCombatRoom(prevRoom)) {
+            returnClientFromCombat(ws, state);
+            if (getRoomPeers(prevRoom, null).length > 0) {
+              broadcastToRoom(prevRoom, {
+                type: 'combat_state',
+                state: snap
+              });
+              if (leaveRes.endedOutcome) {
+                finishCombatMatchInRoom(prevRoom, ctrl, leaveRes.endedOutcome);
+              }
+            } else {
+              cleanupEmptyCombatRoom(prevRoom);
+            }
+          } else {
+            broadcastToRoom(prevRoom, {
+              type: 'combat_state',
+              state: snap
+            });
+            if (leaveRes.endedOutcome) {
+              finishCombatMatchInRoom(prevRoom, ctrl, leaveRes.endedOutcome);
+            }
+          }
+          syncCombatTimer();
+          break;
+        }
+
+        case 'combat_return': {
+          if (!state.name) return;
+          returnClientFromCombat(ws, state);
+          break;
+        }
+
+        case 'combat_mode': {
+          if (!state.name) return;
+          const ctrl = getCombatController(state.room);
+          if (ctrl.setMode(msg.mode === 'melee' ? 'melee' : 'guns')) {
+            broadcastToRoom(state.room, {
+              type: 'combat_state',
+              state: ctrl.getPublicSnapshot()
+            });
+          }
+          break;
+        }
+
+        case 'combat_fill_bots': {
+          if (!state.name) return;
+          const ctrl = getCombatController(state.room);
+          if (ctrl.setFillBots(Boolean(msg.fillBots))) {
+            broadcastToRoom(state.room, {
+              type: 'combat_state',
+              state: ctrl.getPublicSnapshot()
+            });
+          }
+          break;
+        }
+
+        case 'combat_weapon': {
+          if (!state.name) return;
+          const ctrl = getCombatController(state.room);
+          if (ctrl.setPlayerWeapon(state.id, String(msg.weaponId || '').slice(0, 40))) {
+            broadcastToRoom(state.room, {
+              type: 'combat_state',
+              state: ctrl.getPublicSnapshot()
+            });
+          }
+          break;
+        }
+
+        case 'combat_ready': {
+          if (!state.name) return;
+          const ctrl = getCombatController(state.room);
+          const res = ctrl.setReady(state.id, Boolean(msg.ready), Date.now());
+          const snap = ctrl.getPublicSnapshot();
+          if (res.autoStarted) {
+            clearPendingCombatRoom(state.room);
+            broadcastToRoom(state.room, {
+              type: 'combat_started',
+              state: snap
+            });
+            syncCombatTimer();
+          } else {
+            broadcastToRoom(state.room, {
+              type: 'combat_state',
+              state: snap
+            });
+          }
+          break;
+        }
+
+        case 'combat_restart': {
+          if (!state.name) return;
+          const ctrl = getCombatController(state.room);
+          const prevMode = ctrl.mode;
+          const prevBots = ctrl.fillBots;
+          ctrl.resetToIdle();
+          ctrl.setMode(prevMode);
+          ctrl.setFillBots(prevBots);
+          ctrl.joinLobby({
+            id: state.id,
+            name: state.name,
+            color: state.color,
+            skin: state.skin
+          });
+          const res = ctrl.setReady(state.id, true, Date.now());
+          const snap = ctrl.getPublicSnapshot();
+          if (res.autoStarted) {
+            clearPendingCombatRoom(state.room);
+            broadcastToRoom(state.room, {
+              type: 'combat_started',
+              state: snap
+            });
+            syncCombatTimer();
+          } else {
+            broadcastToRoom(state.room, {
+              type: 'combat_state',
+              state: snap
+            });
+          }
+          break;
+        }
+
+        case 'combat_attack': {
+          if (!state.name) return;
+          const ctrl = getCombatController(state.room);
+          const res = ctrl.handleAttack(state.id, msg, Date.now());
+          if (res.ok) {
+            const snap = ctrl.getPublicSnapshot();
+            broadcastToRoom(state.room, {
+              type: 'combat_attack_fx',
+              ...res,
+              state: snap
+            });
+            if (res.ended) {
+              finishCombatMatchInRoom(state.room, ctrl, res.ended);
+              syncCombatTimer();
+            }
+          }
+          break;
+        }
+
+        case 'combat_reload': {
+          if (!state.name) return;
+          const ctrl = getCombatController(state.room);
+          const res = ctrl.reloadWeapon(state.id, Date.now());
+          if (res.ok) {
+            broadcastToRoom(state.room, {
+              type: 'combat_state',
+              state: ctrl.getPublicSnapshot()
+            });
+          }
+          break;
+        }
+
         case 'trigger_celebration': {
           if (!state.name) return;
           const allowed =
@@ -1889,6 +2274,18 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           }
           syncSurvivalTimer();
         }
+        const leaveCombatCtrl = roomCombats.get(leaving.room);
+        if (leaveCombatCtrl) {
+          const lcRes = leaveCombatCtrl.leaveLobby(leaving.id);
+          broadcastToRoom(leaving.room, {
+            type: 'combat_state',
+            state: leaveCombatCtrl.getPublicSnapshot()
+          });
+          if (lcRes.endedOutcome) {
+            finishCombatMatchInRoom(leaving.room, leaveCombatCtrl, lcRes.endedOutcome);
+          }
+          syncCombatTimer();
+        }
         flushClientPlaytime(leaving);
         if (leaving.micEnabled || leaving.isSpeaking) {
           broadcastToRoom(leaving.room, {
@@ -1907,6 +2304,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           roomRoster
         });
         cleanupEmptySurvivalRoom(leaving.room);
+        cleanupEmptyCombatRoom(leaving.room);
         broadcastLeaderboard();
       }
     });
@@ -1920,7 +2318,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
         map.set(def, { room: def, count: 0, players: [] });
       }
       for (const s of clients.values()) {
-        if (!s.name || isPrivateDebugRoom(s.room) || isSurvivalRoom(s.room)) continue;
+        if (!s.name || isPrivateDebugRoom(s.room) || isIsolatedInstanceRoom(s.room)) continue;
         if (!map.has(s.room)) map.set(s.room, { room: s.room, count: 0, players: [] });
         const entry = map.get(s.room);
         entry.count++;
@@ -2123,16 +2521,25 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
       });
     },
     getSurvivalController,
+    getCombatController,
     close: () => {
       clearInterval(heartbeatInterval);
       if (survivalTickInterval) {
         clearInterval(survivalTickInterval);
         survivalTickInterval = null;
       }
+      if (combatTickInterval) {
+        clearInterval(combatTickInterval);
+        combatTickInterval = null;
+      }
       for (const t of survivalResetTimers) {
         clearTimeout(t);
       }
       survivalResetTimers.clear();
+      for (const t of combatResetTimers) {
+        clearTimeout(t);
+      }
+      combatResetTimers.clear();
       return wss.close();
     }
   };

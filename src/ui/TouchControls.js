@@ -31,6 +31,34 @@ export function formatInteractAction(target) {
       fullLabel: lbl || 'Ouvrir la Boutique CIEL'
     };
   }
+  if (target.type === 'combat_door' || /ARÈNE DE COMBAT/i.test(lbl)) {
+    return {
+      icon: '⚔️',
+      shortLabel: 'Arène',
+      fullLabel: lbl || 'Entrer — Arène de Combat CIEL'
+    };
+  }
+  if (target.type === 'combat_lobby_mode') {
+    return {
+      icon: '🔄',
+      shortLabel: 'Mode',
+      fullLabel: lbl || 'Changer Mode (Fusils / Mêlée)'
+    };
+  }
+  if (target.type === 'combat_lobby_ready') {
+    return {
+      icon: '⚔️',
+      shortLabel: 'Lancer',
+      fullLabel: lbl || 'Prêt / Lancer l’Arène'
+    };
+  }
+  if (target.type === 'combat_lobby_exit') {
+    return {
+      icon: '🚪',
+      shortLabel: 'Quitter',
+      fullLabel: lbl || 'Quitter le Lobby Combat'
+    };
+  }
   return {
     icon: '👆',
     shortLabel: 'Interagir',
@@ -57,6 +85,12 @@ export class TouchControls {
     this.btnSprint = document.getElementById('touch-btn-sprint');
     this.btnCamera = document.getElementById('touch-btn-camera');
     this.btnMic = document.getElementById('touch-btn-mic');
+    this.combatPadEl = document.getElementById('touch-combat-pad');
+    this.btnCombatFire = document.getElementById('touch-btn-fire');
+    this.btnCombatReload = document.getElementById('touch-btn-reload');
+    this.btnCombatWeaponNext = document.getElementById('touch-btn-weapon-next');
+    this.combatModeActive = false;
+    this.combatModeKind = 'guns';
 
     this.visible = false;
     this.joyPointerId = null;
@@ -89,7 +123,31 @@ export class TouchControls {
     if (!this.visible) {
       this.resetInputs();
     }
+    if (this.combatPadEl) {
+      this.combatPadEl.classList.toggle('hidden', !(this.visible && this.combatModeActive));
+    }
     this.setInteractTarget(this.currentTarget);
+  }
+
+  setCombatMode(active, { mode = 'guns', weaponShortName = '' } = {}) {
+    this.combatModeActive = Boolean(active);
+    this.combatModeKind = mode === 'melee' ? 'melee' : 'guns';
+    if (this.combatPadEl) {
+      this.combatPadEl.classList.toggle('hidden', !(this.visible && this.combatModeActive));
+    }
+    if (this.btnCombatFire) {
+      const ico = this.btnCombatFire.querySelector('.tb-ico');
+      const lbl = this.btnCombatFire.querySelector('.tb-lbl');
+      if (ico) ico.textContent = this.combatModeKind === 'melee' ? '⚔️' : '🔫';
+      if (lbl) lbl.textContent = this.combatModeKind === 'melee' ? 'FRAPPER' : 'TIRER';
+    }
+    if (this.btnCombatReload) {
+      this.btnCombatReload.classList.toggle('hidden', this.combatModeKind === 'melee');
+    }
+    if (this.btnCombatWeaponNext) {
+      const lbl = this.btnCombatWeaponNext.querySelector('.tb-lbl');
+      if (lbl) lbl.textContent = weaponShortName ? String(weaponShortName).slice(0, 10) : 'Arme';
+    }
   }
 
   resetInputs() {
@@ -402,6 +460,37 @@ export class TouchControls {
     this._bindPressAction(this.btnCamera, () => {
       this.handlers.onToggleCamera?.();
     });
+
+    this._bindPressAction(this.btnCombatReload, () => {
+      this.handlers.onCombatReload?.();
+    });
+
+    this._bindPressAction(this.btnCombatWeaponNext, () => {
+      this.handlers.onCombatCycleWeapon?.();
+    });
+
+    if (this.btnCombatFire) {
+      const onDown = (e) => {
+        if (!this.visible || !this.combatModeActive) return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        e.preventDefault?.();
+        e.stopPropagation?.();
+        this.btnCombatFire.classList.add('pressed');
+        this.handlers.onCombatFireStart?.();
+      };
+      const onUp = () => {
+        this.btnCombatFire.classList.remove('pressed');
+        this.handlers.onCombatFireEnd?.();
+      };
+      this.btnCombatFire.addEventListener('pointerdown', onDown);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+      this._cleanups.push(() => {
+        this.btnCombatFire.removeEventListener('pointerdown', onDown);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+      });
+    }
 
     if (this.btnMic) {
       let handledPointer = false;

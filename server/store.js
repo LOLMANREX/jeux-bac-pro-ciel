@@ -15,6 +15,7 @@ import { createDefaultMap, normalizeMapData } from '../src/world/mapSchema.js';
 import {
   ARCADE_GAME_RULES,
   computeArcadeCoinReward,
+  computeCombatCoinReward,
   computeDetentionTableCoinReward,
   computeSurvivalCoinReward,
   computeTpCoinReward,
@@ -379,6 +380,7 @@ export class GameStore {
     this.accounts = new Map();
     this._arcadeClaimHistory = new Map();
     this._survivalMatchClaimed = new Map();
+    this._combatMatchClaimed = new Map();
     this.migratedToV411 = false;
     if (this.accountsFilePath || this.dbFilePath) {
       this._load();
@@ -2147,6 +2149,65 @@ export class GameStore {
       status: 200,
       coinsEarned,
       capped: coinsEarned === 0,
+      coins: profile.coins,
+      profile,
+      account
+    };
+  }
+
+  recordCombatReward(target, { won = false, kills = 0, matchId = null } = {}) {
+    const accKey = this._findAccountKey(target);
+    const name = accKey ? this.accounts.get(accKey).username : sanitizeName(target);
+    const key = name.toLowerCase();
+    const now = Date.now();
+    let tracker = this._combatMatchClaimed.get(key);
+    if (!tracker) {
+      tracker = { matchIds: new Set(), timestamps: [] };
+      this._combatMatchClaimed.set(key, tracker);
+    }
+    tracker.timestamps = tracker.timestamps.filter((ts) => ts >= now - 60000);
+    if (tracker.timestamps.length >= 6) {
+      return {
+        ok: false,
+        status: 429,
+        error: 'Trop de récompenses Arène réclamées en peu de temps (anti-triche).'
+      };
+    }
+    const cleanMatchId = matchId ? String(matchId).trim() : '';
+    if (cleanMatchId && tracker.matchIds.has(cleanMatchId)) {
+      return {
+        ok: false,
+        status: 409,
+        error: 'Récompense déjà attribuée pour cette manche de Combat.'
+      };
+    }
+    this.getOrCreatePlayer(name);
+    const player = this._normalizePlayer(this.data.players[key], name);
+    const reward = computeCombatCoinReward({ won, kills });
+    if (cleanMatchId) {
+      tracker.matchIds.add(cleanMatchId);
+      if (tracker.matchIds.size > 100) {
+        const oldest = tracker.matchIds.values().next().value;
+        tracker.matchIds.delete(oldest);
+      }
+    }
+    tracker.timestamps.push(now);
+    player.coins = Math.max(0, (player.coins || 0) + reward.totalCoins);
+    player.xp = Math.max(0, (player.xp || 0) + (reward.won ? 180 : 75) + reward.kills * 15);
+    player.updatedAt = new Date().toISOString();
+    this.data.players[key] = player;
+    this._syncAccountFromPlayer(player);
+    this._save();
+    const profile = this.getPublicProfile(key);
+    const account = this.getPublicAccount(key);
+    return {
+      ok: true,
+      status: 200,
+      won: reward.won,
+      kills: reward.kills,
+      coinsEarned: reward.totalCoins,
+      baseCoins: reward.baseCoins,
+      killBonus: reward.killBonus,
       coins: profile.coins,
       profile,
       account

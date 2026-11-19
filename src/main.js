@@ -30,8 +30,17 @@ import { computeSurvivalIntroShot, createSurvivalPocketRooms } from './world/Sur
 import {
   SURVIVAL_MIN_PLAYERS,
   computeRackExitPosition,
+  computeRackInteriorPosition,
   resolveSurvivalIntroPlacement
 } from './world/SurvivalEngine.js';
+import { createCombatPocketRooms } from './world/CombatArena3D.js';
+import {
+  buildCombatWeaponMesh,
+  createCombatVfxPool,
+  getCombatWeaponById,
+  getDefaultWeaponForMode,
+  getWeaponsByMode
+} from './world/CombatWeapons.js';
 import { PlayerController } from './world/PlayerController.js';
 import { buildPetMesh } from './world/PetBuilder.js';
 import { isShopPetId } from './world/ShopCatalog.js';
@@ -111,6 +120,17 @@ sceneMgr.setFov(gameState.fov);
 let currentMapData = createDefaultMap();
 const lab = buildLabWorld(sceneMgr.scene, currentMapData, { maxAnisotropy: sceneMgr.getMaxAnisotropy() });
 const survivalArena = createSurvivalPocketRooms(sceneMgr.scene, currentMapData);
+const combatArena = createCombatPocketRooms(sceneMgr.scene);
+const combatVfx = createCombatVfxPool(sceneMgr.scene);
+const combatViewWeaponRoot = new THREE.Group();
+combatViewWeaponRoot.visible = false;
+sceneMgr.scene.add(combatViewWeaponRoot);
+const combatViewWeaponHolder = new THREE.Group();
+combatViewWeaponHolder.position.set(0.24, -0.21, -0.44);
+combatViewWeaponRoot.add(combatViewWeaponHolder);
+const _combatRayOrigin = new THREE.Vector3();
+const _combatRayDir = new THREE.Vector3();
+const _combatMuzzleWorld = new THREE.Vector3();
 const horrorTeacher = createHorrorTeacher(sceneMgr.scene, { visible: false });
 sceneMgr.updateWorldBounds(currentMapData.bounds);
 
@@ -406,6 +426,9 @@ vrManager = new VRManager(sceneMgr, player, {
     hud?.hideDetentionModal?.();
     hud?.hideDetention3dHud?.();
     hud?.hideSurvivalEndOverlay?.();
+    hud?.hideCombatLobby?.();
+    hud?.hideCombatHud?.();
+    hud?.hideCombatEndOverlay?.();
     if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
       miniGameModal.close();
     }
@@ -422,6 +445,15 @@ vrManager = new VRManager(sceneMgr, player, {
     vrManager.setSkin(getEffectiveSessionSkin(gameState.skin));
     vrManager.setMapData(currentMapData);
     syncSurvivalPanelMode();
+    syncCombatPanelMode();
+    if (combatState.inActiveMatch) {
+      const myFighter = getLocalCombatFighter();
+      vrManager.setCombatMode(true, {
+        mode: combatState.mode,
+        weaponId: myFighter?.weaponId || combatState.selectedWeaponId,
+        callbacks: getCombatVrCallbacks()
+      });
+    }
     if (survivalState.detained || survivalState.inDefeatDetention) {
       const detCfg = survivalArena.getDetentionRoomConfig();
       const seatEyeY = detCfg.vrSeatEyeY || detCfg.pcEye?.y || 1.28;
@@ -464,7 +496,14 @@ vrManager = new VRManager(sceneMgr, player, {
       player._applyCamera?.();
     }
     touchControls?.setVisible(joined && !modalOpen && !seatedDet && gameState.touchMode);
+    vrManager.setCombatMode(false);
     syncSurvivalPanelMode();
+    syncCombatPanelMode();
+    if (combatState.inActiveMatch && combatState.snapshot) {
+      hud?.updateCombatHud?.(combatState.snapshot, network.clientId);
+      const wSpec = getCombatWeaponById(combatState.selectedWeaponId);
+      touchControls?.setCombatMode?.(true, { mode: combatState.mode, weaponShortName: wSpec?.shortName || '' });
+    }
     if (joined) {
       network.sendMove(player.position.x, 0, player.position.z, player.yaw, true, { active: false });
     }
@@ -666,6 +705,10 @@ function isSurvivalInstanceRoom(roomId = gameState.room) {
   return String(roomId || '').trim().toLowerCase().startsWith('survival-game-');
 }
 
+function isCombatInstanceRoom(roomId = gameState.room) {
+  return String(roomId || '').trim().toLowerCase().startsWith('combat-arena-');
+}
+
 function isDetentionSeatedActive() {
   return Boolean(
     (survivalState.detained || survivalState.inDefeatDetention) &&
@@ -673,13 +716,18 @@ function isDetentionSeatedActive() {
   );
 }
 
-function applyRoomInstanceFilter(roomId = gameState.room, snap = survivalState.snapshot) {
+function applyRoomInstanceFilter(roomId = gameState.room, snap = survivalState.snapshot, kind = 'survival') {
+  if (kind === 'combat' && combatState.inActiveMatch && Array.isArray(snap?.fighters)) {
+    const allowedIds = snap.fighters.filter((f) => !f.isBot).map((f) => f.id).filter(Boolean);
+    remotePlayers.setInstanceFilter(allowedIds);
+    return;
+  }
   if (survivalState.inActiveMatch && Array.isArray(snap?.participants)) {
     const allowedIds = snap.participants.map((p) => p.id).filter(Boolean);
     remotePlayers.setInstanceFilter(allowedIds);
     return;
   }
-  if (!isSurvivalInstanceRoom(roomId)) {
+  if (!isSurvivalInstanceRoom(roomId) && !isCombatInstanceRoom(roomId)) {
     remotePlayers.setInstanceFilter(null);
   }
 }
@@ -690,6 +738,12 @@ function getActiveInteractables() {
   }
   if (survivalState.inWaitingRoom && !survivalState.inActiveMatch) {
     return survivalArena.getWaitingRoomConfig().interactables;
+  }
+  if (combatState.inWaitingRoom && !combatState.inActiveMatch) {
+    return combatArena.getWaitingRoomConfig().interactables;
+  }
+  if (combatState.inActiveMatch) {
+    return [];
   }
   if (survivalState.hiddenRack) {
     return [];
@@ -707,7 +761,7 @@ function getActiveWorldSurfaces() {
       onRestartSurvival: () => restartSurvivalFromDetention()
     });
   }
-  if (survivalState.inWaitingRoom && !survivalState.inActiveMatch) {
+  if ((survivalState.inWaitingRoom && !survivalState.inActiveMatch) || (combatState.inWaitingRoom && !combatState.inActiveMatch) || combatState.inActiveMatch) {
     return [];
   }
   return lab.pcInteractiveSurfaces || [];
@@ -734,6 +788,28 @@ function teleportWithWorldMode(pos, lookAt, mode = 'hall') {
     player.setBounds(cfg.bounds);
     player.teleportTo(cfg.spawn, cfg.lookAt);
     vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, player.yaw);
+    return;
+  }
+  if (mode === 'combat_waiting') {
+    player.setSeated?.(false);
+    vrManager?.setSeatedMode?.(false);
+    const cfg = combatArena.getWaitingRoomConfig();
+    player.setColliders(cfg.colliders);
+    player.setBounds(cfg.bounds);
+    player.teleportTo(cfg.spawn, cfg.lookAt);
+    vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, player.yaw);
+    return;
+  }
+  if (mode === 'combat_arena') {
+    player.setSeated?.(false);
+    vrManager?.setSeatedMode?.(false);
+    const cfg = combatArena.getArenaConfig();
+    player.setColliders(cfg.colliders);
+    player.setBounds(cfg.bounds);
+    const sp = pos || cfg.spawn;
+    const lk = lookAt || cfg.lookAt;
+    player.teleportTo(sp, lk);
+    vrManager?.syncWorldTeleport?.(sp.x, sp.z, player.yaw);
     return;
   }
   if (mode === 'detention') {
@@ -1170,13 +1246,23 @@ function syncSurvivalPanelMode() {
   if (survivalState.hiddenRack && survivalState.inActiveMatch) {
     if (vrOn) {
       hud?.hideHidingOverlay?.();
-      vrManager.openWorldSpatialPanel('survival_hidden', { survivalHidden: buildVrHiddenState(snap) });
+      vrManager.openWorldSpatialPanel(
+        'survival_hidden',
+        { survivalHidden: buildVrHiddenState(snap) },
+        { dist: 0.48, yOffset: -0.44, scale: 0.42 }
+      );
     } else {
-      setModalActive(true, false, true);
+      setModalActive(false, false, false);
+      touchControls?.setVisible?.(false);
+      player.setEnabled(true);
+      const aiD = snap?.ai
+        ? Math.hypot((snap.ai.x || 0) - player.position.x, (snap.ai.z || 0) - player.position.z)
+        : null;
       hud?.showHidingOverlay?.({
         noiseLevel: survivalState.noiseLevel,
         micEnabled: Boolean(latestVoiceState.micEnabled),
-        aiState: snap?.ai?.state || 'patrol'
+        aiState: snap?.ai?.state || 'patrol',
+        aiDist: aiD
       });
     }
     return;
@@ -1256,10 +1342,12 @@ function toggleHidingInRack(target) {
   }
   if (survivalState.hiddenRack) {
     const spot = survivalState.hiddenSpot || survivalState.hiddenRack;
+    sfx.stopRackServerHum?.();
     sfx.playLockerDoorSound?.(false);
     network.sendSurvivalHide(null);
     survivalState.hiddenRack = null;
     survivalState.hiddenSpot = null;
+    player.setHidingInRack?.(false);
     hud?.hideHidingOverlay?.();
     sceneMgr.restoreNormalExposure?.();
     if (vrManager?.isVrActive?.()) {
@@ -1299,6 +1387,7 @@ function toggleHidingInRack(target) {
   const spot = lab.hidingSpots?.find((s) => s.id === rackId) || target || null;
   if (!spot) return;
   sfx.playLockerDoorSound?.(true);
+  sfx.startRackServerHum?.();
   if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
     miniGameModal.close();
   }
@@ -1325,6 +1414,13 @@ function toggleHidingInRack(target) {
     currentMapData?.bounds,
     player.radius || 0.42
   );
+  const interior = computeRackInteriorPosition({
+    x: spotX,
+    z: spotZ,
+    rotRad,
+    w: spot.w,
+    d: spot.d
+  });
   survivalState.hiddenRack = target;
   survivalState.hiddenSpot = {
     ...spot,
@@ -1332,12 +1428,14 @@ function toggleHidingInRack(target) {
     z: spotZ,
     rotRad,
     rad: rotRad,
+    interiorPos: interior,
     exitX: computedExit.x,
     exitZ: computedExit.z
   };
-  player.setMovementLocked(true);
-  player.teleportTo({ x: spotX, z: spotZ }, { x: computedExit.x, z: computedExit.z });
-  vrManager?.syncWorldTeleport?.(spotX, spotZ, player.yaw);
+  player.setHidingInRack?.(true, interior);
+  if (vrManager?.isVrActive?.()) {
+    vrManager.enterHidingRackVr?.(interior.x, interior.z, interior.baseYaw, interior.y);
+  }
   network.sendSurvivalHide(spot.id);
   syncSurvivalPanelMode();
 }
@@ -1495,6 +1593,9 @@ function triggerLocalCaughtJumpscare(snapshot) {
   closeCielOsPc({ restoreCamera: false });
   survivalState.introActive = false;
   hud?.hideSurvivalIntroOverlay?.();
+  sfx.stopRackServerHum?.();
+  player.setHidingInRack?.(false);
+  if (vrManager) vrManager.hidingInRack = false;
   survivalState.hiddenRack = null;
   survivalState.hiddenSpot = null;
   survivalState.detained = true;
@@ -1553,6 +1654,9 @@ function endSurvivalMatchClient(ended, snapshot) {
   survivalState.phase = 'ended';
 
   sfx.stopHorrorAmbience?.();
+  sfx.stopRackServerHum?.();
+  player.setHidingInRack?.(false);
+  if (vrManager) vrManager.hidingInRack = false;
   if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
     miniGameModal.close();
   }
@@ -1745,6 +1849,9 @@ function resetSurvivalClientFull() {
     survivalState.savedCameraMode = null;
   }
   sfx.stopHorrorAmbience?.();
+  sfx.stopRackServerHum?.();
+  player.setHidingInRack?.(false);
+  if (vrManager) vrManager.hidingInRack = false;
   sceneMgr.setHorrorAtmosphere?.(false, 0, 1);
   lab.setHorrorLighting?.(false, 1);
   lab.setTeacherVisible?.(true);
@@ -1895,9 +2002,369 @@ function updateSurvivalLoop(dt, elapsed) {
       hud?.showHidingOverlay?.({
         noiseLevel: survivalState.noiseLevel,
         micEnabled: Boolean(mic.micEnabled),
-        aiState
+        aiState,
+        aiDist
       });
     }
+  }
+}
+
+const combatState = {
+  phase: 'idle',
+  mode: 'guns',
+  inWaitingRoom: false,
+  inActiveMatch: false,
+  lobbyModalOpen: false,
+  snapshot: null,
+  selectedWeaponId: 'fiber_rifle',
+  viewWeaponObj: null,
+  viewWeaponId: null,
+  fireHeld: false,
+  lastFireClientAt: 0,
+  recoilAmount: 0,
+  swingAnim: 0,
+  localAlive: true,
+  lastLocalHp: 100,
+  endData: null,
+  scoreboardOpen: false
+};
+
+function getLocalCombatFighter(snap = combatState.snapshot) {
+  if (!snap || !network.clientId) return null;
+  const fighters = Array.isArray(snap.fighters) ? snap.fighters : [];
+  return fighters.find((f) => f.id === network.clientId) || null;
+}
+
+function getCombatVrCallbacks() {
+  return {
+    onAttack: (payload) => triggerLocalCombatAttack(payload),
+    onReload: () => {
+      sfx.playCombatReload?.();
+      network.sendCombatReload?.();
+    },
+    onCycleWeapon: () => cycleCombatWeapon(1)
+  };
+}
+
+function syncCombatViewWeapon(weaponId = null) {
+  const cleanId = weaponId ? String(weaponId) : null;
+  if (vrManager?.isVrActive?.()) {
+    vrManager.setCombatWeaponModel?.(cleanId);
+  }
+  if (combatState.viewWeaponId === cleanId && Boolean(combatState.viewWeaponObj) === Boolean(cleanId)) {
+    return;
+  }
+  if (combatState.viewWeaponObj) {
+    combatState.viewWeaponObj.group.parent?.remove(combatState.viewWeaponObj.group);
+    combatState.viewWeaponObj.dispose?.();
+    combatState.viewWeaponObj = null;
+  }
+  combatState.viewWeaponId = cleanId;
+  if (!cleanId) return;
+  const obj = buildCombatWeaponMesh(cleanId, { viewModel: true });
+  combatViewWeaponHolder.add(obj.group);
+  combatState.viewWeaponObj = obj;
+}
+
+function buildVrCombatLobbyState(snap = combatState.snapshot) {
+  const mode = snap?.mode === 'melee' ? 'melee' : 'guns';
+  const players = Array.isArray(snap?.lobbyPlayers) ? snap.lobbyPlayers : [];
+  const me = players.find((p) => p.id === network.clientId);
+  const weapons = getWeaponsByMode(mode);
+  return {
+    mode,
+    fillBots: snap?.fillBots !== false,
+    players,
+    weapons,
+    selectedWeaponId: me?.weaponId || combatState.selectedWeaponId || weapons[0]?.id,
+    localReady: Boolean(me?.ready),
+    onSelectMode: (nextMode) => {
+      sfx.click();
+      network.sendCombatMode(nextMode);
+    },
+    onToggleBots: () => {
+      sfx.click();
+      const cur = combatState.snapshot?.fillBots !== false;
+      network.sendCombatFillBots(!cur);
+    },
+    onSelectWeapon: (wid) => {
+      sfx.click();
+      selectCombatWeapon(wid);
+    },
+    onToggleReady: () => toggleCombatReady(),
+    onLeave: () => leaveCombatArena()
+  };
+}
+
+function syncCombatPanelMode() {
+  if (!joined) return;
+  const vrOn = Boolean(vrManager?.isVrActive?.());
+  const snap = combatState.snapshot;
+
+  if (combatState.inWaitingRoom && !combatState.inActiveMatch) {
+    combatState.lobbyModalOpen = true;
+    if (vrOn) {
+      hud?.hideCombatLobby?.();
+      vrManager.openWorldSpatialPanel('combat_lobby', { combatLobby: buildVrCombatLobbyState(snap) });
+    } else {
+      setModalActive(true, false, true);
+      hud?.showCombatLobby?.(snap || { mode: combatState.mode, fillBots: true }, network.clientId);
+    }
+    return;
+  }
+
+  if (combatState.phase === 'ended' && combatState.endData) {
+    if (vrOn) {
+      hud?.hideCombatEndOverlay?.();
+      vrManager.openWorldSpatialPanel('combat_end', { combatEnd: combatState.endData });
+    } else {
+      setModalActive(true, false, true);
+      hud?.showCombatEndOverlay?.(combatState.endData);
+    }
+  }
+}
+
+function enterCombatLobby() {
+  if (!joined || activeCinematic) return;
+  if (!network.connected) {
+    hud?.toast?.('⚠️ Connectez-vous au serveur pour entrer dans l’Arène de Combat CIEL.', 'error');
+    return;
+  }
+  sfx.interact();
+  player.setSeated?.(false);
+  vrManager?.setSeatedMode?.(false);
+  combatState.inWaitingRoom = true;
+  combatState.lobbyModalOpen = true;
+  combatState.inActiveMatch = false;
+  combatState.endData = null;
+  combatState.phase = 'lobby';
+  teleportWithWorldMode(null, null, 'combat_waiting');
+  network.sendCombatJoin();
+  network.sendActivity('Lobby Arène Combat CIEL');
+  combatArena.updateWaitingBoard(combatState.snapshot || { mode: 'guns', fillBots: true, lobbyPlayers: [] }, true);
+  syncCombatPanelMode();
+}
+
+function leaveCombatArena() {
+  sfx.click();
+  const inCombatRoom = isCombatInstanceRoom(gameState.room);
+  resetCombatClientFull();
+  setModalActive(false, false, false);
+  network.sendCombatLeave();
+  if (!inCombatRoom) {
+    teleportWithWorldMode(null, null, 'hall');
+  }
+  network.sendActivity('Dans l’atelier');
+}
+
+function toggleCombatReady() {
+  const players = combatState.snapshot?.lobbyPlayers || [];
+  const me = players.find((p) => p.id === network.clientId);
+  const nextReady = !Boolean(me?.ready);
+  sfx.click();
+  network.sendCombatReady(nextReady);
+}
+
+function selectCombatWeapon(weaponId) {
+  const spec = getCombatWeaponById(weaponId);
+  if (!spec) return;
+  combatState.selectedWeaponId = spec.id;
+  if (combatState.inActiveMatch) {
+    syncCombatViewWeapon(spec.id);
+    const vrOn = Boolean(vrManager?.isVrActive?.());
+    if (!vrOn) {
+      touchControls?.setCombatMode?.(true, {
+        mode: combatState.mode,
+        weaponShortName: spec.shortName
+      });
+    }
+  }
+  network.sendCombatWeapon(spec.id);
+}
+
+function cycleCombatWeapon(step = 1) {
+  const list = getWeaponsByMode(combatState.mode);
+  if (list.length === 0) return;
+  const curId = combatState.selectedWeaponId;
+  const idx = Math.max(0, list.findIndex((w) => w.id === curId));
+  const next = list[(idx + step + list.length) % list.length];
+  if (next) {
+    sfx.click();
+    selectCombatWeapon(next.id);
+  }
+}
+
+function triggerLocalCombatAttack(customPayload = null) {
+  if (!combatState.inActiveMatch || !combatState.localAlive || modalOpen) return;
+  const me = getLocalCombatFighter();
+  const activeWeaponId = customPayload?.weaponId || me?.weaponId || combatState.selectedWeaponId || getDefaultWeaponForMode(combatState.mode).id;
+  const spec = getCombatWeaponById(activeWeaponId) || getDefaultWeaponForMode(combatState.mode);
+  const now = performance.now();
+  if (now - combatState.lastFireClientAt < spec.fireRateMs * 0.92) return;
+
+  if (combatState.mode === 'guns') {
+    if (me?.reloading) return;
+    if (me && spec.magSize > 0 && (me.ammo ?? 0) <= 0) {
+      sfx.playCombatReload?.();
+      network.sendCombatReload?.();
+      combatState.lastFireClientAt = now;
+      return;
+    }
+  }
+
+  combatState.lastFireClientAt = now;
+  if (combatState.mode === 'melee') {
+    combatState.swingAnim = 1;
+  } else {
+    combatState.recoilAmount = 1;
+  }
+
+  let origin = customPayload?.origin;
+  let dir = customPayload?.dir;
+  if (!origin || !dir) {
+    sceneMgr.camera.getWorldPosition(_combatRayOrigin);
+    sceneMgr.camera.getWorldDirection(_combatRayDir);
+    origin = { x: _combatRayOrigin.x, y: _combatRayOrigin.y, z: _combatRayOrigin.z };
+    dir = { x: _combatRayDir.x, y: _combatRayDir.y, z: _combatRayDir.z };
+  }
+
+  network.sendCombatAttack({
+    weaponId: spec.id,
+    origin,
+    dir,
+    isVrSwing: Boolean(customPayload?.isVrSwing)
+  });
+}
+
+function startCombatMatchClient(snapshot) {
+  combatState.snapshot = snapshot;
+  combatState.phase = 'active';
+  combatState.mode = snapshot?.mode === 'melee' ? 'melee' : 'guns';
+  const me = getLocalCombatFighter(snapshot);
+  const isParticipant = Boolean(combatState.inWaitingRoom || me);
+  combatState.inWaitingRoom = false;
+  combatState.lobbyModalOpen = false;
+  hud?.hideCombatLobby?.();
+  hud?.hideCombatEndOverlay?.();
+  if (!isParticipant) return;
+
+  combatState.inActiveMatch = true;
+  combatState.endData = null;
+  combatState.fireHeld = false;
+  combatState.localAlive = true;
+  combatState.lastLocalHp = me?.hp ?? 100;
+  combatState.selectedWeaponId = me?.weaponId || getDefaultWeaponForMode(combatState.mode).id;
+
+  if (vrManager?.isVrActive?.()) {
+    vrManager.closeWorldSpatialPanel?.();
+  } else if (gameState.cameraMode === 'third') {
+    gameState.setCameraMode('first');
+    player.setCameraMode('first');
+    hud?.syncCameraUi?.();
+    touchControls?.syncCameraMode?.('first');
+  }
+  setModalActive(false, false, false);
+  applyRoomInstanceFilter(gameState.room, snapshot, 'combat');
+  sceneMgr.setCombatAtmosphere?.(true);
+
+  const spawnPos = me ? { x: me.x, z: me.z } : combatArena.getArenaConfig().spawn;
+  const lookPt = me
+    ? { x: me.x - Math.sin(me.yaw || 0) * 4, z: me.z - Math.cos(me.yaw || 0) * 4 }
+    : combatArena.getArenaConfig().lookAt;
+  teleportWithWorldMode(spawnPos, lookPt, 'combat_arena');
+
+  syncCombatViewWeapon(combatState.selectedWeaponId);
+  const wSpec = getCombatWeaponById(combatState.selectedWeaponId);
+  if (vrManager?.isVrActive?.()) {
+    vrManager.setCombatMode?.(true, {
+      mode: combatState.mode,
+      weaponId: combatState.selectedWeaponId,
+      callbacks: getCombatVrCallbacks()
+    });
+  } else {
+    hud?.updateCombatHud?.(snapshot, network.clientId);
+    touchControls?.setCombatMode?.(true, {
+      mode: combatState.mode,
+      weaponShortName: wSpec?.shortName || ''
+    });
+    touchControls?.setVisible?.(joined && !modalOpen && gameState.touchMode);
+  }
+  network.sendActivity(combatState.mode === 'melee' ? 'Arène Combat (Mêlée)' : 'Arène Combat (Fusils)');
+  syncVrWatchHud();
+  hud?.toast?.(
+    combatState.mode === 'melee'
+      ? '⚔️ ARÈNE MÊLÉE CIEL ! Éliminez vos adversaires au corps-à-corps !'
+      : '🔫 ARÈNE FUSILS CIEL ! Viser et tirer (touches 1-4 changer d’arme, R recharger) !',
+    'success'
+  );
+}
+
+function endCombatMatchClient(ended, snapshot) {
+  const wasParticipating = combatState.inActiveMatch || combatState.inWaitingRoom;
+  combatState.snapshot = snapshot || combatState.snapshot;
+  combatState.inActiveMatch = false;
+  combatState.inWaitingRoom = false;
+  combatState.lobbyModalOpen = false;
+  combatState.fireHeld = false;
+  combatState.phase = 'ended';
+  combatViewWeaponRoot.visible = false;
+  syncCombatViewWeapon(null);
+  combatVfx.clear();
+  remotePlayers.clearAllCombatWeapons();
+  hud?.hideCombatHud?.();
+  touchControls?.setCombatMode?.(false);
+  vrManager?.setCombatMode?.(false);
+
+  if (!wasParticipating) {
+    combatState.phase = 'idle';
+    return;
+  }
+
+  const myReward = ended?.coinRewards?.[network.clientId] || {};
+  const won = Boolean(ended?.winnerId && ended.winnerId === network.clientId);
+  const endData = {
+    won,
+    reason: ended?.reason || 'Manche terminée !',
+    coinsEarned: myReward.coinsEarned || 0,
+    scoreboard: Array.isArray(ended?.scoreboard) ? ended.scoreboard : snapshot?.scoreboard || [],
+    localId: network.clientId,
+    onReplay: () => {
+      sfx.click();
+      hud?.hideCombatEndOverlay?.();
+      if (vrManager?.isVrActive?.()) vrManager.closeWorldSpatialPanel?.();
+      network.sendCombatRestart?.();
+    },
+    onExit: () => leaveCombatArena()
+  };
+  combatState.endData = endData;
+  syncCombatPanelMode();
+  syncVrWatchHud();
+}
+
+function resetCombatClientFull() {
+  combatState.phase = 'idle';
+  combatState.inWaitingRoom = false;
+  combatState.inActiveMatch = false;
+  combatState.lobbyModalOpen = false;
+  combatState.snapshot = null;
+  combatState.fireHeld = false;
+  combatState.localAlive = true;
+  combatState.endData = null;
+  combatState.scoreboardOpen = false;
+  combatViewWeaponRoot.visible = false;
+  syncCombatViewWeapon(null);
+  combatVfx.clear();
+  combatArena.clearCombatants();
+  remotePlayers.clearAllCombatWeapons();
+  remotePlayers.setInstanceFilter(null);
+  sceneMgr.setCombatAtmosphere?.(false);
+  touchControls?.setCombatMode?.(false);
+  vrManager?.setCombatMode?.(false);
+  hud?.hideAllCombatUi?.();
+  player.setColliders(lab.colliders);
+  player.setBounds(currentMapData.bounds);
+  if (vrManager?.isVrActive?.()) {
+    vrManager.closeWorldSpatialPanel?.();
   }
 }
 
@@ -1925,6 +2392,35 @@ function syncVrWatchHud(extra = {}) {
   } else {
     survExtra.survivalStatus = null;
   }
+  const combatExtra = {};
+  if (combatState.inActiveMatch) {
+    const cSnap = combatState.snapshot;
+    const me = getLocalCombatFighter(cSnap);
+    const wSpec = getCombatWeaponById(me?.weaponId || combatState.selectedWeaponId) || getDefaultWeaponForMode(combatState.mode);
+    const leftSec = Math.max(0, Math.round(Number(cSnap?.timeLeftSec) || 0));
+    const min = String(Math.floor(leftSec / 60)).padStart(2, '0');
+    const sec = String(leftSec % 60).padStart(2, '0');
+    combatExtra.combatStatus = {
+      active: true,
+      mode: combatState.mode,
+      timerText: `${min}:${sec}`,
+      hp: me?.hp ?? 100,
+      maxHp: me?.maxHp ?? 100,
+      ammo: me?.ammo ?? wSpec?.magSize ?? 0,
+      maxAmmo: me?.maxAmmo ?? wSpec?.magSize ?? 0,
+      reloading: Boolean(me?.reloading),
+      weaponName: wSpec?.name || 'Arme CIEL',
+      kills: me?.kills || 0,
+      killLimit: cSnap?.killLimit || 10,
+      deaths: me?.deaths || 0,
+      streak: me?.streak || 0
+    };
+    if (!extra.targetHint && !survExtra.targetHint) {
+      combatExtra.targetHint = `${combatState.mode === 'melee' ? '⚔️' : '🔫'} ${me?.kills || 0}/${cSnap?.killLimit || 10} Élim • ❤️ ${Math.round(me?.hp ?? 100)}`;
+    }
+  } else {
+    combatExtra.combatStatus = null;
+  }
   vrManager.updateHudInfo({
     name: gameState.profile.name,
     zoneLabel: zone.badgeText,
@@ -1943,6 +2439,7 @@ function syncVrWatchHud(extra = {}) {
     onlineCount: hud?.lastOnlineCount || 1,
     pingMs: network.lastPingMs,
     ...survExtra,
+    ...combatExtra,
     ...extra
   });
 }
@@ -3375,6 +3872,39 @@ hud?.bindSurvivalHandlers?.({
   onCloseEnd: () => closeSurvivalEndCinematic()
 });
 
+hud?.bindCombatHandlers?.({
+  onSelectMode: (mode) => {
+    sfx.click();
+    network.sendCombatMode(mode);
+  },
+  onToggleBots: () => {
+    sfx.click();
+    const cur = combatState.snapshot?.fillBots !== false;
+    network.sendCombatFillBots(!cur);
+  },
+  onSelectWeapon: (wid) => {
+    sfx.click();
+    selectCombatWeapon(wid);
+  },
+  onToggleReady: () => toggleCombatReady(),
+  onLeaveLobby: () => leaveCombatArena(),
+  onLeaveArena: () => leaveCombatArena(),
+  onToggleScoreboard: () => {
+    combatState.scoreboardOpen = !combatState.scoreboardOpen;
+    hud?.toggleCombatScoreboard?.(combatState.scoreboardOpen, combatState.snapshot, network.clientId);
+  },
+  onReplay: () => {
+    if (combatState.endData?.onReplay) {
+      combatState.endData.onReplay();
+    } else {
+      sfx.click();
+      hud?.hideCombatEndOverlay?.();
+      network.sendCombatRestart?.();
+    }
+  },
+  onExitArena: () => leaveCombatArena()
+});
+
 function toggleCameraMode() {
   sfx.click();
   const next = gameState.cameraMode === 'third' ? 'first' : 'third';
@@ -3395,6 +3925,23 @@ try {
     },
     onTapLookZone: (x, y) => {
       if (joined && !modalOpen) tryRaycastInteract(x, y);
+    },
+    onCombatFireStart: () => {
+      if (!joined || !combatState.inActiveMatch || modalOpen) return;
+      combatState.fireHeld = true;
+      triggerLocalCombatAttack();
+    },
+    onCombatFireEnd: () => {
+      combatState.fireHeld = false;
+    },
+    onCombatReload: () => {
+      if (!joined || !combatState.inActiveMatch) return;
+      sfx.playCombatReload?.();
+      network.sendCombatReload?.();
+    },
+    onCombatCycleWeapon: () => {
+      if (!joined || !combatState.inActiveMatch) return;
+      cycleCombatWeapon(1);
     },
     getVoiceMode: () => gameState.voiceMode,
     onVoiceToggle: () => {
@@ -3437,6 +3984,7 @@ function returnToMainMenu(isLogout = false) {
   hud?.hideSecretSkinAnnouncement?.();
   endAscensionCinematic();
   resetSurvivalClientFull();
+  resetCombatClientFull();
   joined = false;
   modalOpen = false;
   subModalActive = false;
@@ -3511,6 +4059,11 @@ network.on('welcome', (msg) => {
     survivalState.snapshot = msg.survivalState;
     survivalState.phase = msg.survivalState.phase || 'idle';
   }
+  if (msg.combatState) {
+    combatState.snapshot = msg.combatState;
+    combatState.phase = msg.combatState.phase || 'idle';
+    combatState.mode = msg.combatState.mode === 'melee' ? 'melee' : 'guns';
+  }
   if (requestedName && msg.profile?.name && requestedName !== msg.profile.name) {
     hud.toast(`Multi-onglet détecté : connecté sous "${msg.profile.name}"`, 'info');
   }
@@ -3524,10 +4077,24 @@ network.on('room_switched', (msg) => {
     survivalState.snapshot = msg.survivalState;
     survivalState.phase = msg.survivalState.phase || 'idle';
   }
+  if (msg.combatState) {
+    combatState.snapshot = msg.combatState;
+    combatState.phase = msg.combatState.phase || 'idle';
+    combatState.mode = msg.combatState.mode === 'melee' ? 'melee' : 'guns';
+  }
   if (!isSurvivalInstanceRoom(msg.room)) {
-    remotePlayers.setInstanceFilter(null);
+    if (!isCombatInstanceRoom(msg.room)) {
+      remotePlayers.setInstanceFilter(null);
+    }
     if (survivalState.phase === 'ended' || survivalState.inDefeatDetention) {
       closeSurvivalEndCinematic({ skipSendReturn: true });
+    }
+  }
+  if (!isCombatInstanceRoom(msg.room)) {
+    if (combatState.inActiveMatch || combatState.inWaitingRoom || combatState.phase === 'ended') {
+      resetCombatClientFull();
+      setModalActive(false, false, false);
+      teleportWithWorldMode(null, null, 'hall');
     }
   }
   remotePlayers.setPeers(msg.peers || []);
@@ -3541,9 +4108,15 @@ network.on('room_switched', (msg) => {
     survivalArena.updateWaitingBoard(msg.survivalState, true);
     syncSurvivalPanelMode();
   }
+  if (combatState.inWaitingRoom && msg.combatState) {
+    combatArena.updateWaitingBoard(msg.combatState, true);
+    syncCombatPanelMode();
+  }
   syncVrWatchHud();
   if (isSurvivalInstanceRoom(msg.room)) {
     hud.toast('🔒 Instance Survie isolée prête (participants uniquement).', 'info');
+  } else if (isCombatInstanceRoom(msg.room)) {
+    hud.toast('⚔️ Instance Arène de Combat isolée prête !', 'info');
   } else {
     hud.toast(`🏫 Retour dans la salle principale ${msg.room} !`, 'success');
   }
@@ -3572,6 +4145,7 @@ network.on('coins_earned', (msg) => {
     tp: 'TP 3D',
     survival: msg?.outcome === 'victory' ? 'Victoire Survie' : 'Survie Horreur',
     detention: 'Tableau de variation',
+    combat: msg?.won ? 'Victoire Arène Combat' : 'Arène Combat CIEL',
     arcade: msg?.isNewRecord ? 'Nouveau Record !' : msg?.gameLabel || 'Mini-Jeu PC',
     debug: 'Debug'
   };
@@ -3889,13 +4463,212 @@ network.on('survival_ended', ({ ended, state }) => {
   endSurvivalMatchClient(ended, state);
 });
 
+network.on('combat_state', ({ state }) => {
+  if (!state) return;
+  combatState.snapshot = state;
+  combatState.phase = state.phase || 'idle';
+  combatState.mode = state.mode === 'melee' ? 'melee' : 'guns';
+  if (combatState.inWaitingRoom && !combatState.inActiveMatch) {
+    const me = (state.lobbyPlayers || []).find((p) => p.id === network.clientId);
+    if (me?.weaponId) {
+      combatState.selectedWeaponId = me.weaponId;
+    } else {
+      const defW = getDefaultWeaponForMode(combatState.mode);
+      if (getCombatWeaponById(combatState.selectedWeaponId)?.mode !== combatState.mode) {
+        combatState.selectedWeaponId = defW.id;
+      }
+    }
+    combatArena.updateWaitingBoard(state, true);
+    syncCombatPanelMode();
+  }
+  if (combatState.inActiveMatch) {
+    const me = getLocalCombatFighter(state);
+    if (me?.weaponId && me.weaponId !== combatState.selectedWeaponId) {
+      combatState.selectedWeaponId = me.weaponId;
+      syncCombatViewWeapon(me.weaponId);
+    }
+    if (!vrManager?.isVrActive?.()) {
+      hud?.updateCombatHud?.(state, network.clientId);
+      const wSpec = getCombatWeaponById(combatState.selectedWeaponId);
+      touchControls?.setCombatMode?.(true, {
+        mode: combatState.mode,
+        weaponShortName: wSpec?.shortName || ''
+      });
+    }
+  }
+});
+
+network.on('combat_started', ({ state }) => {
+  if (!state) return;
+  startCombatMatchClient(state);
+});
+
+network.on('combat_tick', ({ state }) => {
+  if (!state) return;
+  combatState.snapshot = state;
+  combatState.phase = state.phase || 'active';
+  combatState.mode = state.mode === 'melee' ? 'melee' : 'guns';
+  if (!combatState.inActiveMatch) return;
+
+  const me = getLocalCombatFighter(state);
+  if (me) {
+    const wasAlive = combatState.localAlive;
+    combatState.localAlive = Boolean(me.alive);
+    if (me.alive && !wasAlive) {
+      player.teleportTo(
+        { x: me.x, z: me.z },
+        { x: me.x - Math.sin(me.yaw || 0) * 4, z: me.z - Math.cos(me.yaw || 0) * 4 }
+      );
+      if (vrManager?.isVrActive?.()) {
+        vrManager.syncWorldTeleport?.(me.x, me.z, me.yaw);
+      }
+      combatState.lastLocalHp = me.hp;
+      hud?.toast?.('⚡ Réapparition dans l’arène !', 'info');
+    } else if (me.alive && me.hp < combatState.lastLocalHp) {
+      sfx.playCombatHurt?.();
+      hud?.triggerCombatDamageFlash?.();
+      combatState.lastLocalHp = me.hp;
+    } else if (me.alive && me.hp > combatState.lastLocalHp + 2) {
+      sfx.playCombatPickup?.();
+      combatState.lastLocalHp = me.hp;
+    } else {
+      combatState.lastLocalHp = me.hp;
+    }
+    if (me.weaponId && me.weaponId !== combatState.selectedWeaponId) {
+      combatState.selectedWeaponId = me.weaponId;
+      syncCombatViewWeapon(me.weaponId);
+    }
+  }
+
+  const fighters = Array.isArray(state.fighters) ? state.fighters : [];
+  for (const f of fighters) {
+    if (!f.isBot && f.id !== network.clientId) {
+      remotePlayers.setPeerCombatWeapon(f.id, f.alive ? f.weaponId : null);
+    }
+  }
+
+  if (!vrManager?.isVrActive?.()) {
+    hud?.updateCombatHud?.(state, network.clientId);
+    if (combatState.scoreboardOpen) {
+      hud?.toggleCombatScoreboard?.(true, state, network.clientId);
+    }
+    const wSpec = getCombatWeaponById(combatState.selectedWeaponId);
+    touchControls?.setCombatMode?.(true, {
+      mode: combatState.mode,
+      weaponShortName: wSpec?.shortName || ''
+    });
+  } else {
+    syncVrWatchHud();
+  }
+});
+
+network.on('combat_attack_fx', (msg) => {
+  if (!msg) return;
+  if (msg.state) {
+    combatState.snapshot = msg.state;
+  }
+  if (!combatState.inActiveMatch) return;
+
+  const isLocalAttacker = msg.attackerId === network.clientId;
+  const spec = getCombatWeaponById(msg.weaponId) || getDefaultWeaponForMode(combatState.mode);
+  if (msg.mode === 'melee') {
+    sfx.playCombatMelee?.(spec.id);
+    if (msg.attackerPos) {
+      combatVfx.spawnMeleeSlash(spec.id, msg.attackerPos.x, 1.35, msg.attackerPos.z, msg.attackerPos.yaw || 0);
+    }
+  } else {
+    sfx.playCombatShot?.(spec.id);
+    const rays = Array.isArray(msg.rays) ? msg.rays : [];
+    const activeWObj = vrManager?.isVrActive?.()
+      ? vrManager.combatWeaponObj
+      : (gameState.cameraMode !== 'third' ? combatState.viewWeaponObj : null);
+    let hasMuzzleOrigin = false;
+    if (isLocalAttacker && activeWObj?.group && activeWObj?.muzzleOffset) {
+      activeWObj.group.updateMatrixWorld(true);
+      _combatMuzzleWorld.set(activeWObj.muzzleOffset.x, activeWObj.muzzleOffset.y, activeWObj.muzzleOffset.z);
+      activeWObj.group.localToWorld(_combatMuzzleWorld);
+      hasMuzzleOrigin = true;
+    }
+    for (const r of rays) {
+      const sx = hasMuzzleOrigin ? _combatMuzzleWorld.x : r.sx;
+      const sy = hasMuzzleOrigin ? _combatMuzzleWorld.y : r.sy;
+      const sz = hasMuzzleOrigin ? _combatMuzzleWorld.z : r.sz;
+      combatVfx.spawnShot(spec.id, sx, sy, sz, r.ex, r.ey, r.ez);
+    }
+  }
+
+  if (msg.attackerId && !isLocalAttacker) {
+    if (String(msg.attackerId).startsWith('bot-')) {
+      combatArena.triggerBotAttackAnim(msg.attackerId);
+    } else {
+      remotePlayers.triggerPeerAttackAnim(msg.attackerId);
+    }
+  }
+
+  const hits = Array.isArray(msg.hits) ? msg.hits : [];
+  let localHit = false;
+  let localKilled = false;
+  let localWasHit = false;
+  for (const h of hits) {
+    if (isLocalAttacker && h.victimId !== network.clientId) {
+      localHit = true;
+      if (h.killed) localKilled = true;
+    }
+    if (h.victimId === network.clientId) {
+      localWasHit = true;
+    }
+  }
+  if (localHit) {
+    sfx.playCombatHitmarker?.(localKilled);
+    if (!vrManager?.isVrActive?.()) {
+      hud?.triggerCombatHitmarker?.(localKilled);
+    }
+  }
+  if (localWasHit) {
+    sfx.playCombatHurt?.();
+    if (!vrManager?.isVrActive?.()) {
+      hud?.triggerCombatDamageFlash?.();
+    }
+  }
+
+  if (combatState.localAlive && (isLocalAttacker || localWasHit)) {
+    const me = getLocalCombatFighter(msg.state);
+    if (me && me.alive) {
+      const dx = me.x - player.position.x;
+      const dz = me.z - player.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 0.2 && dist < 4.5) {
+        player.moveHorizontally?.(dx, dz);
+        if (vrManager?.isVrActive?.()) {
+          vrManager.syncWorldTeleport?.(player.position.x, player.position.z);
+        }
+      }
+    }
+  }
+
+  if (msg.state && !vrManager?.isVrActive?.()) {
+    hud?.updateCombatHud?.(msg.state, network.clientId);
+  }
+});
+
+network.on('combat_ended', ({ ended, state }) => {
+  endCombatMatchClient(ended, state);
+});
+
 function interactWith(target) {
   if (!target) return;
   if (target.id === 'teacher') openTeacherDialogue(target.dialogue || '');
   else if (target.type === 'survival_door') enterSurvivalLobby();
+  else if (target.type === 'combat_door') enterCombatLobby();
   else if (target.type === 'hiding_rack') toggleHidingInRack(target);
   else if (target.type === 'survival_lobby_console') toggleSurvivalReady();
   else if (target.type === 'survival_lobby_exit') leaveSurvivalLobby();
+  else if (target.type === 'combat_lobby_mode') {
+    sfx.click();
+    const nextMode = combatState.mode === 'melee' ? 'guns' : 'melee';
+    network.sendCombatMode(nextMode);
+  } else if (target.type === 'combat_lobby_ready') toggleCombatReady();
+  else if (target.type === 'combat_lobby_exit') leaveCombatArena();
   else if (target.type === 'survival_detention_terminal') openDetentionTerminal();
   else if (target.type === 'survival_detention_exit') exitDetentionAndReturnToHall();
   else if (target.type === 'ciel_os_pc') openCielOsPc(target);
@@ -3984,6 +4757,14 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (e.code === 'Tab' && joined && !subModalActive && !isTyping && !isDetentionSeatedActive()) {
+    if (combatState.inActiveMatch) {
+      e.preventDefault();
+      if (!e.repeat) {
+        combatState.scoreboardOpen = true;
+        hud?.toggleCombatScoreboard?.(true, combatState.snapshot, network.clientId);
+      }
+      return;
+    }
     if (
       !hud.isSettingsOpen() &&
       !hud.isSkinOpen() &&
@@ -4039,6 +4820,25 @@ window.addEventListener('keydown', (e) => {
 
   if (!joined || modalOpen || isTyping || isDetentionSeatedActive() || survivalState.introActive) return;
 
+  if (combatState.inActiveMatch) {
+    if (e.code === 'KeyR' && !e.repeat) {
+      e.preventDefault();
+      sfx.playCombatReload?.();
+      network.sendCombatReload?.();
+      return;
+    }
+    if ((e.code.startsWith('Digit') || e.code.startsWith('Numpad')) && !e.repeat) {
+      const slotNum = Number(e.code.replace('Digit', '').replace('Numpad', ''));
+      const list = getWeaponsByMode(combatState.mode);
+      if (slotNum >= 1 && slotNum <= list.length) {
+        e.preventDefault();
+        sfx.click();
+        selectCombatWeapon(list[slotNum - 1].id);
+        return;
+      }
+    }
+  }
+
   if (e.code === 'KeyE' && nearestTarget) {
     e.preventDefault();
     interactWith(nearestTarget);
@@ -4063,6 +4863,10 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keyup', (e) => {
+  if (e.code === 'Tab' && combatState.inActiveMatch) {
+    combatState.scoreboardOpen = false;
+    hud?.toggleCombatScoreboard?.(false);
+  }
   if (e.code === 'KeyV' && gameState.voiceMode === 'ptt') {
     voiceChat.stopPushToTalk();
   }
@@ -4074,6 +4878,11 @@ window.addEventListener('keyup', (e) => {
 });
 
 window.addEventListener('blur', () => {
+  combatState.fireHeld = false;
+  if (combatState.scoreboardOpen) {
+    combatState.scoreboardOpen = false;
+    hud?.toggleCombatScoreboard?.(false);
+  }
   voiceChat.stopPushToTalk();
   vrManager?.setSimInput?.({ trigger: 0, grip: 0, thumb: 0, mouseTrigger: false });
 });
@@ -4178,7 +4987,23 @@ canvas.addEventListener('mousedown', (e) => {
     if (uv) {
       e.preventDefault();
       activePcSession.pcStation.desktop.handlePointerDownUv(uv, e.button);
+      return;
     }
+  }
+  if (
+    joined &&
+    combatState.inActiveMatch &&
+    !modalOpen &&
+    !gameState.touchMode &&
+    !vrManager?.isVrActive?.() &&
+    !isDetentionSeatedActive() &&
+    e.button === 0
+  ) {
+    if (document.pointerLockElement !== canvas) {
+      player.requestPointerLock?.();
+    }
+    combatState.fireHeld = true;
+    triggerLocalCombatAttack();
   }
 });
 canvas.addEventListener('mousemove', (e) => {
@@ -4233,6 +5058,9 @@ window.addEventListener('mousemove', (e) => {
   }
 });
 window.addEventListener('mouseup', (e) => {
+  if (e.button === 0) {
+    combatState.fireHeld = false;
+  }
   if (vrManager?.simMode && e.button === 0) {
     vrManager.setSimInput({ mouseTrigger: false });
   }
@@ -4256,6 +5084,9 @@ canvas.addEventListener('mouseup', (e) => {
         player.requestPointerLock();
       }
     }
+    return;
+  }
+  if (combatState.inActiveMatch && e.button === 0 && !vrManager?.isVrActive?.() && !gameState.touchMode) {
     return;
   }
   if (!joined || modalOpen || e.button !== 0 || gameState.touchMode) return;
@@ -4373,6 +5204,7 @@ let lastDebugStatsAt = 0;
 
 sceneMgr.addUpdater((dt, elapsed) => {
   lab.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned, sceneMgr.camera);
+  combatVfx.update(dt);
   if (activePcSession?.comfortMode && cielOsDom?.comfortCtx && activePcSession.pcStation?.canvas) {
     cielOsDom.comfortCtx.drawImage(activePcSession.pcStation.canvas, 0, 0);
   }
@@ -4381,7 +5213,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
   }
   localAvatar?.updateEffects?.(elapsed);
   if (localPet) {
-    if (joined && !survivalState.hiddenSpot && !isDetentionSeatedActive()) {
+    if (joined && !survivalState.hiddenSpot && !survivalState.hiddenRack && !isDetentionSeatedActive() && !combatState.inActiveMatch) {
       localPet.group.visible = true;
       localPet.update(dt, elapsed, player.position, player.yaw);
     } else {
@@ -4392,6 +5224,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
   updateSpeechBubble(localBubble, dt);
 
   if (!joined) {
+    combatViewWeaponRoot.visible = false;
     if (!vrManager?.isVrActive?.()) {
       const angle = elapsed * 0.14;
       const sp = currentMapData?.spawn || { x: -2.0, z: -0.5 };
@@ -4410,6 +5243,45 @@ sceneMgr.addUpdater((dt, elapsed) => {
   }
   const seatedDet = isDetentionSeatedActive();
   const step = vrOn || activeCinematic || survivalState.introActive ? null : player.update(dt);
+
+  if (combatState.inWaitingRoom && combatState.snapshot) {
+    combatArena.updateWaitingBoard(combatState.snapshot, false);
+  }
+  if (combatState.inActiveMatch) {
+    combatArena.updateArena(combatState.snapshot, dt, elapsed, sceneMgr.camera);
+    combatState.recoilAmount = Math.max(0, combatState.recoilAmount - dt * 5.2);
+    combatState.swingAnim = Math.max(0, combatState.swingAnim - dt * 4.5);
+    if (combatState.fireHeld && combatState.localAlive && !modalOpen && !vrOn) {
+      const spec = getCombatWeaponById(combatState.selectedWeaponId);
+      if (spec?.auto || combatState.mode === 'melee') {
+        triggerLocalCombatAttack();
+      }
+    }
+    const showFpsWeapon = Boolean(!vrOn && combatState.localAlive && combatState.viewWeaponObj && gameState.cameraMode !== 'third');
+    combatViewWeaponRoot.visible = showFpsWeapon;
+    if (showFpsWeapon) {
+      combatViewWeaponRoot.position.copy(sceneMgr.camera.position);
+      combatViewWeaponRoot.quaternion.copy(sceneMgr.camera.quaternion);
+      const me = getLocalCombatFighter();
+      const speedBob = step?.moving ? Math.sin(elapsed * 11) * 0.012 : Math.sin(elapsed * 2.1) * 0.003;
+      const reloadDip = me?.reloading ? -0.14 : 0;
+      const swingRotX = combatState.swingAnim > 0 ? -Math.sin(combatState.swingAnim * Math.PI) * 1.15 : 0;
+      const swingRotZ = combatState.swingAnim > 0 ? Math.sin(combatState.swingAnim * Math.PI) * 0.42 : 0;
+      combatViewWeaponHolder.position.set(
+        0.24 - combatState.swingAnim * 0.08,
+        -0.21 + speedBob + reloadDip,
+        -0.44 + combatState.recoilAmount * 0.065 - combatState.swingAnim * 0.14
+      );
+      combatViewWeaponHolder.rotation.set(
+        combatState.recoilAmount * 0.14 + swingRotX,
+        0,
+        swingRotZ
+      );
+      combatViewWeaponRoot.updateMatrixWorld(true);
+    }
+  } else {
+    combatViewWeaponRoot.visible = false;
+  }
   if (activeCinematic && !vrOn) {
     if (activeCinematic.phase === 'intro') {
       const stepProgress = Math.min(

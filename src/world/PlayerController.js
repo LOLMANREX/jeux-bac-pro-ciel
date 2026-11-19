@@ -42,6 +42,8 @@ export class PlayerController {
     this.movementLocked = false;
     this.seated = false;
     this.seatedPose = null;
+    this.hidingInRack = false;
+    this.hidingPose = null;
 
     this.camera.rotation.order = 'YXZ';
     this._applyCamera();
@@ -75,7 +77,7 @@ export class PlayerController {
 
   _syncAvatarVisibility() {
     if (this.avatar?.group) {
-      this.avatar.group.visible = this.avatarVisible && this.cameraMode === 'third';
+      this.avatar.group.visible = this.avatarVisible && this.cameraMode === 'third' && !this.hidingInRack;
     }
   }
 
@@ -123,14 +125,76 @@ export class PlayerController {
     const sens = this.touchMode ? this.touchSensitivity : this.sensitivity;
     this.yaw -= dx * 0.0052 * sens;
     this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.0052 * sens));
+    if (this.hidingInRack) {
+      this._clampHidingAngles();
+    }
   }
 
   triggerJump() {
-    if (!this.enabled || this.movementLocked || this.seated || !this.isGrounded) return false;
+    if (!this.enabled || this.movementLocked || this.seated || this.hidingInRack || !this.isGrounded) return false;
     this.velocityY = 6.2;
     this.isGrounded = false;
     this.onJump?.();
     return true;
+  }
+
+  _clampHidingAngles() {
+    if (!this.hidingInRack || !this.hidingPose) return;
+    const baseYaw = Number.isFinite(Number(this.hidingPose.baseYaw)) ? Number(this.hidingPose.baseYaw) : 0;
+    const maxYaw = Number.isFinite(Number(this.hidingPose.maxYawDelta)) ? Number(this.hidingPose.maxYawDelta) : Math.PI / 4;
+    const maxPitch = Number.isFinite(Number(this.hidingPose.maxPitchDelta))
+      ? Number(this.hidingPose.maxPitchDelta)
+      : (20 * Math.PI) / 180;
+    const diff = Math.atan2(Math.sin(this.yaw - baseYaw), Math.cos(this.yaw - baseYaw));
+    const clampedDiff = Math.max(-maxYaw, Math.min(maxYaw, diff));
+    this.yaw = baseYaw + clampedDiff;
+    this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch));
+  }
+
+  setHidingInRack(active, pose = null) {
+    this.hidingInRack = Boolean(active);
+    if (this.hidingInRack) {
+      this.seated = false;
+      this.seatedPose = null;
+      this.movementLocked = true;
+      this.clearKeys();
+      this.velocityY = 0;
+      this.isGrounded = true;
+      this.wasGrounded = true;
+      const hx = Number.isFinite(Number(pose?.x)) ? Number(pose.x) : this.position.x;
+      const hy = Number.isFinite(Number(pose?.y)) ? Number(pose.y) : 1.52;
+      const hz = Number.isFinite(Number(pose?.z)) ? Number(pose.z) : this.position.z;
+      const baseYaw = Number.isFinite(Number(pose?.baseYaw))
+        ? Number(pose.baseYaw)
+        : Number.isFinite(Number(pose?.yaw))
+          ? Number(pose.yaw)
+          : this.yaw;
+      const maxYawDelta = Number.isFinite(Number(pose?.maxYawDelta)) ? Number(pose.maxYawDelta) : Math.PI / 4;
+      const maxPitchDelta = Number.isFinite(Number(pose?.maxPitchDelta))
+        ? Number(pose.maxPitchDelta)
+        : (20 * Math.PI) / 180;
+      this.hidingPose = { x: hx, y: hy, z: hz, baseYaw, maxYawDelta, maxPitchDelta };
+      this.position.set(hx, hy, hz);
+      this.yaw = baseYaw;
+      this.pitch = 0;
+      this._clampHidingAngles();
+      this._syncAvatarVisibility();
+      if (!this.vrModeActive) {
+        this._applyCamera();
+      }
+      return;
+    }
+    this.hidingPose = null;
+    this.movementLocked = false;
+    this.clearKeys();
+    this.position.y = this.groundY;
+    this.velocityY = 0;
+    this.isGrounded = true;
+    this.wasGrounded = true;
+    this._syncAvatarVisibility();
+    if (!this.vrModeActive) {
+      this._applyCamera();
+    }
   }
 
   setMovementLocked(locked) {
@@ -213,7 +277,7 @@ export class PlayerController {
 
     this.canvas.addEventListener('pointerdown', (e) => {
       if (!this.enabled) return;
-      if (e.pointerType === 'touch' && !this.seated) return;
+      if (e.pointerType === 'touch' && !this.seated && !this.hidingInRack) return;
       if (e.pointerType !== 'touch' && e.button !== 0 && !(this.seated && e.button === 2)) return;
       this._activePointerId = e.pointerId;
       this._pointerActive = true;
@@ -231,6 +295,9 @@ export class PlayerController {
       const sens = e.pointerType === 'touch' ? this.touchSensitivity : this.sensitivity;
       this.yaw -= dx * 0.004 * sens;
       this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.004 * sens));
+      if (this.hidingInRack) {
+        this._clampHidingAngles();
+      }
     });
 
     const endPointerDrag = (e) => {
@@ -267,6 +334,9 @@ export class PlayerController {
         this.lastMouse = { x: e.clientX, y: e.clientY };
         this.yaw -= dx * 0.004 * this.sensitivity;
         this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.004 * this.sensitivity));
+      }
+      if (this.hidingInRack) {
+        this._clampHidingAngles();
       }
     });
 
@@ -495,6 +565,27 @@ export class PlayerController {
       return { isMoving: false, landed: false };
     }
 
+    if (this.hidingInRack) {
+      const lookSpeed = 1.65 * Math.max(0.6, this.sensitivity || 1);
+      if (this.keys.has('ArrowLeft')) this.yaw += lookSpeed * dt;
+      if (this.keys.has('ArrowRight')) this.yaw -= lookSpeed * dt;
+      if (this.keys.has('ArrowUp')) this.pitch += lookSpeed * 0.75 * dt;
+      if (this.keys.has('ArrowDown')) this.pitch -= lookSpeed * 0.75 * dt;
+      this._clampHidingAngles();
+      if (this.hidingPose) {
+        this.position.set(this.hidingPose.x, this.hidingPose.y, this.hidingPose.z);
+      }
+      this.velocityY = 0;
+      this.isGrounded = true;
+      animateAvatarLimbs(this.avatar, dt, {
+        isMoving: false,
+        isGrounded: true,
+        speedRatio: 1
+      });
+      this._applyCamera();
+      return { isMoving: false, landed: false };
+    }
+
     let forward = this.virtualMove.forward;
     let right = this.virtualMove.right;
 
@@ -562,6 +653,15 @@ export class PlayerController {
   }
 
   _applyCamera() {
+    if (this.hidingInRack) {
+      if (this.avatar?.group) {
+        this.avatar.group.visible = false;
+      }
+      this._clampHidingAngles();
+      this.camera.position.copy(this.position);
+      this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+      return;
+    }
     if (this.seated) {
       if (this.avatar?.group) {
         this.avatar.group.position.set(this.position.x, 0, this.position.z);

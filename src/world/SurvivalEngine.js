@@ -87,6 +87,43 @@ export function computeRackExitPosition(
   };
 }
 
+export function computeRackInteriorPosition(rack = {}) {
+  const rx = Number.isFinite(Number(rack?.x))
+    ? Number(rack.x)
+    : Number.isFinite(Number(rack?.position?.x))
+      ? Number(rack.position.x)
+      : 0;
+  const rz = Number.isFinite(Number(rack?.z))
+    ? Number(rack.z)
+    : Number.isFinite(Number(rack?.position?.z))
+      ? Number(rack.position.z)
+      : 0;
+  const rotRad = Number.isFinite(Number(rack?.rotRad))
+    ? Number(rack.rotRad)
+    : Number.isFinite(Number(rack?.rad))
+      ? Number(rack.rad)
+      : ((Number(rack?.rotation ?? rack?.rotationDeg) || 0) * Math.PI) / 180;
+  const w = Number.isFinite(Number(rack?.w)) && Number(rack.w) > 0 ? Number(rack.w) : 1.1;
+  const d = Number.isFinite(Number(rack?.d)) && Number(rack.d) > 0 ? Number(rack.d) : 0.78;
+  const inset = Math.min(0.08, d * 0.09);
+  const ix = rx - Math.sin(rotRad) * inset;
+  const iz = rz - Math.cos(rotRad) * inset;
+  const baseYaw = Math.atan2(-Math.sin(rotRad), -Math.cos(rotRad));
+  return {
+    x: Number(ix.toFixed(3)),
+    y: 1.52,
+    z: Number(iz.toFixed(3)),
+    w,
+    d,
+    baseYaw,
+    rotRad,
+    frontNormalX: Number(Math.sin(rotRad).toFixed(4)),
+    frontNormalZ: Number(Math.cos(rotRad).toFixed(4)),
+    maxYawDelta: Math.PI / 4,
+    maxPitchDelta: (20 * Math.PI) / 180
+  };
+}
+
 export function getSurvivalHidingSpots(mapData = null) {
   const src = mapData || createDefaultMap();
   const colliders = getDynamicMapColliders(src);
@@ -112,6 +149,7 @@ export function getSurvivalHidingSpots(mapData = null) {
       bounds,
       0.42
     );
+    const interior = computeRackInteriorPosition({ x: ox, z: oz, rotRad: rad, w, d });
     spots.push({
       id: obj.id,
       label: obj.label || 'Baie de Brassage (Cachette)',
@@ -122,6 +160,10 @@ export function getSurvivalHidingSpots(mapData = null) {
       rotRad: rad,
       w,
       d,
+      interiorX: interior.x,
+      interiorY: interior.y,
+      interiorZ: interior.z,
+      baseYaw: interior.baseYaw,
       exitX: Number(exit.x.toFixed(2)),
       exitZ: Number(exit.z.toFixed(2))
     });
