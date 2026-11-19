@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : "v4.31 - Optimisation Extrême FPS, Élimination Totale des Freezes & Fluidité Maximale PC / Mobile / VR";
+    : 'v4.32 - Map Géante Multi-Étages, Escaliers 3D & Culling Champ de Vision';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.31 — Optimisation Extrême FPS, Élimination Totale des Freezes & Fluidité Maximale PC / Mobile / VR',
+    version: 'v4.32 — Map Géante Multi-Étages, Système d’Escaliers 3D & Culling Champ de Vision',
     date: '19/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'MULTI-ÉTAGES & LYCÉE 240×240',
+        title: 'Extension de la Carte jusqu’à 240m × 240m (-1 Sous-sol à +5 Étages) & Éléments Lycée',
+        desc: 'Prise en charge native multi-étages (Sous-sol -1, RDC 0, Étages +1 à +5 avec floorHeight 3,8m), compatibilité totale sans décalage des cartes existantes RDC, dalles de sol avec trémies automatiques, escaliers 3D paramétrables (droit, quart tournant en L, double volée en U), murs extérieurs, grandes baies vitrées, garde-corps, poteaux, dalles sur mesure et cours extérieures.'
+      },
+      {
+        badge: 'ÉDITEUR DE MAP REFONDU',
+        title: 'Gestionnaire d’Étages, Calque Fantôme (Onion Skinning), Duplication & Mini-Plan',
+        desc: 'Nouvelle barre d’étages (+ Ajouter étage, + Sous-sol, filtre 3D par étage, Dalle complète), Calque Fantôme semi-transparent pour aligner murs et escaliers entre niveaux, duplication rapide de structure vers l’étage supérieur, mini-plan de repérage interactif, tracé continu de murs aimantés aux extrémités, sélection multiple par rectangle (déplacement/rotation 90°/duplication) et trémie automatique N+1.'
+      },
+      {
+        badge: 'PHYSIQUE & CULLING FOV',
+        title: 'Escaliers Fluides PC / Mobile / VR Quest 3S & Découpage Spatial 16m × 16m Temps Réel',
+        desc: 'Rampes d’escaliers lisses sans secousse ni tremblement, gravité/plafonds/garde-corps, téléportation parabolique VR multi-étages, synchronisation WebSocket verticale (altitude Y, étage et Pets 3D), moteur SpatialCulling (Frustum Culling strict zéro allocation, occlusion murs opaques, masquage d’étages >= +2 en intérieur, LOD distance, pause des CanvasTexture hors champ, grille SpatialHash O(1) et affichage Chunks visibles/total dans le Mini Moniteur).'
+      }
+    ]
+  },
+  {
+    version: 'v4.31 — Optimisation Extrême FPS, Élimination Totale des Freezes & Fluidité Maximale PC / Mobile / VR',
+    date: '19/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'ANTI-FREEZE & ZÉRO ALLOCATION',

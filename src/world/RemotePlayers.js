@@ -363,7 +363,9 @@ export class RemotePlayersManager {
     });
     const accentColor = skin.outfitColor || p.color || '#22d3ee';
     const meshData = buildStudentAvatarMesh(skin);
-    meshData.group.position.set(p.x ?? -3.95, Math.max(0, p.y || 0), p.z ?? 0.65);
+    const peerY = Number.isFinite(Number(p.y)) ? Number(p.y) : 0;
+    const peerFloor = Number.isFinite(Number(p.floor)) ? Math.round(Number(p.floor)) : 0;
+    meshData.group.position.set(p.x ?? -3.95, peerY, p.z ?? 0.65);
     meshData.group.rotation.y = (p.yaw || 0) + Math.PI;
 
     const peerData = {
@@ -373,6 +375,7 @@ export class RemotePlayersManager {
       skin,
       equippedPet: null,
       petMesh: null,
+      floor: peerFloor,
       activity: p.activity || 'Dans l’atelier',
       zoneId: p.zoneId || 'U300',
       zoneLabel: p.zoneLabel || 'U300 - Couloir Central',
@@ -404,7 +407,7 @@ export class RemotePlayersManager {
       isSpeaking: Boolean(p.isSpeaking),
       vrTracker: null,
       vrData: p.vrData || null,
-      targetPos: new THREE.Vector3(p.x ?? -3.95, Math.max(0, p.y || 0), p.z ?? 0.65),
+      targetPos: new THREE.Vector3(p.x ?? -3.95, peerY, p.z ?? 0.65),
       targetYaw: p.yaw || 0,
       levitationOffset: 0,
       horizSpeed: 0
@@ -517,10 +520,13 @@ export class RemotePlayersManager {
     return ULTIMATE_SECRET_SKIN;
   }
 
-  teleportPeer(id, x, y, z, yaw = 0) {
+  teleportPeer(id, x, y, z, yaw = 0, floor = undefined) {
     const peer = this.peers.get(id);
     if (!peer) return;
-    const ny = Math.max(0, Number(y) || 0);
+    const ny = Number.isFinite(Number(y)) ? Number(y) : 0;
+    if (floor !== undefined && floor !== null) {
+      peer.floor = Math.round(Number(floor) || 0);
+    }
     peer.targetPos.set(x, ny, z);
     peer.targetYaw = Number.isFinite(Number(yaw)) ? Number(yaw) : 0;
     peer.group.position.set(x, ny + (peer.levitationOffset || 0), z);
@@ -546,12 +552,16 @@ export class RemotePlayersManager {
     peer.setCreatorAura?.(Boolean(enabled));
   }
 
-  movePeer(id, x, y, z, yaw, vrData = undefined) {
+  movePeer(id, x, y, z, yaw, vrData = undefined, floor = undefined) {
     if (this._allowedPeerIds && !this._allowedPeerIds.has(id)) return;
     const peer = this.peers.get(id);
     if (!peer) return;
-    peer.targetPos.set(x, Math.max(0, Number(y) || 0), z);
+    const ny = Number.isFinite(Number(y)) ? Number(y) : 0;
+    peer.targetPos.set(x, ny, z);
     peer.targetYaw = yaw || 0;
+    if (floor !== undefined && floor !== null) {
+      peer.floor = Math.round(Number(floor) || 0);
+    }
     if (vrData !== undefined) {
       peer.vrData = vrData;
     }
@@ -585,14 +595,16 @@ export class RemotePlayersManager {
       if (!peer.group.visible) continue;
       let slot = out[idx];
       if (!slot) {
-        slot = { id: '', name: '', color: '', x: 0, z: 0, zoneLabel: '' };
+        slot = { id: '', name: '', color: '', x: 0, y: 0, z: 0, floor: 0, zoneLabel: '' };
         out[idx] = slot;
       }
       slot.id = peer.id;
       slot.name = peer.name;
       slot.color = peer.color;
       slot.x = peer.group.position.x;
+      slot.y = peer.group.position.y;
       slot.z = peer.group.position.z;
+      slot.floor = Math.round(Number(peer.floor) || 0);
       slot.zoneLabel = peer.zoneLabel;
       idx++;
     }
@@ -769,7 +781,7 @@ export class RemotePlayersManager {
       peer.horizSpeed = peer.horizSpeed * 0.6 + instantSpeed * 0.4;
 
       const isMoving = horizDist > 0.025 || peer.horizSpeed > 0.25;
-      const isGrounded = peer.group.position.y < 0.08;
+      const isGrounded = Math.abs((peer.targetPos.y || 0) - (peer.group.position.y || 0)) < 0.35;
       animateAvatarLimbs(peer, dt, {
         isMoving,
         isGrounded,

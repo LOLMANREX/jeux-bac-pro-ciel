@@ -235,7 +235,7 @@ function getSpatialColliderGrid(colliders) {
   return grid;
 }
 
-export function pointCollidesWithColliders(nx, nz, colliders = [], bounds = null, radius = 0.34) {
+export function pointCollidesWithColliders(nx, nz, colliders = [], bounds = null, radius = 0.34, feetY = null) {
   if (bounds) {
     if (
       nx - radius < bounds.minX + 0.12 ||
@@ -251,8 +251,15 @@ export function pointCollidesWithColliders(nx, nz, colliders = [], bounds = null
     ? grid.get(Math.floor(nx / COLLIDER_CELL_SIZE) * 4096 + Math.floor(nz / COLLIDER_CELL_SIZE))
     : colliders;
   if (!list || list.length === 0) return false;
+  const checkY = feetY !== null && feetY !== undefined && Number.isFinite(Number(feetY));
+  const fy = checkY ? Number(feetY) : 0;
   for (let i = 0; i < list.length; i++) {
     const c = list[i];
+    if (checkY && Number.isFinite(c.minY) && Number.isFinite(c.maxY)) {
+      if (c.maxY <= fy + 0.30 || c.minY >= fy + 1.65) {
+        continue;
+      }
+    }
     if (typeof c.cx === 'number') {
       const dx = nx - c.cx;
       const dz = nz - c.cz;

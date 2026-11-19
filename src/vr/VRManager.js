@@ -6,6 +6,7 @@ import {
   disposeObject3D
 } from '../world/AvatarBuilder.js';
 import { animateCombatWeaponMesh, buildCombatWeaponMesh, getCombatWeaponById } from '../world/CombatWeapons.js';
+import { evaluateSurfaceAt } from '../world/mapSchema.js';
 import { buildPetMesh } from '../world/PetBuilder.js';
 import { pickLabInteractable } from '../world/SceneManager.js';
 import { hasFullMapLineOfSight, pointCollidesWithColliders } from '../world/SurvivalEngine.js';
@@ -178,6 +179,32 @@ export class VRManager {
     this.tempProjVec = new THREE.Vector3();
     this._planePtScratch = new THREE.Vector3();
     this._worldSurfHoverThisFrame = new Map();
+    this._tpOrigin = new THREE.Vector3();
+    this._tpDir = new THREE.Vector3();
+    this._tpQuat = new THREE.Quaternion();
+    this.tpAimActive = false;
+    this._tpLastTarget = null;
+    this._tpArcCapacity = 30;
+    this._tpArcPositions = new Float32Array(this._tpArcCapacity * 3);
+    this._tpArcGeom = new THREE.BufferGeometry();
+    this._tpArcGeom.setAttribute('position', new THREE.BufferAttribute(this._tpArcPositions, 3));
+    this._tpArcMat = new THREE.LineBasicMaterial({ color: '#22d3ee', transparent: true, opacity: 0.9 });
+    this.tpArcLine = new THREE.Line(this._tpArcGeom, this._tpArcMat);
+    this.tpArcLine.frustumCulled = false;
+    this.tpArcLine.visible = false;
+    this._tpRingMat = new THREE.MeshBasicMaterial({
+      color: '#22d3ee',
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85
+    });
+    this.tpTargetRing = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.42, 28), this._tpRingMat);
+    this.tpTargetRing.rotation.x = -Math.PI / 2;
+    this.tpTargetRing.visible = false;
+    if (this.sceneMgr?.scene) {
+      this.sceneMgr.scene.add(this.tpArcLine);
+      this.sceneMgr.scene.add(this.tpTargetRing);
+    }
 
     this._onXrSessionEnd = () => {
       if (this.xrSession || this.active) {
@@ -652,6 +679,12 @@ export class VRManager {
     if (!this.sceneMgr?.scene || !this.camera) return;
     this.sceneMgr.scene.add(this.vrRig);
     const { x: targetX, z: targetZ, yaw } = this._resolveClearRigPose();
+    if (!this.seatedMode && !this.hidingInRack && this.player) {
+      const pfY = typeof this.player.getFeetY === 'function' ? this.player.getFeetY() : Number(this.player.surfaceY);
+      if (Number.isFinite(pfY)) {
+        this.worldFloorY = pfY;
+      }
+    }
     const groundY = this.worldFloorY;
 
     this.vrRig.scale.set(1, 1, 1);
@@ -722,6 +755,7 @@ export class VRManager {
   _teardownSession() {
     this._clearSlotDrag(this.slots.left);
     this._clearSlotDrag(this.slots.right);
+    this._hideVrTeleportPreview();
     for (const s of [this.slots.left, this.slots.right]) {
       s.xrSelectPressed = false;
       s.xrSelectQueued = false;
@@ -995,9 +1029,172 @@ export class VRManager {
     this._pulseHaptic(this.slots.right, intensity, durationMs);
   }
 
-  syncWorldTeleport(x, z, yaw = null) {
+  _hideVrTeleportPreview() {
+    this.tpAimActive = false;
+    this._tpLastTarget = null;
+    if (this.tpArcLine) this.tpArcLine.visible = false;
+    if (this.tpTargetRing) this.tpTargetRing.visible = false;
+  }
+
+  computeVrTeleportTarget(origin, dir, maxDist = 14) {
+    const startX = Number(origin?.x) || 0;
+    const startY = Number(origin?.y) || 0;
+    const startZ = Number(origin?.z) || 0;
+    const dirVec = this._tpDir.set(Number(dir?.x) || 0, Number(dir?.y) || 0, Number(dir?.z) || -1);
+    if (dirVec.lengthSq() < 1e-5) {
+      dirVec.set(0, 0, -1);
+    } else {
+      dirVec.normalize();
+    }
+    const launchSpeed = Math.max(6, Math.min(18, Number(maxDist) || 14)) * 0.74;
+    const vx = dirVec.x * launchSpeed;
+    const vy0 = dirVec.y * launchSpeed;
+    const vz = dirVec.z * launchSpeed;
+    const gravity = 9.8;
+    const dtStep = 0.06;
+    const maxSteps = Math.min(this._tpArcCapacity - 1, 28);
+    const surfaces = this.player?.walkableSurfaces || null;
+    const minYBound = surfaces ? surfaces.minSurfaceY - 0.5 : -0.5;
+    const bnd = this.player?.bounds || null;
+    const points = [{ x: startX, y: startY, z: startZ }];
+
+    let px = startX;
+    let py = startY;
+    let pz = startZ;
+
+    for (let s = 1; s <= maxSteps; s++) {
+      const t = s * dtStep;
+      const nx = startX + vx * t;
+      const ny = startY + vy0 * t - 0.5 * gravity * t * t;
+      const nz = startZ + vz * t;
+      points.push({ x: nx, y: ny, z: nz });
+
+      if (ny < minYBound) break;
+
+      let hitY = null;
+      let hitFloor = 0;
+      let foundSurf = false;
+
+      if (surfaces) {
+        const surf = evaluateSurfaceAt(surfaces, nx, nz, py + 0.32, { maxStepUp: 0.35 });
+        if (surf.found && ny <= surf.y + 0.08 && py >= surf.y - 0.42) {
+          hitY = surf.y;
+          hitFloor = surf.floor;
+          foundSurf = true;
+        }
+      } else if (ny <= 0 && py >= -0.05) {
+        hitY = 0;
+        hitFloor = 0;
+        foundSurf = true;
+      }
+
+      if (foundSurf) {
+        const denom = Math.abs(py - ny) > 0.001 ? Math.max(0, Math.min(1, (py - hitY) / (py - ny))) : 1;
+        const hx = px + (nx - px) * denom;
+        const hz = pz + (nz - pz) * denom;
+        points[points.length - 1] = { x: hx, y: hitY, z: hz };
+
+        let blocked = false;
+        if (bnd) {
+          const pad = (this.player?.radius || 0.42) + 0.16;
+          if (hx < bnd.minX + pad || hx > bnd.maxX - pad || hz < bnd.minZ + pad || hz > bnd.maxZ - pad) {
+            blocked = true;
+          }
+        }
+        if (!blocked && typeof this.player?._collides === 'function') {
+          blocked = this.player._collides(hx, hz, hitY);
+        }
+        return {
+          valid: !blocked,
+          x: hx,
+          y: hitY,
+          z: hz,
+          floor: hitFloor,
+          points
+        };
+      }
+
+      px = nx;
+      py = ny;
+      pz = nz;
+    }
+
+    return {
+      valid: false,
+      x: px,
+      y: py,
+      z: pz,
+      floor: 0,
+      points
+    };
+  }
+
+  executeVrTeleport(target) {
+    if (!target || !target.valid || !this.player) return false;
+    this.player.teleportTo?.({
+      x: target.x,
+      z: target.z,
+      surfaceY: target.y,
+      floor: target.floor
+    });
+    this.worldFloorY = target.y;
+    this.syncWorldTeleport(target.x, target.z, null, target.y);
+    this._pulseHaptic(this.slots.right, 0.35, 55);
+    return true;
+  }
+
+  _updateVrTeleportPreview() {
+    if (!this.slots?.right?.rayParent || !this.tpArcLine || !this.tpTargetRing) return;
+    if (this.sceneMgr?.scene) {
+      if (this.tpArcLine.parent !== this.sceneMgr.scene) {
+        this.sceneMgr.scene.add(this.tpArcLine);
+      }
+      if (this.tpTargetRing.parent !== this.sceneMgr.scene) {
+        this.sceneMgr.scene.add(this.tpTargetRing);
+      }
+    }
+    this.slots.right.rayParent.updateWorldMatrix(true, false);
+    this.slots.right.rayParent.getWorldPosition(this._tpOrigin);
+    this.slots.right.rayParent.getWorldQuaternion(this._tpQuat);
+    this._tpDir.set(0, 0, -1).applyQuaternion(this._tpQuat).normalize();
+
+    const target = this.computeVrTeleportTarget(this._tpOrigin, this._tpDir, 14);
+    this._tpLastTarget = target;
+    this.tpAimActive = true;
+
+    const pts = target.points || [];
+    const posAttr = this._tpArcGeom.getAttribute('position');
+    const fillCount = Math.min(this._tpArcCapacity, pts.length);
+    for (let i = 0; i < fillCount; i++) {
+      this._tpArcPositions[i * 3] = pts[i].x;
+      this._tpArcPositions[i * 3 + 1] = pts[i].y;
+      this._tpArcPositions[i * 3 + 2] = pts[i].z;
+    }
+    const lastPt = fillCount > 0 ? pts[fillCount - 1] : this._tpOrigin;
+    for (let i = fillCount; i < this._tpArcCapacity; i++) {
+      this._tpArcPositions[i * 3] = lastPt.x;
+      this._tpArcPositions[i * 3 + 1] = lastPt.y;
+      this._tpArcPositions[i * 3 + 2] = lastPt.z;
+    }
+    posAttr.needsUpdate = true;
+    this._tpArcGeom.setDrawRange(0, fillCount);
+
+    const colorHex = target.valid ? '#22d3ee' : '#ef4444';
+    this._tpArcMat.color.set(colorHex);
+    this._tpRingMat.color.set(colorHex);
+    this.tpArcLine.visible = fillCount >= 2;
+    this.tpTargetRing.position.set(target.x, target.y + 0.03, target.z);
+    this.tpTargetRing.visible = target.valid;
+  }
+
+  syncWorldTeleport(x, z, yaw = null, floorY = null) {
     if (!this.active || !this.vrRig || !this.camera || this.tpContext) return false;
     const nextYaw = Number.isFinite(Number(yaw)) ? Number(yaw) : Number(this.player?.yaw) || 0;
+    if (Number.isFinite(Number(floorY))) {
+      this.worldFloorY = Number(floorY);
+    } else if (Number.isFinite(Number(this.player?.surfaceY))) {
+      this.worldFloorY = Number(this.player.surfaceY);
+    }
     const groundY = this.worldFloorY;
     if (this.simMode) {
       this.vrRig.position.set(x, groundY, z);
@@ -2198,8 +2395,20 @@ export class VRManager {
     };
   }
 
-  _stabilizeFloor() {
+  _stabilizeFloor(dt = 0.016) {
     if (!this.player || !this.camera || !this.vrRig) return;
+    if (!this.seatedMode && !this.hidingInRack) {
+      const targetFloorY = typeof this.player.getFeetY === 'function' ? this.player.getFeetY() : Number(this.player.surfaceY);
+      if (Number.isFinite(targetFloorY)) {
+        const dy = targetFloorY - this.worldFloorY;
+        if (Math.abs(dy) > 0.001) {
+          const rate = Math.min(1, Math.max(0.25, (Number(dt) || 0.016) * 18));
+          this.worldFloorY += dy * rate;
+        } else {
+          this.worldFloorY = targetFloorY;
+        }
+      }
+    }
     const floorY = this.worldFloorY;
     if (this.seatedMode && this.seatedPose) {
       if (this.simMode) {
@@ -2239,7 +2448,9 @@ export class VRManager {
     }
 
     this.vrRig.position.y = rigY;
-    this.player.position.y = Number.isFinite(Number(this.player.groundY)) ? this.player.groundY : floorY;
+    if (this.player.isGrounded !== false || !Number.isFinite(Number(this.player.position.y))) {
+      this.player.position.y = Number.isFinite(Number(this.player.groundY)) ? this.player.groundY : floorY;
+    }
   }
 
   _updateLocomotion(dt, nowMs, leftState, rightState) {
@@ -2274,7 +2485,7 @@ export class VRManager {
       return;
     }
 
-    this._stabilizeFloor();
+    this._stabilizeFloor(dt);
     this.vrRig.updateMatrixWorld(true);
     this.camera.getWorldPosition(this.tempVecA);
     this.camera.getWorldDirection(this.tempVecB);
@@ -2405,16 +2616,27 @@ export class VRManager {
       } else if (Math.abs(rStick.x) < 0.35) {
         this.snapNeedsRelease = false;
       }
+
+      if (rStick.y < -0.68 && Math.abs(rStick.x) < 0.45 && !lockedMove && !this.tpContext && !this.activePcStation) {
+        this._updateVrTeleportPreview();
+      } else if (this.tpAimActive) {
+        if (rStick.y > -0.25 && this._tpLastTarget?.valid) {
+          this.executeVrTeleport(this._tpLastTarget);
+        }
+        this._hideVrTeleportPreview();
+      }
     }
 
+    let steppedPhysics = false;
     if ((moveX || moveZ) && !lockedMove) {
       this.camera.getWorldPosition(this.tempVecA);
       const curX = this.tempVecA.x;
       const curZ = this.tempVecA.z;
       if (typeof this.player.moveHorizontally === 'function') {
-        const step = this.player.moveHorizontally(moveX, moveZ, curX, curZ);
+        const step = this.player.moveHorizontally(moveX, moveZ, curX, curZ, dt);
         this.vrRig.position.x += step.actualDx;
         this.vrRig.position.z += step.actualDz;
+        steppedPhysics = true;
       } else {
         if (!this.player._collides(curX + moveX, curZ)) {
           this.vrRig.position.x += moveX;
@@ -2424,9 +2646,12 @@ export class VRManager {
           this.vrRig.position.z += moveZ;
         }
       }
+    } else if (!lockedMove && this.player && !this.player.isGrounded && typeof this.player._updateVerticalPhysics === 'function') {
+      this.player._updateVerticalPhysics(dt);
+      steppedPhysics = true;
     }
 
-    this._stabilizeFloor();
+    this._stabilizeFloor(dt);
     this.vrRig.updateMatrixWorld(true);
     this.camera.getWorldPosition(this.tempVecA);
     this.camera.getWorldDirection(this.tempVecB);
@@ -2437,7 +2662,7 @@ export class VRManager {
     const nextYaw = Math.atan2(-this.lastForwardDir.x, -this.lastForwardDir.z);
 
     if (typeof this.player.setVrPose === 'function') {
-      this.player.setVrPose({ x: this.tempVecA.x, z: this.tempVecA.z, yaw: nextYaw });
+      this.player.setVrPose({ x: this.tempVecA.x, z: this.tempVecA.z, yaw: nextYaw, dt, skipPhysics: steppedPhysics });
     } else {
       this.player.position.set(this.tempVecA.x, this.player.groundY || 0, this.tempVecA.z);
       this.player.yaw = nextYaw;
@@ -2714,6 +2939,12 @@ export class VRManager {
     this.debugPanel?.dispose?.();
     this.tpPanel?.dispose?.();
     this.worldPanel?.dispose?.();
+    this.tpArcLine?.parent?.remove?.(this.tpArcLine);
+    this.tpTargetRing?.parent?.remove?.(this.tpTargetRing);
+    this._tpArcGeom?.dispose?.();
+    this._tpArcMat?.dispose?.();
+    this.tpTargetRing?.geometry?.dispose?.();
+    this._tpRingMat?.dispose?.();
     for (const slot of [this.slots.left, this.slots.right]) {
       slot.hand?.dispose?.();
       slot.rayGeom?.dispose?.();

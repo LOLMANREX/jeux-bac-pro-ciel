@@ -154,7 +154,7 @@ export function createGameServer(options = {}) {
 
   const app = express();
   app.set('trust proxy', 1);
-  app.use(express.json({ limit: '4mb' }));
+  app.use(express.json({ limit: '20mb' }));
   app.use('/api', (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.setHeader('Pragma', 'no-cache');

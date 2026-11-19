@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify("v4.31 - Optimisation Extrême FPS, Élimination Totale des Freezes & Fluidité Maximale PC / Mobile / VR"),
+    __APP_VERSION__: JSON.stringify("v4.32 - Map Géante Multi-Étages, Escaliers 3D & Culling Champ de Vision"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

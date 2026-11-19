@@ -450,14 +450,19 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
       } else {
         _deltaVec.subVectors(_targetPos, group.position);
         const dist = Math.hypot(_deltaVec.x, _deltaVec.z);
-        if (dist > 12) {
+        const dy = _targetPos.y - group.position.y;
+        if (dist > 12 || Math.abs(dy) > 6) {
           group.position.copy(_targetPos);
-        } else if (dist > 0.02) {
-          const followFactor = Math.min(1, safeDt * 6.5);
-          group.position.x += _deltaVec.x * followFactor;
-          group.position.z += _deltaVec.z * followFactor;
-          group.position.y += (_targetPos.y - group.position.y) * Math.min(1, safeDt * 8);
-          speedRatio = Math.min(1.6, Math.max(0.35, dist * 2.2));
+        } else {
+          if (dist > 0.02) {
+            const followFactor = Math.min(1, safeDt * 6.5);
+            group.position.x += _deltaVec.x * followFactor;
+            group.position.z += _deltaVec.z * followFactor;
+            speedRatio = Math.min(1.6, Math.max(0.35, dist * 2.2));
+          }
+          if (Math.abs(dy) > 0.004) {
+            group.position.y += dy * Math.min(1, safeDt * 10);
+          }
         }
 
         const desiredYaw =

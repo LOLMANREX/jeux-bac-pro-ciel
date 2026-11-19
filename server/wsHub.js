@@ -105,7 +105,8 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
-    perMessageDeflate: false
+    perMessageDeflate: false,
+    maxPayload: 20 * 1024 * 1024
   });
   const clients = new Map();
   const roomChats = new Map();
@@ -813,6 +814,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
       y: state.y,
       z: state.z,
       yaw: state.yaw,
+      floor: clamp(Math.round(Number(state.floor) || 0), -1, 5),
       activity: state.activity,
       zoneId: state.zoneId || 'U300',
       zoneLabel: state.zoneLabel || 'U300 - Couloir Central',
@@ -1330,6 +1332,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
       y: 0,
       z: 0.65,
       yaw: -1.35,
+      floor: 0,
       activity: 'Dans l’atelier',
       zoneId: 'U300',
       zoneLabel: 'U300 - Couloir Central',
@@ -1370,10 +1373,11 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           state.zoneId = String(msg.zoneId || 'U300').slice(0, 16);
           state.zoneLabel = String(msg.zoneLabel || 'U300 - Couloir Central').slice(0, 34);
           state.lastPlaytimeFlushMs = Date.now();
-          state.x = clamp(msg.x ?? -3.95, -35, 35);
-          state.y = clamp(msg.y ?? 0, 0, 3);
-          state.z = clamp(msg.z ?? 0.65, -35, 35);
+          state.x = clamp(msg.x ?? -3.95, -160, 160);
+          state.y = clamp(msg.y ?? 0, -10, 40);
+          state.z = clamp(msg.z ?? 0.65, -160, 160);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : -1.35;
+          state.floor = clamp(Math.round(Number(msg.floor) || 0), -1, 5);
           state.micEnabled = false;
           state.isSpeaking = false;
           state.vrData = null;
@@ -1417,10 +1421,13 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
 
         case 'move': {
           if (!state.name) return;
-          state.x = clamp(msg.x, -120, 120);
-          state.y = clamp(msg.y ?? 0, 0, 3);
-          state.z = clamp(msg.z, -120, 120);
+          state.x = clamp(msg.x, -160, 160);
+          state.y = clamp(msg.y ?? 0, -10, 40);
+          state.z = clamp(msg.z, -160, 160);
           state.yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : state.yaw;
+          if (msg.floor !== undefined) {
+            state.floor = clamp(Math.round(Number(msg.floor) || 0), -1, 5);
+          }
           if ('vrData' in msg) {
             state.vrData = sanitizeVrData(msg.vrData);
           }
@@ -1442,6 +1449,7 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
               y: state.y,
               z: state.z,
               yaw: state.yaw,
+              floor: state.floor,
               vrData: state.vrData
             },
             ws

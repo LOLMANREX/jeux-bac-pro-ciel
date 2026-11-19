@@ -1,6 +1,8 @@
 import { TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import {
+  clampFloor,
   createDefaultMap,
+  formatFloorShortLabel,
   getCatalogItem,
   getZonePolygonPoints,
   normalizeMapData,
@@ -16,6 +18,7 @@ export class PlateauMiniMap {
     this.w = canvas?.width || 248;
     this.h = canvas?.height || 232;
     this.pad = 10;
+    this.currentFloor = 0;
     this.mapData = normalizeMapData(initialMapData || createDefaultMap());
     this.baseCanvas = null;
     this._buildBaseLayer();
@@ -23,6 +26,13 @@ export class PlateauMiniMap {
 
   setMapData(mapData) {
     this.mapData = normalizeMapData(mapData || createDefaultMap());
+    this._buildBaseLayer();
+  }
+
+  setCurrentFloor(floor = 0) {
+    const fl = clampFloor(floor);
+    if (fl === this.currentFloor) return;
+    this.currentFloor = fl;
     this._buildBaseLayer();
   }
 
@@ -58,8 +68,11 @@ export class PlateauMiniMap {
     octx.lineWidth = 1;
     octx.strokeRect(bx1, by1, bx2 - bx1, by2 - by1);
 
+    const curFloor = this.currentFloor;
+
     for (const z of this.mapData.zones || []) {
       if (z.code === 'U300' && !Array.isArray(z.points)) continue;
+      if (clampFloor(z.floor ?? 0) !== curFloor) continue;
       const pts = getZonePolygonPoints(z);
       if (pts.length < 3) continue;
       octx.beginPath();
@@ -76,11 +89,12 @@ export class PlateauMiniMap {
     const wallSegments = subtractDoorsFromWalls(this.mapData.walls || []);
     octx.lineCap = 'square';
     for (const seg of wallSegments) {
+      if (clampFloor(seg.floor ?? 0) !== curFloor) continue;
       if (seg.kind === 'door_single' || seg.kind === 'door_double') continue;
       const [x1, y1] = this._toCanvas(seg.x1, seg.z1);
       const [x2, y2] = this._toCanvas(seg.x2, seg.z2);
-      const isGlazed = seg.kind === 'glazed';
-      octx.strokeStyle = isGlazed ? '#38bdf8' : '#94a3b8';
+      const isGlazed = seg.kind === 'glazed' || seg.kind === 'window_bay';
+      octx.strokeStyle = isGlazed ? '#38bdf8' : seg.kind === 'railing' ? '#cbd5e1' : '#94a3b8';
       const thick = (seg.thickness || 0.18) > 0.22 ? 2.4 : 1.5;
       octx.lineWidth = isLargeMap ? Math.max(1, thick * 0.65) : thick;
       octx.beginPath();
@@ -91,6 +105,15 @@ export class PlateauMiniMap {
 
     for (const obj of this.mapData.objects || []) {
       const cat = getCatalogItem(obj.type);
+      const objFloor = clampFloor(obj.floor ?? 0);
+      const touchesFloor = objFloor === curFloor || (cat?.isStair && clampFloor(obj.targetFloor ?? objFloor + 1) === curFloor);
+      if (!touchesFloor) continue;
+      if (cat?.isStair) {
+        const [sx, sy] = this._toCanvas(obj.x, obj.z);
+        octx.fillStyle = 'rgba(245, 158, 11, 0.85)';
+        octx.fillRect(sx - 3, sy - 3, 6, 6);
+        continue;
+      }
       if (!cat?.tpId) continue;
       const st = STATION_META.get(cat.tpId);
       const [sx, sy] = this._toCanvas(obj.x, obj.z);
@@ -103,6 +126,7 @@ export class PlateauMiniMap {
     octx.textAlign = 'center';
     octx.textBaseline = 'middle';
     for (const z of this.mapData.zones || []) {
+      if (clampFloor(z.floor ?? 0) !== curFloor) continue;
       if (z.id === 'U309' || z.id === 'U311' || z.id === 'U308') continue;
       const [x1, y1] = this._toCanvas(z.x - z.w / 2, z.z - z.d / 2);
       const [x2, y2] = this._toCanvas(z.x + z.w / 2, z.z + z.d / 2);
@@ -119,7 +143,10 @@ export class PlateauMiniMap {
     this.baseCanvas = off;
   }
 
-  render({ playerPos, playerYaw = 0, currentZone = null, peers = [] } = {}) {
+  render({ playerPos, playerYaw = 0, currentZone = null, peers = [], floor = undefined } = {}) {
+    if (floor !== undefined && floor !== null) {
+      this.setCurrentFloor(floor);
+    }
     if (!this.ctx || !this.baseCanvas) return;
     const ctx = this.ctx;
     ctx.drawImage(this.baseCanvas, 0, 0);
@@ -144,14 +171,36 @@ export class PlateauMiniMap {
 
     for (const p of peers) {
       const [px, py] = this._toCanvas(p.x, p.z);
+      const sameFloor = clampFloor(p.floor ?? 0) === this.currentFloor;
+      ctx.save();
+      ctx.globalAlpha = sameFloor ? 1 : 0.42;
       ctx.fillStyle = p.color || '#34d399';
       ctx.beginPath();
-      ctx.arc(px, py, 3.2, 0, Math.PI * 2);
+      ctx.arc(px, py, sameFloor ? 3.2 : 2.6, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 1;
       ctx.stroke();
+      if (!sameFloor) {
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font = 'bold 8px system-ui, sans-serif';
+        ctx.fillText(formatFloorShortLabel(p.floor ?? 0), px + 5, py - 4);
+      }
+      ctx.restore();
     }
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fillRect(this.w - 42, 6, 36, 16);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(this.w - 42, 6, 36, 16);
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(formatFloorShortLabel(this.currentFloor), this.w - 24, 14);
+    ctx.restore();
 
     if (playerPos) {
       const [ux, uy] = this._toCanvas(playerPos.x, playerPos.z);

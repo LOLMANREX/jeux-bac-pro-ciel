@@ -745,6 +745,37 @@ export function createRealisticMaterialPack(maxAnisotropy = 8, options = {}) {
     })
   );
 
+  const exteriorWallMat = registerMat(
+    new THREE.MeshStandardMaterial({
+      ...concreteTex,
+      color: '#d4dce6',
+      roughness: 0.74,
+      metalness: 0.04,
+      bumpScale: 0.012
+    })
+  );
+
+  const courtyardTex = canvasesToTextures(concreteCanvases, anisotropy, 6, 6, textures);
+  const courtyardMat = registerMat(
+    new THREE.MeshStandardMaterial({
+      ...courtyardTex,
+      color: '#9aa7b4',
+      roughness: 0.86,
+      metalness: 0.02,
+      bumpScale: 0.014
+    })
+  );
+
+  const stairTreadMat = registerMat(
+    new THREE.MeshStandardMaterial({
+      ...concreteTex,
+      color: '#475569',
+      roughness: 0.76,
+      metalness: 0.14,
+      bumpScale: 0.015
+    })
+  );
+
   const glassMat = registerMat(
     new THREE.MeshStandardMaterial({
       color: '#e6f3fa',
@@ -771,9 +802,8 @@ export function createRealisticMaterialPack(maxAnisotropy = 8, options = {}) {
     })
   );
 
-  const getWallMaterial = (lengthMeters = 4, colorHex = '') => {
-    const rawRx = Math.max(1, Math.min(10, Math.round((Number(lengthMeters) || 4) / 2.6)));
-    const rx = rawRx <= 1 ? 1 : rawRx <= 3 ? 2 : 4;
+  const getWallMaterial = (_lengthMeters = 4, colorHex = '') => {
+    const rx = 2;
     const tint = normalizeCustomColor(colorHex, '#ffffff');
     const key = `${rx}:${tint}`;
     if (wallMatCache.has(key)) return wallMatCache.get(key);
@@ -858,6 +888,9 @@ export function createRealisticMaterialPack(maxAnisotropy = 8, options = {}) {
     acousticMat,
     greenScreenMat,
     concreteMat,
+    exteriorWallMat,
+    courtyardMat,
+    stairTreadMat,
     glassMat,
     rackGlassMat,
     getWallMaterial,

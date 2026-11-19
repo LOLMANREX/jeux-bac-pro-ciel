@@ -9,6 +9,42 @@ import {
   buildPlateauWalls
 } from './plateauLayout.js';
 
+export const MIN_FLOOR = -1;
+export const MAX_FLOOR = 5;
+export const MAX_MAP_SIZE = 240;
+export const DEFAULT_FLOOR_HEIGHT = 3.8;
+export const SLAB_THICKNESS = 0.22;
+
+export function clampFloor(f) {
+  const n = Math.round(Number(f));
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(MIN_FLOOR, Math.min(MAX_FLOOR, n));
+}
+
+export function formatFloorLabel(f) {
+  const fl = clampFloor(f);
+  if (fl < 0) return `Sous-sol (${fl})`;
+  if (fl === 0) return 'RDC (0)';
+  return `Étage ${fl}`;
+}
+
+export function formatFloorShortLabel(f) {
+  const fl = clampFloor(f);
+  if (fl < 0) return `SS (${fl})`;
+  if (fl === 0) return 'RDC';
+  return `R+${fl}`;
+}
+
+export function getFloorBaseY(mapData, floor = 0) {
+  const fh = Number(mapData?.floorHeight) || DEFAULT_FLOOR_HEIGHT;
+  return clampFloor(floor) * fh;
+}
+
+export function getFloorFromY(mapData, y = 0) {
+  const fh = Number(mapData?.floorHeight) || DEFAULT_FLOOR_HEIGHT;
+  return clampFloor(Math.floor(((Number(y) || 0) + 0.5) / fh));
+}
+
 export const MAP_ITEM_CATEGORIES = [
   { id: 'arch', label: 'A. Architecture & Salles' },
   { id: 'stations', label: 'B. Bornes TP & PNJ' },
@@ -159,6 +195,152 @@ export const MAP_ITEM_CATALOG = [
     defaultH: 4.4,
     defaultColor: '#64748b',
     collides: true
+  },
+  {
+    type: 'wall_exterior',
+    category: 'arch',
+    subGroup: 'Murs & Structure',
+    label: 'Mur extérieur épais (Façade)',
+    shortLabel: 'Mur extérieur',
+    icon: '🏢',
+    isWall: true,
+    wallKind: 'exterior',
+    defaultW: 6.0,
+    defaultD: 0.3,
+    defaultH: 3.8,
+    defaultColor: '#334155',
+    collides: true
+  },
+  {
+    type: 'wall_window_bay',
+    category: 'arch',
+    subGroup: 'Murs & Structure',
+    label: 'Grande baie vitrée',
+    shortLabel: 'Baie vitrée',
+    icon: '🪟',
+    isWall: true,
+    wallKind: 'window_bay',
+    defaultW: 4.5,
+    defaultD: 0.2,
+    defaultH: 3.8,
+    defaultColor: '#38bdf8',
+    collides: true
+  },
+  {
+    type: 'railing_guard',
+    category: 'arch',
+    subGroup: 'Murs & Structure',
+    label: 'Garde-corps / Mezzanine',
+    shortLabel: 'Garde-corps',
+    icon: '🚧',
+    isWall: true,
+    wallKind: 'railing',
+    defaultW: 3.0,
+    defaultD: 0.12,
+    defaultH: 1.08,
+    defaultColor: '#94a3b8',
+    collides: true
+  },
+  {
+    type: 'stair_straight',
+    category: 'arch',
+    subGroup: 'Escaliers & Trémies',
+    label: 'Escalier 3D Droit (Rampe + Marches)',
+    shortLabel: 'Escalier Droit',
+    icon: '📶',
+    isStair: true,
+    stairStyle: 'straight',
+    defaultW: 1.8,
+    defaultD: 4.6,
+    defaultH: 3.8,
+    defaultColor: '#64748b',
+    collides: false
+  },
+  {
+    type: 'stair_l',
+    category: 'arch',
+    subGroup: 'Escaliers & Trémies',
+    label: 'Escalier 3D en L (Quart tournant)',
+    shortLabel: 'Escalier en L',
+    icon: '📐',
+    isStair: true,
+    stairStyle: 'l_shape',
+    defaultW: 3.6,
+    defaultD: 3.6,
+    defaultH: 3.8,
+    defaultColor: '#64748b',
+    collides: false
+  },
+  {
+    type: 'stair_u',
+    category: 'arch',
+    subGroup: 'Escaliers & Trémies',
+    label: 'Escalier 3D en U (Double volée)',
+    shortLabel: 'Escalier en U',
+    icon: '🔁',
+    isStair: true,
+    stairStyle: 'u_shape',
+    defaultW: 3.6,
+    defaultD: 4.2,
+    defaultH: 3.8,
+    defaultColor: '#64748b',
+    collides: false
+  },
+  {
+    type: 'pillar_column',
+    category: 'arch',
+    subGroup: 'Murs & Structure',
+    label: 'Poteau structurel',
+    shortLabel: 'Poteau',
+    icon: '🏛️',
+    defaultW: 0.45,
+    defaultD: 0.45,
+    defaultH: 3.8,
+    defaultColor: '#94a3b8',
+    collides: true
+  },
+  {
+    type: 'slab_opening',
+    category: 'arch',
+    subGroup: 'Escaliers & Trémies',
+    label: 'Trémie / Ouverture de dalle',
+    shortLabel: 'Trémie dalle',
+    icon: '🕳️',
+    isOpening: true,
+    defaultW: 2.2,
+    defaultD: 4.6,
+    defaultH: 0.24,
+    defaultColor: '#f59e0b',
+    collides: false
+  },
+  {
+    type: 'floor_slab',
+    category: 'arch',
+    subGroup: 'Escaliers & Trémies',
+    label: 'Dalle de sol / Mezzanine',
+    shortLabel: 'Dalle / Mezza',
+    icon: '🧱',
+    isSlab: true,
+    defaultW: 10.0,
+    defaultD: 10.0,
+    defaultH: 0.22,
+    defaultColor: '#94a3b8',
+    collides: false
+  },
+  {
+    type: 'courtyard_zone',
+    category: 'arch',
+    subGroup: 'Salles & Signalétique',
+    label: 'Zone extérieure (Cour du lycée)',
+    shortLabel: 'Cour extérieure',
+    icon: '🌳',
+    isZone: true,
+    isOutdoor: true,
+    defaultW: 20.0,
+    defaultD: 16.0,
+    defaultH: 0.02,
+    defaultColor: '#22c55e',
+    collides: false
   },
   {
     type: 'tp_soldering',
@@ -1233,18 +1415,50 @@ export function createEmptyMap() {
 export function normalizeMapData(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const bSrc = src.bounds && typeof src.bounds === 'object' ? src.bounds : {};
-  const width = clampNum(bSrc.width, 8, 200, 26);
-  const depth = clampNum(bSrc.depth, 8, 200, 24.4);
-  const height = clampNum(bSrc.height, 3, 12, 4.6);
+  const width = clampNum(bSrc.width, 8, MAX_MAP_SIZE, 26);
+  const depth = clampNum(bSrc.depth, 8, MAX_MAP_SIZE, 24.4);
   const minX = -width / 2;
   const maxX = width / 2;
   const minZ = -depth / 2;
   const maxZ = depth / 2;
 
   const rawWalls = Array.isArray(src.walls) ? src.walls : [];
-  const validKinds = new Set(['solid', 'glazed', 'door_single', 'door_double']);
+  const rawZones = Array.isArray(src.zones) ? src.zones : [];
+  const rawObjects = Array.isArray(src.objects) ? src.objects : [];
+  const rawOpenings = Array.isArray(src.openings) ? src.openings : [];
+  const rawFloorsInput = Array.isArray(src.floors) ? src.floors : [];
+
+  const hasMultiFloor =
+    rawFloorsInput.length > 1 ||
+    rawFloorsInput.some((f) => clampFloor(typeof f === 'object' ? f?.index : f) !== 0) ||
+    rawWalls.some((w) => w && w.floor !== undefined && clampFloor(w.floor) !== 0) ||
+    rawZones.some((z) => z && z.floor !== undefined && clampFloor(z.floor) !== 0) ||
+    rawOpenings.some((op) => op && op.floor !== undefined && clampFloor(op.floor) !== 0) ||
+    rawObjects.some((o) => {
+      if (!o || typeof o !== 'object') return false;
+      if (o.floor !== undefined && clampFloor(o.floor) !== 0) return true;
+      const c = getCatalogItem(o.type);
+      return Boolean(c?.isStair || c?.isOpening || c?.isSlab);
+    }) ||
+    src.floorHeight !== undefined ||
+    bSrc.floorHeight !== undefined;
+
+  const defaultH = hasMultiFloor ? DEFAULT_FLOOR_HEIGHT : 4.6;
+  const fallbackFh = bSrc.height !== undefined ? clampNum(bSrc.height, 2.8, 6.0, defaultH) : defaultH;
+  const floorHeight = Number(clampNum(src.floorHeight ?? bSrc.floorHeight, 2.8, 6.0, fallbackFh).toFixed(2));
+  const height = Number(clampNum(bSrc.height, 2.8, 12, floorHeight).toFixed(2));
+
+  const validKinds = new Set([
+    'solid',
+    'glazed',
+    'exterior',
+    'window_bay',
+    'railing',
+    'door_single',
+    'door_double'
+  ]);
   const walls = [];
-  for (let i = 0; i < rawWalls.length && i < 2000; i++) {
+  for (let i = 0; i < rawWalls.length && i < 8000; i++) {
     const w = rawWalls[i];
     if (!w || typeof w !== 'object') continue;
     const x1 = clampNum(w.x1, minX - 1, maxX + 1, 0);
@@ -1253,30 +1467,49 @@ export function normalizeMapData(raw) {
     const z2 = clampNum(w.z2, minZ - 1, maxZ + 1, 0);
     if (Math.hypot(x2 - x1, z2 - z1) < 0.15) continue;
     const kind = validKinds.has(w.kind) ? w.kind : 'solid';
+    const floor = clampFloor(w.floor ?? 0);
+    const defThick = kind === 'exterior' ? 0.3 : kind === 'railing' ? 0.12 : 0.18;
+    const wHeight =
+      kind === 'railing'
+        ? clampNum(w.height, 0.7, 1.8, 1.08)
+        : clampNum(w.height, 2.2, Math.max(height, floorHeight), height);
     walls.push({
-      id: cleanText(w.id, 32, `w-${i + 1}`),
+      id: cleanText(w.id, 36, `w-${i + 1}`),
+      floor,
       kind,
       x1: Number(x1.toFixed(2)),
       z1: Number(z1.toFixed(2)),
       x2: Number(x2.toFixed(2)),
       z2: Number(z2.toFixed(2)),
-      thickness: Number(clampNum(w.thickness, 0.08, 0.8, 0.18).toFixed(2)),
-      height: Number(clampNum(w.height, 2.2, height, height).toFixed(2)),
-      color: cleanColor(w.color, kind === 'glazed' ? '#38bdf8' : '#1e293b'),
+      thickness: Number(clampNum(w.thickness, 0.08, 0.8, defThick).toFixed(2)),
+      height: Number(wHeight.toFixed(2)),
+      color: cleanColor(
+        w.color,
+        kind === 'glazed' || kind === 'window_bay'
+          ? '#38bdf8'
+          : kind === 'railing'
+            ? '#94a3b8'
+            : kind === 'exterior'
+              ? '#334155'
+              : '#1e293b'
+      ),
       doorLabel: cleanText(w.doorLabel, 48, '')
     });
   }
 
-  const rawZones = Array.isArray(src.zones) ? src.zones : [];
   const zones = [];
-  for (let i = 0; i < rawZones.length && i < 300; i++) {
+  for (let i = 0; i < rawZones.length && i < 600; i++) {
     const z = rawZones[i];
     if (!z || typeof z !== 'object') continue;
-    const code = cleanText(z.code, 16, `Z${i + 1}`);
-    const shortName = cleanText(z.shortName, 28, 'Salle CIEL');
-    const color = cleanColor(z.color, '#38bdf8');
+    const floor = clampFloor(z.floor ?? 0);
+    const outdoor = Boolean(z.outdoor || z.isOutdoor);
+    const code = cleanText(z.code, 16, outdoor ? 'COUR' : `Z${i + 1}`);
+    const shortName = cleanText(z.shortName, 28, outdoor ? 'Cour Extérieure' : 'Salle CIEL');
+    const color = cleanColor(z.color, outdoor ? '#22c55e' : '#38bdf8');
     const baseZone = {
-      id: cleanText(z.id, 24, `zone-${i + 1}`),
+      id: cleanText(z.id, 32, `zone-${i + 1}`),
+      floor,
+      outdoor,
       code,
       shortName,
       fullLabel: cleanText(z.fullLabel, 64, `${code} - ${shortName}`),
@@ -1327,23 +1560,24 @@ export function normalizeMapData(raw) {
     });
   }
 
-  const rawObjects = Array.isArray(src.objects) ? src.objects : [];
   const objects = [];
   let spawnFromObjects = null;
   const maxObjW = Math.max(120, width);
   const maxObjD = Math.max(120, depth);
-  for (let i = 0; i < rawObjects.length && i < 2500; i++) {
+  for (let i = 0; i < rawObjects.length && i < 8000; i++) {
     const o = rawObjects[i];
     if (!o || typeof o !== 'object') continue;
     const cat = getCatalogItem(o.type);
     if (!cat) continue;
+    const floor = clampFloor(o.floor ?? 0);
     const ox = clampNum(o.x, minX, maxX, 0);
     const oz = clampNum(o.z, minZ, maxZ, 0);
     const rotDeg = ((Number(o.rotation) || 0) % 360 + 360) % 360;
     const ow = clampNum(o.w, 0.2, maxObjW, cat.defaultW);
     const od = clampNum(o.d, 0.1, maxObjD, cat.defaultD);
     const normObj = {
-      id: cleanText(o.id, 32, `obj-${i + 1}`),
+      id: cleanText(o.id, 36, `obj-${i + 1}`),
+      floor,
       type: cat.type,
       x: Number(ox.toFixed(2)),
       z: Number(oz.toFixed(2)),
@@ -1354,13 +1588,81 @@ export function normalizeMapData(raw) {
       label: cleanText(o.label, 48, cat.shortLabel),
       dialogue: o.dialogue ? cleanText(o.dialogue, 420, '') : ''
     };
+    if (cat.isStair) {
+      const defTarget = floor < MAX_FLOOR ? floor + 1 : floor - 1;
+      normObj.stairStyle = o.stairStyle || cat.stairStyle || 'straight';
+      normObj.targetFloor = clampFloor(o.targetFloor ?? defTarget);
+      normObj.steps = Math.round(clampNum(o.steps, 8, 28, 16));
+      normObj.hasRailings = o.hasRailings !== false;
+      normObj.turnDir = Number(o.turnDir) === -1 ? -1 : 1;
+      normObj.autoOpening = o.autoOpening !== false;
+    }
     if (cat.type === 'spawn_point') {
       spawnFromObjects = normObj;
     }
     objects.push(normObj);
   }
 
+  const openings = [];
+  for (let i = 0; i < rawOpenings.length && i < 400; i++) {
+    const op = rawOpenings[i];
+    if (!op || typeof op !== 'object') continue;
+    const floor = clampFloor(op.floor ?? 0);
+    openings.push({
+      id: cleanText(op.id, 36, `open-${i + 1}`),
+      floor,
+      x: Number(clampNum(op.x, minX, maxX, 0).toFixed(2)),
+      z: Number(clampNum(op.z, minZ, maxZ, 0).toFixed(2)),
+      w: Number(clampNum(op.w, 0.5, width, 2.2).toFixed(2)),
+      d: Number(clampNum(op.d, 0.5, depth, 4.2).toFixed(2)),
+      rotation: Number((((Number(op.rotation) || 0) % 360 + 360) % 360).toFixed(1)),
+      autoFromStairId: op.autoFromStairId ? cleanText(op.autoFromStairId, 36, '') : ''
+    });
+  }
+
+  const floorMetaMap = new Map();
+  const ensureFloor = (fl, overrides = null) => {
+    const idx = clampFloor(fl);
+    if (!floorMetaMap.has(idx)) {
+      floorMetaMap.set(idx, {
+        index: idx,
+        label: formatFloorLabel(idx),
+        hasFullSlab: true,
+        hasCeiling: true
+      });
+    }
+    if (overrides && typeof overrides === 'object') {
+      const cur = floorMetaMap.get(idx);
+      const customLabel =
+        typeof overrides.label === 'string' && overrides.label.trim()
+          ? overrides.label
+          : typeof overrides.name === 'string' && overrides.name.trim()
+            ? overrides.name
+            : '';
+      if (customLabel) {
+        cur.label = cleanText(customLabel, 32, cur.label);
+      }
+      if (overrides.hasFullSlab !== undefined) cur.hasFullSlab = Boolean(overrides.hasFullSlab);
+      if (overrides.hasCeiling !== undefined) cur.hasCeiling = Boolean(overrides.hasCeiling);
+    }
+  };
+  ensureFloor(0);
+  for (const rf of rawFloorsInput) {
+    if (typeof rf === 'number') ensureFloor(rf);
+    else if (rf && typeof rf === 'object') ensureFloor(rf.index ?? rf.floor ?? 0, rf);
+  }
+  for (const w of walls) ensureFloor(w.floor);
+  for (const z of zones) ensureFloor(z.floor);
+  for (const o of objects) {
+    ensureFloor(o.floor);
+    if (o.targetFloor !== undefined) ensureFloor(o.targetFloor);
+  }
+  for (const op of openings) ensureFloor(op.floor);
+
+  const floors = [...floorMetaMap.values()].sort((a, b) => a.index - b.index);
+
   const spSrc = src.spawn && typeof src.spawn === 'object' ? src.spawn : {};
+  const spFloor = spawnFromObjects ? spawnFromObjects.floor : clampFloor(spSrc.floor ?? 0);
   const spX = spawnFromObjects ? spawnFromObjects.x : clampNum(spSrc.x, minX + 0.6, maxX - 0.6, 0);
   const spZ = spawnFromObjects ? spawnFromObjects.z : clampNum(spSrc.z, minZ + 0.6, maxZ - 0.6, 2);
   const spYaw = spawnFromObjects
@@ -1368,22 +1670,30 @@ export function normalizeMapData(raw) {
     : Number.isFinite(Number(spSrc.yaw))
       ? Number(spSrc.yaw)
       : 0;
+  const spY = Number((spFloor * floorHeight + 1.68).toFixed(2));
 
-  return {
-    version: 1,
+  const out = {
+    version: floors.length > 1 || hasMultiFloor ? 2 : 1,
     name: cleanText(src.name, 64, 'Carte Atelier CIEL 3D'),
     updatedAt: src.updatedAt || new Date().toISOString(),
+    floorHeight,
     bounds: { minX, maxX, minZ, maxZ, width, depth, height },
+    floors,
     spawn: {
       x: Number(spX.toFixed(2)),
-      y: 1.68,
+      y: spY,
       z: Number(spZ.toFixed(2)),
-      yaw: Number(spYaw.toFixed(3))
+      yaw: Number(spYaw.toFixed(3)),
+      floor: spFloor
     },
     zones,
     walls,
     objects
   };
+  if (openings.length > 0) {
+    out.openings = openings;
+  }
+  return out;
 }
 
 export function subtractDoorsFromWalls(walls = []) {
@@ -1392,6 +1702,7 @@ export function subtractDoorsFromWalls(walls = []) {
 
   for (const w of walls) {
     if (w.kind === 'door_single' || w.kind === 'door_double') continue;
+    const wFloor = clampFloor(w.floor ?? 0);
     const dx = w.x2 - w.x1;
     const dz = w.z2 - w.z1;
     const len = Math.hypot(dx, dz);
@@ -1401,6 +1712,7 @@ export function subtractDoorsFromWalls(walls = []) {
     const cuts = [];
 
     for (const d of doors) {
+      if (clampFloor(d.floor ?? 0) !== wFloor) continue;
       const ddx = d.x2 - d.x1;
       const ddz = d.z2 - d.z1;
       const dLen = Math.hypot(ddx, ddz);
@@ -1476,10 +1788,16 @@ export function computeWallSnap({
   pz,
   walls = [],
   maxRadius = WALL_MOUNT_SNAP_RADIUS,
-  fallbackRotation = null
+  fallbackRotation = null,
+  floor = undefined
 }) {
+  const floorFilter = floor === undefined ? null : clampFloor(floor);
   const candidates = subtractDoorsFromWalls(walls).filter(
-    (w) => w.kind !== 'door_single' && w.kind !== 'door_double'
+    (w) =>
+      w.kind !== 'door_single' &&
+      w.kind !== 'door_double' &&
+      w.kind !== 'railing' &&
+      (floorFilter === null || clampFloor(w.floor ?? 0) === floorFilter)
   );
   let best = null;
   let bestDist = maxRadius;
@@ -1541,8 +1859,1065 @@ export function computeWallSnap({
   return best;
 }
 
+function rotatedRectToWorldAabb(cx, cz, minLx, maxLx, minLz, maxLz, cos, sin) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  const corners = [
+    [minLx, minLz],
+    [maxLx, minLz],
+    [maxLx, maxLz],
+    [minLx, maxLz]
+  ];
+  for (let i = 0; i < 4; i++) {
+    const lx = corners[i][0];
+    const lz = corners[i][1];
+    const wx = cx + lx * cos + lz * sin;
+    const wz = cz - lx * sin + lz * cos;
+    if (wx < minX) minX = wx;
+    if (wx > maxX) maxX = wx;
+    if (wz < minZ) minZ = wz;
+    if (wz > maxZ) maxZ = wz;
+  }
+  return {
+    minX: Number(minX.toFixed(3)),
+    maxX: Number(maxX.toFixed(3)),
+    minZ: Number(minZ.toFixed(3)),
+    maxZ: Number(maxZ.toFixed(3))
+  };
+}
+
+function makeWorldColliderFromLocalBox(cx, cz, cos, sin, minLx, maxLx, minLz, maxLz, minY, maxY, floor) {
+  const hw = Math.max(0.03, (maxLx - minLx) * 0.5);
+  const hd = Math.max(0.03, (maxLz - minLz) * 0.5);
+  const lcx = (minLx + maxLx) * 0.5;
+  const lcz = (minLz + maxLz) * 0.5;
+  const wcx = cx + lcx * cos + lcz * sin;
+  const wcz = cz - lcx * sin + lcz * cos;
+  return {
+    cx: Number(wcx.toFixed(3)),
+    cz: Number(wcz.toFixed(3)),
+    hw: Number(hw.toFixed(3)),
+    hd: Number(hd.toFixed(3)),
+    ux: cos,
+    uz: -sin,
+    minY: Number(minY.toFixed(3)),
+    maxY: Number(maxY.toFixed(3)),
+    floor
+  };
+}
+
+export function computeStairGeometry(stairObj, floorHeight = DEFAULT_FLOOR_HEIGHT) {
+  const cat = getCatalogItem(stairObj?.type);
+  const fh = Number(floorHeight) || DEFAULT_FLOOR_HEIGHT;
+  const floor = clampFloor(stairObj?.floor ?? 0);
+  const defTarget = floor < MAX_FLOOR ? floor + 1 : floor - 1;
+  const targetFloor = clampFloor(stairObj?.targetFloor ?? defTarget);
+  const baseY = floor * fh;
+  const topY = targetFloor * fh;
+  const style = stairObj?.stairStyle || cat?.stairStyle || 'straight';
+  const w = Math.max(1.2, Number(stairObj?.w) || cat?.defaultW || 1.8);
+  const d = Math.max(1.8, Number(stairObj?.d) || cat?.defaultD || 4.2);
+  const x = Number(stairObj?.x) || 0;
+  const z = Number(stairObj?.z) || 0;
+  const deg = ((Number(stairObj?.rotation) || 0) % 360 + 360) % 360;
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const steps = Math.max(6, Math.min(32, Math.round(Number(stairObj?.steps) || 16)));
+  const hasRailings = stairObj?.hasRailings !== false;
+  const turnDir = Number(stairObj?.turnDir) === -1 ? -1 : 1;
+  const apron = 0.34;
+  const railH = 1.04;
+  const railT = 0.08;
+
+  const flights = [];
+  const landings = [];
+  const steps3d = [];
+  const handrails3d = [];
+  const sideColliders = [];
+  const openingRects = [];
+
+  if (style === 'l_shape') {
+    const runW = Math.min(w * 0.5, Math.max(1.15, w * 0.44));
+    const f1MinX = turnDir === 1 ? -w * 0.5 : w * 0.5 - runW;
+    const f1MaxX = f1MinX + runW;
+    const f1MinZ = -d * 0.5;
+    const f1MaxZ = d * 0.5 - runW;
+    const midY = (baseY + topY) * 0.5;
+    const steps1 = Math.max(4, Math.floor(steps / 2));
+    const steps2 = Math.max(4, steps - steps1);
+
+    flights.push({
+      minLx: f1MinX,
+      maxLx: f1MaxX,
+      minLz: f1MinZ - apron,
+      maxLz: f1MaxZ + 0.25,
+      climbStart: f1MinZ,
+      climbEnd: f1MaxZ,
+      startY: baseY,
+      endY: midY,
+      axis: 'z',
+      dir: 1
+    });
+
+    const step1Depth = Math.max(0.18, (f1MaxZ - f1MinZ) / steps1);
+    const step1Rise = (midY - baseY) / steps1;
+    const f1Cx = (f1MinX + f1MaxX) * 0.5;
+    for (let i = 0; i < steps1; i++) {
+      const sy = baseY + (i + 0.5) * step1Rise;
+      const sz = f1MinZ + (i + 0.5) * step1Depth;
+      steps3d.push({
+        lx: f1Cx,
+        ly: sy,
+        lz: sz,
+        w: runW - 0.08,
+        h: Math.max(0.12, Math.abs(step1Rise) + 0.04),
+        d: step1Depth + 0.03
+      });
+    }
+
+    const landMinZ = d * 0.5 - runW;
+    const landMaxZ = d * 0.5;
+    landings.push({
+      lx: f1Cx,
+      ly: midY - 0.11,
+      lz: (landMinZ + landMaxZ) * 0.5,
+      w: runW,
+      h: 0.22,
+      d: runW,
+      surfaceY: midY
+    });
+    flights.push({
+      minLx: f1MinX,
+      maxLx: f1MaxX,
+      minLz: landMinZ - 0.05,
+      maxLz: landMaxZ + 0.05,
+      climbStart: landMinZ,
+      climbEnd: landMaxZ,
+      startY: midY,
+      endY: midY,
+      axis: 'z',
+      dir: 1
+    });
+
+    const f2MinX = turnDir === 1 ? f1MaxX : -w * 0.5;
+    const f2MaxX = turnDir === 1 ? w * 0.5 : f1MinX;
+    const f2MinZ = landMinZ;
+    const f2MaxZ = landMaxZ;
+    const f2ClimbStart = turnDir === 1 ? f2MinX : f2MaxX;
+    const f2ClimbEnd = turnDir === 1 ? f2MaxX : f2MinX;
+    flights.push({
+      minLx: turnDir === 1 ? f2MinX - 0.25 : f2MinX - apron,
+      maxLx: turnDir === 1 ? f2MaxX + apron : f2MaxX + 0.25,
+      minLz: f2MinZ,
+      maxLz: f2MaxZ,
+      climbStart: f2ClimbStart,
+      climbEnd: f2ClimbEnd,
+      startY: midY,
+      endY: topY,
+      axis: 'x',
+      dir: turnDir
+    });
+
+    const f2Span = Math.max(0.5, f2MaxX - f2MinX);
+    const step2W = f2Span / steps2;
+    const step2Rise = (topY - midY) / steps2;
+    const f2Cz = (f2MinZ + f2MaxZ) * 0.5;
+    for (let i = 0; i < steps2; i++) {
+      const sy = midY + (i + 0.5) * step2Rise;
+      const sx = turnDir === 1 ? f2MinX + (i + 0.5) * step2W : f2MaxX - (i + 0.5) * step2W;
+      steps3d.push({
+        lx: sx,
+        ly: sy,
+        lz: f2Cz,
+        w: step2W + 0.03,
+        h: Math.max(0.12, Math.abs(step2Rise) + 0.04),
+        d: runW - 0.08
+      });
+    }
+
+    if (hasRailings) {
+      const outerX = turnDir === 1 ? -w * 0.5 + 0.04 : w * 0.5 - 0.04;
+      handrails3d.push({
+        x1: outerX,
+        y1: baseY + railH,
+        z1: f1MinZ,
+        x2: outerX,
+        y2: midY + railH,
+        z2: landMaxZ
+      });
+      handrails3d.push({
+        x1: f1MinX + 0.04,
+        y1: midY + railH,
+        z1: landMaxZ - 0.04,
+        x2: f1MaxX - 0.04,
+        y2: midY + railH,
+        z2: landMaxZ - 0.04
+      });
+      handrails3d.push({
+        x1: f2ClimbStart,
+        y1: midY + railH,
+        z1: landMaxZ - 0.04,
+        x2: f2ClimbEnd,
+        y2: topY + railH,
+        z2: landMaxZ - 0.04
+      });
+      const innerEdgeX = turnDir === 1 ? f1MaxX - 0.04 : f1MinX + 0.04;
+      handrails3d.push({
+        x1: innerEdgeX,
+        y1: baseY + railH,
+        z1: f1MinZ,
+        x2: innerEdgeX,
+        y2: midY + railH,
+        z2: f1MaxZ
+      });
+      handrails3d.push({
+        x1: f2ClimbStart,
+        y1: midY + railH,
+        z1: landMinZ + 0.04,
+        x2: f2ClimbEnd,
+        y2: topY + railH,
+        z2: landMinZ + 0.04
+      });
+    }
+
+    if (hasRailings) {
+      const maxGuardY = Math.max(baseY, topY) + railH;
+      const minGuardY = Math.min(baseY, topY);
+      const highY = Math.max(baseY, topY);
+      const highFloor = topY >= baseY ? targetFloor : floor;
+      const outerSideX = turnDir === 1 ? f1MinX : f1MaxX - railT;
+      sideColliders.push(
+        makeWorldColliderFromLocalBox(
+          x,
+          z,
+          cos,
+          sin,
+          outerSideX,
+          outerSideX + railT,
+          f1MinZ,
+          landMaxZ,
+          minGuardY,
+          maxGuardY,
+          floor
+        )
+      );
+      sideColliders.push(
+        makeWorldColliderFromLocalBox(
+          x,
+          z,
+          cos,
+          sin,
+          -w * 0.5,
+          w * 0.5,
+          landMaxZ - railT,
+          landMaxZ,
+          minGuardY,
+          maxGuardY,
+          floor
+        )
+      );
+      const innerColX = turnDir === 1 ? f1MaxX - railT : f1MinX;
+      sideColliders.push(
+        makeWorldColliderFromLocalBox(
+          x,
+          z,
+          cos,
+          sin,
+          innerColX,
+          innerColX + railT,
+          f1MinZ,
+          f1MaxZ,
+          minGuardY,
+          maxGuardY,
+          floor
+        )
+      );
+      sideColliders.push(
+        makeWorldColliderFromLocalBox(
+          x,
+          z,
+          cos,
+          sin,
+          f2MinX,
+          f2MaxX,
+          f2MinZ,
+          f2MinZ + railT,
+          minGuardY,
+          maxGuardY,
+          floor
+        )
+      );
+      if (topY >= baseY) {
+        sideColliders.push(
+          makeWorldColliderFromLocalBox(
+            x,
+            z,
+            cos,
+            sin,
+            f1MinX,
+            f1MaxX,
+            f1MinZ,
+            f1MinZ + railT,
+            highY,
+            highY + railH,
+            highFloor
+          )
+        );
+      } else {
+        const capMinX = turnDir === 1 ? f2MaxX - railT : f2MinX;
+        const capMaxX = turnDir === 1 ? f2MaxX : f2MinX + railT;
+        sideColliders.push(
+          makeWorldColliderFromLocalBox(
+            x,
+            z,
+            cos,
+            sin,
+            capMinX,
+            capMaxX,
+            f2MinZ,
+            f2MaxZ,
+            highY,
+            highY + railH,
+            highFloor
+          )
+        );
+      }
+    }
+
+    openingRects.push(rotatedRectToWorldAabb(x, z, f1MinX, f1MaxX, f1MinZ, landMaxZ, cos, sin));
+    openingRects.push(rotatedRectToWorldAabb(x, z, f2MinX, f2MaxX, f2MinZ, f2MaxZ, cos, sin));
+  } else if (style === 'u_shape') {
+    const landingD = Math.min(d * 0.36, Math.max(1.15, w * 0.34));
+    const flightD = Math.max(1.0, d - landingD);
+    const gapW = Math.min(0.24, w * 0.08);
+    const flightW = (w - gapW) * 0.5;
+    const f1MinX = turnDir === 1 ? -w * 0.5 : w * 0.5 - flightW;
+    const f1MaxX = f1MinX + flightW;
+    const f2MinX = turnDir === 1 ? w * 0.5 - flightW : -w * 0.5;
+    const f2MaxX = f2MinX + flightW;
+    const fMinZ = -d * 0.5;
+    const fMaxZ = -d * 0.5 + flightD;
+    const landMinZ = fMaxZ;
+    const landMaxZ = d * 0.5;
+    const midY = (baseY + topY) * 0.5;
+    const steps1 = Math.max(4, Math.floor(steps / 2));
+    const steps2 = Math.max(4, steps - steps1);
+
+    flights.push({
+      minLx: f1MinX,
+      maxLx: f1MaxX,
+      minLz: fMinZ - apron,
+      maxLz: fMaxZ + 0.25,
+      climbStart: fMinZ,
+      climbEnd: fMaxZ,
+      startY: baseY,
+      endY: midY,
+      axis: 'z',
+      dir: 1
+    });
+
+    const step1Depth = Math.max(0.18, flightD / steps1);
+    const step1Rise = (midY - baseY) / steps1;
+    const f1Cx = (f1MinX + f1MaxX) * 0.5;
+    for (let i = 0; i < steps1; i++) {
+      steps3d.push({
+        lx: f1Cx,
+        ly: baseY + (i + 0.5) * step1Rise,
+        lz: fMinZ + (i + 0.5) * step1Depth,
+        w: flightW - 0.06,
+        h: Math.max(0.12, Math.abs(step1Rise) + 0.04),
+        d: step1Depth + 0.03
+      });
+    }
+
+    landings.push({
+      lx: 0,
+      ly: midY - 0.11,
+      lz: (landMinZ + landMaxZ) * 0.5,
+      w,
+      h: 0.22,
+      d: landingD,
+      surfaceY: midY
+    });
+    flights.push({
+      minLx: -w * 0.5,
+      maxLx: w * 0.5,
+      minLz: landMinZ - 0.05,
+      maxLz: landMaxZ + 0.05,
+      climbStart: landMinZ,
+      climbEnd: landMaxZ,
+      startY: midY,
+      endY: midY,
+      axis: 'z',
+      dir: 1
+    });
+
+    flights.push({
+      minLx: f2MinX,
+      maxLx: f2MaxX,
+      minLz: fMinZ - apron,
+      maxLz: fMaxZ + 0.25,
+      climbStart: fMaxZ,
+      climbEnd: fMinZ,
+      startY: midY,
+      endY: topY,
+      axis: 'z',
+      dir: -1
+    });
+
+    const step2Depth = Math.max(0.18, flightD / steps2);
+    const step2Rise = (topY - midY) / steps2;
+    const f2Cx = (f2MinX + f2MaxX) * 0.5;
+    for (let i = 0; i < steps2; i++) {
+      steps3d.push({
+        lx: f2Cx,
+        ly: midY + (i + 0.5) * step2Rise,
+        lz: fMaxZ - (i + 0.5) * step2Depth,
+        w: flightW - 0.06,
+        h: Math.max(0.12, Math.abs(step2Rise) + 0.04),
+        d: step2Depth + 0.03
+      });
+    }
+
+    if (hasRailings) {
+      handrails3d.push({
+        x1: f1MinX + (turnDir === 1 ? 0.04 : flightW - 0.04),
+        y1: baseY + railH,
+        z1: fMinZ,
+        x2: f1MinX + (turnDir === 1 ? 0.04 : flightW - 0.04),
+        y2: midY + railH,
+        z2: fMaxZ
+      });
+      handrails3d.push({
+        x1: f2MinX + (turnDir === 1 ? flightW - 0.04 : 0.04),
+        y1: midY + railH,
+        z1: fMaxZ,
+        x2: f2MinX + (turnDir === 1 ? flightW - 0.04 : 0.04),
+        y2: topY + railH,
+        z2: fMinZ
+      });
+      handrails3d.push({
+        x1: -w * 0.5 + 0.04,
+        y1: midY + railH,
+        z1: landMaxZ - 0.04,
+        x2: w * 0.5 - 0.04,
+        y2: midY + railH,
+        z2: landMaxZ - 0.04
+      });
+      handrails3d.push({
+        x1: 0,
+        y1: baseY + railH,
+        z1: fMinZ,
+        x2: 0,
+        y2: midY + railH,
+        z2: fMaxZ
+      });
+      handrails3d.push({
+        x1: 0,
+        y1: midY + railH,
+        z1: fMaxZ,
+        x2: 0,
+        y2: topY + railH,
+        z2: fMinZ
+      });
+    }
+
+    if (hasRailings) {
+      const maxGuardY = Math.max(baseY, topY) + railH;
+      const minGuardY = Math.min(baseY, topY);
+      const highY = Math.max(baseY, topY);
+      const highFloor = topY >= baseY ? targetFloor : floor;
+      sideColliders.push(
+        makeWorldColliderFromLocalBox(
+          x,
+          z,
+          cos,
+          sin,
+          -w * 0.5,
+          -w * 0.5 + railT,
+          -d * 0.5,
+          d * 0.5,
+          minGuardY,
+          maxGuardY,
+          floor
+        )
+      );
+      sideColliders.push(
+        makeWorldColliderFromLocalBox(
+          x,
+          z,
+          cos,
+          sin,
+          w * 0.5 - railT,
+          w * 0.5,
+          -d * 0.5,
+          d * 0.5,
+          minGuardY,
+          maxGuardY,
+          floor
+        )
+      );
+      sideColliders.push(
+        makeWorldColliderFromLocalBox(
+          x,
+          z,
+          cos,
+          sin,
+          -w * 0.5,
+          w * 0.5,
+          d * 0.5 - railT,
+          d * 0.5,
+          minGuardY,
+          maxGuardY,
+          floor
+        )
+      );
+      sideColliders.push(
+        makeWorldColliderFromLocalBox(
+          x,
+          z,
+          cos,
+          sin,
+          -Math.max(0.08, gapW * 0.5 + 0.03),
+          Math.max(0.08, gapW * 0.5 + 0.03),
+          fMinZ,
+          fMaxZ,
+          minGuardY,
+          maxGuardY,
+          floor
+        )
+      );
+      if (topY >= baseY) {
+        sideColliders.push(
+          makeWorldColliderFromLocalBox(
+            x,
+            z,
+            cos,
+            sin,
+            f1MinX,
+            f1MaxX,
+            fMinZ,
+            fMinZ + railT,
+            highY,
+            highY + railH,
+            highFloor
+          )
+        );
+      } else {
+        sideColliders.push(
+          makeWorldColliderFromLocalBox(
+            x,
+            z,
+            cos,
+            sin,
+            f2MinX,
+            f2MaxX,
+            fMinZ,
+            fMinZ + railT,
+            highY,
+            highY + railH,
+            highFloor
+          )
+        );
+      }
+    }
+    openingRects.push(rotatedRectToWorldAabb(x, z, -w * 0.5, w * 0.5, -d * 0.5, d * 0.5, cos, sin));
+  } else {
+    const fMinZ = -d * 0.5;
+    const fMaxZ = d * 0.5;
+    flights.push({
+      minLx: -w * 0.5,
+      maxLx: w * 0.5,
+      minLz: fMinZ - apron,
+      maxLz: fMaxZ + apron,
+      climbStart: fMinZ,
+      climbEnd: fMaxZ,
+      startY: baseY,
+      endY: topY,
+      axis: 'z',
+      dir: 1
+    });
+
+    const stepDepth = Math.max(0.18, d / steps);
+    const stepRise = (topY - baseY) / steps;
+    for (let i = 0; i < steps; i++) {
+      steps3d.push({
+        lx: 0,
+        ly: baseY + (i + 0.5) * stepRise,
+        lz: fMinZ + (i + 0.5) * stepDepth,
+        w: w - 0.12,
+        h: Math.max(0.12, Math.abs(stepRise) + 0.04),
+        d: stepDepth + 0.03
+      });
+    }
+
+    if (hasRailings) {
+      for (const sx of [-w * 0.5 + 0.04, w * 0.5 - 0.04]) {
+        handrails3d.push({
+          x1: sx,
+          y1: baseY + railH,
+          z1: fMinZ,
+          x2: sx,
+          y2: topY + railH,
+          z2: fMaxZ
+        });
+      }
+    }
+
+    if (hasRailings) {
+      const maxGuardY = Math.max(baseY, topY) + railH;
+      const minGuardY = Math.min(baseY, topY);
+      const highY = Math.max(baseY, topY);
+      const highFloor = topY >= baseY ? targetFloor : floor;
+      sideColliders.push(
+        makeWorldColliderFromLocalBox(
+          x,
+          z,
+          cos,
+          sin,
+          -w * 0.5,
+          -w * 0.5 + railT,
+          fMinZ,
+          fMaxZ,
+          minGuardY,
+          maxGuardY,
+          floor
+        )
+      );
+      sideColliders.push(
+        makeWorldColliderFromLocalBox(
+          x,
+          z,
+          cos,
+          sin,
+          w * 0.5 - railT,
+          w * 0.5,
+          fMinZ,
+          fMaxZ,
+          minGuardY,
+          maxGuardY,
+          floor
+        )
+      );
+      if (topY >= baseY) {
+        sideColliders.push(
+          makeWorldColliderFromLocalBox(
+            x,
+            z,
+            cos,
+            sin,
+            -w * 0.5,
+            w * 0.5,
+            fMinZ,
+            fMinZ + railT,
+            highY,
+            highY + railH,
+            highFloor
+          )
+        );
+      } else {
+        sideColliders.push(
+          makeWorldColliderFromLocalBox(
+            x,
+            z,
+            cos,
+            sin,
+            -w * 0.5,
+            w * 0.5,
+            fMaxZ - railT,
+            fMaxZ,
+            highY,
+            highY + railH,
+            highFloor
+          )
+        );
+      }
+    }
+    openingRects.push(rotatedRectToWorldAabb(x, z, -w * 0.5, w * 0.5, -d * 0.5, d * 0.5, cos, sin));
+  }
+
+  const worldBounds = rotatedRectToWorldAabb(x, z, -w * 0.5, w * 0.5, -d * 0.5, d * 0.5, cos, sin);
+
+  return {
+    id: stairObj?.id || 'stair',
+    style,
+    floor,
+    targetFloor,
+    baseY,
+    topY,
+    totalRise: topY - baseY,
+    x,
+    z,
+    w,
+    d,
+    rad,
+    cos,
+    sin,
+    turnDir,
+    steps,
+    hasRailings,
+    flights,
+    landings,
+    steps3d,
+    handrails3d,
+    sideColliders,
+    autoOpeningRect: openingRects[0] || worldBounds,
+    autoOpeningRects: openingRects,
+    worldBounds
+  };
+}
+
+export function computeEffectiveFloorOpenings(mapData) {
+  const fh = Number(mapData?.floorHeight) || DEFAULT_FLOOR_HEIGHT;
+  const list = [];
+  for (const op of mapData?.openings || []) {
+    const hw = Math.max(0.25, (Number(op.w) || 2) * 0.5);
+    const hd = Math.max(0.25, (Number(op.d) || 2) * 0.5);
+    const rad = ((Number(op.rotation) || 0) * Math.PI) / 180;
+    const rect = rotatedRectToWorldAabb(op.x || 0, op.z || 0, -hw, hw, -hd, hd, Math.cos(rad), Math.sin(rad));
+    list.push({
+      id: op.id,
+      floor: clampFloor(op.floor ?? 0),
+      ...rect,
+      autoFromStairId: op.autoFromStairId || ''
+    });
+  }
+  for (const o of mapData?.objects || []) {
+    const cat = getCatalogItem(o.type);
+    if (!cat) continue;
+    if (cat.isOpening) {
+      const hw = Math.max(0.25, (Number(o.w) || cat.defaultW) * 0.5);
+      const hd = Math.max(0.25, (Number(o.d) || cat.defaultD) * 0.5);
+      const rad = ((Number(o.rotation) || 0) * Math.PI) / 180;
+      const rect = rotatedRectToWorldAabb(o.x || 0, o.z || 0, -hw, hw, -hd, hd, Math.cos(rad), Math.sin(rad));
+      list.push({
+        id: o.id,
+        floor: clampFloor(o.floor ?? 0),
+        ...rect,
+        autoFromStairId: ''
+      });
+    } else if (cat.isStair && o.autoOpening !== false) {
+      const geom = computeStairGeometry(o, fh);
+      const upFloor = Math.max(geom.floor, geom.targetFloor);
+      if (upFloor !== geom.floor || geom.targetFloor !== geom.floor) {
+        for (let r = 0; r < geom.autoOpeningRects.length; r++) {
+          list.push({
+            id: `auto-open-${o.id}-${r}`,
+            floor: upFloor,
+            ...geom.autoOpeningRects[r],
+            autoFromStairId: o.id
+          });
+        }
+      }
+    }
+  }
+  return list;
+}
+
+export function computeSlabRectangles(bounds, openings = [], customSlabs = null) {
+  let rects = Array.isArray(customSlabs) && customSlabs.length > 0
+    ? customSlabs.map((s) => ({
+        minX: Number(s.minX),
+        maxX: Number(s.maxX),
+        minZ: Number(s.minZ),
+        maxZ: Number(s.maxZ)
+      }))
+    : [
+        {
+          minX: Number(bounds.minX),
+          maxX: Number(bounds.maxX),
+          minZ: Number(bounds.minZ),
+          maxZ: Number(bounds.maxZ)
+        }
+      ];
+
+  for (let i = 0; i < openings.length; i++) {
+    const op = openings[i];
+    if (!op) continue;
+    const next = [];
+    for (let j = 0; j < rects.length; j++) {
+      const r = rects[j];
+      const ox0 = Math.max(r.minX, op.minX);
+      const ox1 = Math.min(r.maxX, op.maxX);
+      const oz0 = Math.max(r.minZ, op.minZ);
+      const oz1 = Math.min(r.maxZ, op.maxZ);
+      if (ox1 - ox0 <= 0.04 || oz1 - oz0 <= 0.04) {
+        next.push(r);
+        continue;
+      }
+      if (ox0 - r.minX > 0.04) {
+        next.push({ minX: r.minX, maxX: ox0, minZ: r.minZ, maxZ: r.maxZ });
+      }
+      if (r.maxX - ox1 > 0.04) {
+        next.push({ minX: ox1, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ });
+      }
+      if (oz0 - r.minZ > 0.04) {
+        next.push({ minX: ox0, maxX: ox1, minZ: r.minZ, maxZ: oz0 });
+      }
+      if (r.maxZ - oz1 > 0.04) {
+        next.push({ minX: ox0, maxX: ox1, minZ: oz1, maxZ: r.maxZ });
+      }
+    }
+    rects = next;
+  }
+  return rects;
+}
+
+export function buildWalkableSurfaceData(mapData) {
+  const norm = mapData?.bounds && Array.isArray(mapData?.floors) ? mapData : normalizeMapData(mapData);
+  const fh = Number(norm.floorHeight) || DEFAULT_FLOOR_HEIGHT;
+  const openings = computeEffectiveFloorOpenings(norm);
+  const openingsByFloor = new Map();
+  for (const op of openings) {
+    if (!openingsByFloor.has(op.floor)) openingsByFloor.set(op.floor, []);
+    openingsByFloor.get(op.floor).push(op);
+  }
+
+  const slabsByFloor = new Map();
+  const customSlabsByFloor = new Map();
+  for (const o of norm.objects || []) {
+    if (o.type !== 'floor_slab') continue;
+    const fl = clampFloor(o.floor ?? 0);
+    if (!customSlabsByFloor.has(fl)) customSlabsByFloor.set(fl, []);
+    const hw = (o.w || 10) * 0.5;
+    const hd = (o.d || 10) * 0.5;
+    const rad = ((o.rotation || 0) * Math.PI) / 180;
+    customSlabsByFloor.get(fl).push(
+      rotatedRectToWorldAabb(o.x, o.z, -hw, hw, -hd, hd, Math.cos(rad), Math.sin(rad))
+    );
+  }
+
+  const outdoorZonesByFloor = new Map();
+  for (const z of norm.zones || []) {
+    if (!z.outdoor) continue;
+    const fl = clampFloor(z.floor ?? 0);
+    if (!outdoorZonesByFloor.has(fl)) outdoorZonesByFloor.set(fl, []);
+    outdoorZonesByFloor.get(fl).push({
+      minX: z.x - z.w * 0.5,
+      maxX: z.x + z.w * 0.5,
+      minZ: z.z - z.d * 0.5,
+      maxZ: z.z + z.d * 0.5
+    });
+  }
+
+  const slabFloors = [];
+  for (const flMeta of norm.floors || [{ index: 0, hasFullSlab: true }]) {
+    const fl = clampFloor(flMeta.index);
+    const flOpenings = openingsByFloor.get(fl) || [];
+    const customSlabs = customSlabsByFloor.get(fl) || [];
+    let rects = [];
+    if (flMeta.hasFullSlab !== false) {
+      const outdoorCuts = fl > 0 ? outdoorZonesByFloor.get(0) || [] : [];
+      rects = computeSlabRectangles(norm.bounds, [...flOpenings, ...outdoorCuts]);
+    } else if (customSlabs.length > 0) {
+      rects = computeSlabRectangles(norm.bounds, flOpenings, customSlabs);
+    }
+    const baseY = fl * fh;
+    slabsByFloor.set(fl, { floor: fl, y: baseY, rects });
+    slabFloors.push({ floor: fl, y: baseY, rects });
+  }
+  slabFloors.sort((a, b) => a.floor - b.floor);
+
+  const stairs = [];
+  for (const o of norm.objects || []) {
+    const cat = getCatalogItem(o.type);
+    if (cat?.isStair) {
+      stairs.push(computeStairGeometry(o, fh));
+    }
+  }
+
+  const minFloor = slabFloors.length > 0 ? slabFloors[0].floor : 0;
+  const maxFloor = slabFloors.length > 0 ? slabFloors[slabFloors.length - 1].floor : 0;
+  const minSurfaceY = minFloor * fh;
+
+  return {
+    bounds: norm.bounds,
+    floorHeight: fh,
+    minFloor,
+    maxFloor,
+    minSurfaceY,
+    slabFloors,
+    slabsByFloor,
+    openingsByFloor,
+    stairs
+  };
+}
+
+export function evaluateSurfaceAt(surfaceData, x, z, currentFeetY = 0, options = {}) {
+  const out = options.out || { found: false, y: 0, onRamp: false, stairId: null, floor: 0 };
+  out.found = false;
+  out.y = 0;
+  out.onRamp = false;
+  out.stairId = null;
+  out.floor = 0;
+
+  if (!surfaceData) {
+    out.found = true;
+    return out;
+  }
+
+  const maxStepUp = Number.isFinite(Number(options.maxStepUp)) ? Number(options.maxStepUp) : 0.72;
+  const ceilingCutoff = (Number(currentFeetY) || 0) + maxStepUp;
+  let bestY = -Infinity;
+  let bestOnRamp = false;
+  let bestStairId = null;
+  let bestFloor = surfaceData.minFloor || 0;
+
+  const stairs = surfaceData.stairs || [];
+  for (let i = 0; i < stairs.length; i++) {
+    const st = stairs[i];
+    if (
+      x < st.worldBounds.minX - 0.5 ||
+      x > st.worldBounds.maxX + 0.5 ||
+      z < st.worldBounds.minZ - 0.5 ||
+      z > st.worldBounds.maxZ + 0.5
+    ) {
+      continue;
+    }
+    const dx = x - st.x;
+    const dz = z - st.z;
+    const lx = dx * st.cos - dz * st.sin;
+    const lz = dx * st.sin + dz * st.cos;
+    for (let j = 0; j < st.flights.length; j++) {
+      const fl = st.flights[j];
+      if (lx < fl.minLx || lx > fl.maxLx || lz < fl.minLz || lz > fl.maxLz) continue;
+      let t = 0;
+      if (Math.abs(fl.startY - fl.endY) < 1e-4) {
+        t = 0;
+      } else if (fl.axis === 'x') {
+        const span = fl.climbEnd - fl.climbStart;
+        t = Math.abs(span) > 1e-4 ? (lx - fl.climbStart) / span : 0;
+      } else {
+        const span = fl.climbEnd - fl.climbStart;
+        t = Math.abs(span) > 1e-4 ? (lz - fl.climbStart) / span : 0;
+      }
+      if (t < 0) t = 0;
+      else if (t > 1) t = 1;
+      const sy = fl.startY + (fl.endY - fl.startY) * t;
+      if (sy <= ceilingCutoff && sy > bestY) {
+        bestY = sy;
+        bestOnRamp = true;
+        bestStairId = st.id;
+        bestFloor = Math.abs(sy - st.topY) < 0.35 ? st.targetFloor : st.floor;
+      }
+    }
+  }
+
+  const slabFloors = surfaceData.slabFloors || [];
+  for (let i = 0; i < slabFloors.length; i++) {
+    const sf = slabFloors[i];
+    if (sf.y > ceilingCutoff) continue;
+    if (sf.y < bestY - 1e-4) continue;
+    const rects = sf.rects;
+    for (let r = 0; r < rects.length; r++) {
+      const rc = rects[r];
+      if (x >= rc.minX && x <= rc.maxX && z >= rc.minZ && z <= rc.maxZ) {
+        if (sf.y > bestY) {
+          bestY = sf.y;
+          bestOnRamp = false;
+          bestStairId = null;
+          bestFloor = sf.floor;
+        }
+        break;
+      }
+    }
+  }
+
+  if (bestY > -Infinity) {
+    out.found = true;
+    out.y = bestY;
+    out.onRamp = bestOnRamp;
+    out.stairId = bestStairId;
+    out.floor = bestFloor;
+    return out;
+  }
+
+  out.found = false;
+  out.y = surfaceData.minSurfaceY ?? 0;
+  out.floor = surfaceData.minFloor ?? 0;
+  return out;
+}
+
+export function getCeilingHeightAt(surfaceData, x, z, currentFeetY = 0) {
+  if (!surfaceData) return 4.6;
+  const fh = surfaceData.floorHeight || DEFAULT_FLOOR_HEIGHT;
+  let ceilingY = surfaceData.maxFloor * fh + (surfaceData.bounds?.height || fh);
+  const slabFloors = surfaceData.slabFloors || [];
+  for (let i = 0; i < slabFloors.length; i++) {
+    const sf = slabFloors[i];
+    if (sf.y <= currentFeetY + 0.65) continue;
+    const rects = sf.rects;
+    for (let r = 0; r < rects.length; r++) {
+      const rc = rects[r];
+      if (x >= rc.minX && x <= rc.maxX && z >= rc.minZ && z <= rc.maxZ) {
+        const underside = sf.y - SLAB_THICKNESS;
+        if (underside < ceilingY) {
+          ceilingY = underside;
+        }
+        break;
+      }
+    }
+  }
+  return ceilingY;
+}
+
+export function duplicateFloorStructure(mapData, sourceFloor, targetFloor) {
+  const srcFl = clampFloor(sourceFloor);
+  const dstFl = clampFloor(targetFloor);
+  if (srcFl === dstFl) return mapData;
+  const clone = JSON.parse(JSON.stringify(mapData));
+  const stamp = Date.now();
+  let seq = 1;
+
+  const existingFloors = Array.isArray(clone.floors) ? clone.floors : [{ index: 0 }];
+  if (!existingFloors.some((f) => clampFloor(typeof f === 'object' ? f.index : f) === dstFl)) {
+    existingFloors.push({
+      index: dstFl,
+      label: formatFloorLabel(dstFl),
+      hasFullSlab: true,
+      hasCeiling: true
+    });
+  }
+  clone.floors = existingFloors;
+
+  const srcWalls = (clone.walls || []).filter((w) => clampFloor(w.floor ?? 0) === srcFl);
+  for (const w of srcWalls) {
+    clone.walls.push({
+      ...w,
+      id: `w-dup-${stamp}-${seq++}`,
+      floor: dstFl
+    });
+  }
+
+  const srcZones = (clone.zones || []).filter((z) => clampFloor(z.floor ?? 0) === srcFl && !z.outdoor);
+  for (const z of srcZones) {
+    clone.zones.push({
+      ...z,
+      id: `Z-dup-${stamp}-${seq++}`,
+      floor: dstFl
+    });
+  }
+
+  const srcPillars = (clone.objects || []).filter(
+    (o) => clampFloor(o.floor ?? 0) === srcFl && o.type === 'pillar_column'
+  );
+  for (const p of srcPillars) {
+    clone.objects.push({
+      ...p,
+      id: `obj-dup-${stamp}-${seq++}`,
+      floor: dstFl
+    });
+  }
+
+  return normalizeMapData(clone);
+}
+
 export function getDynamicMapColliders(mapData) {
   const colliders = [];
+  const fh = Number(mapData?.floorHeight) || DEFAULT_FLOOR_HEIGHT;
   const wallList = subtractDoorsFromWalls(mapData?.walls || []);
 
   for (const w of wallList) {
@@ -1554,20 +2929,31 @@ export function getDynamicMapColliders(mapData) {
     const cx = (w.x1 + w.x2) / 2;
     const cz = (w.z1 + w.z2) / 2;
     const halfT = (w.thickness || 0.18) / 2;
+    const floor = clampFloor(w.floor ?? 0);
+    const baseY = floor * fh;
+    const wh = w.kind === 'railing' ? 1.12 : Number(w.height) || fh;
+    const minY = baseY;
+    const maxY = baseY + wh;
 
     if (Math.abs(dz) < 0.02) {
       colliders.push({
         minX: Math.min(w.x1, w.x2),
         maxX: Math.max(w.x1, w.x2),
         minZ: cz - halfT,
-        maxZ: cz + halfT
+        maxZ: cz + halfT,
+        minY,
+        maxY,
+        floor
       });
     } else if (Math.abs(dx) < 0.02) {
       colliders.push({
         minX: cx - halfT,
         maxX: cx + halfT,
         minZ: Math.min(w.z1, w.z2),
-        maxZ: Math.max(w.z1, w.z2)
+        maxZ: Math.max(w.z1, w.z2),
+        minY,
+        maxY,
+        floor
       });
     } else {
       colliders.push({
@@ -1576,22 +2962,38 @@ export function getDynamicMapColliders(mapData) {
         hw: len / 2,
         hd: halfT,
         ux: dx / len,
-        uz: dz / len
+        uz: dz / len,
+        minY,
+        maxY,
+        floor
       });
     }
   }
 
   for (const o of mapData?.objects || []) {
     const cat = getCatalogItem(o.type);
-    if (!cat || !cat.collides) continue;
+    if (!cat) continue;
+    if (cat.isStair) {
+      const geom = computeStairGeometry(o, fh);
+      for (const sc of geom.sideColliders) {
+        colliders.push(sc);
+      }
+      continue;
+    }
+    if (!cat.collides) continue;
+    const floor = clampFloor(o.floor ?? 0);
+    const baseY = floor * fh;
+    const oh = Number(cat.defaultH) || 1.6;
+    const minY = baseY;
+    const maxY = baseY + oh;
     const hw = (o.w || cat.defaultW) / 2;
     const hd = (o.d || cat.defaultD) / 2;
     const deg = ((o.rotation || 0) % 360 + 360) % 360;
     const rad = (deg * Math.PI) / 180;
     if (Math.abs(deg) < 0.5 || Math.abs(deg - 180) < 0.5) {
-      colliders.push({ minX: o.x - hw, maxX: o.x + hw, minZ: o.z - hd, maxZ: o.z + hd });
+      colliders.push({ minX: o.x - hw, maxX: o.x + hw, minZ: o.z - hd, maxZ: o.z + hd, minY, maxY, floor });
     } else if (Math.abs(deg - 90) < 0.5 || Math.abs(deg - 270) < 0.5) {
-      colliders.push({ minX: o.x - hd, maxX: o.x + hd, minZ: o.z - hw, maxZ: o.z + hw });
+      colliders.push({ minX: o.x - hd, maxX: o.x + hd, minZ: o.z - hw, maxZ: o.z + hw, minY, maxY, floor });
     } else {
       colliders.push({
         cx: o.x,
@@ -1599,7 +3001,10 @@ export function getDynamicMapColliders(mapData) {
         hw,
         hd,
         ux: Math.cos(rad),
-        uz: -Math.sin(rad)
+        uz: -Math.sin(rad),
+        minY,
+        maxY,
+        floor
       });
     }
   }
@@ -1607,14 +3012,17 @@ export function getDynamicMapColliders(mapData) {
   return colliders;
 }
 
-export function getZoneAtPositionInMap(mapData, x, z) {
+export function getZoneAtPositionInMap(mapData, x, z, floor = 0) {
   const px = Number(x) || 0;
   const pz = Number(z) || 0;
+  const targetFloor = clampFloor(floor);
   const zones = Array.isArray(mapData?.zones) ? mapData.zones : [];
   let best = null;
   let bestArea = Infinity;
 
   for (const zone of zones) {
+    const zFloor = clampFloor(zone.floor ?? 0);
+    if (zFloor !== targetFloor && !(zone.outdoor && targetFloor >= 0)) continue;
     const pts = getZonePolygonPoints(zone);
     if (isPointInPolygon(px, pz, pts)) {
       const area = computePolygonArea(pts) || (zone.w || 2) * (zone.d || 2);
@@ -1626,17 +3034,20 @@ export function getZoneAtPositionInMap(mapData, x, z) {
   }
 
   if (best) return best;
+  const flBadge = targetFloor !== 0 ? ` (${formatFloorShortLabel(targetFloor)})` : '';
   return {
-    id: 'U300',
-    code: 'U300',
-    shortName: 'Couloir Central',
-    fullLabel: 'Plateau U300 - Filière CIEL',
-    badgeText: '📍 U300 - Couloir Central',
+    id: targetFloor === 0 ? 'U300' : `FLOOR_${targetFloor}`,
+    floor: targetFloor,
+    code: targetFloor === 0 ? 'U300' : formatFloorShortLabel(targetFloor),
+    shortName: targetFloor === 0 ? 'Couloir Central' : formatFloorLabel(targetFloor),
+    fullLabel: `Plateau CIEL — ${formatFloorLabel(targetFloor)}`,
+    badgeText: `📍 ${targetFloor === 0 ? 'U300 - Couloir Central' : formatFloorLabel(targetFloor)}${flBadge}`,
     color: '#38bdf8'
   };
 }
 
 export function getStationTeleportInMap(mapData, targetId) {
+  const fh = Number(mapData?.floorHeight) || DEFAULT_FLOOR_HEIGHT;
   const objects = Array.isArray(mapData?.objects) ? mapData.objects : [];
   const targetObj = objects.find((o) => {
     const cat = getCatalogItem(o.type);
@@ -1644,14 +3055,17 @@ export function getStationTeleportInMap(mapData, targetId) {
   });
 
   if (!targetObj) {
-    const sp = mapData?.spawn || { x: 0, z: 2 };
+    const sp = mapData?.spawn || { x: 0, z: 2, floor: 0 };
+    const spFloor = clampFloor(sp.floor ?? 0);
     return {
-      pos: { x: sp.x, z: sp.z },
-      lookAt: { x: sp.x, z: sp.z - 2 },
+      pos: { x: sp.x, y: spFloor * fh, z: sp.z, floor: spFloor },
+      lookAt: { x: sp.x, y: spFloor * fh + 1.4, z: sp.z - 2 },
       label: targetId
     };
   }
 
+  const objFloor = clampFloor(targetObj.floor ?? 0);
+  const baseY = objFloor * fh;
   const rad = ((targetObj.rotation || 0) * Math.PI) / 180;
   const hd = (targetObj.d || 1) * 0.5;
   const offsetDist = hd + 0.9;
@@ -1661,8 +3075,8 @@ export function getStationTeleportInMap(mapData, targetId) {
   const clampedX = Math.max(b.minX + 0.7, Math.min(b.maxX - 0.7, px));
   const clampedZ = Math.max(b.minZ + 0.7, Math.min(b.maxZ - 0.7, pz));
   return {
-    pos: { x: clampedX, z: clampedZ },
-    lookAt: { x: targetObj.x, z: targetObj.z },
+    pos: { x: clampedX, y: baseY, z: clampedZ, floor: objFloor },
+    lookAt: { x: targetObj.x, y: baseY + 1.2, z: targetObj.z },
     label: targetObj.label || targetId
   };
 }

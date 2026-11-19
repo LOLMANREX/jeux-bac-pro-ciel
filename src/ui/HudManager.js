@@ -191,6 +191,8 @@ export class HudManager {
     this.perfMonMsEl = document.getElementById('perf-mon-ms');
     this.perfMonCallsEl = document.getElementById('perf-mon-calls');
     this.perfMonTrisEl = document.getElementById('perf-mon-tris');
+    this.perfMonChunksEl = document.getElementById('perf-mon-chunks');
+    this.perfMonFloorEl = document.getElementById('perf-mon-floor');
     this._domCache = Object.create(null);
     this.domWriteCount = 0;
     this._combatCrosshairState = {
@@ -1645,6 +1647,14 @@ export class HudManager {
     this._setCachedText(this.perfMonMsEl, 'pmMs', `${ms} ms`);
     this._setCachedText(this.perfMonCallsEl, 'pmDc', `DC: ${dc}`);
     this._setCachedText(this.perfMonTrisEl, 'pmTri', `Tri: ${trisLabel}`);
+    if (this.perfMonChunksEl) {
+      const visC = Math.max(0, Math.round(Number(metrics.visibleChunks) || 0));
+      const totC = Math.max(0, Math.round(Number(metrics.totalChunks) || 0));
+      this._setCachedText(this.perfMonChunksEl, 'pmChunks', `Chunks: ${visC}/${totC}`);
+    }
+    if (this.perfMonFloorEl) {
+      this._setCachedText(this.perfMonFloorEl, 'pmFloor', `Étage: ${metrics.floorLabel || 'RDC'}`);
+    }
 
     if (this.perfMonFpsEl?.classList) {
       const tier = fps >= 50 ? 'perf-good' : fps >= 30 ? 'perf-warn' : 'perf-low';

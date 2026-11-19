@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { animateAvatarLimbs } from './AvatarBuilder.js';
+import { evaluateSurfaceAt, getCeilingHeightAt, getFloorFromY } from './mapSchema.js';
 import { PLATEAU_SPAWN, WORLD_BOUNDS } from './plateauLayout.js';
 
 export class PlayerController {
@@ -10,8 +11,16 @@ export class PlayerController {
     this.onJump = options.onJump || null;
 
     this.bounds = { ...WORLD_BOUNDS };
-    this.groundY = PLATEAU_SPAWN.y;
+    this.eyeHeight = PLATEAU_SPAWN.y;
+    this.surfaceY = 0;
+    this.currentFloor = 0;
+    this.groundY = this.eyeHeight;
     this.position = new THREE.Vector3(PLATEAU_SPAWN.x, this.groundY, PLATEAU_SPAWN.z);
+    this.walkableSurfaces = null;
+    this.spatialHash = null;
+    this._surfaceScratch = { found: false, y: 0, onRamp: false, stairId: null, floor: 0 };
+    this._hashScratch = [];
+    this._onRamp = false;
     this.velocityY = 0;
     this.isGrounded = true;
     this.wasGrounded = true;
@@ -367,6 +376,41 @@ export class PlayerController {
     }
   }
 
+  setWalkableSurfaces(surfaces) {
+    this.walkableSurfaces = surfaces || null;
+    if (this.walkableSurfaces) {
+      const feetY = this.getFeetY();
+      const surf = evaluateSurfaceAt(this.walkableSurfaces, this.position.x, this.position.z, feetY, {
+        maxStepUp: 0.9,
+        out: this._surfaceScratch
+      });
+      if (surf.found) {
+        this.surfaceY = surf.y;
+        this.groundY = this.surfaceY + this.eyeHeight;
+        if (this.isGrounded) {
+          this.position.y = this.groundY;
+        }
+        this.currentFloor = getFloorFromY(this.walkableSurfaces, this.surfaceY);
+      }
+    } else {
+      this.surfaceY = 0;
+      this.groundY = this.eyeHeight;
+      this.currentFloor = 0;
+    }
+  }
+
+  setSpatialHash(hash) {
+    this.spatialHash = hash || null;
+  }
+
+  getFeetY() {
+    return this.position.y - this.eyeHeight;
+  }
+
+  getCurrentFloor() {
+    return this.currentFloor;
+  }
+
   teleportTo(targetPos, lookAtPos) {
     const tx = Number.isFinite(Number(targetPos?.x))
       ? Number(targetPos.x)
@@ -382,6 +426,30 @@ export class PlayerController {
         : Number.isFinite(this.position.z)
           ? this.position.z
           : 0;
+    const rawY = Number.isFinite(Number(targetPos?.surfaceY))
+      ? Number(targetPos.surfaceY)
+      : Number.isFinite(Number(targetPos?.floor))
+        ? Number(targetPos.floor) * (this.walkableSurfaces?.floorHeight || 3.8)
+        : Number.isFinite(Number(targetPos?.y))
+          ? (Math.abs(Number(targetPos.y) - this.eyeHeight) < 0.05 && !targetPos?.isFeetY
+            ? 0
+            : Number(targetPos.y))
+          : this.surfaceY;
+    let landingFeetY = rawY;
+    if (this.walkableSurfaces) {
+      const surf = evaluateSurfaceAt(this.walkableSurfaces, tx, tz, rawY, {
+        maxStepUp: 1.2,
+        out: this._surfaceScratch
+      });
+      if (surf.found) {
+        landingFeetY = surf.y;
+      }
+      this.currentFloor = getFloorFromY(this.walkableSurfaces, landingFeetY);
+    } else {
+      this.currentFloor = 0;
+    }
+    this.surfaceY = landingFeetY;
+    this.groundY = landingFeetY + this.eyeHeight;
     this.position.set(tx, this.groundY, tz);
     this.velocityY = 0;
     this.isGrounded = true;
@@ -411,10 +479,11 @@ export class PlayerController {
     }
   }
 
-  resolveUnstuckPosition(desiredX, desiredZ, rotRad = 0) {
+  resolveUnstuckPosition(desiredX, desiredZ, rotRad = 0, feetY = null) {
     const rx = Number.isFinite(Number(desiredX)) ? Number(desiredX) : 0;
     const rz = Number.isFinite(Number(desiredZ)) ? Number(desiredZ) : 0;
-    if (!this._collides(rx, rz)) {
+    const fy = Number.isFinite(Number(feetY)) ? Number(feetY) : this.getFeetY();
+    if (!this._collides(rx, rz, fy)) {
       return { x: rx, z: rz };
     }
     const radii = [0.25, 0.5, 0.85, 1.15, 1.45];
@@ -423,7 +492,7 @@ export class PlayerController {
       for (const a of angles) {
         const cx = rx + Math.sin(rotRad + a) * r;
         const cz = rz + Math.cos(rotRad + a) * r;
-        if (!this._collides(cx, cz)) {
+        if (!this._collides(cx, cz, fy)) {
           return { x: cx, z: cz };
         }
       }
@@ -513,19 +582,20 @@ export class PlayerController {
     };
   }
 
-  moveHorizontally(dx, dz, startX = this.position.x, startZ = this.position.z) {
+  moveHorizontally(dx, dz, startX = this.position.x, startZ = this.position.z, dt = 0.016) {
     const stepX = Number.isFinite(Number(dx)) ? Number(dx) : 0;
     const stepZ = Number.isFinite(Number(dz)) ? Number(dz) : 0;
     let curX = Number.isFinite(Number(startX)) ? Number(startX) : this.position.x;
     let curZ = Number.isFinite(Number(startZ)) ? Number(startZ) : this.position.z;
+    const fy = this.getFeetY();
     let movedX = false;
     let movedZ = false;
 
-    if (stepX !== 0 && !this._collides(curX + stepX, curZ)) {
+    if (stepX !== 0 && !this._collides(curX + stepX, curZ, fy)) {
       curX += stepX;
       movedX = true;
     }
-    if (stepZ !== 0 && !this._collides(curX, curZ + stepZ)) {
+    if (stepZ !== 0 && !this._collides(curX, curZ + stepZ, fy)) {
       curZ += stepZ;
       movedZ = true;
     }
@@ -534,13 +604,15 @@ export class PlayerController {
     const actualDx = clamped.x - (Number.isFinite(Number(startX)) ? Number(startX) : this.position.x);
     const actualDz = clamped.z - (Number.isFinite(Number(startZ)) ? Number(startZ) : this.position.z);
 
-    this.position.set(clamped.x, this.groundY, clamped.z);
-    this.velocityY = 0;
-    this.isGrounded = true;
+    this.position.x = clamped.x;
+    this.position.z = clamped.z;
+    this._updateVerticalPhysics(Math.max(0.004, Math.min(0.08, Number(dt) || 0.016)));
 
     return {
       x: clamped.x,
       z: clamped.z,
+      y: this.surfaceY,
+      floor: this.currentFloor,
       movedX,
       movedZ,
       actualDx,
@@ -549,24 +621,28 @@ export class PlayerController {
     };
   }
 
-  setVrPose({ x, z, yaw } = {}) {
+  setVrPose({ x, y, z, yaw, dt = 0.016, skipPhysics = false } = {}) {
     const targetX = Number.isFinite(Number(x)) ? Number(x) : this.position.x;
     const targetZ = Number.isFinite(Number(z)) ? Number(z) : this.position.z;
     const clamped = this.clampToBounds(targetX, targetZ);
-    this.position.set(clamped.x, this.groundY, clamped.z);
-    this.velocityY = 0;
-    this.isGrounded = true;
-    this.wasGrounded = true;
+    if (Number.isFinite(Number(y))) {
+      this.position.set(clamped.x, Number(y), clamped.z);
+    } else {
+      this.position.set(clamped.x, this.position.y, clamped.z);
+    }
+    if (!skipPhysics) {
+      this._updateVerticalPhysics(Math.max(0.004, Math.min(0.08, Number(dt) || 0.016)));
+    }
     if (Number.isFinite(Number(yaw))) {
       this.yaw = Number(yaw);
     }
     if (this.avatar?.group) {
-      this.avatar.group.position.set(this.position.x, 0, this.position.z);
+      this.avatar.group.position.set(this.position.x, this.getFeetY(), this.position.z);
       this.avatar.group.rotation.y = this.yaw + Math.PI;
     }
   }
 
-  _collides(nx, nz) {
+  _collides(nx, nz, feetY = null) {
     if (this.noclip) {
       return false;
     }
@@ -579,16 +655,28 @@ export class PlayerController {
     ) {
       return true;
     }
-    if (this._colliderGridSource !== this.colliders || this._colliderGridLen !== this.colliders.length) {
-      this._rebuildColliderGrid();
+    const fy = Number.isFinite(Number(feetY)) ? Number(feetY) : this.getFeetY();
+    let candidates;
+    if (this.spatialHash) {
+      const fl = this.walkableSurfaces ? getFloorFromY(this.walkableSurfaces, fy) : this.currentFloor;
+      candidates = this.spatialHash.queryColliders(nx, nz, this.radius + 0.55, fl, this._hashScratch);
+    } else {
+      if (this._colliderGridSource !== this.colliders || this._colliderGridLen !== this.colliders.length) {
+        this._rebuildColliderGrid();
+      }
+      candidates = this._colliderGrid
+        ? this._colliderGrid.get(Math.floor(nx / this._colliderCellSize) * 4096 + Math.floor(nz / this._colliderCellSize))
+        : this.colliders;
     }
-    const candidates = this._colliderGrid
-      ? this._colliderGrid.get(Math.floor(nx / this._colliderCellSize) * 4096 + Math.floor(nz / this._colliderCellSize))
-      : this.colliders;
     if (!candidates || candidates.length === 0) return false;
     const r = this.radius;
     for (let i = 0; i < candidates.length; i++) {
       const c = candidates[i];
+      if (Number.isFinite(c.minY) && Number.isFinite(c.maxY)) {
+        if (c.maxY <= fy + 0.30 || c.minY >= fy + 1.65) {
+          continue;
+        }
+      }
       if (typeof c.cx === 'number') {
         const dx = nx - c.cx;
         const dz = nz - c.cz;
@@ -612,6 +700,84 @@ export class PlayerController {
       }
     }
     return false;
+  }
+
+  _updateVerticalPhysics(dt) {
+    let feetY = this.position.y - this.eyeHeight;
+    let landed = false;
+
+    if (!this.walkableSurfaces) {
+      this.surfaceY = 0;
+      this.groundY = this.eyeHeight;
+      this.currentFloor = 0;
+      this._onRamp = false;
+      if (!this.isGrounded) {
+        this.velocityY -= 18.5 * dt;
+        this.position.y += this.velocityY * dt;
+        if (this.position.y <= this.groundY) {
+          this.position.y = this.groundY;
+          this.velocityY = 0;
+          this.isGrounded = true;
+          landed = true;
+        }
+      } else {
+        this.position.y = this.groundY;
+        this.velocityY = 0;
+      }
+      return landed;
+    }
+
+    const surf = evaluateSurfaceAt(this.walkableSurfaces, this.position.x, this.position.z, feetY, {
+      maxStepUp: this.isGrounded ? 0.72 : 0.45,
+      out: this._surfaceScratch
+    });
+    const targetFeetY = surf.found ? surf.y : this.walkableSurfaces.minSurfaceY;
+
+    if (this.isGrounded) {
+      const deltaY = targetFeetY - feetY;
+      if (deltaY >= -0.65 && deltaY <= 0.72) {
+        if (!surf.onRamp && Math.abs(deltaY) > 0.04) {
+          feetY += deltaY * Math.min(1, dt * 22);
+        } else {
+          feetY = targetFeetY;
+        }
+        this.velocityY = 0;
+        this.isGrounded = true;
+      } else if (deltaY < -0.65) {
+        this.isGrounded = false;
+        this.velocityY = Math.min(0, this.velocityY);
+      }
+    }
+
+    if (!this.isGrounded) {
+      this.velocityY -= 18.5 * dt;
+      feetY += this.velocityY * dt;
+      if (this.velocityY > 0) {
+        const ceilY = getCeilingHeightAt(this.walkableSurfaces, this.position.x, this.position.z, this.surfaceY);
+        if (feetY + 1.78 > ceilY) {
+          feetY = ceilY - 1.78;
+          this.velocityY = 0;
+        }
+      }
+      if (this.velocityY <= 0 && feetY <= targetFeetY) {
+        feetY = targetFeetY;
+        this.velocityY = 0;
+        this.isGrounded = true;
+        landed = true;
+      } else if (feetY < this.walkableSurfaces.minSurfaceY - 2.0) {
+        feetY = this.walkableSurfaces.minSurfaceY;
+        this.velocityY = 0;
+        this.isGrounded = true;
+        landed = true;
+      }
+    }
+
+    this.surfaceY = targetFeetY;
+    this.groundY = this.surfaceY + this.eyeHeight;
+    this.position.y = feetY + this.eyeHeight;
+    this._onRamp = Boolean(surf.onRamp);
+    this.currentFloor = getFloorFromY(this.walkableSurfaces, feetY);
+    return landed;
   }
 
   update(dt) {
@@ -688,12 +854,13 @@ export class PlayerController {
       const dx = (-sinY * forward + cosY * right) * moveDist;
       const dz = (-cosY * forward - sinY * right) * moveDist;
 
+      const fy = this.getFeetY();
       let moved = false;
-      if (!this._collides(this.position.x + dx, this.position.z)) {
+      if (!this._collides(this.position.x + dx, this.position.z, fy)) {
         this.position.x += dx;
         moved = true;
       }
-      if (!this._collides(this.position.x, this.position.z + dz)) {
+      if (!this._collides(this.position.x, this.position.z + dz, fy)) {
         this.position.z += dz;
         moved = true;
       }
@@ -705,17 +872,7 @@ export class PlayerController {
     }
 
     this.wasGrounded = this.isGrounded;
-    let landed = false;
-    if (!this.isGrounded) {
-      this.velocityY -= 18.5 * dt;
-      this.position.y += this.velocityY * dt;
-      if (this.position.y <= this.groundY) {
-        this.position.y = this.groundY;
-        this.velocityY = 0;
-        this.isGrounded = true;
-        landed = true;
-      }
-    }
+    const landed = this._updateVerticalPhysics(dt);
 
     animateAvatarLimbs(this.avatar, dt, {
       isMoving,
@@ -741,22 +898,22 @@ export class PlayerController {
     }
     if (this.seated) {
       if (this.avatar?.group) {
-        this.avatar.group.position.set(this.position.x, 0, this.position.z);
+        this.avatar.group.position.set(this.position.x, this.surfaceY, this.position.z);
         this.avatar.group.rotation.y = this.yaw + Math.PI;
       }
       this.camera.position.copy(this.position);
       this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
       return;
     }
-    const jumpOffset = Math.max(0, this.position.y - this.groundY);
+    const feetY = this.getFeetY();
     if (this.avatar?.group) {
-      this.avatar.group.position.set(this.position.x, jumpOffset, this.position.z);
+      this.avatar.group.position.set(this.position.x, feetY, this.position.z);
       this.avatar.group.rotation.y = this.yaw + Math.PI;
     }
 
     if (this.cameraMode === 'third') {
       const targetX = this.position.x;
-      const targetY = jumpOffset + 1.48;
+      const targetY = feetY + 1.48;
       const targetZ = this.position.z;
 
       const clampedPitch = Math.max(-0.55, Math.min(0.85, this.pitch));
@@ -770,6 +927,11 @@ export class PlayerController {
       const dirZ = cosY * cosP;
 
       const bnd = this.bounds || WORLD_BOUNDS;
+      const ceilY = this.walkableSurfaces
+        ? getCeilingHeightAt(this.walkableSurfaces, targetX, targetZ, this.surfaceY)
+        : (bnd.height || 4.6);
+      const minCamY = this.surfaceY + 0.45;
+      const maxCamY = ceilY - 0.3;
       let dist = 3.25;
       for (let d = 0.5; d <= 3.25; d += 0.25) {
         const cx = targetX + dirX * d;
@@ -780,8 +942,8 @@ export class PlayerController {
           cx > bnd.maxX - 0.25 ||
           cz < bnd.minZ + 0.25 ||
           cz > bnd.maxZ - 0.25 ||
-          cy < 0.45 ||
-          cy > bnd.height - 0.3
+          cy < minCamY ||
+          cy > maxCamY
         ) {
           dist = Math.max(0.65, d - 0.25);
           break;
@@ -790,7 +952,7 @@ export class PlayerController {
 
       this.camera.position.set(
         targetX + dirX * dist,
-        Math.max(0.45, Math.min(bnd.height - 0.3, targetY + dirY * dist)),
+        Math.max(minCamY, Math.min(maxCamY, targetY + dirY * dist)),
         targetZ + dirZ * dist
       );
       this.camera.lookAt(targetX, targetY + 0.12, targetZ);

@@ -3,11 +3,19 @@ import { TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import { CielOsDesktop } from '../minigames/CielOsDesktop.js';
 import { createNpcTeacher } from './NpcTeacher.js';
 import { createRealisticMaterialPack } from './RealisticMaterials.js';
+import { SpatialCullingEngine, SpatialHash } from './SpatialCulling.js';
 import { computeRackExitPosition, computeRackInteriorPosition } from './SurvivalEngine.js';
 import {
+  SLAB_THICKNESS,
+  buildWalkableSurfaceData,
+  clampFloor,
+  computeEffectiveFloorOpenings,
+  computeSlabRectangles,
+  computeStairGeometry,
   createDefaultMap,
   getCatalogItem,
   getDynamicMapColliders,
+  getFloorBaseY,
   getZonePolygonPoints,
   isPcDeskObject,
   normalizeMapData,
@@ -700,8 +708,10 @@ function buildRackMesh(w, d, h = 2.15, ledOffsetPhase = 0, ledColor = '#10b981',
 }
 
 function findSupportingSurfaceHeight(obj, supportBoxes) {
+  const objFloor = clampFloor(obj.floor ?? 0);
   for (const box of supportBoxes) {
     if (box.id === obj.id) continue;
+    if (clampFloor(box.floor ?? 0) !== objFloor) continue;
     const dx = obj.x - box.x;
     const dz = obj.z - box.z;
     const cos = Math.cos(box.rad);
@@ -734,6 +744,51 @@ function createPropMountGroup(obj, supportHeight, mats) {
   return { grp, mountY };
 }
 
+function sliceRectByChunks(rect, chunkSize = 16) {
+  const out = [];
+  if (!rect || rect.maxX <= rect.minX + 0.01 || rect.maxZ <= rect.minZ + 0.01) return out;
+  const xStart = Math.floor(rect.minX / chunkSize);
+  const xEnd = Math.floor((rect.maxX - 0.001) / chunkSize);
+  const zStart = Math.floor(rect.minZ / chunkSize);
+  const zEnd = Math.floor((rect.maxZ - 0.001) / chunkSize);
+  for (let cx = xStart; cx <= xEnd; cx++) {
+    const x0 = Math.max(rect.minX, cx * chunkSize);
+    const x1 = Math.min(rect.maxX, (cx + 1) * chunkSize);
+    if (x1 - x0 <= 0.01) continue;
+    for (let cz = zStart; cz <= zEnd; cz++) {
+      const z0 = Math.max(rect.minZ, cz * chunkSize);
+      const z1 = Math.min(rect.maxZ, (cz + 1) * chunkSize);
+      if (z1 - z0 <= 0.01) continue;
+      out.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, cx, cz });
+    }
+  }
+  return out;
+}
+
+function createChunkedHorizontalTile(minX, maxX, minZ, maxZ, fullBounds, mat, y, isCeiling = false) {
+  const w = maxX - minX;
+  const d = maxZ - minZ;
+  const geo = new THREE.PlaneGeometry(w, d);
+  const uv = geo.attributes?.uv;
+  if (uv && fullBounds && fullBounds.width > 0 && fullBounds.depth > 0) {
+    const u0 = (minX - fullBounds.minX) / fullBounds.width;
+    const u1 = (maxX - fullBounds.minX) / fullBounds.width;
+    const v0 = (fullBounds.maxZ - maxZ) / fullBounds.depth;
+    const v1 = (fullBounds.maxZ - minZ) / fullBounds.depth;
+    const du = u1 - u0;
+    const dv = v1 - v0;
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, u0 + uv.getX(i) * du, v0 + uv.getY(i) * dv);
+    }
+    uv.needsUpdate = true;
+  }
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = isCeiling ? Math.PI / 2 : -Math.PI / 2;
+  mesh.position.set((minX + maxX) * 0.5, y, (minZ + maxZ) * 0.5);
+  mesh.receiveShadow = !isCeiling;
+  return mesh;
+}
+
 export function buildLabWorld(scene, initialMapData = null, options = {}) {
   const worldGroup = new THREE.Group();
   scene.add(worldGroup);
@@ -749,7 +804,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   const pcStations = [];
   const pcInteractiveSurfaces = [];
   const shopKiosks = [];
-  let ceilingPanelsInst = null;
+  const ceilingPanelMeshes = [];
   const animatedRefs = {
     rings: [],
     leds: [],
@@ -759,6 +814,11 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   let leaderboardBoards = [];
   let materialPack = null;
   let currentMapData = normalizeMapData(initialMapData || createDefaultMap());
+  let walkableSurfaces = buildWalkableSurfaceData(currentMapData);
+  let qualityTier = options.lowRes ? 'eco' : 'high';
+  let spatialCulling = null;
+  const spatialHash = new SpatialHash(8, Number(currentMapData.floorHeight) || 3.8);
+  let cullCalledSinceUpdate = false;
   let lastLeaderboardEntries = [];
   let lastLocalPlayerName = '';
   let lastLocalCoins = 0;
@@ -811,7 +871,11 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     }
     if (hoveredItem.position) {
       const rScale = hoveredItem.isProp ? 0.9 : 1.45;
-      hoverHaloMesh.position.set(hoveredItem.position.x, 0.042, hoveredItem.position.z);
+      hoverHaloMesh.position.set(
+        hoveredItem.position.x,
+        (Number(hoveredItem.position.y) || 0) + 0.042,
+        hoveredItem.position.z
+      );
       hoverHaloMesh.scale.set(rScale, rScale, 1);
       hoverHaloMesh.visible = true;
     }
@@ -859,6 +923,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
   function attachStationMarker(stationDef, obj, parentGroup, radius = 2.6, ySprite = 2.55, highlightMats = null) {
     const color = obj.color || stationDef.color || '#0284c7';
+    const objFloor = clampFloor(obj.floor ?? 0);
+    const baseY = getFloorBaseY(currentMapData, objFloor);
     const ringGeo = new THREE.RingGeometry(0.68, 0.86, 36);
     const ringMat = new THREE.MeshBasicMaterial({
       color,
@@ -885,7 +951,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       label: `[E] ${obj.label || stationDef.title}`,
       type: 'tp',
       tp: stationDef,
-      position: new THREE.Vector3(obj.x, 0, obj.z),
+      position: new THREE.Vector3(obj.x, baseY, obj.z),
+      floor: objFloor,
       interactRadius: radius,
       ring,
       mesh: parentGroup,
@@ -995,12 +1062,16 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     pcRing.position.set(0, 0.026, 0);
     parentGroup.add(pcRing);
 
+    const objFloor = clampFloor(obj.floor ?? 0);
+    const baseY = getFloorBaseY(currentMapData, objFloor);
+
     const pcStation = {
       id: obj.id,
       objId: obj.id,
       objType: obj.type,
       label: obj.label || cat.shortLabel || 'Poste PC CIEL OS',
-      position: new THREE.Vector3(obj.x, 0, obj.z),
+      position: new THREE.Vector3(obj.x, baseY, obj.z),
+      floor: objFloor,
       rotation: ((obj.rotation || 0) * Math.PI) / 180,
       desktop,
       canvas: desktop.canvas,
@@ -1016,7 +1087,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const worldPos = new THREE.Vector3();
         const worldQuat = new THREE.Quaternion();
         const normal = new THREE.Vector3();
-        const bestCenter = new THREE.Vector3(obj.x, topH + 0.32, obj.z);
+        const bestCenter = new THREE.Vector3(obj.x, baseY + topH + 0.32, obj.z);
         const bestNormal = new THREE.Vector3(0, 0, 1);
 
         for (const sm of screenMeshes) {
@@ -1081,7 +1152,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       isProp: true,
       label: `[E] 🖥️ Utiliser le PC (CIEL OS) — ${obj.label || cat.shortLabel}`,
       shortTitle: obj.label || cat.shortLabel || 'Poste PC CIEL OS',
-      position: new THREE.Vector3(obj.x, 0, obj.z),
+      position: new THREE.Vector3(obj.x, baseY, obj.z),
+      floor: objFloor,
       interactRadius: cat.interactRadius || 2.4,
       ring: pcRing,
       mesh: parentGroup,
@@ -1092,28 +1164,281 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     return pcStation;
   }
 
+  const _zUnit = new THREE.Vector3(0, 0, 1);
+  const _railDir = new THREE.Vector3();
+
+  function buildStaircaseMeshGroup(geom, mats) {
+    const grp = new THREE.Group();
+    grp.position.set(geom.x, 0, geom.z);
+    grp.rotation.y = geom.rad;
+
+    for (let i = 0; i < geom.steps3d.length; i++) {
+      const s = geom.steps3d[i];
+      const stepMesh = new THREE.Mesh(new THREE.BoxGeometry(s.w, s.h, s.d), mats.stairTreadMat);
+      stepMesh.position.set(s.lx, s.ly, s.lz);
+      stepMesh.castShadow = true;
+      stepMesh.receiveShadow = true;
+      grp.add(stepMesh);
+    }
+
+    for (let i = 0; i < geom.landings.length; i++) {
+      const ld = geom.landings[i];
+      const landMesh = new THREE.Mesh(new THREE.BoxGeometry(ld.w, ld.h, ld.d), mats.concreteMat);
+      landMesh.position.set(ld.lx, ld.ly, ld.lz);
+      landMesh.castShadow = true;
+      landMesh.receiveShadow = true;
+      grp.add(landMesh);
+    }
+
+    const railH = 1.04;
+    for (let i = 0; i < geom.handrails3d.length; i++) {
+      const hr = geom.handrails3d[i];
+      const dx = hr.x2 - hr.x1;
+      const dy = hr.y2 - hr.y1;
+      const dz = hr.z2 - hr.z1;
+      const spanLen = Math.hypot(dx, dy, dz);
+      if (spanLen > 0.05) {
+        _railDir.set(dx, dy, dz).normalize();
+        const railBar = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, spanLen), mats.brushedMetalMat);
+        railBar.position.set((hr.x1 + hr.x2) * 0.5, (hr.y1 + hr.y2) * 0.5, (hr.z1 + hr.z2) * 0.5);
+        railBar.quaternion.setFromUnitVectors(_zUnit, _railDir);
+        railBar.castShadow = true;
+        grp.add(railBar);
+      }
+      const postCount = spanLen > 2.2 ? 3 : 2;
+      for (let p = 0; p < postCount; p++) {
+        const t = postCount === 1 ? 0 : p / (postCount - 1);
+        const px = hr.x1 + dx * t;
+        const py = hr.y1 + dy * t;
+        const pz = hr.z1 + dz * t;
+        const postMesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, railH, 0.04), mats.brushedMetalMat);
+        postMesh.position.set(px, py - railH * 0.5, pz);
+        postMesh.castShadow = true;
+        grp.add(postMesh);
+      }
+    }
+
+    return grp;
+  }
+
   function renderMapIntoGroup(mapData) {
     const mats = createRealisticMaterialPack(options.maxAnisotropy || 8, { lowRes: Boolean(options.lowRes) });
     materialPack = mats;
     const b = mapData.bounds;
     const H = b.height || 4.6;
-    const centerX = (b.minX + b.maxX) / 2;
-    const centerZ = (b.minZ + b.maxZ) / 2;
+    const floorH = Number(mapData.floorHeight) || H;
 
     mats.setFloorRepeat(b.width, b.depth);
     mats.setCeilingRepeat(b.width, b.depth);
 
-    const floorMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(b.width, b.depth),
-      mats.floorMat
-    );
-    floorMesh.rotation.x = -Math.PI / 2;
-    floorMesh.position.set(centerX, 0, centerZ);
-    floorMesh.receiveShadow = true;
-    worldGroup.add(floorMesh);
+    spatialCulling = new SpatialCullingEngine({
+      chunkSize: 16,
+      floorHeight: floorH,
+      quality: qualityTier
+    });
+    spatialHash.floorHeight = floorH;
+    spatialHash.clear();
+
+    walkableSurfaces = buildWalkableSurfaceData(mapData);
+    const effectiveOpenings = computeEffectiveFloorOpenings(mapData);
+    const openingsByFloor = new Map();
+    for (const op of effectiveOpenings) {
+      spatialCulling.registerOpening(op);
+      const opFloor = clampFloor(op.floor);
+      if (!openingsByFloor.has(opFloor)) openingsByFloor.set(opFloor, []);
+      openingsByFloor.get(opFloor).push(op);
+    }
+
+    const outdoorRects = [];
+    for (const z of mapData.zones || []) {
+      if (z.outdoor || z.code === 'COUR') {
+        const r = {
+          minX: z.x - (z.w || 4) * 0.5,
+          maxX: z.x + (z.w || 4) * 0.5,
+          minZ: z.z - (z.d || 4) * 0.5,
+          maxZ: z.z + (z.d || 4) * 0.5,
+          floor: clampFloor(z.floor ?? 0)
+        };
+        outdoorRects.push(r);
+        spatialCulling.registerOutdoorZone(r);
+      }
+    }
+    for (const o of mapData.objects || []) {
+      if (o.type === 'courtyard_zone') {
+        const r = {
+          minX: o.x - (o.w || 8) * 0.5,
+          maxX: o.x + (o.w || 8) * 0.5,
+          minZ: o.z - (o.d || 8) * 0.5,
+          maxZ: o.z + (o.d || 8) * 0.5,
+          floor: clampFloor(o.floor ?? 0)
+        };
+        outdoorRects.push(r);
+        spatialCulling.registerOutdoorZone(r);
+      }
+    }
+
+    const slabFloors = walkableSurfaces.slabFloors || [];
+    const minPresentFloor = slabFloors.length > 0 ? slabFloors[0].floor : 0;
+    const maxPresentFloor = slabFloors.length > 0 ? slabFloors[slabFloors.length - 1].floor : 0;
+    const frameGeoShared = new THREE.BoxGeometry(1.6, 0.07, 0.6);
+    const panelGeoShared = new THREE.PlaneGeometry(1.45, 0.48);
+    const dummyLed = new THREE.Object3D();
+
+    const isInsideAnyRect = (px, pz, rectList) => {
+      if (!rectList || rectList.length === 0) return false;
+      for (let i = 0; i < rectList.length; i++) {
+        const r = rectList[i];
+        if (px >= r.minX - 0.3 && px <= r.maxX + 0.3 && pz >= r.minZ - 0.3 && pz <= r.maxZ + 0.3) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const floorMetaByIdx = new Map();
+    for (const fm of mapData.floors || []) {
+      const idx = clampFloor(typeof fm === 'object' ? fm.index : fm);
+      floorMetaByIdx.set(idx, typeof fm === 'object' ? fm : { index: idx, hasFullSlab: true, hasCeiling: true });
+    }
+
+    for (const flInfo of slabFloors) {
+      const fl = flInfo.floor;
+      const baseY = flInfo.y;
+      const flMeta = floorMetaByIdx.get(fl) || null;
+      const hasFloorBelow = fl > minPresentFloor && walkableSurfaces.slabsByFloor.has(fl - 1);
+
+      for (const rect of flInfo.rects) {
+        const tiles = sliceRectByChunks(rect, 16);
+        for (const tile of tiles) {
+          const midX = (tile.minX + tile.maxX) * 0.5;
+          const midZ = (tile.minZ + tile.maxZ) * 0.5;
+          const floorTile = createChunkedHorizontalTile(
+            tile.minX,
+            tile.maxX,
+            tile.minZ,
+            tile.maxZ,
+            b,
+            mats.floorMat,
+            baseY,
+            false
+          );
+          spatialCulling.addNode(floorTile, midX, midZ, fl, 'structure');
+
+          if (hasFloorBelow) {
+            const soffitTile = createChunkedHorizontalTile(
+              tile.minX,
+              tile.maxX,
+              tile.minZ,
+              tile.maxZ,
+              b,
+              mats.ceilingMat,
+              baseY - SLAB_THICKNESS,
+              true
+            );
+            spatialCulling.addNode(soffitTile, midX, midZ, fl - 1, 'structure');
+          }
+        }
+      }
+
+      const flOpenings = openingsByFloor.get(fl) || [];
+      for (const op of flOpenings) {
+        const ox0 = Math.max(b.minX, op.minX);
+        const ox1 = Math.min(b.maxX, op.maxX);
+        const oz0 = Math.max(b.minZ, op.minZ);
+        const oz1 = Math.min(b.maxZ, op.maxZ);
+        const ow = ox1 - ox0;
+        const od = oz1 - oz0;
+        if (ow <= 0.1 || od <= 0.1) continue;
+        const curbY = baseY - SLAB_THICKNESS * 0.5;
+        const curbBars = [
+          { cx: (ox0 + ox1) * 0.5, cz: oz0 + 0.04, w: ow, d: 0.08 },
+          { cx: (ox0 + ox1) * 0.5, cz: oz1 - 0.04, w: ow, d: 0.08 },
+          { cx: ox0 + 0.04, cz: (oz0 + oz1) * 0.5, w: 0.08, d: od },
+          { cx: ox1 - 0.04, cz: (oz0 + oz1) * 0.5, w: 0.08, d: od }
+        ];
+        for (const cb of curbBars) {
+          const curb = new THREE.Mesh(
+            new THREE.BoxGeometry(cb.w, SLAB_THICKNESS, cb.d),
+            mats.concreteMat
+          );
+          curb.position.set(cb.cx, curbY, cb.cz);
+          curb.receiveShadow = true;
+          spatialCulling.addNode(curb, cb.cx, cb.cz, fl, 'structure');
+        }
+      }
+
+      if (fl === maxPresentFloor && flMeta?.hasCeiling !== false) {
+        const roofRects = flMeta?.hasFullSlab === false
+          ? computeSlabRectangles(b, outdoorRects, flInfo.rects)
+          : computeSlabRectangles(b, outdoorRects, null);
+        const roofY = baseY + H;
+        for (const rect of roofRects) {
+          const tiles = sliceRectByChunks(rect, 16);
+          for (const tile of tiles) {
+            const ceilTile = createChunkedHorizontalTile(
+              tile.minX,
+              tile.maxX,
+              tile.minZ,
+              tile.maxZ,
+              b,
+              mats.ceilingMat,
+              roofY,
+              true
+            );
+            spatialCulling.addNode(ceilTile, (tile.minX + tile.maxX) * 0.5, (tile.minZ + tile.maxZ) * 0.5, fl, 'structure');
+          }
+        }
+      }
+
+      if (flMeta?.hasCeiling !== false) {
+        const ceilY = fl === maxPresentFloor ? baseY + H : baseY + floorH - SLAB_THICKNESS;
+        const aboveOpenings = openingsByFloor.get(fl + 1) || null;
+        const ledStepX = b.width > 60 ? 8.0 : 4.75;
+        const ledStepZ = b.depth > 60 ? 8.0 : 6.0;
+        const ledBuckets = new Map();
+
+        for (let lx = b.minX + 3.2; lx <= b.maxX - 2.2; lx += ledStepX) {
+          for (let lz = b.minZ + 3.0; lz <= b.maxZ - 2.0; lz += ledStepZ) {
+            if (isInsideAnyRect(lx, lz, aboveOpenings)) continue;
+            if (isInsideAnyRect(lx, lz, outdoorRects)) continue;
+            if (flMeta?.hasFullSlab === false && !isInsideAnyRect(lx, lz, flInfo.rects)) continue;
+            const chunk = spatialCulling.getOrCreateChunk(lx, lz, fl);
+            let arr = ledBuckets.get(chunk);
+            if (!arr) {
+              arr = [];
+              ledBuckets.set(chunk, arr);
+            }
+            arr.push([lx, lz]);
+          }
+        }
+
+        for (const [chunk, posList] of ledBuckets.entries()) {
+          const framesInst = new THREE.InstancedMesh(frameGeoShared, mats.ledFrameMat, posList.length);
+          const panelsInst = new THREE.InstancedMesh(panelGeoShared, mats.ledPanelMat, posList.length);
+          for (let i = 0; i < posList.length; i++) {
+            const [lx, lz] = posList[i];
+            dummyLed.position.set(lx, ceilY - 0.05, lz);
+            dummyLed.rotation.set(0, 0, 0);
+            dummyLed.updateMatrix();
+            framesInst.setMatrixAt(i, dummyLed.matrix);
+            dummyLed.position.set(lx, ceilY - 0.09, lz);
+            dummyLed.rotation.set(Math.PI / 2, 0, 0);
+            dummyLed.updateMatrix();
+            panelsInst.setMatrixAt(i, dummyLed.matrix);
+          }
+          framesInst.instanceMatrix.needsUpdate = true;
+          panelsInst.instanceMatrix.needsUpdate = true;
+          ceilingPanelMeshes.push(panelsInst);
+          chunk.structureGroup.add(framesInst);
+          chunk.structureGroup.add(panelsInst);
+        }
+      }
+    }
 
     for (const z of mapData.zones || []) {
       if (z.code === 'U300' && !Array.isArray(z.points)) continue;
+      const zFloor = clampFloor(z.floor ?? 0);
+      const zBaseY = getFloorBaseY(mapData, zFloor);
       const pts = getZonePolygonPoints(z);
       if (pts.length < 3) continue;
       const shape = new THREE.Shape();
@@ -1122,62 +1447,45 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         else shape.lineTo(p.x, -p.z);
       });
       shape.closePath();
-      const pad = new THREE.Mesh(
-        new THREE.ShapeGeometry(shape),
-        new THREE.MeshBasicMaterial({
-          color: z.color || '#0284c7',
-          transparent: true,
-          opacity: z.code === 'ESC' || z.id === 'ESCALIER' ? 0.11 : 0.055,
-          side: THREE.DoubleSide
-        })
-      );
+      const padMat = z.outdoor || z.code === 'COUR'
+        ? mats.courtyardMat
+        : new THREE.MeshBasicMaterial({
+            color: z.color || '#0284c7',
+            transparent: true,
+            opacity: z.code === 'ESC' || z.id === 'ESCALIER' ? 0.11 : 0.055,
+            side: THREE.DoubleSide
+          });
+      const pad = new THREE.Mesh(new THREE.ShapeGeometry(shape), padMat);
       pad.rotation.x = -Math.PI / 2;
-      pad.position.set(0, 0.008, 0);
-      worldGroup.add(pad);
-    }
-
-    const ceilingMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(b.width, b.depth),
-      mats.ceilingMat
-    );
-    ceilingMesh.rotation.x = Math.PI / 2;
-    ceilingMesh.position.set(centerX, H, centerZ);
-    ceilingMesh.receiveShadow = false;
-    worldGroup.add(ceilingMesh);
-
-    const ledPositions = [];
-    for (let lx = b.minX + 3.2; lx <= b.maxX - 2.2; lx += 4.75) {
-      for (let lz = b.minZ + 3.0; lz <= b.maxZ - 2.0; lz += 6.0) {
-        ledPositions.push([lx, lz]);
-      }
-    }
-    if (ledPositions.length > 0) {
-      const frameGeo = new THREE.BoxGeometry(1.6, 0.07, 0.6);
-      const panelGeo = new THREE.PlaneGeometry(1.45, 0.48);
-      const framesInst = new THREE.InstancedMesh(frameGeo, mats.ledFrameMat, ledPositions.length);
-      const panelsInst = new THREE.InstancedMesh(panelGeo, mats.ledPanelMat, ledPositions.length);
-      const dummy = new THREE.Object3D();
-      for (let i = 0; i < ledPositions.length; i++) {
-        const [lx, lz] = ledPositions[i];
-        dummy.position.set(lx, H - 0.05, lz);
-        dummy.rotation.set(0, 0, 0);
-        dummy.updateMatrix();
-        framesInst.setMatrixAt(i, dummy.matrix);
-        dummy.position.set(lx, H - 0.09, lz);
-        dummy.rotation.set(Math.PI / 2, 0, 0);
-        dummy.updateMatrix();
-        panelsInst.setMatrixAt(i, dummy.matrix);
-      }
-      framesInst.instanceMatrix.needsUpdate = true;
-      panelsInst.instanceMatrix.needsUpdate = true;
-      ceilingPanelsInst = panelsInst;
-      worldGroup.add(framesInst);
-      worldGroup.add(panelsInst);
+      pad.position.set(0, zBaseY + (z.outdoor || z.code === 'COUR' ? 0.012 : 0.008), 0);
+      spatialCulling.addNode(pad, Number(z.x) || 0, Number(z.z) || 0, zFloor, 'structure');
     }
 
     const wallSegments = subtractDoorsFromWalls(mapData.walls || []);
-
+    const chunkedWallSegments = [];
+    const maxWallPieceLen = 14;
     for (const seg of wallSegments) {
+      const len = Math.hypot(seg.x2 - seg.x1, seg.z2 - seg.z1);
+      if (len < 0.12) continue;
+      if (len <= maxWallPieceLen || seg.kind === 'door_single' || seg.kind === 'door_double') {
+        chunkedWallSegments.push(seg);
+        continue;
+      }
+      const parts = Math.ceil(len / maxWallPieceLen);
+      for (let p = 0; p < parts; p++) {
+        const t0 = p / parts;
+        const t1 = (p + 1) / parts;
+        chunkedWallSegments.push({
+          ...seg,
+          x1: seg.x1 + (seg.x2 - seg.x1) * t0,
+          z1: seg.z1 + (seg.z2 - seg.z1) * t0,
+          x2: seg.x1 + (seg.x2 - seg.x1) * t1,
+          z2: seg.z1 + (seg.z2 - seg.z1) * t1
+        });
+      }
+    }
+
+    for (const seg of chunkedWallSegments) {
       const dx = seg.x2 - seg.x1;
       const dz = seg.z2 - seg.z1;
       const len = Math.hypot(dx, dz);
@@ -1185,12 +1493,16 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       const cx = (seg.x1 + seg.x2) / 2;
       const cz = (seg.z1 + seg.z2) / 2;
       const angle = -Math.atan2(dz, dx);
-      const wallH = Math.max(2.6, Math.min(H, seg.height || H));
+      const wallFloor = clampFloor(seg.floor ?? 0);
+      const wallBaseY = getFloorBaseY(mapData, wallFloor);
+      const wallH = seg.kind === 'railing'
+        ? Math.min(H, Math.max(0.95, seg.height || 1.05))
+        : Math.max(1.2, Math.min(H, seg.height || H));
       const thick = Math.max(0.08, seg.thickness || 0.18);
 
       if (seg.kind === 'door_single' || seg.kind === 'door_double') {
         const grp = new THREE.Group();
-        grp.position.set(cx, 0, cz);
+        grp.position.set(cx, wallBaseY, cz);
         grp.rotation.y = angle;
 
         const doorH = 2.4;
@@ -1221,13 +1533,13 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         if (seg.doorLabel) {
           addDoorSign(grp, 0, 0, Math.min(2.66, wallH - 0.34), 0, thick, seg.doorLabel, seg.color || '#0284c7', mats.brushedMetalMat);
         }
-        worldGroup.add(grp);
+        spatialCulling.addNode(grp, cx, cz, wallFloor, 'structure');
         continue;
       }
 
       if (seg.kind === 'glazed') {
         const grp = new THREE.Group();
-        grp.position.set(cx, 0, cz);
+        grp.position.set(cx, wallBaseY, cz);
         grp.rotation.y = angle;
 
         const dadoH = 1.05;
@@ -1265,31 +1577,101 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         topRail.position.y = topStart - 0.01;
         grp.add(topRail);
 
-        worldGroup.add(grp);
+        spatialCulling.addNode(grp, cx, cz, wallFloor, 'structure');
+        continue;
+      }
+
+      if (seg.kind === 'window_bay') {
+        const grp = new THREE.Group();
+        grp.position.set(cx, wallBaseY, cz);
+        grp.rotation.y = angle;
+
+        const sillH = 0.52;
+        const topBeamH = 0.42;
+        const glassH = Math.max(0.8, wallH - sillH - topBeamH);
+
+        const sill = new THREE.Mesh(new THREE.BoxGeometry(len, sillH, thick), mats.dadoMat);
+        sill.position.y = sillH * 0.5;
+        sill.castShadow = true;
+        sill.receiveShadow = true;
+        grp.add(sill);
+
+        const glass = new THREE.Mesh(new THREE.BoxGeometry(len, glassH, 0.04), mats.glassMat);
+        glass.position.y = sillH + glassH * 0.5;
+        grp.add(glass);
+
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(len, topBeamH, thick), mats.exteriorWallMat);
+        beam.position.y = sillH + glassH + topBeamH * 0.5;
+        beam.castShadow = true;
+        grp.add(beam);
+
+        const mullionCount = Math.max(2, Math.round(len / 2.2) + 1);
+        for (let m = 0; m < mullionCount; m++) {
+          const mx = -len * 0.5 + (len * m) / (mullionCount - 1);
+          const mul = new THREE.Mesh(new THREE.BoxGeometry(0.06, glassH + 0.04, thick * 0.8), mats.darkMetalMat);
+          mul.position.set(mx, sillH + glassH * 0.5, 0);
+          grp.add(mul);
+        }
+
+        spatialCulling.addNode(grp, cx, cz, wallFloor, 'structure');
+        continue;
+      }
+
+      if (seg.kind === 'railing') {
+        const grp = new THREE.Group();
+        grp.position.set(cx, wallBaseY, cz);
+        grp.rotation.y = angle;
+        const railH = Math.max(0.95, Math.min(1.3, wallH));
+
+        const curb = new THREE.Mesh(new THREE.BoxGeometry(len, 0.08, Math.max(0.08, thick)), mats.brushedMetalMat);
+        curb.position.y = 0.04;
+        grp.add(curb);
+
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(len, railH - 0.16, 0.03), mats.glassMat);
+        panel.position.y = railH * 0.5;
+        grp.add(panel);
+
+        const topBar = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, Math.max(0.08, thick)), mats.brushedMetalMat);
+        topBar.position.y = railH - 0.03;
+        topBar.castShadow = true;
+        grp.add(topBar);
+
+        const postCount = Math.max(2, Math.round(len / 1.5) + 1);
+        for (let p = 0; p < postCount; p++) {
+          const px = -len * 0.5 + (len * p) / (postCount - 1);
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, railH, 0.05), mats.darkMetalMat);
+          post.position.set(px, railH * 0.5, 0);
+          grp.add(post);
+        }
+
+        spatialCulling.addNode(grp, cx, cz, wallFloor, 'structure');
         continue;
       }
 
       const grp = new THREE.Group();
-      grp.position.set(cx, 0, cz);
+      grp.position.set(cx, wallBaseY, cz);
       grp.rotation.y = angle;
 
-      const solid = new THREE.Mesh(
-        new THREE.BoxGeometry(len, wallH, thick),
-        mats.getWallMaterial(len, seg.color)
-      );
+      const useExteriorMat =
+        seg.kind === 'exterior' && (!seg.color || seg.color === '#475569' || seg.color === '#94a3b8');
+      const solidMat = useExteriorMat ? mats.exteriorWallMat : mats.getWallMaterial(len, seg.color);
+
+      const solid = new THREE.Mesh(new THREE.BoxGeometry(len, wallH, thick), solidMat);
       solid.position.y = wallH / 2;
       solid.castShadow = true;
       solid.receiveShadow = true;
       solid.userData.isSolidWall = true;
+      solid.userData.floor = wallFloor;
       grp.add(solid);
       solidWallMeshes.push(solid);
+      spatialCulling.registerOpaqueWall({ ...seg, floor: wallFloor });
 
       const trim = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, thick + 0.02), mats.plinthMat);
       trim.position.y = 0.05;
       trim.receiveShadow = true;
       grp.add(trim);
 
-      worldGroup.add(grp);
+      spatialCulling.addNode(grp, cx, cz, wallFloor, 'structure');
     }
 
     const supportBoxes = [];
@@ -1298,6 +1680,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       if (cat?.supportTop) {
         supportBoxes.push({
           id: o.id,
+          floor: clampFloor(o.floor ?? 0),
           x: o.x,
           z: o.z,
           hw: (o.w || cat.defaultW) / 2,
@@ -1310,12 +1693,12 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
     const orientTex = makeOrientationMapTexture(mapData);
 
-    const buildSpecialModeDoor = (obj, w, d, rotRad, cat) => {
+    const buildSpecialModeDoor = (obj, w, d, rotRad, cat, objBaseY = 0, objFloor = 0) => {
       const isCombat = obj.type === 'combat_door';
       const doorGrp = new THREE.Group();
-      doorGrp.position.set(obj.x, 0, obj.z);
+      doorGrp.position.set(obj.x, objBaseY, obj.z);
       doorGrp.rotation.y = rotRad;
-      worldGroup.add(doorGrp);
+      const chunk = spatialCulling.addNode(doorGrp, obj.x, obj.z, objFloor, 'detail');
 
       const accentColor = obj.color || (isCombat ? '#06b6d4' : '#e11d48');
       const doorW = Math.max(1.2, w);
@@ -1371,7 +1754,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 12), beaconMat);
       beacon.position.set(0, doorH + 0.34, 0);
       doorGrp.add(beacon);
-      animatedRefs.survivalBeacons.push({ mesh: beacon, portal: portalMat, phase: (obj.x + obj.z) * 0.3 });
+      animatedRefs.survivalBeacons.push({ mesh: beacon, portal: portalMat, phase: (obj.x + obj.z) * 0.3, chunk });
 
       const ring = new THREE.Mesh(
         new THREE.RingGeometry(0.75, 0.96, 32),
@@ -1397,7 +1780,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         label: isCombat
           ? `[E] ⚔️ ${obj.label || 'Entrer — Arène de Combat CIEL'}`
           : `[E] 🚪 ${obj.label || 'Entrer — Mode Survie Horreur'}`,
-        position: new THREE.Vector3(obj.x, 0, obj.z),
+        position: new THREE.Vector3(obj.x, objBaseY, obj.z),
+        floor: objFloor,
         rotation: rotRad,
         interactRadius: cat?.interactRadius || 2.6,
         ring,
@@ -1415,35 +1799,169 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     for (const obj of mapData.objects || []) {
       const cat = getCatalogItem(obj.type);
       if (!cat) continue;
+      if (cat.isOpening || obj.type === 'slab_opening') continue;
+
       const w = Math.max(0.2, obj.w || cat.defaultW || 1);
       const d = Math.max(0.2, obj.d || cat.defaultD || 1);
       const color = obj.color || cat.defaultColor || '#38bdf8';
       const rotRad = ((obj.rotation || 0) * Math.PI) / 180;
+      const objFloor = clampFloor(obj.floor ?? 0);
+      const objBaseY = getFloorBaseY(mapData, objFloor);
+
+      if (cat.isStair) {
+        const geom = computeStairGeometry(obj, floorH);
+        const stairGrp = buildStaircaseMeshGroup(geom, mats);
+        spatialCulling.addNode(stairGrp, obj.x, obj.z, objFloor, 'structure');
+        continue;
+      }
 
       if (obj.type === 'npc_teacher') {
-        const res = createNpcTeacher(worldGroup, {
+        const chunk = spatialCulling.getOrCreateChunk(obj.x, obj.z, objFloor);
+        const res = createNpcTeacher(chunk.detailGroup, {
           x: obj.x,
+          y: objBaseY,
           z: obj.z,
+          floor: objFloor,
           rotation: obj.rotation || 0,
           label: obj.label || 'Professeur CIEL',
           dialogue: obj.dialogue || '',
           interactRadius: cat.interactRadius || 3.1
         });
+        res.chunk = chunk;
         teacherRefs.push(res);
         interactables.push(res.interactable);
         continue;
       }
 
       if (obj.type === 'survival_door' || obj.type === 'combat_door') {
-        buildSpecialModeDoor(obj, w, d, rotRad, cat);
+        buildSpecialModeDoor(obj, w, d, rotRad, cat, objBaseY, objFloor);
         continue;
       }
 
-      const grp = new THREE.Group();
-      grp.position.set(obj.x, 0, obj.z);
-      grp.rotation.y = rotRad;
-      worldGroup.add(grp);
+      const category =
+        obj.type === 'stair_block' ||
+        obj.type === 'pillar_column' ||
+        obj.type === 'floor_slab' ||
+        obj.type === 'courtyard_zone' ||
+        obj.type === 'railing_guard' ||
+        obj.type === 'wall_exterior' ||
+        obj.type === 'wall_window_bay'
+          ? 'structure'
+          : 'detail';
 
+      const grp = new THREE.Group();
+      grp.position.set(obj.x, objBaseY, obj.z);
+      grp.rotation.y = rotRad;
+      const chunk = spatialCulling.addNode(grp, obj.x, obj.z, objFloor, category);
+
+      if (obj.type === 'pillar_column') {
+        const pillarH = Math.max(2.2, H);
+        const col = new THREE.Mesh(new THREE.BoxGeometry(w, pillarH, d), mats.concreteMat);
+        col.position.y = pillarH * 0.5;
+        col.castShadow = true;
+        col.receiveShadow = true;
+        grp.add(col);
+        const capBot = new THREE.Mesh(new THREE.BoxGeometry(w + 0.06, 0.14, d + 0.06), mats.brushedMetalMat);
+        capBot.position.y = 0.07;
+        grp.add(capBot);
+        const capTop = new THREE.Mesh(new THREE.BoxGeometry(w + 0.06, 0.14, d + 0.06), mats.brushedMetalMat);
+        capTop.position.y = pillarH - 0.07;
+        grp.add(capTop);
+        continue;
+      }
+
+      if (obj.type === 'floor_slab') {
+        const slabMesh = new THREE.Mesh(new THREE.BoxGeometry(w, SLAB_THICKNESS, d), mats.concreteMat);
+        slabMesh.position.y = -SLAB_THICKNESS * 0.5;
+        slabMesh.receiveShadow = true;
+        grp.add(slabMesh);
+        continue;
+      }
+
+      if (obj.type === 'courtyard_zone') {
+        const deck = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mats.courtyardMat);
+        deck.rotation.x = -Math.PI / 2;
+        deck.position.y = 0.015;
+        deck.receiveShadow = true;
+        grp.add(deck);
+        continue;
+      }
+
+      if (obj.type === 'railing_guard') {
+        const railH = 1.04;
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(w, railH - 0.14, 0.03), mats.glassMat);
+        panel.position.y = railH * 0.5;
+        grp.add(panel);
+        const topRail = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, Math.max(0.08, d)), mats.brushedMetalMat);
+        topRail.position.y = railH - 0.03;
+        topRail.castShadow = true;
+        grp.add(topRail);
+        const postCount = Math.max(2, Math.round(w / 1.2) + 1);
+        for (let p = 0; p < postCount; p++) {
+          const px = -w * 0.5 + (w * p) / (postCount - 1);
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, railH, 0.05), mats.darkMetalMat);
+          post.position.set(px, railH * 0.5, 0);
+          grp.add(post);
+        }
+        continue;
+      }
+
+      if (obj.type === 'wall_exterior') {
+        const solid = new THREE.Mesh(new THREE.BoxGeometry(w, H, d), mats.exteriorWallMat);
+        solid.position.y = H * 0.5;
+        solid.castShadow = true;
+        solid.receiveShadow = true;
+        solid.userData.isSolidWall = true;
+        solid.userData.floor = objFloor;
+        grp.add(solid);
+        solidWallMeshes.push(solid);
+        const cos = Math.cos(rotRad);
+        const sin = Math.sin(rotRad);
+        const hw = w * 0.5;
+        spatialCulling.registerOpaqueWall({
+          kind: 'exterior',
+          floor: objFloor,
+          x1: obj.x - hw * cos,
+          z1: obj.z + hw * sin,
+          x2: obj.x + hw * cos,
+          z2: obj.z - hw * sin
+        });
+        continue;
+      }
+
+      if (obj.type === 'wall_window_bay') {
+        const sillH = 0.52;
+        const topBeamH = 0.42;
+        const glassH = Math.max(0.8, H - sillH - topBeamH);
+        const sill = new THREE.Mesh(new THREE.BoxGeometry(w, sillH, d), mats.dadoMat);
+        sill.position.y = sillH * 0.5;
+        grp.add(sill);
+        const glass = new THREE.Mesh(new THREE.BoxGeometry(w, glassH, 0.04), mats.glassMat);
+        glass.position.y = sillH + glassH * 0.5;
+        grp.add(glass);
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(w, topBeamH, d), mats.exteriorWallMat);
+        beam.position.y = sillH + glassH + topBeamH * 0.5;
+        grp.add(beam);
+        continue;
+      }
+
+      const prevRingLen = animatedRefs.rings.length;
+      const prevLedLen = animatedRefs.leds.length;
+      const prevBeaconLen = animatedRefs.survivalBeacons.length;
+      const prevPcLen = pcStations.length;
+      const prevInteractLen = interactables.length;
+
+      const finalizeObjChunkTags = () => {
+        for (let k = prevRingLen; k < animatedRefs.rings.length; k++) animatedRefs.rings[k].chunk = chunk;
+        for (let k = prevLedLen; k < animatedRefs.leds.length; k++) animatedRefs.leds[k].chunk = chunk;
+        for (let k = prevBeaconLen; k < animatedRefs.survivalBeacons.length; k++) animatedRefs.survivalBeacons[k].chunk = chunk;
+        for (let k = prevPcLen; k < pcStations.length; k++) pcStations[k].chunk = chunk;
+        for (let k = prevInteractLen; k < interactables.length; k++) {
+          if (interactables[k].floor === undefined) interactables[k].floor = objFloor;
+        }
+      };
+
+      try {
       if (obj.type === 'hiding_rack') {
         const rackH = 2.18;
         const bodyMat = new THREE.MeshStandardMaterial({
@@ -1594,6 +2112,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           0.42
         );
         const interiorPos = computeRackInteriorPosition({ x: obj.x, z: obj.z, rotRad, w, d });
+        if (interiorPos) interiorPos.y = (Number(interiorPos.y) || 0) + objBaseY;
         const hideEntry = {
           id: obj.id,
           hidingId: obj.id,
@@ -1601,7 +2120,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           label: `[E] 🗄️ Se cacher — ${obj.label || 'Baie de Brassage'}`,
           x: obj.x,
           z: obj.z,
-          position: new THREE.Vector3(obj.x, 0, obj.z),
+          position: new THREE.Vector3(obj.x, objBaseY, obj.z),
+          floor: objFloor,
           rotation: rotRad,
           rotRad,
           rad: rotRad,
@@ -1614,7 +2134,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           perforatedDoor: doorMesh,
           exitX: exitInfo.x,
           exitZ: exitInfo.z,
-          exitPos: new THREE.Vector3(exitInfo.x, 0, exitInfo.z),
+          exitPos: new THREE.Vector3(exitInfo.x, objBaseY, exitInfo.z),
           interactRadius: cat.interactRadius || 2.3,
           ring,
           doorMesh,
@@ -2053,7 +2573,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           label: `[E] ${obj.label || 'Fond Vert Studio'} (Lancer TP AV)`,
           type: 'tp',
           tp: ALL_STATIONS_MAP.get(linkedTpId),
-          position: new THREE.Vector3(obj.x, 0, obj.z),
+          position: new THREE.Vector3(obj.x, objBaseY, obj.z),
+          floor: objFloor,
           interactRadius: 2.3,
           mesh: grp,
           highlightMats: [greenHlMat]
@@ -2090,7 +2611,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           label: `[E] ${obj.label || 'Caméra Broadcast'} (Lancer TP AV)`,
           type: 'tp',
           tp: ALL_STATIONS_MAP.get(linkedTpId),
-          position: new THREE.Vector3(obj.x, 0, obj.z),
+          position: new THREE.Vector3(obj.x, objBaseY, obj.z),
+          floor: objFloor,
           interactRadius: 1.9,
           mesh: grp,
           highlightMats: [camHlMat]
@@ -2124,7 +2646,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           label: `[E] ${obj.label || 'Projecteur DMX / LED'} (Lancer TP AV)`,
           type: 'tp',
           tp: ALL_STATIONS_MAP.get(linkedTpId),
-          position: new THREE.Vector3(obj.x, 0, obj.z),
+          position: new THREE.Vector3(obj.x, objBaseY, obj.z),
+          floor: objFloor,
           interactRadius: 1.9,
           mesh: grp,
           highlightMats: [housingMat]
@@ -2160,7 +2683,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           label: `[E] ${obj.label || 'Micro Studio'} (Lancer TP Studio)`,
           type: 'tp',
           tp: ALL_STATIONS_MAP.get('studio'),
-          position: new THREE.Vector3(obj.x, 0, obj.z),
+          position: new THREE.Vector3(obj.x, objBaseY, obj.z),
+          floor: objFloor,
           interactRadius: 1.85,
           mesh: grp,
           highlightMats: [micHlMat]
@@ -2315,7 +2839,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           label: `[E] ${obj.label || 'Console Mixage Audio'} (Lancer TP Studio)`,
           type: 'tp',
           tp: ALL_STATIONS_MAP.get('studio'),
-          position: new THREE.Vector3(obj.x, 0, obj.z),
+          position: new THREE.Vector3(obj.x, objBaseY, obj.z),
+          floor: objFloor,
           interactRadius: 2.0,
           mesh: grp,
           highlightMats: [mixerHlMat]
@@ -2391,6 +2916,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       );
       fallback.position.y = (cat.defaultH || 0.8) / 2;
       grp.add(fallback);
+      } finally {
+        finalizeObjChunkTags();
+      }
     }
 
     if (combatDoors.length === 0) {
@@ -2410,8 +2938,22 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         1.7,
         0.42,
         Math.PI,
-        combatCat
+        combatCat,
+        0,
+        0
       );
+    }
+
+    if (ceilingPanelMeshes.length === 0) {
+      frameGeoShared.dispose();
+      panelGeoShared.dispose();
+    }
+
+    for (let i = 0; i < spatialCulling.chunks.length; i++) {
+      const ch = spatialCulling.chunks[i];
+      if (ch.root.parent !== worldGroup) {
+        worldGroup.add(ch.root);
+      }
     }
 
     worldGroup.updateMatrixWorld(true);
@@ -2487,64 +3029,85 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       return mat;
     };
 
-    const batchBuckets = new Map();
-    worldGroup.traverse((node) => {
-      if (!node.isMesh || node.isInstancedMesh) return;
-      if (excludedFromBatch.has(node)) return;
-      if (!node.geometry || node.geometry.type !== 'BoxGeometry') return;
-      const p = node.geometry.parameters;
-      if (!p || (p.widthSegments && p.widthSegments !== 1) || (p.heightSegments && p.heightSegments !== 1) || (p.depthSegments && p.depthSegments !== 1)) {
-        return;
-      }
-      if (!node.material || Array.isArray(node.material) || highlightMatSet.has(node.material)) return;
-      const resolvedMat = resolveBatchedMaterial(node.material);
-      const isWall = solidWallSet.has(node);
-      const key = `${resolvedMat.uuid}|${node.castShadow ? 1 : 0}|${node.receiveShadow ? 1 : 0}|${isWall ? 1 : 0}`;
-      let bucket = batchBuckets.get(key);
-      if (!bucket) {
-        bucket = { material: resolvedMat, castShadow: Boolean(node.castShadow), receiveShadow: Boolean(node.receiveShadow), isWall, items: [] };
-        batchBuckets.set(key, bucket);
-      }
-      bucket.items.push(node);
-    });
-
     const unitBoxGeo = new THREE.BoxGeometry(1, 1, 1);
     const scaleMat = new THREE.Matrix4();
     const instMat = new THREE.Matrix4();
     let usedUnitBox = false;
     const batchedWallNodes = new Set();
 
-    for (const bucket of batchBuckets.values()) {
-      if (bucket.items.length < 2) continue;
-      usedUnitBox = true;
-      const inst = new THREE.InstancedMesh(unitBoxGeo, bucket.material, bucket.items.length);
-      inst.castShadow = bucket.castShadow;
-      inst.receiveShadow = bucket.receiveShadow;
-      for (let i = 0; i < bucket.items.length; i++) {
-        const m = bucket.items[i];
-        const p = m.geometry.parameters;
-        scaleMat.makeScale(p.width ?? 1, p.height ?? 1, p.depth ?? 1);
-        instMat.multiplyMatrices(m.matrixWorld, scaleMat);
-        inst.setMatrixAt(i, instMat);
-        const origMat = m.material;
-        m.parent?.remove(m);
-        m.geometry.dispose?.();
-        if (origMat && origMat !== bucket.material && !origMat.userData?.managedByMaterialPack) {
-          origMat.dispose?.();
+    for (let ci = 0; ci < spatialCulling.chunks.length; ci++) {
+      const ch = spatialCulling.chunks[ci];
+      const subgroups = [ch.structureGroup, ch.detailGroup];
+      for (let si = 0; si < subgroups.length; si++) {
+        const sub = subgroups[si];
+        const batchBuckets = new Map();
+        sub.traverse((node) => {
+          if (!node.isMesh || node.isInstancedMesh) return;
+          if (excludedFromBatch.has(node)) return;
+          if (!node.geometry || node.geometry.type !== 'BoxGeometry') return;
+          const p = node.geometry.parameters;
+          if (
+            !p ||
+            (p.widthSegments && p.widthSegments !== 1) ||
+            (p.heightSegments && p.heightSegments !== 1) ||
+            (p.depthSegments && p.depthSegments !== 1)
+          ) {
+            return;
+          }
+          if (!node.material || Array.isArray(node.material) || highlightMatSet.has(node.material)) return;
+          const resolvedMat = resolveBatchedMaterial(node.material);
+          const isWall = solidWallSet.has(node);
+          const key = `${resolvedMat.uuid}|${node.castShadow ? 1 : 0}|${node.receiveShadow ? 1 : 0}|${isWall ? 1 : 0}`;
+          let bucket = batchBuckets.get(key);
+          if (!bucket) {
+            bucket = {
+              material: resolvedMat,
+              castShadow: Boolean(node.castShadow),
+              receiveShadow: Boolean(node.receiveShadow),
+              isWall,
+              items: []
+            };
+            batchBuckets.set(key, bucket);
+          }
+          bucket.items.push(node);
+        });
+
+        for (const bucket of batchBuckets.values()) {
+          if (bucket.items.length < 2) continue;
+          usedUnitBox = true;
+          const inst = new THREE.InstancedMesh(unitBoxGeo, bucket.material, bucket.items.length);
+          inst.castShadow = bucket.castShadow;
+          inst.receiveShadow = bucket.receiveShadow;
+          for (let i = 0; i < bucket.items.length; i++) {
+            const m = bucket.items[i];
+            const p = m.geometry.parameters;
+            scaleMat.makeScale(p.width ?? 1, p.height ?? 1, p.depth ?? 1);
+            instMat.multiplyMatrices(m.matrixWorld, scaleMat);
+            inst.setMatrixAt(i, instMat);
+            const origMat = m.material;
+            m.parent?.remove(m);
+            m.geometry.dispose?.();
+            if (origMat && origMat !== bucket.material && !origMat.userData?.managedByMaterialPack) {
+              origMat.dispose?.();
+            }
+            if (bucket.isWall) {
+              batchedWallNodes.add(m);
+            }
+          }
+          inst.instanceMatrix.needsUpdate = true;
+          inst.computeBoundingBox?.();
+          inst.computeBoundingSphere?.();
+          inst.updateMatrix();
+          inst.matrixAutoUpdate = false;
+          inst.userData.floor = ch.floor;
+          sub.add(inst);
+          if (bucket.isWall) {
+            solidWallMeshes.push(inst);
+          }
         }
-        if (bucket.isWall) {
-          batchedWallNodes.add(m);
-        }
-      }
-      inst.instanceMatrix.needsUpdate = true;
-      inst.computeBoundingSphere?.();
-      inst.updateMatrix();
-      inst.matrixAutoUpdate = false;
-      worldGroup.add(inst);
-      if (bucket.isWall) {
-        solidWallMeshes.push(inst);
       }
     }
+
     if (!usedUnitBox) {
       unitBoxGeo.dispose();
     }
@@ -2562,6 +3125,30 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       node.updateMatrix();
       node.matrixAutoUpdate = false;
     });
+
+    spatialCulling.finalize(worldGroup);
+
+    for (let i = 0; i < colliders.length; i++) {
+      spatialHash.insertCollider(colliders[i]);
+    }
+    for (let i = 0; i < teacherRefs.length; i++) {
+      if (teacherRefs[i]?.collider) {
+        spatialHash.insertCollider(teacherRefs[i].collider);
+      }
+    }
+    for (let i = 0; i < interactables.length; i++) {
+      spatialHash.insertInteractable(interactables[i]);
+    }
+    const occBox = new THREE.Box3();
+    for (let i = 0; i < solidWallMeshes.length; i++) {
+      const wm = solidWallMeshes[i];
+      wm.updateWorldMatrix?.(true, false);
+      occBox.setFromObject(wm);
+      const fl = Number.isFinite(Number(wm.userData?.floor))
+        ? Math.round(Number(wm.userData.floor))
+        : Math.floor((occBox.min.y + 0.2) / floorH);
+      spatialHash.insertOccluder(wm, occBox, fl);
+    }
   }
 
   function updateStationBadges(grades = {}) {
@@ -2599,12 +3186,16 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     pcStations.length = 0;
     pcInteractiveSurfaces.length = 0;
     shopKiosks.length = 0;
-    ceilingPanelsInst = null;
+    ceilingPanelMeshes.length = 0;
     animatedRefs.rings.length = 0;
     animatedRefs.leds.length = 0;
     animatedRefs.survivalBeacons.length = 0;
     animatedRefs.shopHolograms.length = 0;
     leaderboardBoards = [];
+    spatialCulling?.dispose?.();
+    spatialCulling = null;
+    spatialHash.clear();
+    cullCalledSinceUpdate = false;
 
     disposeNodeTree(worldGroup);
     perfRackDoorTex?.dispose?.();
@@ -2643,8 +3234,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         materialPack.ledPanelMat.color.set('#ffffff');
       }
     }
-    if (ceilingPanelsInst) {
-      ceilingPanelsInst.visible = !horrorActive || flickerStrength > 0.25;
+    const showPanels = !horrorActive || flickerStrength > 0.25;
+    for (let i = 0; i < ceilingPanelMeshes.length; i++) {
+      ceilingPanelMeshes[i].visible = showPanels;
     }
   }
 
@@ -2662,6 +3254,11 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     if (profile.lowResPc !== undefined) {
       qualityProfile.lowResPc = Boolean(profile.lowResPc);
     }
+    const nextTier = profile.tier || profile.quality;
+    if (typeof nextTier === 'string' && nextTier.length > 0) {
+      qualityTier = nextTier;
+      spatialCulling?.setQuality(qualityTier);
+    }
     for (let i = 0; i < pcStations.length; i++) {
       const pc = pcStations[i];
       pc.desktop?.setQualityProfile?.({
@@ -2669,6 +3266,73 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         renderScale: pc.isActiveSession ? 1.0 : qualityProfile.lowResPc ? 0.5 : 1.0
       });
     }
+  }
+
+  function updateCulling(camera, playerPos = null, opts = {}) {
+    cullCalledSinceUpdate = true;
+    if (!spatialCulling) {
+      return {
+        visibleChunks: 0,
+        totalChunks: 0,
+        culledFrustum: 0,
+        culledFloor: 0,
+        culledDistance: 0,
+        culledOcclusion: 0,
+        visibleDetailChunks: 0,
+        currentFloor: 0
+      };
+    }
+    return spatialCulling.update(camera, playerPos, opts);
+  }
+
+  function getCullingStats() {
+    if (!spatialCulling) {
+      return {
+        visibleChunks: 0,
+        totalChunks: 0,
+        culledFrustum: 0,
+        culledFloor: 0,
+        culledDistance: 0,
+        culledOcclusion: 0,
+        visibleDetailChunks: 0,
+        currentFloor: 0
+      };
+    }
+    return spatialCulling.getStats();
+  }
+
+  function setEditorFloorCutoff(cutoffFloor = null, mode = 'all') {
+    if (!spatialCulling) return;
+    spatialCulling.setEditorFloorCutoff(cutoffFloor, mode);
+    const cf = spatialCulling.editorCutoffFloor;
+    const md = spatialCulling.editorFilterMode;
+    for (let i = 0; i < spatialCulling.chunks.length; i++) {
+      const ch = spatialCulling.chunks[i];
+      const vis =
+        cf === null || md === 'all'
+          ? true
+          : md === 'only'
+            ? ch.floor === cf
+            : ch.floor <= cf;
+      ch.visible = vis;
+      ch.detailsVisible = vis;
+      ch.root.visible = vis;
+      ch.structureGroup.visible = vis;
+      ch.detailGroup.visible = vis;
+      ch.cullReason = vis ? 'none' : 'floor';
+    }
+  }
+
+  function getNearbyInteractables(x, z, radius = 8.0, floor = null, out = []) {
+    return spatialHash.queryInteractables(x, z, radius, floor, out);
+  }
+
+  function getNearbyOccluders(origin, dir, maxDist = 10, floor = null, out = []) {
+    return spatialHash.queryOccluders(origin, dir, maxDist, floor, out);
+  }
+
+  function getNearbyOccludersAt(x, z, radius = 8.0, floor = null, out = []) {
+    return spatialHash.queryOccludersAt(x, z, radius, floor, out);
   }
 
   function getRenderStats() {
@@ -2692,7 +3356,8 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       totalInstances,
       drawCallEstimate: meshCount + instancedMeshCount,
       staticFrozenCount,
-      pcStationCount: pcStations.length
+      pcStationCount: pcStations.length,
+      chunkCount: spatialCulling ? spatialCulling.chunks.length : 0
     };
   }
 
@@ -2702,11 +3367,17 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
   function update(elapsed, playerPos = null, diplomaEarned = false, camera = null) {
     if (!worldGroup.visible) return;
+    if (camera && !cullCalledSinceUpdate) {
+      updateCulling(camera, playerPos);
+    }
+    cullCalledSinceUpdate = false;
     const dt = Math.max(0.008, Math.min(0.1, elapsed - lastPcUpdateElapsed || 0.016));
     lastPcUpdateElapsed = elapsed;
 
     for (let i = 0; i < animatedRefs.rings.length; i++) {
-      const r = animatedRefs.rings[i].ring;
+      const entry = animatedRefs.rings[i];
+      if (entry.chunk && (!entry.chunk.visible || !entry.chunk.detailsVisible)) continue;
+      const r = entry.ring;
       const pulse = 1 + Math.sin(elapsed * 2.5 + i) * 0.04;
       r.scale.set(pulse, pulse, 1);
       r.updateMatrix();
@@ -2714,6 +3385,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     }
     for (let i = 0; i < animatedRefs.leds.length; i++) {
       const led = animatedRefs.leds[i];
+      if (led.chunk && (!led.chunk.visible || !led.chunk.detailsVisible)) continue;
       const blink = Math.sin(elapsed * (led.alert ? 9 : 4.5) + led.phase) > 0;
       if (led.mesh.visible !== blink) {
         led.mesh.visible = blink;
@@ -2721,6 +3393,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     }
     for (let i = 0; i < animatedRefs.survivalBeacons.length; i++) {
       const sb = animatedRefs.survivalBeacons[i];
+      if (sb.chunk && (!sb.chunk.visible || !sb.chunk.detailsVisible)) continue;
       const pulse = 0.5 + 0.5 * Math.sin(elapsed * 4.5 + sb.phase);
       sb.mesh.scale.setScalar(0.85 + pulse * 0.35);
       sb.mesh.updateMatrix();
@@ -2729,6 +3402,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     }
     for (let i = 0; i < teacherRefs.length; i++) {
       const tr = teacherRefs[i];
+      if (tr.chunk && (!tr.chunk.visible || !tr.chunk.detailsVisible)) continue;
       if (tr.root?.visible !== false) {
         tr.update(elapsed, playerPos, diplomaEarned);
       }
@@ -2762,6 +3436,12 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         continue;
       }
 
+      if (pc.chunk && (!pc.chunk.visible || !pc.chunk.detailsVisible)) {
+        pc.desktop.inView = false;
+        pc.desktop.sleepMode = true;
+        continue;
+      }
+
       if (hasPlayerPos || hasCamera) {
         const px = hasPlayerPos ? Number(playerPos.x) : _camWorldPos.x;
         const pz = hasPlayerPos ? Number(playerPos.z) : _camWorldPos.z;
@@ -2776,7 +3456,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         let inView = true;
         if (hasCamera) {
           const vx = pc.position.x - _camWorldPos.x;
-          const vy = 1.08 - _camWorldPos.y;
+          const vy = (pc.position.y || 0) + 1.08 - _camWorldPos.y;
           const vz = pc.position.z - _camWorldPos.z;
           const vLenSq = vx * vx + vy * vy + vz * vz;
           const dot =
@@ -2839,6 +3519,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     scene.remove(hoverHaloMesh);
     hoverHaloMesh.geometry.dispose();
     hoverHaloMat.dispose();
+    spatialCulling?.dispose?.();
+    spatialCulling = null;
+    spatialHash.clear();
+    ceilingPanelMeshes.length = 0;
     disposeNodeTree(worldGroup);
     perfRackDoorTex?.dispose?.();
     perfRackDoorTex = null;
@@ -2865,12 +3549,25 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     pcStations,
     pcInteractiveSurfaces,
     shopKiosks,
+    spatialHash,
+    get spatialCulling() {
+      return spatialCulling;
+    },
+    get walkableSurfaces() {
+      return walkableSurfaces;
+    },
     getPcStationById,
     setArcadeGameEndHandler,
     setLocalCoins,
     setVisible,
     setQualityProfile,
     getRenderStats,
+    updateCulling,
+    getCullingStats,
+    setEditorFloorCutoff,
+    getNearbyInteractables,
+    getNearbyOccluders,
+    getNearbyOccludersAt,
     get mapData() {
       return currentMapData;
     },

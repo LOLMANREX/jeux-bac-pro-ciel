@@ -388,7 +388,8 @@ export class NetworkClient {
           x: qNum(sp.x ?? -3.95),
           y: qNum(sp.y ?? 0),
           z: qNum(sp.z ?? 0.65),
-          yaw: qNum(sp.yaw ?? -1.35)
+          yaw: qNum(sp.yaw ?? -1.35),
+          floor: Math.round(Number(sp.floor) || 0)
         });
       }
 
@@ -488,8 +489,9 @@ export class NetworkClient {
     return false;
   }
 
-  sendMove(x, y, z, yaw, force = false, vrData = undefined) {
-    const next = { x: qNum(x), y: qNum(y), z: qNum(z), yaw: qNum(yaw) };
+  sendMove(x, y, z, yaw, force = false, vrData = undefined, floor = undefined) {
+    const fl = floor !== undefined && floor !== null ? Math.round(Number(floor) || 0) : (this.lastSentMove?.floor ?? 0);
+    const next = { x: qNum(x), y: qNum(y), z: qNum(z), yaw: qNum(yaw), floor: fl };
     const hasVrPayload = vrData !== undefined;
     const isVrActive = Boolean(vrData?.active);
     if (this.pendingJoin) {
@@ -500,7 +502,8 @@ export class NetworkClient {
         Math.abs(next.x - this.lastSentMove.x) < 0.002 &&
         Math.abs(next.y - this.lastSentMove.y) < 0.002 &&
         Math.abs(next.z - this.lastSentMove.z) < 0.002 &&
-        Math.abs(next.yaw - this.lastSentMove.yaw) < 0.004;
+        Math.abs(next.yaw - this.lastSentMove.yaw) < 0.004 &&
+        next.floor === (this.lastSentMove.floor ?? 0);
       const sameVr = !hasVrPayload && !this.lastVrActive;
       if (samePos && sameVr) return;
       if (samePos && isVrActive && this.lastVrActive) {

@@ -40,13 +40,15 @@ function createLabel(text, subtext) {
 
 export function createNpcTeacher(parent, opts = {}) {
   const tx = Number.isFinite(Number(opts.x)) ? Number(opts.x) : TEACHER_POS.x;
+  const ty = Number.isFinite(Number(opts.y)) ? Number(opts.y) : 0;
   const tz = Number.isFinite(Number(opts.z)) ? Number(opts.z) : TEACHER_POS.z;
+  const npcFloor = Number.isFinite(Number(opts.floor)) ? Math.round(Number(opts.floor)) : 0;
   const rotRad = ((Number(opts.rotation) || 0) * Math.PI) / 180;
   const customLabel = opts.label || 'Professeur CIEL';
   const customDialogue = String(opts.dialogue || '').trim();
 
   const root = new THREE.Group();
-  root.position.set(tx, 0, tz);
+  root.position.set(tx, ty, tz);
   root.rotation.y = rotRad;
 
   const pantMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.8 });
@@ -148,7 +150,8 @@ export function createNpcTeacher(parent, opts = {}) {
     type: 'npc',
     label: `👨‍🏫 Parler à ${customLabel}`,
     dialogue: customDialogue,
-    position: new THREE.Vector3(tx, 1.2, tz),
+    position: new THREE.Vector3(tx, ty + 1.2, tz),
+    floor: npcFloor,
     interactRadius: opts.interactRadius || 3.1,
     mesh: root
   };
@@ -179,7 +182,10 @@ export function createNpcTeacher(parent, opts = {}) {
       minX: tx - 0.55,
       maxX: tx + 0.55,
       minZ: tz - 0.55,
-      maxZ: tz + 0.55
+      maxZ: tz + 0.55,
+      minY: ty,
+      maxY: ty + 2.0,
+      floor: npcFloor
     },
     update
   };

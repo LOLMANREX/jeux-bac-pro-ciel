@@ -19,6 +19,7 @@ import { NetworkClient } from './core/network.js';
 import { SceneManager, computeAscensionGatheringLayout, computeZoneVisibility, pickLabInteractable } from './world/SceneManager.js';
 import {
   createDefaultMap,
+  formatFloorShortLabel,
   getDynamicMapColliders,
   getStationTeleportInMap,
   getZoneAtPositionInMap,
@@ -151,10 +152,22 @@ function applyActiveZoneCulling(mode = 'hall') {
   survivalArena.setZoneVisibility?.(vis.survivalZone);
 }
 
+let effectiveQualityTier = gameState.quality || 'high';
+const _cullPlayerPosScratch = { x: 0, y: 0, z: 0 };
+const _cullOptsScratch = { currentFloor: 0, isVr: false, quality: effectiveQualityTier };
+const _petOwnerPosScratch = { x: 0, y: 0, z: 0 };
+const _nearbyInteractScratch = [];
+const _nearbyOccluderScratch = [];
+const _vrInteractScratch = [];
+const _vrOccluderScratch = [];
+const _nearbySurfacesScratch = [];
+
 sceneMgr.onQualityChange((q) => {
+  effectiveQualityTier = q.effectiveQuality || 'balanced';
   lab.setQualityProfile?.({
     textureThrottleMult: q.textureThrottleMult,
-    lowResPc: q.isMobile || q.isVr || q.effectiveQuality === 'potato' || q.effectiveQuality === 'eco'
+    lowResPc: q.isMobile || q.isVr || effectiveQualityTier === 'potato' || effectiveQualityTier === 'eco',
+    tier: effectiveQualityTier
   });
   combatVfx.setParticleScale?.(q.particleScale);
 });
@@ -165,6 +178,8 @@ applyActiveZoneCulling('hall');
 const player = new PlayerController(sceneMgr.camera, canvas, lab.colliders, {
   onJump: () => sfx.jump()
 });
+player.setWalkableSurfaces?.(lab.walkableSurfaces);
+player.setSpatialHash?.(lab.spatialHash);
 player.setBounds(currentMapData.bounds);
 player.setSensitivity(gameState.mouseSens);
 player.setTouchSensitivity(gameState.touchSens);
@@ -536,9 +551,29 @@ vrManager = new VRManager(sceneMgr, player, {
   skin: gameState.skin,
   playerName: gameState.profile?.name || 'Eleve_CIEL',
   mapData: currentMapData,
-  getInteractables: () => getActiveInteractables(),
+  getInteractables: () =>
+    activeWorldMode === 'hall' &&
+    !survivalState.inWaitingRoom &&
+    !combatState.inWaitingRoom &&
+    !combatState.inActiveMatch &&
+    !survivalState.detained &&
+    !survivalState.inDefeatDetention &&
+    !survivalState.introActive &&
+    !survivalState.hiddenRack
+      ? lab.getNearbyInteractables(player.position.x, player.position.z, 6.5, player.getCurrentFloor(), _vrInteractScratch)
+      : getActiveInteractables(),
   getWorldInteractiveSurfaces: () => getActiveWorldSurfaces(),
-  getOccluders: () => lab.solidWallMeshes,
+  getOccluders: () =>
+    activeWorldMode === 'hall' &&
+    !survivalState.inWaitingRoom &&
+    !combatState.inWaitingRoom &&
+    !combatState.inActiveMatch &&
+    !survivalState.detained &&
+    !survivalState.inDefeatDetention &&
+    !survivalState.introActive &&
+    !survivalState.hiddenRack
+      ? lab.getNearbyOccludersAt(player.position.x, player.position.z, 7.5, player.getCurrentFloor(), _vrOccluderScratch)
+      : lab.solidWallMeshes,
   getNearestInteractable: () => nearestTarget,
   onHoverInteractable: (item) => lab.setHoveredInteractable?.(item),
   onInteract: (item) => interactWith(item),
@@ -613,7 +648,15 @@ vrManager = new VRManager(sceneMgr, player, {
       vrManager.setDetentionHudHidden?.(false);
     }
     if (joined) {
-      network.sendMove(player.position.x, 0, player.position.z, player.yaw, true, vrManager.getVrSyncPayload());
+      network.sendMove(
+        player.position.x,
+        player.getFeetY(),
+        player.position.z,
+        player.yaw,
+        true,
+        vrManager.getVrSyncPayload(),
+        player.getCurrentFloor()
+      );
     }
   },
   onExitVr: () => {
@@ -647,7 +690,15 @@ vrManager = new VRManager(sceneMgr, player, {
       touchControls?.setCombatMode?.(true, { mode: combatState.mode, weaponShortName: wSpec?.shortName || '' });
     }
     if (joined) {
-      network.sendMove(player.position.x, 0, player.position.z, player.yaw, true, { active: false });
+      network.sendMove(
+        player.position.x,
+        player.getFeetY(),
+        player.position.z,
+        player.yaw,
+        true,
+        { active: false },
+        player.getCurrentFloor()
+      );
     }
   },
   onStateChange: (st) => hud?.syncVrUi?.(st),
@@ -960,7 +1011,25 @@ function getActiveWorldSurfaces() {
   if ((survivalState.inWaitingRoom && !survivalState.inActiveMatch) || (combatState.inWaitingRoom && !combatState.inActiveMatch) || combatState.inActiveMatch) {
     return [];
   }
-  return lab.pcInteractiveSurfaces || [];
+  const allSurfaces = lab.pcInteractiveSurfaces || [];
+  if (allSurfaces.length === 0) return allSurfaces;
+  _nearbySurfacesScratch.length = 0;
+  const curFloor = player.getCurrentFloor();
+  const px = player.position.x;
+  const pz = player.position.z;
+  for (let i = 0; i < allSurfaces.length; i++) {
+    const surf = allSurfaces[i];
+    const st = surf?.pcStation;
+    if (!st) continue;
+    if (st.chunk && (!st.chunk.visible || !st.chunk.detailsVisible)) continue;
+    if (Math.abs((st.floor ?? 0) - curFloor) > 1) continue;
+    const dx = (st.position?.x || 0) - px;
+    const dz = (st.position?.z || 0) - pz;
+    if (dx * dx + dz * dz <= 64) {
+      _nearbySurfacesScratch.push(surf);
+    }
+  }
+  return _nearbySurfacesScratch;
 }
 
 function applyDetentionPcCamera() {
@@ -981,37 +1050,45 @@ function teleportWithWorldMode(pos, lookAt, mode = 'hall') {
     player.setSeated?.(false);
     vrManager?.setSeatedMode?.(false);
     const cfg = survivalArena.getWaitingRoomConfig();
+    player.setWalkableSurfaces?.(null);
+    player.setSpatialHash?.(null);
     player.setColliders(cfg.colliders);
     player.setBounds(cfg.bounds);
     player.teleportTo(cfg.spawn, cfg.lookAt);
-    vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, player.yaw);
+    vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, player.yaw, 0);
     return;
   }
   if (mode === 'combat_waiting') {
     player.setSeated?.(false);
     vrManager?.setSeatedMode?.(false);
     const cfg = combatArena.getWaitingRoomConfig();
+    player.setWalkableSurfaces?.(null);
+    player.setSpatialHash?.(null);
     player.setColliders(cfg.colliders);
     player.setBounds(cfg.bounds);
     player.teleportTo(cfg.spawn, cfg.lookAt);
-    vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, player.yaw);
+    vrManager?.syncWorldTeleport?.(cfg.spawn.x, cfg.spawn.z, player.yaw, 0);
     return;
   }
   if (mode === 'combat_arena') {
     player.setSeated?.(false);
     vrManager?.setSeatedMode?.(false);
     const cfg = combatArena.getArenaConfig();
+    player.setWalkableSurfaces?.(null);
+    player.setSpatialHash?.(null);
     player.setColliders(cfg.colliders);
     player.setBounds(cfg.bounds);
     const sp = pos || cfg.spawn;
     const lk = lookAt || cfg.lookAt;
     player.teleportTo(sp, lk);
-    vrManager?.syncWorldTeleport?.(sp.x, sp.z, player.yaw);
+    vrManager?.syncWorldTeleport?.(sp.x, sp.z, player.yaw, 0);
     return;
   }
   if (mode === 'detention') {
     const cfg = survivalArena.getDetentionRoomConfig();
     const seatEyeY = cfg.vrSeatEyeY || cfg.pcEye?.y || 1.28;
+    player.setWalkableSurfaces?.(null);
+    player.setSpatialHash?.(null);
     player.setColliders(cfg.colliders);
     player.setBounds(cfg.bounds);
     player.teleportTo(cfg.spawn, cfg.lookAt);
@@ -1036,11 +1113,13 @@ function teleportWithWorldMode(pos, lookAt, mode = 'hall') {
   }
   player.setSeated?.(false);
   vrManager?.setSeatedMode?.(false);
+  player.setWalkableSurfaces?.(lab.walkableSurfaces);
+  player.setSpatialHash?.(lab.spatialHash);
   player.setColliders(lab.colliders);
   player.setBounds(currentMapData.bounds);
   const pose = pos ? { pos, lookAt: lookAt || { x: pos.x, z: pos.z - 4 } } : getSpawnPose(currentMapData);
   player.teleportTo(pose.pos, pose.lookAt);
-  vrManager?.syncWorldTeleport?.(pose.pos.x, pose.pos.z, player.yaw);
+  vrManager?.syncWorldTeleport?.(pose.pos.x, pose.pos.z, player.yaw, player.surfaceY);
 }
 
 function getLocalSurvivalParticipant(snap = survivalState.snapshot) {
@@ -2065,6 +2144,8 @@ function resetSurvivalClientFull() {
   vrManager?.setSeatedMode?.(false);
   vrManager?.setDetentionHudHidden?.(false);
   player.setMovementLocked(false);
+  player.setWalkableSurfaces?.(lab.walkableSurfaces);
+  player.setSpatialHash?.(lab.spatialHash);
   player.setColliders(lab.colliders);
   player.setBounds(currentMapData.bounds);
   hud?.hideAllSurvivalUi?.();
@@ -2610,6 +2691,8 @@ function resetCombatClientFull() {
   touchControls?.setCombatMode?.(false);
   vrManager?.setCombatMode?.(false);
   hud?.hideAllCombatUi?.();
+  player.setWalkableSurfaces?.(lab.walkableSurfaces);
+  player.setSpatialHash?.(lab.spatialHash);
   player.setColliders(lab.colliders);
   player.setBounds(currentMapData.bounds);
   if (vrManager?.isVrActive?.()) {
@@ -2619,7 +2702,7 @@ function resetCombatClientFull() {
 
 function syncVrWatchHud(extra = {}) {
   if (!vrManager?.isVrActive?.()) return;
-  const zone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z);
+  const zone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z, player.getCurrentFloor());
   const survSnap = survivalState.snapshot;
   const survExtra = {};
   if (survivalState.inActiveMatch) {
@@ -3057,7 +3140,15 @@ function runWorldCelebration(payload = {}) {
   }
 
   if (joined) {
-    network.sendMove(player.position.x, 0, player.position.z, player.yaw, true);
+    network.sendMove(
+      player.position.x,
+      player.getFeetY(),
+      player.position.z,
+      player.yaw,
+      true,
+      undefined,
+      player.getCurrentFloor()
+    );
   }
 
   if (activeCinematic?.endTimer) {
@@ -3166,10 +3257,10 @@ function syncWallLeaderboard(entries = gameState.leaderboard) {
 }
 
 function getSpawnPose(mapData) {
-  const sp = mapData?.spawn || { x: 0, z: 2, yaw: 0 };
+  const sp = mapData?.spawn || { x: 0, z: 2, yaw: 0, floor: 0 };
   const yaw = typeof sp.yaw === 'number' ? sp.yaw : 0;
   return {
-    pos: { x: sp.x, z: sp.z },
+    pos: { x: sp.x, z: sp.z, floor: sp.floor ?? 0 },
     lookAt: { x: sp.x - Math.sin(yaw) * 4, z: sp.z - Math.cos(yaw) * 4 },
     yaw
   };
@@ -3190,7 +3281,9 @@ function applyMapData(rawMap, liveUpdate = false) {
   }
   lab.updateStationBadges(gameState.profile.grades);
   sceneMgr.updateWorldBounds(currentMapData.bounds);
-  if (!survivalState.inWaitingRoom && !survivalState.detained) {
+  if (!survivalState.inWaitingRoom && !survivalState.detained && !combatState.inWaitingRoom && !combatState.inActiveMatch) {
+    player.setWalkableSurfaces?.(lab.walkableSurfaces);
+    player.setSpatialHash?.(lab.spatialHash);
     player.setColliders(lab.colliders);
     player.setBounds(currentMapData.bounds);
   }
@@ -3203,11 +3296,11 @@ function applyMapData(rawMap, liveUpdate = false) {
     const pos = player.position;
     const outOfBounds =
       pos.x < b.minX + 0.5 || pos.x > b.maxX - 0.5 || pos.z < b.minZ + 0.5 || pos.z > b.maxZ - 0.5;
-    if (outOfBounds || player._collides?.(pos.x, pos.z)) {
+    if (outOfBounds || player._collides?.(pos.x, pos.z, player.getFeetY())) {
       const pose = getSpawnPose(currentMapData);
       player.teleportTo(pose.pos, pose.lookAt);
     }
-    const zone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z);
+    const zone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z, player.getCurrentFloor());
     lastZoneId = zone.id;
     hud?.setCurrentZone?.(zone);
   }
@@ -3784,15 +3877,16 @@ function teleportNearTarget(id) {
   if (vrManager?.isVrActive?.()) {
     vrManager._mountVrRigForWorld?.(vrManager.simMode);
   }
-  const zone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z);
+  const zone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z, player.getCurrentFloor());
   hud?.setCurrentZone?.(zone);
   network.sendMove(
     player.position.x,
-    0,
+    player.getFeetY(),
     player.position.z,
     player.yaw,
     true,
-    vrManager?.isVrActive?.() ? vrManager.getVrSyncPayload() : undefined
+    vrManager?.isVrActive?.() ? vrManager.getVrSyncPayload() : undefined,
+    player.getCurrentFloor()
   );
   network.sendZone(zone.id, zone.badgeText.replace('📍 ', ''));
   if (id === 'teacher') {
@@ -4081,20 +4175,21 @@ hud = new HudManager(gameState, network, {
     if (val.startsWith('zone:')) {
       const code = val.slice(5);
       const mapZone = (currentMapData?.zones || []).find((z) => z.code === code || z.id === code);
-      const pos = DEBUG_ZONE_SPOTS[code] || (mapZone ? { x: mapZone.x || 0, z: mapZone.z || 0 } : { x: -3.95, z: 0.65 });
+      const pos = DEBUG_ZONE_SPOTS[code] || (mapZone ? { x: mapZone.x || 0, z: mapZone.z || 0, floor: mapZone.floor ?? 0 } : { x: -3.95, z: 0.65, floor: 0 });
       player.teleportTo(pos, { x: pos.x, z: pos.z - 2 });
       if (vrManager?.isVrActive?.()) {
         vrManager._mountVrRigForWorld?.(vrManager.simMode);
       }
-      const zInfo = getZoneAtPositionInMap(currentMapData, pos.x, pos.z);
+      const zInfo = getZoneAtPositionInMap(currentMapData, pos.x, pos.z, player.getCurrentFloor());
       hud?.setCurrentZone?.(zInfo);
       network.sendMove(
         pos.x,
-        0,
+        player.getFeetY(),
         pos.z,
         player.yaw,
         true,
-        vrManager?.isVrActive?.() ? vrManager.getVrSyncPayload() : undefined
+        vrManager?.isVrActive?.() ? vrManager.getVrSyncPayload() : undefined,
+        player.getCurrentFloor()
       );
       network.sendZone(zInfo.id, zInfo.badgeText.replace('📍 ', ''));
       hud?.toast?.(`📍 Téléporté vers ${zInfo.badgeText}`);
@@ -4481,8 +4576,8 @@ network.on('player_joined', ({ player: p, onlineCount, roomRoster }) => {
   hud.toast(`${p.name} a rejoint l’atelier !`);
 });
 
-network.on('player_moved', ({ id, x, y, z, yaw, vrData }) => {
-  remotePlayers.movePeer(id, x, y, z, yaw, vrData);
+network.on('player_moved', ({ id, x, y, z, yaw, floor, vrData }) => {
+  remotePlayers.movePeer(id, x, y, z, yaw, vrData, floor);
 });
 
 network.on('player_skin_updated', ({ id, skin, equippedSkin, equippedPet, equippedTrail }) => {
@@ -5172,6 +5267,12 @@ function getRayHitInteractable(clientX = null, clientY = null, { allowTouch = fa
     );
     raycaster.setFromCamera(_ndcScratch, sceneMgr.camera);
   }
+  if (activeWorldMode === 'hall' && !survivalState.inWaitingRoom && !combatState.inWaitingRoom && !combatState.inActiveMatch && !survivalState.detained && !survivalState.inDefeatDetention && !survivalState.introActive && !survivalState.hiddenRack) {
+    const curFloor = player.getCurrentFloor();
+    const candidates = lab.getNearbyInteractables(player.position.x, player.position.z, maxDist + 2.5, curFloor, _nearbyInteractScratch);
+    const occluders = lab.getNearbyOccluders(raycaster.ray.origin, raycaster.ray.direction, maxDist, curFloor, _nearbyOccluderScratch);
+    return pickLabInteractable(raycaster, candidates, occluders, maxDist);
+  }
   return pickLabInteractable(raycaster, getActiveInteractables(), lab.solidWallMeshes, maxDist);
 }
 
@@ -5479,9 +5580,7 @@ let lastCrosshairReady = false;
 let lastCanvasCursor = '';
 
 sceneMgr.addUpdater((dt, elapsed) => {
-  if (activeWorldMode === 'hall' || (survivalState.inActiveMatch && !survivalState.detained)) {
-    lab.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned, sceneMgr.camera);
-  }
+  const vrActivePre = Boolean(vrManager?.isVrActive?.());
   combatVfx.update(dt);
   if (activePcSession?.comfortMode && cielOsDom?.comfortCtx && activePcSession.pcStation?.canvas) {
     cielOsDom.comfortCtx.drawImage(activePcSession.pcStation.canvas, 0, 0);
@@ -5493,7 +5592,10 @@ sceneMgr.addUpdater((dt, elapsed) => {
   if (localPet) {
     if (joined && !survivalState.hiddenSpot && !survivalState.hiddenRack && !isDetentionSeatedActive() && !combatState.inActiveMatch) {
       localPet.group.visible = true;
-      localPet.update(dt, elapsed, player.position, player.yaw);
+      _petOwnerPosScratch.x = player.position.x;
+      _petOwnerPosScratch.y = player.getFeetY();
+      _petOwnerPosScratch.z = player.position.z;
+      localPet.update(dt, elapsed, _petOwnerPosScratch, player.yaw);
     } else {
       localPet.group.visible = false;
     }
@@ -5503,14 +5605,22 @@ sceneMgr.addUpdater((dt, elapsed) => {
 
   if (!joined) {
     combatViewWeaponRoot.visible = false;
-    if (!vrManager?.isVrActive?.()) {
+    if (!vrActivePre) {
       const angle = elapsed * 0.14;
-      const sp = currentMapData?.spawn || { x: -2.0, z: -0.5 };
-      const farSpawn = Math.abs(sp.x) > 15 || Math.abs(sp.z) > 15;
+      const sp = currentMapData?.spawn || { x: -2.0, z: -0.5, floor: 0 };
+      const spFloorY = (Number(sp.floor) || 0) * (Number(currentMapData?.floorHeight) || 3.8);
+      const farSpawn = Math.abs(sp.x) > 15 || Math.abs(sp.z) > 15 || Math.abs(spFloorY) > 0.1;
       const lookX = farSpawn ? sp.x : -2.0;
       const lookZ = farSpawn ? sp.z : -0.5;
-      sceneMgr.camera.position.set(lookX - 2.5 + Math.sin(angle) * 6.5, 4.2, lookZ + 0.5 + Math.cos(angle) * 6.5);
-      sceneMgr.camera.lookAt(lookX, 1.4, lookZ);
+      sceneMgr.camera.position.set(lookX - 2.5 + Math.sin(angle) * 6.5, spFloorY + 4.2, lookZ + 0.5 + Math.cos(angle) * 6.5);
+      sceneMgr.camera.lookAt(lookX, spFloorY + 1.4, lookZ);
+      _cullOptsScratch.currentFloor = Number(sp.floor) || 0;
+      _cullOptsScratch.isVr = false;
+      _cullOptsScratch.quality = effectiveQualityTier;
+      lab.updateCulling?.(sceneMgr.camera, null, _cullOptsScratch);
+      if (activeWorldMode === 'hall') {
+        lab.update(elapsed, null, gameState.profile.diplomaEarned, sceneMgr.camera);
+      }
     }
     return;
   }
@@ -5703,9 +5813,22 @@ sceneMgr.addUpdater((dt, elapsed) => {
       }
     }
   }
+  const curFloor = player.getCurrentFloor();
+  const feetY = player.getFeetY();
+  if (activeWorldMode === 'hall' || (survivalState.inActiveMatch && !survivalState.detained)) {
+    _cullPlayerPosScratch.x = player.position.x;
+    _cullPlayerPosScratch.y = feetY;
+    _cullPlayerPosScratch.z = player.position.z;
+    _cullOptsScratch.currentFloor = curFloor;
+    _cullOptsScratch.isVr = vrOn;
+    _cullOptsScratch.quality = effectiveQualityTier;
+    lab.updateCulling?.(sceneMgr.camera, _cullPlayerPosScratch, _cullOptsScratch);
+    lab.update(elapsed, player.position, gameState.profile.diplomaEarned, sceneMgr.camera);
+  }
+
   updateVoiceIndicatorSprite(localVoiceIndicator, dt, voiceChat.isSpeaking);
   voiceChat.update(player.position, player.yaw, remotePlayers.peers);
-  const currentZone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z);
+  const currentZone = getZoneAtPositionInMap(currentMapData, player.position.x, player.position.z, curFloor);
   if (currentZone.id !== lastZoneId) {
     lastZoneId = currentZone.id;
     hud?.setCurrentZone?.(currentZone);
@@ -5726,13 +5849,21 @@ sceneMgr.addUpdater((dt, elapsed) => {
       playerPos: player.position,
       playerYaw: player.yaw,
       currentZone,
-      peers: remotePlayers.getMiniMapPeers()
+      peers: remotePlayers.getMiniMapPeers(),
+      floor: curFloor
     });
   }
 
   if (!vrOn && gameState.perfMonitor && elapsed - lastPerfMonAt >= 0.25) {
     lastPerfMonAt = elapsed;
-    hud?.updatePerfMonitor?.(sceneMgr.getPerformanceMetrics());
+    const baseMetrics = sceneMgr.getPerformanceMetrics();
+    const cullStats = lab.getCullingStats?.();
+    if (cullStats) {
+      baseMetrics.visibleChunks = cullStats.visibleChunks;
+      baseMetrics.totalChunks = cullStats.totalChunks;
+      baseMetrics.floorLabel = formatFloorShortLabel(curFloor);
+    }
+    hud?.updatePerfMonitor?.(baseMetrics);
   }
 
   if (!vrOn && privateDebugMode && elapsed - lastDebugStatsAt >= 0.15) {
@@ -5746,23 +5877,28 @@ sceneMgr.addUpdater((dt, elapsed) => {
   }
 
   if (!modalOpen) {
-    const jumpY = vrOn ? 0 : Math.max(0, player.position.y - player.groundY);
     network.sendMove(
       player.position.x,
-      jumpY,
+      feetY,
       player.position.z,
       player.yaw,
       Boolean(step?.landed),
-      vrOn ? vrManager.getVrSyncPayload() : undefined
+      vrOn ? vrManager.getVrSyncPayload() : undefined,
+      curFloor
     );
 
     let bestPrimary = null;
     let bestPrimaryDistSq = Infinity;
     let bestProp = null;
     let bestPropDistSq = Infinity;
-    const activeInter = getActiveInteractables();
+    const activeInter =
+      activeWorldMode === 'hall' && !survivalState.inWaitingRoom && !combatState.inWaitingRoom && !combatState.inActiveMatch && !survivalState.detained && !survivalState.inDefeatDetention && !survivalState.introActive && !survivalState.hiddenRack
+        ? lab.getNearbyInteractables(player.position.x, player.position.z, 6.0, curFloor, _nearbyInteractScratch)
+        : getActiveInteractables();
     for (let i = 0; i < activeInter.length; i++) {
       const item = activeInter[i];
+      const itemY = Number(item.position.y) || 0;
+      if (Math.abs(feetY - itemY) > 2.35) continue;
       const dx = player.position.x - item.position.x;
       const dz = player.position.z - item.position.z;
       const dSq = dx * dx + dz * dz;

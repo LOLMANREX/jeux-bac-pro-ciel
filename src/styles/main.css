@@ -7518,6 +7518,8 @@ body.combat-active #crosshair {
   left: 12px;
   z-index: 48;
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 24px);
   align-items: center;
   gap: 8px;
   padding: 5px 10px;
