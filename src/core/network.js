@@ -738,14 +738,16 @@ export class NetworkClient {
     return this.send({ type: 'combat_ready', ready: Boolean(ready) });
   }
 
-  sendCombatAttack({ weaponId, origin, dir, isVrSwing = false, ads = false } = {}) {
+  sendCombatAttack({ weaponId, origin, dir, isVrSwing = false, isVrShot = false, ads = false, twoHanded = false } = {}) {
     return this.send({
       type: 'combat_attack',
       weaponId,
       origin,
       dir,
       isVrSwing: Boolean(isVrSwing),
-      ads: Boolean(ads)
+      isVrShot: Boolean(isVrShot),
+      ads: Boolean(ads),
+      twoHanded: Boolean(twoHanded)
     });
   }
 

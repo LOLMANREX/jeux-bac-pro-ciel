@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : "v4.34 - Éditeur : Déplacement d'Étages Entiers & Import de Modèles 3D";
+    : 'v4.35 - Refonte Combat VR : Ergonomie Quest 3S, Prise à 2 Mains Dynamique, Visée Muzzle & Dégâts';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.34 — Éditeur : Déplacement d’Étages Entiers & Import de Modèles 3D',
+    version: 'v4.35 — Refonte Combat VR : Ergonomie Quest 3S, Prise à 2 Mains Dynamique, Visée Muzzle & Dégâts',
     date: '19/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'ERGONOMIE VR 1 MAIN',
+        title: 'Orientation Naturelle gripSpace Quest 3S, Repère Muzzle & Viseur Holographique Aligné',
+        desc: 'Recalibrage complet de la crosse dans la paume du contrôleur WebXR dominant (compensation d’inclinaison naturelle du poignet sans avoir à casser le poignet vers le bas), ajout des repères explicites muzzle, sightAnchor, gripAnchor et foregripAnchor alignés sur le même axe canon (-Z), conservation complète du jeu fluide à 1 main (visée, tir, rechargement et changement d’arme).'
+      },
+      {
+        badge: 'PRISE À 2 MAINS',
+        title: 'Two-Handed Grip Dynamique avec Détection de Proximité, Lissage & Réduction de Recul',
+        desc: 'Nouveau module VRCombatController zéro allocation : approche de la main secondaire près du garde-main (halo discret + micro-vibration haptique à portée), accrochage par grip/squeeze ou gâchette secondaire orientant le canon vers la main avant tout en conservant le roulis de la main principale, filtrage de stabilité sur la visée, recul visuel fortement réduit et retour instantané sans à-coup en mode 1 main au relâchement.'
+      },
+      {
+        badge: 'TIR MUZZLE & DÉGÂTS VR',
+        title: 'Suppression Totale de la Dépendance Caméra Desktop, Correction Hitboxes/Dégâts & Feedback Haptique/Hitmarker 3D',
+        desc: 'Chaque tir VR utilise strictement la position monde et la direction monde du repère muzzle (raycast serveur, tracé laser et point d’impact parfaitement colinéaires), correction du mapping targetId/victimId et des hitboxes cylindriques verticales, impulsion haptique sur la main principale (et les deux mains en prise à 2 mains), hitmarker 3D croix + anneau d’impact monde et signal sonore/haptique immédiat à chaque touche ou élimination.'
+      }
+    ]
+  },
+  {
+    version: 'v4.34 — Éditeur : Déplacement d’Étages Entiers & Import de Modèles 3D',
+    date: '19/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'ÉTAGES ENTIERS',

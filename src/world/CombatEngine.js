@@ -157,7 +157,8 @@ function raycastAabb3D(ox, oy, oz, dx, dy, dz, box, maxDist) {
 function raycastFighterCylinder(ox, oy, oz, dx, dy, dz, fighter, maxDist) {
   const rx = ox - fighter.x;
   const rz = oz - fighter.z;
-  const r = 0.45;
+  const baseY = Number(fighter.y) || 0;
+  const r = 0.48;
   const a = dx * dx + dz * dz;
   const b = 2 * (rx * dx + rz * dz);
   const c = rx * rx + rz * rz - r * r;
@@ -165,7 +166,7 @@ function raycastFighterCylinder(ox, oy, oz, dx, dy, dz, fighter, maxDist) {
   let tHit = null;
   if (a < 1e-6) {
     if (c <= 0 && dy !== 0) {
-      const ty = dy > 0 ? (0.05 - oy) / dy : (1.82 - oy) / dy;
+      const ty = dy > 0 ? (baseY + 0.05 - oy) / dy : (baseY + 1.88 - oy) / dy;
       if (ty >= 0 && ty <= maxDist) tHit = ty;
     }
   } else {
@@ -182,8 +183,8 @@ function raycastFighterCylinder(ox, oy, oz, dx, dy, dz, fighter, maxDist) {
   }
   if (tHit === null) return null;
   const hitY = oy + dy * tHit;
-  if (hitY < 0 || hitY > 1.86) return null;
-  return { t: tHit, hitY, headshot: hitY >= 1.38 };
+  if (hitY < baseY - 0.05 || hitY > baseY + 1.94) return null;
+  return { t: tHit, hitY, headshot: hitY >= baseY + 1.38 };
 }
 
 function clampArenaTargetPos(x, z, colliders, bounds, radius = 0.42) {
@@ -532,7 +533,7 @@ export class CombatMatchController {
     }
   }
 
-  _applyDamage(attacker, victim, rawDamage, weaponSpec, headshot = false, now = Date.now()) {
+  _applyDamage(attacker, victim, rawDamage, weaponSpec, headshot = false, now = Date.now(), hitPoint = null) {
     if (!victim.alive || now < victim.spawnProtectUntil) return null;
     let finalRaw = rawDamage;
     let guarded = false;
@@ -568,8 +569,9 @@ export class CombatMatchController {
       }
       this._pushKillfeed(attacker, victim, weaponSpec, headshot, now);
     }
-    return {
+    const hitInfo = {
       targetId: victim.id,
+      victimId: victim.id,
       targetName: victim.name,
       damage: dmg,
       remainingHp: victim.hp,
@@ -577,6 +579,12 @@ export class CombatMatchController {
       headshot,
       guarded
     };
+    if (hitPoint) {
+      hitInfo.hitX = hitPoint.x;
+      hitInfo.hitY = hitPoint.y;
+      hitInfo.hitZ = hitPoint.z;
+    }
+    return hitInfo;
   }
 
   _moveEntity(entity, dx, dz, radius = 0.42) {
@@ -646,7 +654,7 @@ export class CombatMatchController {
 
     const rawOrig = payload.origin || {};
     const ox = Number.isFinite(Number(rawOrig.x)) ? Number(rawOrig.x) : attacker.x;
-    const oy = Number.isFinite(Number(rawOrig.y)) ? Math.max(0.4, Math.min(2.4, Number(rawOrig.y))) : 1.52;
+    const oy = Number.isFinite(Number(rawOrig.y)) ? Math.max(0.1, Math.min(2.8, Number(rawOrig.y))) : 1.52;
     const oz = Number.isFinite(Number(rawOrig.z)) ? Number(rawOrig.z) : attacker.z;
 
     const rawDir = payload.dir || {};
@@ -669,7 +677,12 @@ export class CombatMatchController {
 
     if (this.mode === 'guns') {
       const pellets = Math.max(1, spec.pellets || 1);
-      const adsMult = payload.ads ? (spec.ads?.spreadMult ?? 0.35) : 1;
+      const baseAdsMult = spec.ads?.spreadMult ?? 0.35;
+      const adsMult = payload.twoHanded && payload.ads
+        ? Math.min(baseAdsMult, 0.2)
+        : (payload.ads || payload.twoHanded)
+          ? baseAdsMult
+          : 1;
       const spread = (Number(spec.spread) || 0) * adsMult;
       const rightX = -dz;
       const rightZ = dx;
@@ -720,7 +733,11 @@ export class CombatMatchController {
 
         if (bestTarget) {
           const mult = bestHit.headshot && spec.id === 'ping_sniper' ? 1.28 : bestHit.headshot ? 1.15 : 1.0;
-          const dmgRes = this._applyDamage(attacker, bestTarget, spec.damage * mult, spec, bestHit.headshot, now);
+          const dmgRes = this._applyDamage(attacker, bestTarget, spec.damage * mult, spec, bestHit.headshot, now, {
+            x: ex,
+            y: ey,
+            z: ez
+          });
           if (dmgRes) hits.push(dmgRes);
         }
       }
@@ -751,7 +768,11 @@ export class CombatMatchController {
           if (dot < (spec.arcCos ?? 0.25)) continue;
         }
         if (!this._hasLineOfSightChest(attacker.x, attacker.z, target.x, target.z)) continue;
-        const dmgRes = this._applyDamage(attacker, target, spec.damage, spec, false, now);
+        const dmgRes = this._applyDamage(attacker, target, spec.damage, spec, false, now, {
+          x: target.x,
+          y: (Number(target.y) || 0) + 1.25,
+          z: target.z
+        });
         if (dmgRes) {
           hits.push(dmgRes);
           if (spec.knockback > 0 && dist > 0.05 && !dmgRes.killed) {
@@ -771,6 +792,8 @@ export class CombatMatchController {
       attackerPos: { x: attacker.x, z: attacker.z, yaw: attacker.yaw },
       weaponId: spec.id,
       mode: this.mode,
+      isVrShot: Boolean(payload.isVrShot),
+      twoHanded: Boolean(payload.twoHanded),
       rays,
       hits,
       ended

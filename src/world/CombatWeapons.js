@@ -309,8 +309,81 @@ function getPalette() {
     greenLedGlow: sharedMat('greenLedGlow', () => new THREE.MeshBasicMaterial({ color: '#22c55e' })),
     orangeLedGlow: sharedMat('orangeLedGlow', () => new THREE.MeshBasicMaterial({ color: '#f97316' })),
     portDark: sharedMat('portDark', () => new THREE.MeshStandardMaterial({ color: '#020617', roughness: 0.6, metalness: 0.3 })),
-    lensGlass: sharedMat('lensGlass', () => new THREE.MeshStandardMaterial({ color: '#38bdf8', roughness: 0.08, metalness: 0.2, emissive: '#0284c7', emissiveIntensity: 0.55 }))
+    lensGlass: sharedMat('lensGlass', () => new THREE.MeshStandardMaterial({ color: '#38bdf8', roughness: 0.08, metalness: 0.2, emissive: '#0284c7', emissiveIntensity: 0.55 })),
+    redDotGlow: sharedMat('redDotGlow', () => new THREE.MeshBasicMaterial({ color: '#ff2e4c', side: THREE.DoubleSide })),
+    holoRingGlow: sharedMat('holoRingGlow', () => new THREE.MeshBasicMaterial({ color: '#22d3ee', transparent: true, opacity: 0.88, side: THREE.DoubleSide }))
   };
+}
+
+const WEAPON_VR_ERGONOMICS = {
+  fiber_rifle: {
+    gripOffset: { x: 0, y: -0.062, z: 0.01 },
+    foregripOffset: { x: 0, y: 0.004, z: -0.36 },
+    sightOffset: { x: 0, y: 0.129, z: -0.12 },
+    vrPitchOffset: -0.6,
+    recoil: { kickZ: 0.036, pitchX: 0.075, twoHandMult: 0.34 },
+    haptic: { intensity: 0.68, durationMs: 42 }
+  },
+  udp_shotgun: {
+    gripOffset: { x: 0, y: -0.056, z: 0.025 },
+    foregripOffset: { x: 0, y: -0.014, z: -0.35 },
+    sightOffset: { x: 0, y: 0.116, z: -0.1 },
+    vrPitchOffset: -0.6,
+    recoil: { kickZ: 0.078, pitchX: 0.17, twoHandMult: 0.38 },
+    haptic: { intensity: 0.92, durationMs: 68 }
+  },
+  ping_sniper: {
+    gripOffset: { x: 0, y: -0.058, z: 0.01 },
+    foregripOffset: { x: 0, y: 0.004, z: -0.44 },
+    sightOffset: { x: 0, y: 0.122, z: -0.13 },
+    vrPitchOffset: -0.6,
+    recoil: { kickZ: 0.085, pitchX: 0.19, twoHandMult: 0.32 },
+    haptic: { intensity: 0.96, durationMs: 78 }
+  },
+  plasma_solder_pistol: {
+    gripOffset: { x: 0, y: -0.052, z: 0.0 },
+    foregripOffset: { x: 0, y: -0.048, z: -0.085 },
+    sightOffset: { x: 0, y: 0.08, z: -0.11 },
+    vrPitchOffset: -0.6,
+    recoil: { kickZ: 0.032, pitchX: 0.085, twoHandMult: 0.42 },
+    haptic: { intensity: 0.58, durationMs: 36 }
+  },
+  solder_iron_blade: {
+    gripOffset: { x: 0, y: 0, z: -0.05 },
+    foregripOffset: { x: 0, y: 0, z: -0.17 },
+    sightOffset: { x: 0, y: 0.02, z: -0.18 },
+    vrPitchOffset: -0.48,
+    recoil: { kickZ: 0.02, pitchX: 0.04, twoHandMult: 0.5 },
+    haptic: { intensity: 0.78, durationMs: 48 }
+  },
+  rj45_crimper_heavy: {
+    gripOffset: { x: 0, y: -0.07, z: -0.03 },
+    foregripOffset: { x: 0, y: 0.02, z: -0.12 },
+    sightOffset: { x: 0, y: 0.12, z: -0.16 },
+    vrPitchOffset: -0.48,
+    recoil: { kickZ: 0.025, pitchX: 0.05, twoHandMult: 0.5 },
+    haptic: { intensity: 0.88, durationMs: 56 }
+  },
+  ddr5_katana: {
+    gripOffset: { x: 0, y: 0.01, z: 0 },
+    foregripOffset: { x: 0, y: -0.06, z: 0 },
+    sightOffset: { x: 0, y: 0.48, z: 0 },
+    vrPitchOffset: -0.28,
+    recoil: { kickZ: 0.018, pitchX: 0.04, twoHandMult: 0.5 },
+    haptic: { intensity: 0.82, durationMs: 50 }
+  },
+  switch24_hammer: {
+    gripOffset: { x: 0, y: -0.01, z: 0 },
+    foregripOffset: { x: 0, y: 0.24, z: 0 },
+    sightOffset: { x: 0, y: 0.58, z: -0.08 },
+    vrPitchOffset: -0.28,
+    recoil: { kickZ: 0.025, pitchX: 0.06, twoHandMult: 0.5 },
+    haptic: { intensity: 0.94, durationMs: 65 }
+  }
+};
+
+export function getWeaponVrErgonomics(weaponId) {
+  return WEAPON_VR_ERGONOMICS[weaponId] || WEAPON_VR_ERGONOMICS.fiber_rifle;
 }
 
 function addPart(parent, geomKey, geomFactory, mat, pos, rot = null, name = '') {
@@ -386,7 +459,8 @@ export function buildCombatWeaponMesh(weaponId, { viewModel = false } = {}) {
     addPart(holoGroup, 'holo_post_r', () => new THREE.BoxGeometry(0.007, 0.044, 0.054), pal.matteBlack, [0.022, 0.01, 0]);
     addPart(holoGroup, 'holo_top', () => new THREE.BoxGeometry(0.052, 0.007, 0.054), pal.matteBlack, [0, 0.033, 0]);
     addPart(holoGroup, 'holo_glass', () => new THREE.PlaneGeometry(0.038, 0.038), pal.cyanGlass, [0, 0.011, 0]);
-    addPart(holoGroup, 'holo_dot', () => new THREE.CircleGeometry(0.0028, 10), pal.cyanGlow, [0, 0.011, 0.002]);
+    addPart(holoGroup, 'holo_ring', () => new THREE.RingGeometry(0.0085, 0.0102, 20), pal.holoRingGlow, [0, 0.011, 0.002]);
+    addPart(holoGroup, 'holo_dot', () => new THREE.CircleGeometry(0.0026, 12), pal.redDotGlow, [0, 0.011, 0.0024]);
     addPart(holoGroup, 'holo_chev_l', () => new THREE.BoxGeometry(0.011, 0.002, 0.002), pal.cyanGlow, [-0.0045, 0.004, 0.002], [0, 0, 0.65]);
     addPart(holoGroup, 'holo_chev_r', () => new THREE.BoxGeometry(0.011, 0.002, 0.002), pal.cyanGlow, [0.0045, 0.004, 0.002], [0, 0, -0.65]);
     group.add(holoGroup);
@@ -459,7 +533,10 @@ export function buildCombatWeaponMesh(weaponId, { viewModel = false } = {}) {
     addPart(scopeGroup, 'sn_scope_bell', () => new THREE.CylinderGeometry(0.034, 0.024, 0.07, 12), pal.gunmetal, [0, 0, -0.16], [Math.PI / 2, 0, 0]);
     addPart(scopeGroup, 'sn_scope_eye', () => new THREE.CylinderGeometry(0.026, 0.022, 0.05, 12), pal.darkRubber, [0, 0, 0.14], [Math.PI / 2, 0, 0]);
     addPart(scopeGroup, 'sn_lens_f', () => new THREE.CylinderGeometry(0.029, 0.029, 0.008, 12), pal.lensGlass, [0, 0, -0.195], [Math.PI / 2, 0, 0]);
-    addPart(scopeGroup, 'sn_lens_b', () => new THREE.CylinderGeometry(0.021, 0.021, 0.008, 12), pal.cyanGlow, [0, 0, 0.165], [Math.PI / 2, 0, 0]);
+    addPart(scopeGroup, 'sn_lens_b', () => new THREE.CylinderGeometry(0.021, 0.021, 0.008, 12), pal.cyanGlass, [0, 0, 0.165], [Math.PI / 2, 0, 0]);
+    addPart(scopeGroup, 'sn_ret_h', () => new THREE.BoxGeometry(0.026, 0.0014, 0.0014), pal.cyanGlow, [0, 0, 0.169]);
+    addPart(scopeGroup, 'sn_ret_v', () => new THREE.BoxGeometry(0.0014, 0.026, 0.0014), pal.cyanGlow, [0, 0, 0.169]);
+    addPart(scopeGroup, 'sn_ret_dot', () => new THREE.CircleGeometry(0.0022, 10), pal.redDotGlow, [0, 0, 0.17]);
     group.add(scopeGroup);
     animParts.sight = scopeGroup;
 
@@ -488,8 +565,8 @@ export function buildCombatWeaponMesh(weaponId, { viewModel = false } = {}) {
     addPart(ironGroup, 'pp_rear_r', () => new THREE.BoxGeometry(0.01, 0.015, 0.012), pal.matteBlack, [0.015, 0.004, 0.01]);
     addPart(ironGroup, 'pp_dot_l', () => new THREE.BoxGeometry(0.005, 0.005, 0.004), pal.plasmaOrangeGlow, [-0.015, 0.006, 0.016]);
     addPart(ironGroup, 'pp_dot_r', () => new THREE.BoxGeometry(0.005, 0.005, 0.004), pal.plasmaOrangeGlow, [0.015, 0.006, 0.016]);
-    addPart(ironGroup, 'pp_front_post', () => new THREE.BoxGeometry(0.007, 0.016, 0.012), pal.matteBlack, [0, 0.005, -0.22]);
-    addPart(ironGroup, 'pp_dot_f', () => new THREE.BoxGeometry(0.005, 0.006, 0.005), pal.yellowGlow, [0, 0.008, -0.214]);
+    addPart(ironGroup, 'pp_front_post', () => new THREE.BoxGeometry(0.007, 0.016, 0.012), pal.matteBlack, [0, 0.004, -0.22]);
+    addPart(ironGroup, 'pp_dot_f', () => new THREE.BoxGeometry(0.005, 0.005, 0.005), pal.redDotGlow, [0, 0.006, -0.214]);
     group.add(ironGroup);
     animParts.sight = ironGroup;
 
@@ -577,6 +654,35 @@ export function buildCombatWeaponMesh(weaponId, { viewModel = false } = {}) {
     muzzleOffset = { x: 0, y: 0.62, z: -0.16 };
   }
 
+  const vrErgonomics = getWeaponVrErgonomics(spec.id);
+  const gripOffset = { ...vrErgonomics.gripOffset };
+  const foregripOffset = { ...vrErgonomics.foregripOffset };
+  const sightOffset = { ...vrErgonomics.sightOffset };
+
+  const gripAnchor = new THREE.Object3D();
+  gripAnchor.name = 'gripAnchor';
+  gripAnchor.position.set(gripOffset.x, gripOffset.y, gripOffset.z);
+  group.add(gripAnchor);
+
+  const muzzle = new THREE.Object3D();
+  muzzle.name = 'muzzle';
+  muzzle.position.set(muzzleOffset.x, muzzleOffset.y, muzzleOffset.z);
+  muzzle.rotation.order = 'XYZ';
+  muzzle.rotation.set(-group.rotation.x, Math.PI, 0);
+  group.add(muzzle);
+
+  const sightAnchor = new THREE.Object3D();
+  sightAnchor.name = 'sightAnchor';
+  sightAnchor.position.set(sightOffset.x, sightOffset.y, sightOffset.z);
+  sightAnchor.rotation.order = 'XYZ';
+  sightAnchor.rotation.set(-group.rotation.x, Math.PI, 0);
+  group.add(sightAnchor);
+
+  const foregripAnchor = new THREE.Object3D();
+  foregripAnchor.name = 'foregripAnchor';
+  foregripAnchor.position.set(foregripOffset.x, foregripOffset.y, foregripOffset.z);
+  group.add(foregripAnchor);
+
   group.scale.setScalar(viewModel ? 0.96 : 0.86);
 
   return {
@@ -584,6 +690,14 @@ export function buildCombatWeaponMesh(weaponId, { viewModel = false } = {}) {
     weaponId: spec.id,
     spec,
     muzzleOffset,
+    gripOffset,
+    foregripOffset,
+    sightOffset,
+    vrErgonomics,
+    muzzle,
+    gripAnchor,
+    sightAnchor,
+    foregripAnchor,
     animParts,
     dispose: () => {
       group.parent?.remove(group);

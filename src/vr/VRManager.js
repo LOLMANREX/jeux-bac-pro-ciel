@@ -5,11 +5,11 @@ import {
   DEFAULT_SKIN,
   disposeObject3D
 } from '../world/AvatarBuilder.js';
-import { animateCombatWeaponMesh, buildCombatWeaponMesh, getCombatWeaponById } from '../world/CombatWeapons.js';
 import { evaluateSurfaceAt } from '../world/mapSchema.js';
 import { buildPetMesh } from '../world/PetBuilder.js';
 import { pickLabInteractable } from '../world/SceneManager.js';
 import { hasFullMapLineOfSight, pointCollidesWithColliders } from '../world/SurvivalEngine.js';
+import { VRCombatController } from './VRCombatController.js';
 import { buildArticulatedVRHand } from './VRHandBuilder.js';
 import { createTpSpatialPanel, createVrDebugPanel, createWristHudPanel } from './VRHudPanel.js';
 
@@ -123,7 +123,16 @@ export class VRManager {
     this.snapNeedsRelease = false;
     this.lastSentVrSyncAt = 0;
     this.simWatchInspect = false;
-    this.simGestureState = { trigger: 0, grip: 0, thumb: 0 };
+    this.simLeftPoseLocked = false;
+    this.simGestureState = {
+      trigger: 0,
+      grip: 0,
+      thumb: 0,
+      leftTrigger: null,
+      leftGrip: null,
+      rightTrigger: null,
+      rightGrip: null
+    };
     this.simStickState = { lx: 0, ly: 0, rx: 0, sprint: false };
     this.simKeys = new Set();
     this.simMouseTrigger = false;
@@ -136,31 +145,7 @@ export class VRManager {
     this.hidingInRack = false;
     this.hidingPose = null;
     this.detentionHudHidden = false;
-    this.combatActive = false;
-    this.combatMode = 'guns';
-    this.combatCallbacks = null;
-    this.combatWeaponObj = null;
-    this.combatWeaponId = null;
-    this.combatAdsActive = false;
-    this.combatScopeZoomActive = false;
-    this.combatGuardActive = false;
-    this.combatReticleGroup = null;
-    this.combatReticleRing = null;
-    this.combatReticleDot = null;
-    this.combatReticleMat = null;
-    this._combatLastAttackAt = 0;
-    this._combatPrevRightTrigger = false;
-    this._combatPrevRightGrip = false;
-    this._combatPrevRightAction = false;
-    this._combatPrevLeftAction = false;
-    this._combatPrevGuard = false;
-    this._hasPrevRightHandPos = false;
-    this._prevRightHandWorldPos = new THREE.Vector3();
-    this._curRightHandWorldPos = new THREE.Vector3();
-    this._combatAimOrigin = new THREE.Vector3();
-    this._combatAimDir = new THREE.Vector3();
-    this._combatHeadPos = new THREE.Vector3();
-    this._combatHeadDir = new THREE.Vector3();
+    this.combatController = new VRCombatController(this);
 
     this.raycaster = new THREE.Raycaster();
     this.tempMatrix = new THREE.Matrix4();
@@ -262,6 +247,7 @@ export class VRManager {
       prevActionBtn: false,
       xrSelectPressed: false,
       xrSelectQueued: false,
+      xrSqueezePressed: false,
       hoveredKey: null,
       dragState: null,
       panelDrag: null,
@@ -335,6 +321,9 @@ export class VRManager {
           slot.visualParent.quaternion.identity();
           this._applySlotHandOffset(slot, 'controller');
         }
+        if (side === 'right' && this.combatController?.active) {
+          this.combatController._ensurePivotAttached();
+        }
       });
 
       ctrl.addEventListener('selectstart', () => {
@@ -352,6 +341,20 @@ export class VRManager {
         slot.xrSelectPressed = false;
       });
 
+      ctrl.addEventListener('squeezestart', () => {
+        const side = this.ctrlAssignments[i];
+        const slot = side ? this.slots[side] : null;
+        if (!slot) return;
+        slot.xrSqueezePressed = true;
+      });
+
+      ctrl.addEventListener('squeezeend', () => {
+        const side = this.ctrlAssignments[i];
+        const slot = side ? this.slots[side] : null;
+        if (!slot) return;
+        slot.xrSqueezePressed = false;
+      });
+
       ctrl.addEventListener('disconnected', () => {
         const side = this.ctrlAssignments[i];
         this.ctrlAssignments[i] = null;
@@ -362,6 +365,7 @@ export class VRManager {
           slot.hoveredKey = null;
           slot.xrSelectPressed = false;
           slot.xrSelectQueued = false;
+          slot.xrSqueezePressed = false;
           slot.panelDrag = null;
           this._clearSlotDrag(slot);
         }
@@ -759,6 +763,7 @@ export class VRManager {
     for (const s of [this.slots.left, this.slots.right]) {
       s.xrSelectPressed = false;
       s.xrSelectQueued = false;
+      s.xrSqueezePressed = false;
       s.panelDrag = null;
       s.tpPanelTouchPressed = false;
       s.worldPanelTouchPressed = false;
@@ -771,8 +776,18 @@ export class VRManager {
     this.active = false;
     this.simMode = false;
     this.simWatchInspect = false;
+    this.simLeftPoseLocked = false;
     this.simMouseTrigger = false;
     this.simKeys.clear();
+    this.simGestureState = {
+      trigger: 0,
+      grip: 0,
+      thumb: 0,
+      leftTrigger: null,
+      leftGrip: null,
+      rightTrigger: null,
+      rightGrip: null
+    };
     this.simStickState = { lx: 0, ly: 0, rx: 0, sprint: false };
     this.xrSession = null;
     this.xrFloorFallbackOffset = 0;
@@ -826,6 +841,11 @@ export class VRManager {
     trigger,
     grip,
     thumb,
+    leftTrigger,
+    leftGrip,
+    rightTrigger,
+    rightGrip,
+    leftPos,
     lookDx = 0,
     lookDy = 0,
     mouseTrigger,
@@ -838,6 +858,20 @@ export class VRManager {
     if (typeof trigger === 'number') this.simGestureState.trigger = trigger;
     if (typeof grip === 'number') this.simGestureState.grip = grip;
     if (typeof thumb === 'number') this.simGestureState.thumb = thumb;
+    if (leftTrigger === null || typeof leftTrigger === 'number') this.simGestureState.leftTrigger = leftTrigger;
+    if (leftGrip === null || typeof leftGrip === 'number') this.simGestureState.leftGrip = leftGrip;
+    if (rightTrigger === null || typeof rightTrigger === 'number') this.simGestureState.rightTrigger = rightTrigger;
+    if (rightGrip === null || typeof rightGrip === 'number') this.simGestureState.rightGrip = rightGrip;
+    if (leftPos === null) {
+      this.simLeftPoseLocked = false;
+    } else if (leftPos && typeof leftPos === 'object') {
+      this.simLeftPivot.position.set(
+        Number(leftPos.x) || 0,
+        Number(leftPos.y) || 0,
+        Number(leftPos.z) || 0
+      );
+      this.simLeftPoseLocked = true;
+    }
     if (typeof mouseTrigger === 'boolean') this.simMouseTrigger = mouseTrigger;
     if (typeof lx === 'number') this.simStickState.lx = Math.max(-1, Math.min(1, lx));
     if (typeof ly === 'number') this.simStickState.ly = Math.max(-1, Math.min(1, ly));
@@ -1268,231 +1302,72 @@ export class VRManager {
     return false;
   }
 
-  _ensureCombatReticle() {
-    if (this.combatReticleGroup) return this.combatReticleGroup;
-    const grp = new THREE.Group();
-    grp.name = 'vr-combat-reticle';
-    grp.position.set(0, 0, -2.4);
-    grp.visible = false;
-    const mat = new THREE.MeshBasicMaterial({
-      color: '#22d3ee',
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.88,
-      depthTest: false
-    });
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.022, 0.032, 20), mat);
-    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.008, 12), mat);
-    grp.add(ring);
-    grp.add(dot);
-    this.slots.right.rayParent.add(grp);
-    this.combatReticleGroup = grp;
-    this.combatReticleRing = ring;
-    this.combatReticleDot = dot;
-    this.combatReticleMat = mat;
-    return grp;
+  get combatActive() {
+    return this.combatController.active;
   }
 
-  _syncCombatReticleStyle(weaponId) {
-    const grp = this._ensureCombatReticle();
-    const spec = getCombatWeaponById(weaponId);
-    if (!spec || !this.combatActive) {
-      grp.visible = false;
-      return;
-    }
-    this.combatReticleMat.color.set(spec.beamColor || '#22d3ee');
-    if (spec.id === 'udp_shotgun') {
-      this.combatReticleRing.scale.setScalar(2.15);
-      this.combatReticleRing.visible = true;
-    } else if (spec.id === 'ping_sniper') {
-      this.combatReticleRing.scale.setScalar(0.85);
-      this.combatReticleRing.visible = true;
-    } else if (spec.mode === 'melee') {
-      this.combatReticleRing.scale.setScalar(1.3);
-      this.combatReticleRing.visible = true;
-    } else {
-      this.combatReticleRing.scale.setScalar(1.1);
-      this.combatReticleRing.visible = true;
-    }
-    grp.visible = true;
+  get combatMode() {
+    return this.combatController.mode;
+  }
+
+  get combatWeaponObj() {
+    return this.combatController.weaponObj;
+  }
+
+  get combatWeaponId() {
+    return this.combatController.weaponId;
+  }
+
+  get combatAdsActive() {
+    return this.combatController.adsActive;
+  }
+
+  get combatScopeZoomActive() {
+    return this.combatController.scopeZoomActive;
+  }
+
+  get combatGuardActive() {
+    return this.combatController.guardActive;
+  }
+
+  get combatTwoHanded() {
+    return this.combatController.twoHanded;
+  }
+
+  get combatForegripInRange() {
+    return this.combatController.foregripInRange;
+  }
+
+  get combatReticleGroup() {
+    return this.combatController.reticleGroup;
+  }
+
+  get combatReticleRing() {
+    return this.combatController.reticleRing;
+  }
+
+  get combatReticleDot() {
+    return this.combatController.reticleDot;
   }
 
   setCombatWeaponModel(weaponId = null) {
-    const cleanId = weaponId ? String(weaponId) : null;
-    if (this.combatWeaponId === cleanId && Boolean(this.combatWeaponObj) === Boolean(cleanId)) {
-      this._syncCombatReticleStyle(cleanId);
-      return this.combatWeaponObj;
-    }
-    if (this.combatWeaponObj) {
-      this.combatWeaponObj.group.parent?.remove(this.combatWeaponObj.group);
-      this.combatWeaponObj.dispose?.();
-      this.combatWeaponObj = null;
-    }
-    this.combatWeaponId = cleanId;
-    if (!cleanId) {
-      if (this.combatReticleGroup) this.combatReticleGroup.visible = false;
-      return null;
-    }
-    const obj = buildCombatWeaponMesh(cleanId, { viewModel: true });
-    obj.group.position.set(0.01, -0.02, -0.08);
-    this.slots.right.visualParent.add(obj.group);
-    this.combatWeaponObj = obj;
-    this._syncCombatReticleStyle(cleanId);
-    return obj;
+    return this.combatController.setWeaponModel(weaponId);
   }
 
   setCombatMode(active, opts = {}) {
-    this.combatActive = Boolean(active);
-    this._hasPrevRightHandPos = false;
-    this._combatLastAttackAt = 0;
-    this._combatPrevRightTrigger = false;
-    this._combatPrevRightGrip = false;
-    this._combatPrevRightAction = false;
-    this._combatPrevLeftAction = false;
-    this._combatPrevGuard = false;
-    this.combatAdsActive = false;
-    this.combatScopeZoomActive = false;
-    this.combatGuardActive = false;
-    if (!this.combatActive) {
-      this.combatMode = 'guns';
-      this.combatCallbacks = null;
-      this.setCombatWeaponModel(null);
-      if (this.combatReticleGroup) this.combatReticleGroup.visible = false;
-      this.wristPanel?.updateState?.({ combatStatus: null });
-      return false;
-    }
-    this.combatMode = opts.mode === 'melee' ? 'melee' : 'guns';
-    this.combatCallbacks = opts.callbacks || null;
-    if (opts.weaponId) {
-      this.setCombatWeaponModel(opts.weaponId);
-    }
-    return true;
+    return this.combatController.setMode(active, opts);
+  }
+
+  getCombatMuzzleRay(outOrigin, outDir) {
+    return this.combatController.getMuzzleRay(outOrigin, outDir);
+  }
+
+  triggerCombatHitFeedback(opts = {}) {
+    return this.combatController.triggerHitFeedback(opts);
   }
 
   _updateCombatVr(dt, nowMs, leftState, rightState, elapsed = 0) {
-    if (!this.combatActive || !this.active || this.worldPanel || this.tpContext) {
-      this._hasPrevRightHandPos = false;
-      this.combatAdsActive = false;
-      this.combatScopeZoomActive = false;
-      this.combatGuardActive = false;
-      if (this.combatReticleGroup) this.combatReticleGroup.visible = false;
-      return;
-    }
-
-    const spec = getCombatWeaponById(this.combatWeaponId);
-    if (this.combatWeaponObj) {
-      animateCombatWeaponMesh(this.combatWeaponObj, { elapsed });
-    }
-    const visualParent = this.slots.right.visualParent;
-    visualParent.updateWorldMatrix?.(true, false);
-    visualParent.getWorldPosition(this._curRightHandWorldPos);
-
-    let handSpeed = 0;
-    if (this._hasPrevRightHandPos && dt > 0.002) {
-      handSpeed = this._curRightHandWorldPos.distanceTo(this._prevRightHandWorldPos) / dt;
-    }
-    this._prevRightHandWorldPos.copy(this._curRightHandWorldPos);
-    this._hasPrevRightHandPos = true;
-
-    const rayParent = this.slots.right.rayParent;
-    rayParent.updateWorldMatrix?.(true, false);
-    rayParent.getWorldPosition(this._combatAimOrigin);
-    this.tempMatrix.extractRotation(rayParent.matrixWorld);
-    this._combatAimDir.set(0, 0, -1).applyMatrix4(this.tempMatrix).normalize();
-
-    this.camera?.getWorldPosition?.(this._combatHeadPos);
-    this.camera?.getWorldDirection?.(this._combatHeadDir);
-    const handToHeadDist = this._curRightHandWorldPos.distanceTo(this._combatHeadPos);
-    const aimHeadDot = this._combatAimDir.dot(this._combatHeadDir);
-    const leftGripHeld = (leftState?.gripVal || 0) > 0.65;
-    const naturalSightAligned = handToHeadDist < 0.44 && aimHeadDot > 0.68;
-
-    if (this.combatMode === 'guns') {
-      this.combatAdsActive = Boolean(naturalSightAligned || leftGripHeld);
-      this.combatScopeZoomActive = Boolean(this.combatAdsActive && spec?.id === 'ping_sniper');
-      this.combatGuardActive = false;
-    } else {
-      this.combatAdsActive = false;
-      this.combatScopeZoomActive = false;
-      this.combatGuardActive = Boolean(leftGripHeld || (handToHeadDist < 0.46 && this._curRightHandWorldPos.y > this._combatHeadPos.y - 0.35));
-    }
-
-    if (this.combatGuardActive !== this._combatPrevGuard) {
-      this._combatPrevGuard = this.combatGuardActive;
-      this.combatCallbacks?.onGuardChange?.(this.combatGuardActive);
-    }
-
-    if (this.combatReticleGroup) {
-      this.combatReticleGroup.visible = !this.combatAdsActive || this.combatScopeZoomActive;
-      if (this.combatScopeZoomActive) {
-        this.combatReticleGroup.position.set(0, 0, -0.55);
-        this.combatReticleRing.scale.setScalar(1.65);
-      } else {
-        this.combatReticleGroup.position.set(0, 0, this.combatMode === 'melee' ? -1.4 : -2.4);
-      }
-    }
-
-    const triggerNow = Boolean(rightState?.triggerPressed);
-    const triggerJust = triggerNow && !this._combatPrevRightTrigger;
-    this._combatPrevRightTrigger = triggerNow;
-
-    const gripNow = (rightState?.gripVal || 0) > 0.75;
-    const gripJust = gripNow && !this._combatPrevRightGrip;
-    this._combatPrevRightGrip = gripNow;
-
-    const rActionNow = Boolean(rightState?.actionBtn);
-    const rActionJust = rActionNow && !this._combatPrevRightAction;
-    this._combatPrevRightAction = rActionNow;
-
-    const lActionNow = Boolean(leftState?.actionBtn);
-    const lActionJust = lActionNow && !this._combatPrevLeftAction;
-    this._combatPrevLeftAction = lActionNow;
-
-    if (gripJust || lActionJust) {
-      this._pulseHaptic(this.slots.right, 0.35, 30);
-      this.combatCallbacks?.onCycleWeapon?.();
-    }
-
-    if (rActionJust) {
-      if (this.combatMode === 'guns') {
-        this._pulseHaptic(this.slots.right, 0.4, 35);
-        this.combatCallbacks?.onReload?.();
-      } else {
-        this._pulseHaptic(this.slots.right, 0.35, 30);
-        this.combatCallbacks?.onCycleWeapon?.();
-      }
-    }
-
-    const cooldown = spec?.fireRateMs || 280;
-    let shouldAttack = false;
-    let isVrSwing = false;
-
-    if (this.combatMode === 'guns') {
-      shouldAttack = spec?.auto ? triggerNow : triggerJust;
-    } else {
-      isVrSwing = handSpeed >= 1.75;
-      shouldAttack = triggerJust || isVrSwing;
-    }
-
-    if (shouldAttack && nowMs - this._combatLastAttackAt >= cooldown) {
-      this._combatLastAttackAt = nowMs;
-      this._pulseHaptic(this.slots.right, this.combatMode === 'melee' ? 0.85 : 0.7, 45);
-      this.combatCallbacks?.onAttack?.({
-        weaponId: this.combatWeaponId,
-        origin: {
-          x: this._combatAimOrigin.x,
-          y: this._combatAimOrigin.y,
-          z: this._combatAimOrigin.z
-        },
-        dir: {
-          x: this._combatAimDir.x,
-          y: this._combatAimDir.y,
-          z: this._combatAimDir.z
-        },
-        isVrSwing,
-        ads: this.combatAdsActive
-      });
-    }
+    this.combatController.update(dt, nowMs, leftState, rightState, elapsed);
   }
 
   setDetentionHudHidden(hidden) {
@@ -1989,12 +1864,16 @@ export class VRManager {
 
   _readControllerButtons(slot) {
     if (this.simMode) {
-      const triggerVal = slot.handedness === 'right'
+      const isRight = slot.handedness === 'right';
+      const sideTrigger = isRight ? this.simGestureState.rightTrigger : this.simGestureState.leftTrigger;
+      const sideGrip = isRight ? this.simGestureState.rightGrip : this.simGestureState.leftGrip;
+      const baseTrigger = typeof sideTrigger === 'number' ? sideTrigger : this.simGestureState.trigger;
+      const triggerVal = isRight
         ? this.simMouseTrigger
           ? 1
-          : this.simGestureState.trigger
-        : this.simGestureState.trigger;
-      const gripVal = this.simGestureState.grip;
+          : baseTrigger
+        : baseTrigger;
+      const gripVal = typeof sideGrip === 'number' ? sideGrip : this.simGestureState.grip;
       const thumbVal = this.simGestureState.thumb;
       const fingers = {
         thumb: clamp01(thumbVal),
@@ -2006,7 +1885,7 @@ export class VRManager {
       slot.fingerPose = fingers;
       return {
         triggerVal,
-        triggerPressed: slot.handedness === 'right' && (this.simMouseTrigger || triggerVal > 0.65),
+        triggerPressed: isRight ? Boolean(this.simMouseTrigger || triggerVal > 0.65) : Boolean(triggerVal > 0.65),
         gripVal,
         thumbVal,
         actionBtn: false,
@@ -2049,12 +1928,13 @@ export class VRManager {
     const gp = slot.inputSource?.gamepad;
     if (!gp) {
       const selPressed = Boolean(slot.xrSelectPressed || slot.xrSelectQueued);
+      const sqzVal = slot.xrSqueezePressed ? 1 : 0;
       slot.xrSelectQueued = false;
-      slot.fingerPose = { thumb: selPressed ? 0.5 : 0, index: selPressed ? 1 : 0, middle: 0, ring: 0, pinky: 0 };
+      slot.fingerPose = { thumb: selPressed ? 0.5 : 0, index: selPressed ? 1 : 0, middle: sqzVal, ring: sqzVal, pinky: sqzVal };
       return {
         triggerVal: selPressed ? 1 : 0,
         triggerPressed: selPressed,
-        gripVal: 0,
+        gripVal: sqzVal,
         thumbVal: 0,
         actionBtn: false,
         sprintPressed: false,
@@ -2067,7 +1947,8 @@ export class VRManager {
     const triggerVal = Math.max(rawTrigger > 0.02 ? rawTrigger : btns[0]?.touched ? 0.16 : 0, slot.xrSelectPressed ? 1 : 0);
     const triggerPressed = Boolean(btns[0]?.pressed || rawTrigger > 0.68 || slot.xrSelectPressed || slot.xrSelectQueued);
     slot.xrSelectQueued = false;
-    const gripVal = btns[1]?.value ?? (btns[1]?.pressed ? 1 : 0);
+    const rawGrip = btns[1]?.value ?? (btns[1]?.pressed ? 1 : 0);
+    const gripVal = Math.max(rawGrip, slot.xrSqueezePressed ? 1 : 0);
     const thumbPressed = Boolean(btns[3]?.pressed || btns[4]?.pressed || btns[5]?.pressed);
     const thumbTouched = Boolean(
       btns[3]?.touched || btns[4]?.touched || btns[5]?.touched
@@ -2111,9 +1992,29 @@ export class VRManager {
 
   _pulseHaptic(slot, intensity = 0.4, durationMs = 40) {
     if (this.simMode) return;
-    const act = slot?.inputSource?.gamepad?.hapticActuators?.[0];
+    const gp = slot?.inputSource?.gamepad;
+    if (!gp) return;
+    const clampedIntensity = clamp01(intensity);
+    const dur = Math.max(10, Math.min(400, Number(durationMs) || 40));
+    const act = gp.hapticActuators?.[0];
     if (act && typeof act.pulse === 'function') {
-      act.pulse(intensity, durationMs).catch(() => {});
+      try {
+        Promise.resolve(act.pulse(clampedIntensity, dur)).catch(() => {});
+      } catch {}
+      return;
+    }
+    const vib = gp.vibrationActuator;
+    if (vib && typeof vib.playEffect === 'function') {
+      try {
+        Promise.resolve(
+          vib.playEffect('dual-rumble', {
+            startDelay: 0,
+            duration: dur,
+            weakMagnitude: clampedIntensity * 0.85,
+            strongMagnitude: clampedIntensity
+          })
+        ).catch(() => {});
+      } catch {}
     }
   }
 
@@ -2127,6 +2028,16 @@ export class VRManager {
   }
 
   _updateSlotRayAndInteract(slot, state, dt, elapsed) {
+    const combatDirectMode = Boolean(this.combatActive && !this.worldPanel && !this.tpContext);
+    if (combatDirectMode && slot.handedness === 'left') {
+      slot.rayLine.visible = false;
+      slot.dotMesh.visible = false;
+      slot.hoveredKey = null;
+      slot.prevTrigger = state.triggerPressed;
+      slot.prevActionBtn = state.actionBtn;
+      return;
+    }
+
     slot.rayParent.getWorldPosition(this.tempOrigin);
     this.tempMatrix.extractRotation(slot.rayParent.matrixWorld);
     this.tempDir.set(0, 0, -1).applyMatrix4(this.tempMatrix).normalize();
@@ -2164,6 +2075,34 @@ export class VRManager {
         this.wristPanel.setHovered(null);
       }
     }
+
+    if (combatDirectMode) {
+      slot.rayLine.visible = Boolean(hitKey);
+      slot.dotMesh.visible = Boolean(hitKey);
+      if (hitKey) {
+        const posAttr = slot.rayLine.geometry.getAttribute('position');
+        if (posAttr) {
+          posAttr.setXYZ(1, 0, 0, -Math.max(0.08, Math.min(3.5, hitDist)));
+          posAttr.needsUpdate = true;
+        }
+        slot.rayMat.color.setHex(0x10b981);
+        slot.dotMesh.position.set(0, 0, -Math.max(0.08, hitDist - 0.01));
+      }
+      if (hitKey && hitKey !== slot.hoveredKey) {
+        this._pulseHaptic(slot, 0.35, 35);
+      }
+      slot.hoveredKey = hitKey;
+      const justPressed = state.triggerPressed && !slot.prevTrigger;
+      slot.prevTrigger = state.triggerPressed;
+      slot.prevActionBtn = state.actionBtn;
+      if (justPressed && hitAction) {
+        this._pulseHaptic(slot, 0.55, 35);
+        hitAction();
+      }
+      return;
+    }
+
+    slot.rayLine.visible = true;
 
     const activePanel = this.tpContext && this.tpPanel ? this.tpPanel : !this.tpContext && this.worldPanel ? this.worldPanel : null;
 
@@ -2522,17 +2461,19 @@ export class VRManager {
     }
 
     if (this.simMode) {
-      const targetLeftPos = this.simWatchInspect
-        ? this.tempVecC.set(-0.14, -0.14, -0.34)
-        : this.tempVecC.set(-0.26, -0.32, -0.42);
-      const targetLeftRot = this.simWatchInspect
-        ? this.tempVecD.set(-0.052, -1.187, -0.808)
-        : this.tempVecD.set(0.22, -0.22, 0.18);
-      const sm = Math.min(1, dt * 14);
-      this.simLeftPivot.position.lerp(targetLeftPos, sm);
-      this.simLeftPivot.rotation.x += (targetLeftRot.x - this.simLeftPivot.rotation.x) * sm;
-      this.simLeftPivot.rotation.y += (targetLeftRot.y - this.simLeftPivot.rotation.y) * sm;
-      this.simLeftPivot.rotation.z += (targetLeftRot.z - this.simLeftPivot.rotation.z) * sm;
+      if (!this.simLeftPoseLocked) {
+        const targetLeftPos = this.simWatchInspect
+          ? this.tempVecC.set(-0.14, -0.14, -0.34)
+          : this.tempVecC.set(-0.26, -0.32, -0.42);
+        const targetLeftRot = this.simWatchInspect
+          ? this.tempVecD.set(-0.052, -1.187, -0.808)
+          : this.tempVecD.set(0.22, -0.22, 0.18);
+        const sm = Math.min(1, dt * 14);
+        this.simLeftPivot.position.lerp(targetLeftPos, sm);
+        this.simLeftPivot.rotation.x += (targetLeftRot.x - this.simLeftPivot.rotation.x) * sm;
+        this.simLeftPivot.rotation.y += (targetLeftRot.y - this.simLeftPivot.rotation.y) * sm;
+        this.simLeftPivot.rotation.z += (targetLeftRot.z - this.simLeftPivot.rotation.z) * sm;
+      }
 
       const hasKey = (code) => this.simKeys.has(code) || this.player.keys.has(code);
       if (!lockedMove) {
@@ -2935,6 +2876,7 @@ export class VRManager {
     }
     this._clearVrShopPreview();
     this.setCombatMode(false);
+    this.combatController?.dispose?.();
     this.wristPanel?.dispose?.();
     this.debugPanel?.dispose?.();
     this.tpPanel?.dispose?.();

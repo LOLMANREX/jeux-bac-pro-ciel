@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify("v4.34 - Éditeur : Déplacement d'Étages Entiers & Import de Modèles 3D"),
+    __APP_VERSION__: JSON.stringify('v4.35 - Refonte Combat VR : Ergonomie Quest 3S, Prise à 2 Mains Dynamique, Visée Muzzle & Dégâts'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

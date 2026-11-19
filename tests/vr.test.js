@@ -2185,3 +2185,382 @@ test('VR WebXR v4.30 : Montre VR bouton Casier, Boutique VR achat feedback clair
     stubs.restore();
   }
 });
+
+test('VR Combat v4.35 : Ergonomie gripSpace, prise à 2 mains dynamique, tir exact depuis muzzle, dégâts WebSocket & haptique/hitmarker 3D', async () => {
+  const stubs = createFakeDomStubs();
+  const prevNav = globalThis.navigator;
+  const mockScene = new THREE.Scene();
+  const mockCam = new THREE.PerspectiveCamera(72, 1.77, 0.05, 180);
+
+  const xrCtrls = [new THREE.Group(), new THREE.Group()];
+  const xrGrips = [new THREE.Group(), new THREE.Group()];
+  const xrHands = [new THREE.Group(), new THREE.Group()];
+  let xrPresenting = false;
+
+  const mockXr = {
+    enabled: false,
+    get isPresenting() {
+      return xrPresenting;
+    },
+    setReferenceSpaceType() {},
+    getController(idx) {
+      return xrCtrls[idx];
+    },
+    getControllerGrip(idx) {
+      return xrGrips[idx];
+    },
+    getHand(idx) {
+      return xrHands[idx];
+    },
+    addEventListener() {},
+    removeEventListener() {},
+    async setSession() {
+      xrPresenting = true;
+    }
+  };
+
+  const mockSceneMgr = {
+    scene: mockScene,
+    camera: mockCam,
+    renderer: {
+      xr: mockXr,
+      setRenderTarget() {}
+    },
+    getFps: () => 90,
+    getXrErrors: () => [],
+    setVrPresentingState() {},
+    bindVrManager() {}
+  };
+
+  const endListeners = [];
+  const mockSession = {
+    addEventListener(t, fn) {
+      if (t === 'end') endListeners.push(fn);
+    },
+    async requestReferenceSpace() {
+      return {};
+    },
+    async end() {
+      xrPresenting = false;
+      endListeners.forEach((fn) => fn());
+    }
+  };
+
+  globalThis.navigator = {
+    xr: {
+      async isSessionSupported() {
+        return true;
+      },
+      async requestSession() {
+        return mockSession;
+      }
+    }
+  };
+
+  const leftPulses = [];
+  const rightPulses = [];
+  const leftGamepad = {
+    axes: [0, 0, 0, 0],
+    buttons: [
+      { pressed: false, value: 0 },
+      { pressed: false, value: 0 },
+      { pressed: false, value: 0 },
+      { pressed: false, value: 0 },
+      { pressed: false, value: 0 }
+    ],
+    hapticActuators: [
+      {
+        pulse(intensity, durationMs) {
+          leftPulses.push({ intensity, durationMs });
+          return Promise.resolve(true);
+        }
+      }
+    ]
+  };
+  const rightGamepad = {
+    axes: [0, 0, 0, 0],
+    buttons: [
+      { pressed: false, value: 0 },
+      { pressed: false, value: 0 },
+      { pressed: false, value: 0 },
+      { pressed: false, value: 0 },
+      { pressed: false, value: 0 }
+    ],
+    hapticActuators: [
+      {
+        pulse(intensity, durationMs) {
+          rightPulses.push({ intensity, durationMs });
+          return Promise.resolve(true);
+        }
+      }
+    ]
+  };
+
+  const { server, wsHub } = createGameServer({
+    dbPath: null,
+    combatOptions: { matchDurationSec: 45, killLimit: 5, botCount: 3 }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const wsUrl = `ws://127.0.0.1:${port}/ws`;
+  const ws = new WebSocket(wsUrl);
+
+  let vr = null;
+  try {
+    await new Promise((res) => ws.once('open', res));
+
+    const mapData = createDefaultMap();
+    const player = new PlayerController(mockCam, stubs.canvas, []);
+    player.setBounds({ minX: 40, maxX: 72, minZ: 54, maxZ: 82 });
+    player.teleportTo({ x: 56, z: 68 }, { x: 56, z: 60 });
+
+    vr = new VRManager(mockSceneMgr, player, {
+      playerName: 'QuestCombatTester',
+      mapData
+    });
+
+    assert.equal(await vr.enterVr(), true);
+    assert.equal(vr.simMode, false);
+
+    xrCtrls[0].dispatchEvent({ type: 'connected', data: { handedness: 'left', gamepad: leftGamepad } });
+    xrCtrls[1].dispatchEvent({ type: 'connected', data: { handedness: 'right', gamepad: rightGamepad } });
+
+    const attacks = [];
+    let reloads = 0;
+    let cycles = 0;
+
+    vr.setCombatMode(true, {
+      mode: 'guns',
+      weaponId: 'fiber_rifle',
+      callbacks: {
+        onAttack: (payload) => {
+          attacks.push(payload);
+          return true;
+        },
+        onReload: () => {
+          reloads += 1;
+        },
+        onCycleWeapon: () => {
+          cycles += 1;
+        }
+      }
+    });
+
+    const wObj = vr.combatWeaponObj;
+    assert.ok(wObj);
+    assert.ok(wObj.muzzle instanceof THREE.Object3D);
+    assert.ok(wObj.gripAnchor instanceof THREE.Object3D);
+    assert.ok(wObj.sightAnchor instanceof THREE.Object3D);
+    assert.ok(wObj.foregripAnchor instanceof THREE.Object3D);
+
+    xrGrips[1].position.set(0.2, 1.35, -0.35);
+    xrGrips[1].rotation.set(0.6, 0, 0);
+    xrGrips[0].position.set(-0.35, 1.1, -0.2);
+    xrGrips[0].rotation.set(0, 0, 0);
+    mockCam.position.set(0, 1.65, 0);
+    mockCam.rotation.set(0.4, Math.PI, 0);
+
+    vr.update(0.016, 0.1, 1000);
+
+    assert.equal(vr.slots.right.rayLine.visible, false);
+    assert.equal(vr.slots.left.rayLine.visible, false);
+    assert.equal(vr.combatTwoHanded, false);
+
+    const muzzleDir1H = new THREE.Vector3();
+    const sightDir1H = new THREE.Vector3();
+    const muzzlePos1H = new THREE.Vector3();
+    wObj.muzzle.getWorldDirection(muzzleDir1H);
+    wObj.sightAnchor.getWorldDirection(sightDir1H);
+    wObj.muzzle.getWorldPosition(muzzlePos1H);
+    assert.ok(muzzleDir1H.dot(sightDir1H) > 0.9999);
+    assert.ok(Math.abs(muzzleDir1H.y) < 0.05);
+
+    const pivotEuler = new THREE.Euler().setFromQuaternion(vr.combatController.weaponPivot.quaternion, 'YXZ');
+    assert.ok(pivotEuler.x < -0.45);
+
+    rightPulses.length = 0;
+    leftPulses.length = 0;
+    rightGamepad.buttons[0] = { pressed: true, value: 1 };
+    vr.update(0.016, 0.12, 1200);
+    rightGamepad.buttons[0] = { pressed: false, value: 0 };
+
+    assert.equal(attacks.length, 1);
+    assert.equal(attacks[0].isVrShot, true);
+    assert.equal(attacks[0].twoHanded, false);
+    const shotOrigVec = new THREE.Vector3(attacks[0].origin.x, attacks[0].origin.y, attacks[0].origin.z);
+    const shotDirVec = new THREE.Vector3(attacks[0].dir.x, attacks[0].dir.y, attacks[0].dir.z);
+    assert.ok(shotOrigVec.distanceTo(muzzlePos1H) < 0.002);
+    assert.ok(shotDirVec.dot(muzzleDir1H) > 0.9999);
+    const camForward = new THREE.Vector3();
+    mockCam.getWorldDirection(camForward);
+    assert.ok(shotDirVec.dot(camForward) < -0.5);
+    assert.ok(rightPulses.length >= 1);
+    assert.equal(leftPulses.length, 0);
+    const oneHandRecoilZ = vr.combatController._recoilZ;
+    const oneHandRecoilPitch = vr.combatController._recoilPitch;
+    assert.ok(oneHandRecoilZ > 0.02);
+
+    rightGamepad.buttons[4] = { pressed: true, value: 1 };
+    vr.update(0.016, 0.14, 1250);
+    rightGamepad.buttons[4] = { pressed: false, value: 0 };
+    assert.equal(reloads, 1);
+
+    for (let i = 0; i < 40; i++) {
+      vr.update(0.05, 0.2 + i * 0.05, 1300 + i * 50);
+    }
+
+    const foregripWorld = new THREE.Vector3();
+    wObj.foregripAnchor.getWorldPosition(foregripWorld);
+    const foregripLocal = vr.vrRig.worldToLocal(foregripWorld.clone());
+    leftPulses.length = 0;
+    xrGrips[0].position.copy(foregripLocal).add(new THREE.Vector3(0.02, -0.01, 0.02));
+    vr.update(0.016, 2.3, 3500);
+    assert.equal(vr.combatForegripInRange, true);
+    assert.equal(vr.combatController.foregripHaloGroup.visible, true);
+    assert.equal(vr.combatTwoHanded, false);
+    assert.ok(leftPulses.length >= 1);
+
+    leftGamepad.buttons[1] = { pressed: true, value: 1 };
+    vr.update(0.016, 2.32, 3520);
+    assert.equal(vr.combatTwoHanded, true);
+
+    const domWorldPos = new THREE.Vector3();
+    vr.combatController.weaponPivot.getWorldPosition(domWorldPos);
+    const targetAimDir = new THREE.Vector3(0.45, 0.2, -0.87).normalize();
+    const aimedLeftWorld = domWorldPos.clone().addScaledVector(targetAimDir, 0.38);
+    xrGrips[0].position.copy(vr.vrRig.worldToLocal(aimedLeftWorld.clone()));
+    xrGrips[1].rotation.set(0.6, 0, -0.55);
+
+    for (let s = 0; s < 30; s++) {
+      vr.update(0.02, 2.35 + s * 0.02, 3560 + s * 20);
+    }
+    assert.equal(vr.combatTwoHanded, true);
+
+    const muzzleDir2H = new THREE.Vector3();
+    wObj.muzzle.getWorldDirection(muzzleDir2H);
+    assert.ok(muzzleDir2H.dot(targetAimDir) > 0.99);
+
+    const weaponUp2H = new THREE.Vector3(0, 1, 0).applyQuaternion(
+      vr.combatController.weaponPivot.getWorldQuaternion(new THREE.Quaternion())
+    );
+    assert.ok(weaponUp2H.x > 0.25);
+
+    rightPulses.length = 0;
+    leftPulses.length = 0;
+    rightGamepad.buttons[0] = { pressed: true, value: 1 };
+    vr.update(0.016, 3.1, 4500);
+    rightGamepad.buttons[0] = { pressed: false, value: 0 };
+
+    assert.equal(attacks.length, 2);
+    assert.equal(attacks[1].twoHanded, true);
+    assert.ok(rightPulses.length >= 1);
+    assert.ok(leftPulses.length >= 1);
+    assert.ok(vr.combatController._recoilZ < oneHandRecoilZ * 0.55);
+    assert.ok(vr.combatController._recoilPitch < oneHandRecoilPitch * 0.55);
+
+    leftGamepad.buttons[1] = { pressed: false, value: 0 };
+    vr.update(0.016, 3.15, 4560);
+    assert.equal(vr.combatTwoHanded, false);
+
+    xrGrips[0].position.copy(foregripLocal);
+    vr.update(0.016, 3.2, 4600);
+    leftGamepad.buttons[0] = { pressed: true, value: 1 };
+    vr.update(0.016, 3.22, 4620);
+    assert.equal(vr.combatTwoHanded, true);
+    leftGamepad.buttons[0] = { pressed: false, value: 0 };
+    vr.update(0.016, 3.24, 4640);
+    assert.equal(vr.combatTwoHanded, false);
+
+    const welcomeP = waitForMsg(ws, (m) => m.type === 'welcome');
+    ws.send(JSON.stringify({ type: 'join', name: 'QuestShooter', room: 'plateau-u300' }));
+    const welcome = await welcomeP;
+    const playerId = welcome.id;
+
+    const switchedP = waitForMsg(ws, (m) => m.type === 'room_switched' && m.room.startsWith('combat-arena-'));
+    ws.send(JSON.stringify({ type: 'combat_join' }));
+    const switched = await switchedP;
+
+    const startedP = waitForMsg(ws, (m) => m.type === 'combat_started');
+    ws.send(JSON.stringify({ type: 'combat_ready', ready: true }));
+    await startedP;
+
+    const ctrl = wsHub.getCombatController(switched.room);
+    const human = ctrl.fighters.get(playerId);
+    const bot = [...ctrl.fighters.values()].find((f) => f.isBot);
+    assert.ok(human && bot);
+
+    human.x = 56;
+    human.z = 68;
+    human.spawnProtectUntil = 0;
+    bot.x = 56;
+    bot.z = 63;
+    bot.hp = 100;
+    bot.spawnProtectUntil = 0;
+
+    vr.syncWorldTeleport(56, 68, 0, 0);
+    xrGrips[1].position.set(0, 1.35, -0.2);
+    xrGrips[1].rotation.set(0.6, 0, 0);
+    xrGrips[0].position.set(-0.4, 1.1, -0.2);
+    vr.update(0.016, 3.5, 5000);
+
+    const liveMuzzleOrigin = new THREE.Vector3();
+    const liveMuzzleDir = new THREE.Vector3();
+    const muzzleRay = vr.getCombatMuzzleRay(liveMuzzleOrigin, liveMuzzleDir);
+    assert.ok(muzzleRay);
+
+    const toBot = new THREE.Vector3(bot.x - liveMuzzleOrigin.x, 1.35 - liveMuzzleOrigin.y, bot.z - liveMuzzleOrigin.z).normalize();
+    const gripLeftWorld = new THREE.Vector3();
+    vr.combatController.weaponPivot.getWorldPosition(gripLeftWorld);
+    xrGrips[0].position.copy(vr.vrRig.worldToLocal(gripLeftWorld.clone().addScaledVector(toBot, 0.36)));
+    leftGamepad.buttons[1] = { pressed: true, value: 1 };
+    for (let k = 0; k < 25; k++) {
+      vr.update(0.02, 3.6 + k * 0.02, 5100 + k * 20);
+    }
+    assert.equal(vr.combatTwoHanded, true);
+
+    attacks.length = 0;
+    rightGamepad.buttons[0] = { pressed: true, value: 1 };
+    vr.update(0.016, 4.2, 6000);
+    rightGamepad.buttons[0] = { pressed: false, value: 0 };
+    assert.equal(attacks.length, 1);
+
+    const fxP = waitForMsg(ws, (m) => m.type === 'combat_attack_fx' && m.attackerId === playerId);
+    ws.send(JSON.stringify({ type: 'combat_attack', ...attacks[0] }));
+    const fxMsg = await fxP;
+    assert.equal(fxMsg.isVrShot, true);
+    assert.equal(fxMsg.twoHanded, true);
+    assert.ok(fxMsg.hits.length >= 1);
+    assert.equal(fxMsg.hits[0].targetId, bot.id);
+    assert.equal(fxMsg.hits[0].victimId, bot.id);
+    assert.ok(fxMsg.hits[0].damage > 0);
+    assert.ok(bot.hp < 100);
+    assert.ok(Math.abs(fxMsg.rays[0].sx - attacks[0].origin.x) < 0.01);
+    assert.ok(Math.abs(fxMsg.rays[0].sz - attacks[0].origin.z) < 0.01);
+
+    rightPulses.length = 0;
+    leftPulses.length = 0;
+    const fbOk = vr.triggerCombatHitFeedback({
+      killed: false,
+      headshot: Boolean(fxMsg.hits[0].headshot),
+      damage: fxMsg.hits[0].damage,
+      hitPos: { x: fxMsg.hits[0].hitX, y: fxMsg.hits[0].hitY, z: fxMsg.hits[0].hitZ }
+    });
+    assert.equal(fbOk, true);
+    assert.equal(vr.combatController.hitmarkerGroup.visible, true);
+    assert.equal(vr.combatController.worldHitRing.visible, true);
+    assert.ok(rightPulses.length >= 1);
+    assert.ok(leftPulses.length >= 1);
+
+    assert.equal(cycles, 0);
+    await vr.exitVr();
+  } finally {
+    ws.close();
+    wsHub.close();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+    vr?.dispose?.();
+    if (prevNav === undefined) delete globalThis.navigator;
+    else globalThis.navigator = prevNav;
+    stubs.restore();
+  }
+});

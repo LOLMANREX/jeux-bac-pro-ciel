@@ -2517,21 +2517,38 @@ function cycleCombatWeapon(step = 1) {
 }
 
 function triggerLocalCombatAttack(customPayload = null) {
-  if (!combatState.inActiveMatch || !combatState.localAlive || modalOpen) return;
+  if (!combatState.inActiveMatch || !combatState.localAlive || modalOpen) return false;
   const me = getLocalCombatFighter();
   const activeWeaponId = customPayload?.weaponId || me?.weaponId || combatState.selectedWeaponId || getDefaultWeaponForMode(combatState.mode).id;
   const spec = getCombatWeaponById(activeWeaponId) || getDefaultWeaponForMode(combatState.mode);
   const now = performance.now();
-  if (now - combatState.lastFireClientAt < spec.fireRateMs * 0.92) return;
+  if (now - combatState.lastFireClientAt < spec.fireRateMs * 0.92) return false;
 
   if (combatState.mode === 'guns') {
-    if (me?.reloading) return;
+    if (me?.reloading) return false;
     if (me && spec.magSize > 0 && (me.ammo ?? 0) <= 0) {
       sfx.playCombatReload?.();
       network.sendCombatReload?.();
       combatState.lastFireClientAt = now;
-      return;
+      return false;
     }
+  }
+
+  const vrActive = Boolean(vrManager?.isVrActive?.());
+  let origin = customPayload?.origin;
+  let dir = customPayload?.dir;
+  if (vrActive) {
+    if (!origin || !dir) {
+      const muzzleRay = vrManager.getCombatMuzzleRay?.(_combatRayOrigin, _combatRayDir);
+      if (!muzzleRay) return false;
+      origin = { x: _combatRayOrigin.x, y: _combatRayOrigin.y, z: _combatRayOrigin.z };
+      dir = { x: _combatRayDir.x, y: _combatRayDir.y, z: _combatRayDir.z };
+    }
+  } else if (!origin || !dir) {
+    sceneMgr.camera.getWorldPosition(_combatRayOrigin);
+    sceneMgr.camera.getWorldDirection(_combatRayDir);
+    origin = { x: _combatRayOrigin.x, y: _combatRayOrigin.y, z: _combatRayOrigin.z };
+    dir = { x: _combatRayDir.x, y: _combatRayDir.y, z: _combatRayDir.z };
   }
 
   combatState.lastFireClientAt = now;
@@ -2544,23 +2561,25 @@ function triggerLocalCombatAttack(customPayload = null) {
     }
   }
 
-  let origin = customPayload?.origin;
-  let dir = customPayload?.dir;
-  if (!origin || !dir) {
-    sceneMgr.camera.getWorldPosition(_combatRayOrigin);
-    sceneMgr.camera.getWorldDirection(_combatRayDir);
-    origin = { x: _combatRayOrigin.x, y: _combatRayOrigin.y, z: _combatRayOrigin.z };
-    dir = { x: _combatRayDir.x, y: _combatRayDir.y, z: _combatRayDir.z };
-  }
+  const adsActive = customPayload?.ads !== undefined
+    ? Boolean(customPayload.ads)
+    : vrActive
+      ? Boolean(vrManager.combatAdsActive)
+      : combatState.adsProgress > 0.35;
+  const twoHandedActive = customPayload?.twoHanded !== undefined
+    ? Boolean(customPayload.twoHanded)
+    : Boolean(vrActive && vrManager.combatTwoHanded);
 
-  const adsActive = customPayload?.ads !== undefined ? Boolean(customPayload.ads) : combatState.adsProgress > 0.35;
   network.sendCombatAttack({
     weaponId: spec.id,
     origin,
     dir,
     isVrSwing: Boolean(customPayload?.isVrSwing),
-    ads: adsActive
+    isVrShot: Boolean(customPayload?.isVrShot || vrActive),
+    ads: adsActive,
+    twoHanded: twoHandedActive
   });
+  return true;
 }
 
 function startCombatMatchClient(snapshot) {
@@ -4922,6 +4941,7 @@ network.on('combat_attack_fx', (msg) => {
   }
   if (!combatState.inActiveMatch) return;
 
+  const vrActive = Boolean(vrManager?.isVrActive?.());
   const isLocalAttacker = msg.attackerId === network.clientId;
   const spec = getCombatWeaponById(msg.weaponId) || getDefaultWeaponForMode(combatState.mode);
   if (msg.mode === 'melee') {
@@ -4932,11 +4952,10 @@ network.on('combat_attack_fx', (msg) => {
   } else {
     sfx.playCombatShot?.(spec.id);
     const rays = Array.isArray(msg.rays) ? msg.rays : [];
-    const activeWObj = vrManager?.isVrActive?.()
-      ? vrManager.combatWeaponObj
-      : (gameState.cameraMode !== 'third' ? combatState.viewWeaponObj : null);
+    const useExactWorldRay = Boolean(msg.isVrShot) || (isLocalAttacker && vrActive);
+    const activeWObj = !useExactWorldRay && gameState.cameraMode !== 'third' ? combatState.viewWeaponObj : null;
     let hasMuzzleOrigin = false;
-    if (isLocalAttacker && activeWObj?.group && activeWObj?.muzzleOffset) {
+    if (!useExactWorldRay && isLocalAttacker && activeWObj?.group && activeWObj?.muzzleOffset) {
       activeWObj.group.updateMatrixWorld(true);
       _combatMuzzleWorld.set(activeWObj.muzzleOffset.x, activeWObj.muzzleOffset.y, activeWObj.muzzleOffset.z);
       activeWObj.group.localToWorld(_combatMuzzleWorld);
@@ -4961,25 +4980,43 @@ network.on('combat_attack_fx', (msg) => {
   const hits = Array.isArray(msg.hits) ? msg.hits : [];
   let localHit = false;
   let localKilled = false;
+  let localHeadshot = false;
+  let localDamage = 0;
+  let lastHitPos = null;
   let localWasHit = false;
   for (const h of hits) {
-    if (isLocalAttacker && h.victimId !== network.clientId) {
+    const victimId = h.targetId || h.victimId;
+    if (isLocalAttacker && victimId && victimId !== network.clientId) {
       localHit = true;
+      localDamage += Number(h.damage) || 0;
       if (h.killed) localKilled = true;
+      if (h.headshot) localHeadshot = true;
+      if (Number.isFinite(Number(h.hitX)) && Number.isFinite(Number(h.hitY)) && Number.isFinite(Number(h.hitZ))) {
+        lastHitPos = { x: Number(h.hitX), y: Number(h.hitY), z: Number(h.hitZ) };
+      }
     }
-    if (h.victimId === network.clientId) {
+    if (victimId === network.clientId) {
       localWasHit = true;
     }
   }
   if (localHit) {
     sfx.playCombatHitmarker?.(localKilled);
-    if (!vrManager?.isVrActive?.()) {
+    if (vrActive) {
+      vrManager.triggerCombatHitFeedback?.({
+        killed: localKilled,
+        headshot: localHeadshot,
+        damage: localDamage,
+        hitPos: lastHitPos
+      });
+    } else {
       hud?.triggerCombatHitmarker?.(localKilled);
     }
   }
   if (localWasHit) {
     sfx.playCombatHurt?.();
-    if (!vrManager?.isVrActive?.()) {
+    if (vrActive) {
+      vrManager.pulseBothHands?.(0.75, 110);
+    } else {
       hud?.triggerCombatDamageFlash?.();
     }
   }
@@ -5672,16 +5709,19 @@ sceneMgr.addUpdater((dt, elapsed) => {
       player.setAdsSensitivityMultiplier?.(sensMult);
     }
 
-    const guardingNow = Boolean(combatState.mode === 'melee' && combatState.adsProgress > 0.45 && combatState.localAlive);
-    if (guardingNow !== combatState.lastGuardSent) {
-      combatState.lastGuardSent = guardingNow;
-      network.sendCombatGuard?.(guardingNow);
+    let guardingNow = false;
+    if (!vrOn) {
+      guardingNow = Boolean(combatState.mode === 'melee' && combatState.adsProgress > 0.45 && combatState.localAlive);
+      if (guardingNow !== combatState.lastGuardSent) {
+        combatState.lastGuardSent = guardingNow;
+        network.sendCombatGuard?.(guardingNow);
+      }
     }
 
     let inMeleeRange = false;
     let scopeTargetDist = null;
     const fighters = Array.isArray(combatState.snapshot?.fighters) ? combatState.snapshot.fighters : [];
-    if (combatState.localAlive && fighters.length > 0) {
+    if (!vrOn && combatState.localAlive && fighters.length > 0) {
       sceneMgr.camera.getWorldPosition(_combatRayOrigin);
       sceneMgr.camera.getWorldDirection(_combatRayDir);
       if (combatState.mode === 'melee') {
