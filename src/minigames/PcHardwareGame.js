@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import {
   createWorkbench3D,
   makeCanvasScreen,
@@ -73,78 +74,179 @@ export const HARDWARE_STAGES = [
 ];
 
 export function evaluateHardwareBuild(stage, state) {
+  const safeStage = stage && typeof stage === 'object' ? stage : HARDWARE_STAGES[0];
+  const safeState = state && typeof state === 'object' ? state : {};
   const details = [];
-  if (stage.type === 'assembly') {
+  if (safeStage.type === 'assembly') {
     let points = 0;
-    const maxPoints = stage.slots.length + 1;
-    if (state?.esdStrap) points += 1;
+    const slots = Array.isArray(safeStage.slots) ? safeStage.slots : [];
+    const maxPoints = slots.length + 1;
+    if (safeState.esdStrap) points += 1;
     else details.push('Bracelet antistatique ESD oublié avant manipulation des composants !');
 
-    const placements = state?.placements || {};
-    for (const slot of stage.slots) {
+    const placements = safeState.placements && typeof safeState.placements === 'object' ? safeState.placements : {};
+    for (const slot of slots) {
       if (placements[slot.id] === slot.expectedPart) {
         points += 1;
       } else {
         details.push(`${slot.label} : composant incorrect ou manquant (${slot.hint})`);
       }
     }
-    const score = Math.round((points / maxPoints) * 20);
-    return { score, details, passed: score >= 12 };
+    const score = finalizeGrade20((points / Math.max(1, maxPoints)) * 20, {
+      hasCriticalError: points < maxPoints
+    });
+    return { score, details, passed: score >= 10 };
   }
 
-  const answers = state?.answers || {};
+  const cases = Array.isArray(safeStage.cases) ? safeStage.cases : [];
+  const answers = safeState.answers && typeof safeState.answers === 'object' ? safeState.answers : {};
   let ok = 0;
-  for (const c of stage.cases) {
+  for (const c of cases) {
     if (answers[c.id] === c.expected) ok += 1;
     else details.push(`${c.title} : diagnostic incorrect`);
   }
-  const score = Math.round((ok / stage.cases.length) * 20);
-  return { score, details, passed: score >= 12 };
+  const score = finalizeGrade20((ok / Math.max(1, cases.length)) * 20, {
+    hasCriticalError: ok < cases.length
+  });
+  return { score, details, passed: score >= 10 };
 }
 
 export function computeHardwareScore3D(metrics = {}) {
-  let score = 0;
+  const m = metrics && typeof metrics === 'object' ? metrics : {};
   const details = [];
-  if (metrics.esdWorn) score += 2.5;
-  else details.push('Bracelet ESD non connecté avant la manipulation.');
 
-  if (metrics.cpuInstalled && metrics.socketClosed) score += 2.5;
-  else details.push('Processeur LGA1700 non verrouillé correctement.');
+  const esdWorn = Boolean(m.esdWorn);
+  const cpuOk = Boolean(m.cpuInstalled && m.socketClosed);
+  const pasteApplied = Boolean(m.pasteApplied);
+  const coolerInstalled = Boolean(m.coolerInstalled);
+  const ramDualChannel = Boolean(m.ramDualChannel);
+  const ramCount = Math.max(0, Math.floor(toSafeNumber(m.ramCount, 0)));
+  const nvmeInstalled = Boolean(m.nvmeInstalled);
+  const gpuInstalled = Boolean(m.gpuInstalled);
+  const cablesConnected = Boolean(m.cablesConnected);
+  const postPassed = Boolean(m.postPassed);
 
-  if (metrics.pasteApplied) score += 2;
-  else details.push('Pâte thermique oubliée sous le ventirad.');
+  const esdPts = esdWorn ? 2.5 : 0;
+  if (!esdWorn) details.push('Bracelet ESD non connecté avant la manipulation.');
 
-  if (metrics.coolerInstalled) score += 2;
-  else details.push('Ventirad non installé.');
+  const cpuPts = cpuOk ? 2.5 : 0;
+  if (!cpuOk) details.push('Processeur LGA1700 non verrouillé correctement.');
 
-  if (metrics.ramDualChannel) score += 3;
-  else if ((metrics.ramCount || 0) >= 2) {
-    score += 1.5;
+  const pastePts = pasteApplied ? 2.0 : 0;
+  if (!pasteApplied) details.push('Pâte thermique oubliée sous le ventirad.');
+
+  const coolerPts = coolerInstalled ? 2.0 : 0;
+  if (!coolerInstalled) details.push('Ventirad non installé.');
+
+  let ramPts = 0;
+  if (ramDualChannel) {
+    ramPts = 3.0;
+  } else if (ramCount >= 2) {
+    ramPts = 1.5;
     details.push('Barrettes DDR5 installées hors configuration Dual-Channel A2/B2.');
   } else {
     details.push('Mémoire DDR5 incomplète.');
   }
 
-  if (metrics.nvmeInstalled) score += 2;
-  else details.push('SSD NVMe M.2 absent.');
+  const nvmePts = nvmeInstalled ? 2.0 : 0;
+  if (!nvmeInstalled) details.push('SSD NVMe M.2 absent.');
 
-  if (metrics.gpuInstalled) score += 2;
-  else details.push('Carte graphique PCIe absente.');
+  const gpuPts = gpuInstalled ? 2.0 : 0;
+  if (!gpuInstalled) details.push('Carte graphique PCIe absente.');
 
-  if (metrics.cablesConnected) score += 2;
-  else details.push('Câblage alimentation ATX 24+8 pins incomplet.');
+  const cablesPts = cablesConnected ? 2.0 : 0;
+  if (!cablesConnected) details.push('Câblage alimentation ATX 24+8 pins incomplet.');
 
-  if (metrics.postPassed) score += 2;
-  else details.push('Le test POST UEFI n’a pas abouti sans erreur.');
+  const postPts = postPassed ? 2.0 : 0;
+  if (!postPassed) details.push('Le test POST UEFI n’a pas abouti sans erreur.');
 
-  const esdMistakes = Math.max(0, metrics.esdMistakes || 0);
-  const failedPosts = Math.max(0, metrics.failedPosts || 0);
-  const elapsed = metrics.elapsedSec || 0;
-  const timePenalty = elapsed > 240 ? Math.min(2, (elapsed - 240) / 90) : 0;
-  const finalScore = Math.max(0, Math.min(20, Math.round(score - esdMistakes * 1.2 - failedPosts * 0.8 - timePenalty)));
-  const xp = Math.max(40, Math.round(finalScore * 16 + (metrics.postPassed ? 60 : 0)));
+  const esdMistakes = Math.max(0, Math.floor(toSafeNumber(m.esdMistakes, 0)));
+  const failedPosts = Math.max(0, Math.floor(toSafeNumber(m.failedPosts, 0)));
+  const elapsed = Math.max(0, toSafeNumber(m.elapsedSec, 90));
+
+  const forgivenEsd = esdWorn ? Math.min(1, esdMistakes) : 0;
+  const billedEsd = Math.max(0, esdMistakes - forgivenEsd);
+  const esdPenalty = Math.min(2.0, billedEsd * 0.75);
+
+  const forgivenPosts = postPassed ? Math.min(1, failedPosts) : 0;
+  const billedPosts = Math.max(0, failedPosts - forgivenPosts);
+  const postPenalty = Math.min(1.5, billedPosts * 0.5);
+
+  const totalErrorPenalty = Math.min(3.0, esdPenalty + postPenalty);
+  const timePenalty = elapsed > 420 ? Math.min(0.5, ((elapsed - 420) / 180) * 0.5) : 0;
+
+  const baseSum = esdPts + cpuPts + pastePts + coolerPts + ramPts + nvmePts + gpuPts + cablesPts + postPts;
+  const rawScore = Math.max(0, baseSum - totalErrorPenalty - timePenalty);
+  const hasCriticalError =
+    !esdWorn ||
+    !cpuOk ||
+    !pasteApplied ||
+    !coolerInstalled ||
+    !ramDualChannel ||
+    !nvmeInstalled ||
+    !gpuInstalled ||
+    !cablesConnected ||
+    !postPassed;
+
+  const finalScore = finalizeGrade20(rawScore, { hasCriticalError });
+  const xp = Math.max(40, Math.round(finalScore * 16 + (postPassed ? 60 : 0)));
   const accuracy = Math.round((finalScore / 20) * 100);
-  return { score: finalScore, xp, accuracy, details };
+
+  const items = [
+    { label: 'Sécurité bracelet antistatique ESD', earned: esdPts, max: 2.5 },
+    { label: 'Processeur & socket LGA1700', earned: cpuPts, max: 2.5 },
+    { label: 'Pâte thermique CPU', earned: pastePts, max: 2.0 },
+    { label: 'Ventirad Dual-Tower', earned: coolerPts, max: 2.0 },
+    { label: 'RAM DDR5 Dual-Channel A2/B2', earned: ramPts, max: 3.0 },
+    { label: 'SSD NVMe M.2 PCIe 4.0', earned: nvmePts, max: 2.0 },
+    { label: 'Carte graphique PCIe x16', earned: gpuPts, max: 2.0 },
+    { label: 'Câblage ATX 24+8 pins', earned: cablesPts, max: 2.0 },
+    { label: 'Validation POST UEFI', earned: postPts, max: 2.0 }
+  ];
+
+  const penalties = [];
+  if (esdMistakes > 0) {
+    penalties.push({
+      label:
+        billedEsd === 0
+          ? `Manipulation avant bracelet ESD (${esdMistakes})`
+          : `Erreurs ESD (${billedEsd} facturée(s), 1 offerte)`,
+      points: Math.min(totalErrorPenalty, esdPenalty),
+      forgivenCount: forgivenEsd
+    });
+  }
+  if (failedPosts > 0) {
+    penalties.push({
+      label:
+        billedPosts === 0
+          ? `Essai POST échoué corrigé (${failedPosts})`
+          : `POST échoués (${billedPosts} facturé(s), 1 offert)`,
+      points: Math.max(0, totalErrorPenalty - Math.min(totalErrorPenalty, esdPenalty)),
+      forgivenCount: forgivenPosts
+    });
+  }
+  if (timePenalty > 0) {
+    penalties.push({
+      label: `Dépassement temps confortable (${Math.round(elapsed)}s > 420s)`,
+      points: Math.round(timePenalty * 100) / 100,
+      forgivenCount: 0
+    });
+  }
+
+  let tip = '';
+  if (details.length > 0) tip = details[0];
+  else if (totalErrorPenalty > 0) tip = 'Enfilez le bracelet ESD en premier et vérifiez les slots A2/B2 avant le POST.';
+
+  const breakdown = createGradeBreakdown({
+    items,
+    penalties,
+    rawScore,
+    finalScore,
+    hasCriticalError,
+    tip
+  });
+
+  return { score: finalScore, xp, accuracy, details, rawScore, breakdown };
 }
 
 function makeMotherboardTexture() {
@@ -1005,7 +1107,8 @@ export function createPcHardwareGame(api) {
           <li>Test POST & Boot UEFI : <strong>${state.postPassed ? 'Réussi (1 bip court)' : 'Incomplet'}</strong></li>
           ${res.details.map((d) => `<li>${d}</li>`).join('')}
         </ul>
-      `
+      `,
+      res.breakdown
     );
   }
 

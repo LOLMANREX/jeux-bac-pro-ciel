@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
 import { getStationById } from '../core/gameState.js';
+import { computeTpCoinReward } from '../world/ShopCatalog.js';
+import { buildBreakdownLines, renderBreakdownHtml } from '../core/grading.js';
 
 export class MiniGameModal {
   constructor() {
@@ -127,13 +129,14 @@ export class MiniGameModal {
         });
         this.vrManager?.syncTpPanelFromContext?.();
       },
-      finishTp: (scoreOutOf20, summaryHtml) => {
+      finishTp: (scoreOutOf20, summaryHtml, breakdown = null) => {
         if (!this._isOpen) return;
         const durationSec = Math.max(1, Math.round((Date.now() - this.startTimeMs) / 1000));
         const rawNum = Number(scoreOutOf20);
         const safeRaw = Number.isFinite(rawNum) ? rawNum : 0;
         const finalScore = Math.max(0, Math.min(20, Math.round(safeRaw * 10) / 10));
-        if (finalScore >= 10) sfx.success();
+        if (finalScore === 20) sfx.perfect20();
+        else if (finalScore >= 10) sfx.success();
         else sfx.error();
 
         this.onFinishCallback?.({
@@ -143,7 +146,7 @@ export class MiniGameModal {
         });
 
         if (!this._isOpen) return;
-        this._showResultScreen(tp, finalScore, durationSec, summaryHtml);
+        this._showResultScreen(tp, finalScore, durationSec, summaryHtml, breakdown);
       }
     };
 
@@ -185,11 +188,14 @@ export class MiniGameModal {
     this.vrResultScene = null;
   }
 
-  _showResultScreen(tp, score, durationSec, summaryHtml) {
+  _showResultScreen(tp, score, durationSec, summaryHtml, breakdown = null) {
     const passed = score >= 10;
+    const isPerfect = score === 20;
     const estXp = Math.round(score * 15) + 30;
-    const mention =
-      score >= 18
+    const coinsBase = computeTpCoinReward({ score, isFirstValidation: false }).baseCoins;
+    const mention = isPerfect
+      ? 'Parfait 20/20 ! Maîtrise exemplaire de l’atelier CIEL !'
+      : score >= 18
         ? 'Félicitations du Professeur CIEL !'
         : score >= 15
           ? 'Très solide maîtrise CIEL !'
@@ -197,15 +203,19 @@ export class MiniGameModal {
             ? 'TP Validé — Continuez ainsi !'
             : 'TP non validé (< 10/20) — Recommencez pour améliorer votre note.';
 
+    const breakdownLines = buildBreakdownLines(breakdown);
+    const breakdownHtml = renderBreakdownHtml(breakdown);
+
     if (this.vrManager?.isVrActive()) {
-      const summaryLines = String(summaryHtml || '')
+      const htmlLines = String(summaryHtml || '')
         .replace(/<\/(li|p|div|h\d|br)\s*>/gi, '\n')
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/<[^>]+>/g, ' ')
         .split('\n')
         .map((ln) => ln.replace(/\s+/g, ' ').trim())
         .filter(Boolean)
-        .slice(0, 7);
+        .slice(0, 8);
+      const summaryLines = breakdownLines.length > 0 ? breakdownLines : htmlLines;
       const resultScene = this._createVrResultScene();
       this.vrResultActive = true;
       this.vrResultScene = resultScene;
@@ -219,14 +229,17 @@ export class MiniGameModal {
           tpTitle: `${tp.icon} ${tp.title}`,
           timer: this._formatSec(durationSec),
           accuracy: `${score.toFixed(1)} / 20`,
-          badge: 'TERMINÉ',
+          badge: isPerfect ? 'PARFAIT 20/20' : 'TERMINÉ',
           briefTitle: tp.title,
           briefSub: mention,
           result: {
             score,
+            isPerfect,
             xp: estXp,
+            coinsBase,
             duration: this._formatSec(durationSec),
             mention,
+            breakdown,
             summaryLines,
             onReplay: () => {
               sfx.click();
@@ -244,18 +257,27 @@ export class MiniGameModal {
 
     this.cleanupActive();
 
+    const perfectBannerHtml = isPerfect
+      ? '<div class="mg-perfect-banner">🏆 PARFAIT 20/20 — RÉUSSITE MAXIMALE</div>'
+      : '';
+    const detailSectionHtml = breakdownHtml || summaryHtml || '';
+
     this.contentEl.innerHTML = `
       <div class="mg-result-backdrop">
-        <div class="mg-result-card">
-          <div class="mg-result-badge ${passed ? 'pass' : 'fail'}">
+        <div class="mg-result-card ${isPerfect ? 'perfect' : ''}">
+          ${perfectBannerHtml}
+          <div class="mg-result-badge ${passed ? 'pass' : 'fail'} ${isPerfect ? 'perfect' : ''}">
             <div class="mg-result-score">${score.toFixed(1)}<span>/20</span></div>
-            <div class="mg-result-xp">+${estXp} XP</div>
-            <div class="mg-result-status">${passed ? '✅ COMPÉTENCE VALIDÉE' : '⚠️ À RETRAVAILLER'}</div>
+            <div class="mg-result-rewards">
+              <span class="mg-result-xp">+${estXp} XP</span>
+              ${coinsBase > 0 ? `<span class="mg-result-coins">🪙 +${coinsBase} CC</span>` : ''}
+            </div>
+            <div class="mg-result-status">${isPerfect ? '🏆 PARFAIT 20/20' : passed ? '✅ COMPÉTENCE VALIDÉE' : '⚠️ À RETRAVAILLER'}</div>
           </div>
           <h3>${tp.icon} ${tp.title}</h3>
           <p class="mg-result-prof">👨‍🏫 <strong>Professeur CIEL :</strong> « ${mention} »</p>
           <div class="mg-result-meta">⏱️ Temps réalisé : <strong>${this._formatSec(durationSec)}</strong></div>
-          <div class="mg-result-summary">${summaryHtml || ''}</div>
+          <div class="mg-result-summary">${detailSectionHtml}</div>
           <div class="mg-result-actions">
             <button id="mg-replay-btn" class="btn-hud">🔄 Refaire le TP</button>
             <button id="mg-back-3d-btn" class="btn-primary">Retour à l'atelier 3D ▶</button>

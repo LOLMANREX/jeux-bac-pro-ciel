@@ -1359,6 +1359,141 @@
   font-weight: 800;
   font-size: 0.82rem;
 }
+.mg-result-rewards {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mg-result-coins {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #d97706, #f59e0b);
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+.mg-perfect-banner {
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: #0f172a;
+  font-weight: 900;
+  font-size: 0.86rem;
+  letter-spacing: 0.04em;
+  padding: 7px 14px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  box-shadow: 0 6px 18px rgba(245, 158, 11, 0.35);
+}
+.mg-result-card.perfect {
+  border-color: rgba(245, 158, 11, 0.65);
+  box-shadow: 0 24px 60px rgba(245, 158, 11, 0.25);
+}
+#minigame-modal.tp3d-mode .mg-result-card.perfect {
+  border: 2px solid #f59e0b;
+  box-shadow: 0 24px 64px rgba(245, 158, 11, 0.28);
+}
+.mg-result-badge.perfect {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.22), rgba(16, 185, 129, 0.18));
+  border-color: #f59e0b;
+}
+.mg-breakdown {
+  text-align: left;
+  background: rgba(15, 23, 42, 0.9);
+  color: #f1f5f9;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+#minigame-modal.tp3d-mode .mg-breakdown {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: rgba(15, 23, 42, 0.14);
+}
+.mg-bd-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 800;
+  font-size: 0.9rem;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+}
+.mg-bd-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.mg-bd-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  font-size: 0.82rem;
+  background: rgba(30, 41, 59, 0.55);
+}
+#minigame-modal.tp3d-mode .mg-bd-row {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+.mg-bd-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.mg-bd-detail {
+  font-size: 0.74rem;
+  opacity: 0.78;
+}
+.mg-bd-pts {
+  white-space: nowrap;
+  font-family: monospace;
+  font-size: 0.83rem;
+}
+.mg-bd-ok .mg-bd-pts {
+  color: #10b981;
+}
+.mg-bd-warn .mg-bd-pts {
+  color: #f59e0b;
+}
+.mg-bd-fail .mg-bd-pts {
+  color: #ef4444;
+}
+.mg-bd-penalty .mg-bd-pts {
+  color: #f43f5e;
+}
+.mg-bd-forgiven .mg-bd-pts {
+  color: #38bdf8;
+}
+.mg-bd-bonus .mg-bd-pts {
+  color: #f59e0b;
+}
+.mg-bd-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.mg-bd-tip {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  font-size: 0.8rem;
+  line-height: 1.38;
+}
 
 @media (max-width: 760px) {
   .tp3d-brief-bar {

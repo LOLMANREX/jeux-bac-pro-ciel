@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.24 - Économie CIEL Coins, Boutique Complète, Skins & Pets 3D';
+    : 'v4.25 - Refonte & Équilibrage des Barèmes (20/20 Accessible et Transparent)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
+    version: 'v4.25 — Refonte & Équilibrage de Tous les Barèmes (20/20 Accessible et Transparent)',
+    date: '19/11/2026',
+    tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'BARÈMES RÉÉQUILIBRÉS /20',
+        title: 'Sommes Exactes sur 20, Droit à l’Erreur Corrigée, Chronos & Tolérances Élargies',
+        desc: 'Audit complet de tous les TPs PC & VR : suppression des plafonds bloqués à 19 ou 19.5/20 (Baie de brassage, Studio Régie), chronos confortables de 5 à 7 minutes adaptés à la VR, droit à l’erreur corrigée (1 à 2 erreurs mineures pardonnées si le résultat final est propre), pénalités plafonnées, tolérances analogiques élargies (Oscilloscope, Brasure, DMX512, Studio Régie, Électronique) et arrondi généreux au 0.5 supérieur (20/20 garanti dès ≥ 19.25 sans erreur critique).'
+      },
+      {
+        badge: 'TRANSPARENCE PC & VR',
+        title: 'Détail Point par Point du Barème, Mention « Parfait 20/20 » & Fanfare Dédiée',
+        desc: 'Chaque écran de fin de TP (modale PC et panneau spatial VR) affiche désormais le détail complet des points obtenus critère par critère, les erreurs pardonnées, les gains XP / CIEL Coins, un conseil concret du Professeur CIEL si la note est inférieure à 20, ainsi qu’une célébration visuelle dorée et une fanfare sonore dédiée (perfect20) lorsque l’élève décroche 20/20.'
+      }
+    ]
+  },
+  {
     version: 'v4.24 — Économie Virtuelle CIEL Coins, Boutique Complète, Skins & Compagnons Pets 3D',
     date: '18/11/2026',
-    tag: 'DERNIÈRE MÀJ',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'ÉCONOMIE CIEL COINS',

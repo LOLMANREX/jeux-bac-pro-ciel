@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import {
   createWorkbench3D,
   makeCanvasScreen,
@@ -231,39 +232,95 @@ export function evaluateVmVlanStage(stage, cfg) {
   };
 }
 
-export function computeVlanConfigScore3D(metrics = {}) {
-  if (metrics.accessPortsOk !== undefined || metrics.tracerouteOk !== undefined) {
-    const vlansOk = Math.max(0, Math.min(3, metrics.vlansCreated ?? 0));
-    const accOk = Math.max(0, Math.min(3, metrics.accessPortsOk ?? 0));
-    const trunkOk = metrics.trunkConfigured ? 1 : 0;
-    const gwOk = Math.max(0, Math.min(3, metrics.gatewaysOk ?? 0));
-    const pingPts = metrics.pingOk ? 2.5 : metrics.probeRun ? 1 : 0;
-    const tracePts = metrics.tracerouteOk ? 1.5 : 0;
-    const elapsed = metrics.elapsedSec ?? 120;
-    const bonus = elapsed < 100 ? 1 : elapsed < 160 ? 0.5 : 0;
-    const raw =
-      (vlansOk / 3) * 4 +
-      (accOk / 3) * 4 +
-      trunkOk * 3 +
-      (gwOk / 3) * 4 +
-      pingPts +
-      tracePts +
-      bonus;
-    return Math.max(0, Math.min(20, Math.round(raw * 2) / 2));
+export function evaluateVlanConfigScore3D(metrics = {}) {
+  const m = metrics && typeof metrics === 'object' ? metrics : {};
+  const elapsed = Math.max(0, toSafeNumber(m.elapsedSec, 120));
+  const timePts = elapsed <= 300 ? 0.5 : elapsed <= 480 ? 0.25 : 0;
+
+  if (m.accessPortsOk !== undefined || m.tracerouteOk !== undefined) {
+    const vlansOk = Math.max(0, Math.min(3, toSafeNumber(m.vlansCreated, 0)));
+    const accOk = Math.max(0, Math.min(3, toSafeNumber(m.accessPortsOk, 0)));
+    const trunkOk = Boolean(m.trunkConfigured);
+    const gwOk = Math.max(0, Math.min(3, toSafeNumber(m.gatewaysOk, 0)));
+    const pingOk = Boolean(m.pingOk);
+    const traceOk = Boolean(m.tracerouteOk);
+    const probeRun = Boolean(m.probeRun);
+
+    const vlanPts = (vlansOk / 3) * 4.0;
+    const accPts = (accOk / 3) * 4.0;
+    const trunkPts = trunkOk ? 3.5 : 0;
+    const gwPts = (gwOk / 3) * 4.0;
+    const pingPts = pingOk ? 2.5 : probeRun ? 1.0 : 0;
+    const tracePts = traceOk ? 1.5 : 0;
+
+    const rawScore = vlanPts + accPts + trunkPts + gwPts + pingPts + tracePts + timePts;
+    const hasCriticalError = vlansOk < 3 || accOk < 3 || !trunkOk || gwOk < 3 || !pingOk || !traceOk;
+    const score = finalizeGrade20(rawScore, { hasCriticalError });
+
+    const items = [
+      { label: `Création VLAN 10 / 20 / 30 (${vlansOk}/3)`, earned: vlanPts, max: 4.0 },
+      { label: `Ports Access Gi0/1..3 (${accOk}/3)`, earned: accPts, max: 4.0 },
+      { label: 'Trunk 802.1Q sur Gi0/24', earned: trunkPts, max: 3.5 },
+      { label: `Passerelles Inter-VLAN /24 (${gwOk}/3)`, earned: gwPts, max: 4.0 },
+      { label: 'Test Ping 3D Inter-VLAN', earned: pingPts, max: 2.5 },
+      { label: 'Test Traceroute 3D', earned: tracePts, max: 1.5 },
+      { label: 'Rythme de configuration', earned: timePts, max: 0.5, detail: `${Math.round(elapsed)}s` }
+    ];
+
+    let tip = '';
+    if (vlansOk < 3) tip = 'Activez les 3 VLANs (10, 20 et 30).';
+    else if (accOk < 3) tip = 'Assignez Gi0/1→10, Gi0/2→20 et Gi0/3→30 en mode Access.';
+    else if (!trunkOk) tip = 'Passez le port Gi0/24 en mode Trunk 802.1Q (VLANs 10,20,30).';
+    else if (gwOk < 3) tip = 'Corrigez les passerelles .20.254/24 et .30.254/24.';
+    else if (!pingOk || !traceOk) tip = 'Exécutez Ping 3D et Traceroute 3D pour valider le routage.';
+
+    const breakdown = createGradeBreakdown({
+      items,
+      rawScore,
+      finalScore: score,
+      hasCriticalError,
+      tip
+    });
+
+    return { score, rawScore, breakdown };
   }
 
-  const vlansOk = Math.max(0, Math.min(3, metrics.vlansCreated ?? 0));
-  const trunkOk = metrics.trunkConfigured ? 1 : 0;
-  const gwOk = Math.max(0, Math.min(3, metrics.gatewaysOk ?? 0));
-  const stpPts = metrics.stpResolved ? 4 : 0;
-  const probePts = metrics.pingOk ? 3 : metrics.probeRun ? 1 : 0;
-  const vlanPts = (vlansOk / 3) * 5;
-  const trunkPts = trunkOk * 3;
-  const gwPts = (gwOk / 3) * 4;
-  const elapsed = metrics.elapsedSec ?? 120;
-  const bonus = elapsed < 90 ? 1 : elapsed < 150 ? 0.5 : 0;
-  const raw = vlanPts + trunkPts + gwPts + stpPts + probePts + bonus;
-  return Math.max(0, Math.min(20, Math.round(raw * 2) / 2));
+  const vlansOk = Math.max(0, Math.min(3, toSafeNumber(m.vlansCreated, 0)));
+  const trunkOk = Boolean(m.trunkConfigured);
+  const gwOk = Math.max(0, Math.min(3, toSafeNumber(m.gatewaysOk, 0)));
+  const stpOk = Boolean(m.stpResolved);
+  const pingOk = Boolean(m.pingOk);
+  const probeRun = Boolean(m.probeRun);
+
+  const vlanPts = (vlansOk / 3) * 5.0;
+  const trunkPts = trunkOk ? 3.5 : 0;
+  const gwPts = (gwOk / 3) * 4.0;
+  const stpPts = stpOk ? 4.0 : 0;
+  const probePts = pingOk ? 3.0 : probeRun ? 1.0 : 0;
+
+  const rawScore = vlanPts + trunkPts + gwPts + stpPts + probePts + timePts;
+  const hasCriticalError = vlansOk < 3 || !trunkOk || gwOk < 3 || !stpOk || !pingOk;
+  const score = finalizeGrade20(rawScore, { hasCriticalError });
+
+  const breakdown = createGradeBreakdown({
+    items: [
+      { label: `VLANs configurés (${vlansOk}/3)`, earned: vlanPts, max: 5.0 },
+      { label: 'Trunk 802.1Q', earned: trunkPts, max: 3.5 },
+      { label: `Passerelles /24 (${gwOk}/3)`, earned: gwPts, max: 4.0 },
+      { label: 'Convergence Spanning-Tree (STP)', earned: stpPts, max: 4.0 },
+      { label: 'Diagnostic Ping 3D', earned: probePts, max: 3.0 },
+      { label: 'Rythme de configuration', earned: timePts, max: 0.5, detail: `${Math.round(elapsed)}s` }
+    ],
+    rawScore,
+    finalScore: score,
+    hasCriticalError
+  });
+
+  return { score, rawScore, breakdown };
+}
+
+export function computeVlanConfigScore3D(metrics = {}) {
+  return evaluateVlanConfigScore3D(metrics).score;
 }
 
 const CAM_VIEWS = [
@@ -859,7 +916,7 @@ export function createVlanConfigGame(api) {
           if (state.submitted) return;
           state.submitted = true;
           const finalEv = evaluateTopology();
-          const finalScore = computeVlanConfigScore3D({
+          const evalRes = evaluateVlanConfigScore3D({
             vlansCreated: finalEv.vlansCreated,
             accessPortsOk: finalEv.accessPortsOk,
             trunkConfigured: finalEv.trunkConfigured,
@@ -869,10 +926,10 @@ export function createVlanConfigGame(api) {
             tracerouteOk: state.lastTraceOk,
             elapsedSec: (performance.now() - state.startMs) / 1000
           });
-          if (finalScore >= 12) sfx.success();
+          if (evalRes.score >= 10) sfx.success();
           else sfx.error();
           api.finishTp(
-            finalScore,
+            evalRes.score,
             `
               <p>Atelier Configuration VLAN 802.1Q & Routage évalué :</p>
               <ul>
@@ -880,7 +937,8 @@ export function createVlanConfigGame(api) {
                 <li>Ports Access & Trunk 802.1Q : <strong>${finalEv.accessPortsOk}/3 ports Access • Trunk Gi0/24 ${finalEv.trunkConfigured ? 'OK ✔' : 'Incomplet'}</strong></li>
                 <li>Routage Inter-VLAN & Diagnostic : <strong>${finalEv.gatewaysOk}/3 passerelles /24 • Ping ${state.lastPingOk ? 'OK ✔' : 'KO'} • Traceroute ${state.lastTraceOk ? 'OK ✔' : 'KO'}</strong></li>
               </ul>
-            `
+            `,
+            evalRes.breakdown
           );
         }
       }

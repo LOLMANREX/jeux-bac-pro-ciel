@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import { buildFlexibleCable, createWorkbench3D, makeCanvasScreen } from './Workbench3DHost.js';
 
 export const OSCILLO_STAGES = [
@@ -63,12 +64,12 @@ export function evaluateOscilloscopeStage(stage, controls, answers) {
   const effectiveMax = controls.coupling === 'AC' ? stage.uppV / 2 : maxV;
 
   const triggerLocked =
-    controls.triggerLevel > effectiveMin + 0.25 &&
-    controls.triggerLevel < effectiveMax - 0.25;
+    controls.triggerLevel > effectiveMin + 0.15 &&
+    controls.triggerLevel < effectiveMax - 0.15;
 
   const couplingOk = !stage.requireCoupling || controls.coupling === stage.requireCoupling;
   const ch2Ok = !stage.needCh2 || controls.ch2Enabled;
-  const framingOk = visiblePeriods >= 1.2 && visiblePeriods <= 6.5 && signalHeightRatio >= 0.3 && signalHeightRatio <= 0.96;
+  const framingOk = visiblePeriods >= 1.0 && visiblePeriods <= 8.0 && signalHeightRatio >= 0.24 && signalHeightRatio <= 1.0;
 
   const issues = [];
   if (!triggerLocked) issues.push('Le Trigger ne coupe pas le signal (courbe instable).');
@@ -80,20 +81,20 @@ export function evaluateOscilloscopeStage(stage, controls, answers) {
   if (stage.questionType === 'freq_upp') {
     const fErr = Math.abs(Number(answers.freq) - stage.freqHz) / stage.freqHz;
     const uErr = Math.abs(Number(answers.upp) - stage.uppV) / stage.uppV;
-    if (fErr <= 0.08) answerScore += 0.5;
+    if (fErr <= 0.12) answerScore += 0.5;
     else issues.push(`Fréquence inexacte (attendu ~${stage.freqHz} Hz).`);
-    if (uErr <= 0.1) answerScore += 0.5;
+    if (uErr <= 0.14) answerScore += 0.5;
     else issues.push(`Amplitude Upp inexacte (attendu ~${stage.uppV} V).`);
   } else if (stage.questionType === 'pwm') {
     const fErr = Math.abs(Number(answers.freq) - stage.freqHz) / stage.freqHz;
     const dErr = Math.abs(Number(answers.duty) - stage.dutyCycle);
-    if (fErr <= 0.08) answerScore += 0.5;
+    if (fErr <= 0.12) answerScore += 0.5;
     else issues.push(`Fréquence PWM inexacte (attendu ${stage.freqHz} Hz).`);
-    if (dErr <= 4) answerScore += 0.5;
+    if (dErr <= 6) answerScore += 0.5;
     else issues.push(`Rapport cyclique inexact (attendu ${stage.dutyCycle}%).`);
   } else if (stage.questionType === 'diagnostic') {
     const rErr = Math.abs(Number(answers.ripple) - stage.ch2RippleV);
-    if (rErr <= 0.4) answerScore += 0.45;
+    if (rErr <= 0.6) answerScore += 0.45;
     else issues.push(`Ondulation ΔU sur CH2 inexacte (attendu ~${stage.ch2RippleV} V).`);
     if (answers.diag === stage.correctDiag) answerScore += 0.55;
     else issues.push('Diagnostic de panne incorrect sur CH2.');
@@ -114,18 +115,89 @@ export function evaluateOscilloscopeStage(stage, controls, answers) {
   };
 }
 
-export function computeOscilloBenchScore({ gndAttached, tp1Stabilized, tp2Probed, tp3Probed, componentReplaced, tp3VerifiedAfterRepair, mistakes, durationSec }) {
-  let pts = 0;
-  if (gndAttached) pts += 3.0;
-  if (tp1Stabilized) pts += 4.5;
-  if (tp2Probed) pts += 2.0;
-  if (tp3Probed) pts += 2.5;
-  if (componentReplaced) pts += 4.0;
-  if (tp3VerifiedAfterRepair) pts += 3.0;
-  if (durationSec <= 130) pts += 1.0;
-  else if (durationSec <= 200) pts += 0.5;
-  pts -= Math.min(3.5, mistakes * 0.7);
-  return Math.max(0, Math.min(20, Math.round(pts * 10) / 10));
+export function evaluateOscilloBenchScore(metrics = {}) {
+  const m = metrics && typeof metrics === 'object' ? metrics : {};
+  const gndAttached = Boolean(m.gndAttached);
+  const tp1Stabilized = Boolean(m.tp1Stabilized);
+  const tp2Probed = Boolean(m.tp2Probed);
+  const tp3Probed = Boolean(m.tp3Probed);
+  const componentReplaced = Boolean(m.componentReplaced);
+  const tp3VerifiedAfterRepair = Boolean(m.tp3VerifiedAfterRepair);
+  const safeMistakes = Math.max(0, Math.floor(toSafeNumber(m.mistakes, 0)));
+  const safeDuration = Math.max(0, toSafeNumber(m.durationSec, 90));
+
+  const gndPts = gndAttached ? 3.0 : 0;
+  const tp1Pts = tp1Stabilized ? 4.5 : 0;
+  const tp2Pts = tp2Probed ? 2.0 : 0;
+  const tp3Pts = tp3Probed ? 2.5 : 0;
+  const repPts = componentReplaced ? 4.0 : 0;
+  const verifPts = tp3VerifiedAfterRepair ? 3.0 : 0;
+  const timePts = safeDuration <= 300 ? 1.0 : safeDuration <= 480 ? 0.75 : 0.5;
+
+  const forgivenMistakes = Math.min(2, safeMistakes);
+  const billedMistakes = Math.max(0, safeMistakes - 2);
+  const mistakePenalty = Math.min(2.5, billedMistakes * 0.75);
+
+  const rawScore = Math.max(0, gndPts + tp1Pts + tp2Pts + tp3Pts + repPts + verifPts + timePts - mistakePenalty);
+  const hasCriticalError =
+    !gndAttached ||
+    !tp1Stabilized ||
+    !tp2Probed ||
+    !tp3Probed ||
+    !componentReplaced ||
+    !tp3VerifiedAfterRepair;
+
+  const score = finalizeGrade20(rawScore, { hasCriticalError });
+
+  const items = [
+    { label: 'Pince de masse GND fixée', earned: gndPts, max: 3.0 },
+    { label: 'Signal TP1 stabilisé (V/div, ms/div, Trigger)', earned: tp1Pts, max: 4.5 },
+    { label: 'Inspection du point TP2', earned: tp2Pts, max: 2.0 },
+    { label: 'Diagnostic du défaut sur TP3', earned: tp3Pts, max: 2.5 },
+    { label: 'Remplacement 3D du composant défectueux', earned: repPts, max: 4.0 },
+    { label: 'Contre-mesure TP3 après réparation', earned: verifPts, max: 3.0 },
+    {
+      label: 'Maîtrise du rythme d’intervention',
+      earned: timePts,
+      max: 1.0,
+      detail: `${Math.round(safeDuration)}s`
+    }
+  ];
+
+  const penalties = [];
+  if (safeMistakes > 0) {
+    penalties.push({
+      label:
+        billedMistakes === 0
+          ? `Erreurs de manipulation (${safeMistakes})`
+          : `Erreurs de manipulation (${billedMistakes} facturée(s), 2 offertes)`,
+      points: mistakePenalty,
+      forgivenCount: forgivenMistakes
+    });
+  }
+
+  let tip = '';
+  if (!gndAttached) tip = 'Fixez toujours la pince noire sur GND avant de sonder.';
+  else if (!tp1Stabilized) tip = 'Stabilisez le signal sur TP1 en couplage DC avant de poursuivre.';
+  else if (!tp2Probed || !tp3Probed) tip = 'Sondez TP2 puis TP3 pour confirmer la source de la panne.';
+  else if (!componentReplaced) tip = 'Remplacez le composant défectueux dans le bac de droite.';
+  else if (!tp3VerifiedAfterRepair) tip = 'Re-sondez TP3 après remplacement pour valider la réparation.';
+  else if (mistakePenalty > 0) tip = 'Branchez d’abord GND et évitez plus de 2 manipulations invalides.';
+
+  const breakdown = createGradeBreakdown({
+    items,
+    penalties,
+    rawScore,
+    finalScore: score,
+    hasCriticalError,
+    tip
+  });
+
+  return { score, rawScore, breakdown };
+}
+
+export function computeOscilloBenchScore(metrics = {}) {
+  return evaluateOscilloBenchScore(metrics).score;
 }
 
 export function createOscilloscopeBench3D(api, opts = {}) {
@@ -763,14 +835,14 @@ export function createOscilloscopeBench3D(api, opts = {}) {
       const periods = (tMs * 1e-3 * 10) / (1 / freq);
       const upp = isElecVariant ? 5.0 : 6.0;
       const heightRatio = upp / (vPerDiv * 8);
-      const trigOk = isElecVariant ? triggerV > 0.3 && triggerV < 4.7 : triggerV > -2.7 && triggerV < 2.7;
-      return trigOk && periods >= 1.5 && periods <= 6.5 && heightRatio >= 0.3 && heightRatio <= 0.96 && coupling === 'DC';
+      const trigOk = isElecVariant ? triggerV > 0.1 && triggerV < 4.9 : triggerV > -2.9 && triggerV < 2.9;
+      return trigOk && periods >= 1.0 && periods <= 8.0 && heightRatio >= 0.24 && heightRatio <= 1.0 && coupling === 'DC';
     }
     if (activeProbePoint === 'TP2') {
-      return triggerV > 0.3 && triggerV < 4.5 && coupling === 'DC';
+      return triggerV > 0.1 && triggerV < 4.9 && coupling === 'DC';
     }
     if (activeProbePoint === 'TP3') {
-      return coupling === 'DC' && vPerDiv <= 2.0;
+      return coupling === 'DC' && vPerDiv <= 5.0;
     }
     return false;
   }
@@ -796,7 +868,7 @@ export function createOscilloscopeBench3D(api, opts = {}) {
     if (tp1Stabilized && tp2Probed && tp3Probed && componentReplaced && tp3VerifiedAfterRepair && !finalized) {
       finalized = true;
       const durationSec = Math.round(wb.getElapsedSec());
-      const score = computeOscilloBenchScore({
+      const evalRes = evaluateOscilloBenchScore({
         gndAttached,
         tp1Stabilized,
         tp2Probed,
@@ -808,14 +880,15 @@ export function createOscilloscopeBench3D(api, opts = {}) {
       });
       setTimeout(() => {
         api.finishTp(
-          score,
+          evalRes.score,
           `
           <ul>
             <li>⚫ Pince crocodile GND : <strong>Connectée</strong></li>
             <li>〰️ Signal TP1 stabilisé (V/div, ms/div, Trigger) : <strong>Validé</strong></li>
             <li>🔍 Inspection TP2 / TP3 & composant défectueux : <strong>Localisé</strong></li>
             <li>🛠️ Remplacement 3D & validation signal propre : <strong>OK</strong></li>
-          </ul>`
+          </ul>`,
+          evalRes.breakdown
         );
       }, 1300);
     }

@@ -1455,41 +1455,135 @@ export function createTpSpatialPanel() {
 
     if (mode === 'result' && state.result) {
       const res = state.result;
-      const passed = Number(res.score) >= 10;
+      const numScore = Number(res.score || 0);
+      const passed = numScore >= 10;
+      const isPerfect = Boolean(res.isPerfect || numScore >= 20);
       if (ctx) {
         roundRectPath(ctx, 44, 78, canvasW - 88, 578, 22);
-        ctx.fillStyle = passed ? 'rgba(6, 78, 59, 0.88)' : 'rgba(127, 29, 29, 0.82)';
+        ctx.fillStyle = isPerfect
+          ? 'rgba(20, 62, 48, 0.94)'
+          : passed
+            ? 'rgba(6, 78, 59, 0.88)'
+            : 'rgba(127, 29, 29, 0.82)';
         ctx.fill();
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = passed ? '#34d399' : '#fb7185';
+        ctx.lineWidth = isPerfect ? 4 : 3;
+        ctx.strokeStyle = isPerfect ? '#fbbf24' : passed ? '#34d399' : '#fb7185';
         ctx.stroke();
 
+        if (isPerfect) {
+          roundRectPath(ctx, 370, 90, canvasW - 740, 34, 14);
+          ctx.fillStyle = '#fbbf24';
+          ctx.fill();
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#0f172a';
+          ctx.font = 'bold 19px system-ui, sans-serif';
+          ctx.fillText('🏆 PARFAIT 20/20 — MAÎTRISE MAXIMALE', canvasW / 2, 113);
+        }
+
         ctx.textAlign = 'center';
-        ctx.fillStyle = '#f8fafc';
-        ctx.font = 'bold 64px system-ui, sans-serif';
-        ctx.fillText(`${Number(res.score || 0).toFixed(1)} / 20`, canvasW / 2, 168);
+        ctx.fillStyle = isPerfect ? '#fde047' : '#f8fafc';
+        ctx.font = 'bold 58px system-ui, sans-serif';
+        ctx.fillText(`${numScore.toFixed(1)} / 20`, canvasW / 2, isPerfect ? 174 : 158);
 
         ctx.fillStyle = '#fbbf24';
-        ctx.font = 'bold 28px system-ui, sans-serif';
-        ctx.fillText(`+${res.xp || 0} XP • Temps : ${res.duration || '00:00'}`, canvasW / 2, 220);
+        ctx.font = 'bold 24px system-ui, sans-serif';
+        const coinTxt = res.coinsBase > 0 ? ` • 🪙 +${res.coinsBase} CC` : '';
+        ctx.fillText(
+          `+${res.xp || 0} XP${coinTxt} • Temps : ${res.duration || '00:00'}`,
+          canvasW / 2,
+          isPerfect ? 214 : 200
+        );
 
         ctx.fillStyle = '#e2e8f0';
-        ctx.font = '600 24px system-ui, sans-serif';
-        ctx.fillText(`Professeur CIEL : ${res.mention || ''}`, canvasW / 2, 268);
+        ctx.font = '600 21px system-ui, sans-serif';
+        ctx.fillText(`Professeur CIEL : ${res.mention || ''}`, canvasW / 2, isPerfect ? 248 : 236);
 
-        const summaryLines = Array.isArray(res.summaryLines) ? res.summaryLines : [];
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#cbd5e1';
-        ctx.font = '500 20px system-ui, sans-serif';
-        summaryLines.slice(0, 7).forEach((ln, idx) => {
-          ctx.fillText(`• ${String(ln).slice(0, 90)}`, 86, 326 + idx * 36);
-        });
+        const bd = res.breakdown;
+        if (bd && Array.isArray(bd.items) && bd.items.length > 0) {
+          const boxX = 76;
+          const boxY = isPerfect ? 268 : 258;
+          const boxW = canvasW - 152;
+          const boxH = isPerfect ? 330 : 340;
+          roundRectPath(ctx, boxX, boxY, boxW, boxH, 14);
+          ctx.fillStyle = 'rgba(7, 15, 32, 0.84)';
+          ctx.fill();
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+          ctx.stroke();
+
+          ctx.textAlign = 'left';
+          ctx.fillStyle = '#38bdf8';
+          ctx.font = 'bold 18px system-ui, sans-serif';
+          ctx.fillText('📊 DÉTAIL DU BARÈME (/20)', boxX + 20, boxY + 28);
+
+          const entries = [];
+          for (const it of bd.items) {
+            const icon = it.status === 'ok' ? '✅' : it.status === 'warn' ? '🟡' : '❌';
+            const color = it.status === 'ok' ? '#6ee7b7' : it.status === 'warn' ? '#fde047' : '#fda4af';
+            entries.push({
+              text: `${icon} ${String(it.label || '').slice(0, 32)}`,
+              pts: `${it.earned}/${it.max}`,
+              color
+            });
+          }
+          for (const p of bd.penalties || []) {
+            const forgiven = p.points <= 0 && p.forgivenCount > 0;
+            entries.push({
+              text: `${forgiven ? '🎁' : '⚠️'} ${String(p.label || '').slice(0, 32)}`,
+              pts: forgiven ? '0 pt' : `-${p.points}`,
+              color: forgiven ? '#7dd3fc' : '#fb7185'
+            });
+          }
+          if (bd.roundedTo20) {
+            entries.push({
+              text: `🎓 Arrondi généreux (${bd.rawScore})`,
+              pts: '→ 20/20',
+              color: '#fde047'
+            });
+          }
+
+          const colW = (boxW - 56) / 2;
+          const rowStartY = boxY + 56;
+          const maxRows = 10;
+          entries.slice(0, maxRows).forEach((en, idx) => {
+            const col = idx % 2;
+            const row = Math.floor(idx / 2);
+            const ex = boxX + 20 + col * (colW + 16);
+            const ey = rowStartY + row * 44;
+            roundRectPath(ctx, ex, ey - 22, colW, 36, 8);
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+            ctx.fill();
+            ctx.fillStyle = '#e2e8f0';
+            ctx.font = '600 16px system-ui, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(en.text, ex + 10, ey + 2);
+            ctx.fillStyle = en.color;
+            ctx.font = 'bold 16px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(en.pts, ex + colW - 10, ey + 2);
+          });
+          ctx.textAlign = 'left';
+
+          if (!isPerfect && bd.tip) {
+            ctx.fillStyle = '#fde68a';
+            ctx.font = 'bold 17px system-ui, sans-serif';
+            ctx.fillText(`💡 Pour décrocher 20/20 : ${String(bd.tip).slice(0, 74)}`, boxX + 20, boxY + boxH - 18);
+          }
+        } else {
+          const summaryLines = Array.isArray(res.summaryLines) ? res.summaryLines : [];
+          ctx.textAlign = 'left';
+          ctx.fillStyle = '#cbd5e1';
+          ctx.font = '500 20px system-ui, sans-serif';
+          summaryLines.slice(0, 7).forEach((ln, idx) => {
+            ctx.fillText(`• ${String(ln).slice(0, 90)}`, 86, 312 + idx * 38);
+          });
+        }
 
         if (res.all20Unlocked) {
           ctx.textAlign = 'center';
           ctx.fillStyle = '#fde68a';
-          ctx.font = 'bold 24px system-ui, sans-serif';
-          ctx.fillText('👑 20/20 SUR TOUS LES TPs — CÉRÉMONIE D’ASCENSION DÉBLOQUÉE !', canvasW / 2, 622);
+          ctx.font = 'bold 23px system-ui, sans-serif';
+          ctx.fillText('👑 20/20 SUR TOUS LES TPs — CÉRÉMONIE D’ASCENSION DÉBLOQUÉE !', canvasW / 2, 634);
           ctx.textAlign = 'left';
         }
       }

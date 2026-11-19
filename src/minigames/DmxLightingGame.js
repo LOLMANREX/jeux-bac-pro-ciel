@@ -1,21 +1,12 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import { buildStudentAvatarMesh } from '../world/AvatarBuilder.js';
 import {
   createWorkbench3D,
   makeCanvasScreen,
   buildFlexibleCable
 } from './Workbench3DHost.js';
-
-function toSafeNum(val, fallback = 0) {
-  const n = Number(val);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp20(raw) {
-  const n = toSafeNum(raw, 0);
-  return Math.max(0, Math.min(20, Math.round(n * 2) / 2));
-}
 
 export const FIXTURE_SPECS = [
   {
@@ -79,7 +70,7 @@ export function evaluateDmxConfiguration(state = {}) {
   } else if (Array.isArray(s.cablesDone)) {
     cablesConnected = new Set(s.cablesDone).size;
   } else if (s.cablesConnected !== undefined) {
-    cablesConnected = Math.max(0, Math.min(4, Math.round(toSafeNum(s.cablesConnected, 0))));
+    cablesConnected = Math.max(0, Math.min(4, Math.round(toSafeNumber(s.cablesConnected, 0))));
   }
   cablesConnected = Math.max(0, Math.min(DAISY_LINKS.length, cablesConnected));
   const terminatorInstalled = Boolean(s.terminatorInstalled);
@@ -89,13 +80,13 @@ export function evaluateDmxConfiguration(state = {}) {
   const fixtures = FIXTURE_SPECS.map((sp, idx) => {
     const raw = rawFixtures[idx] && typeof rawFixtures[idx] === 'object' ? rawFixtures[idx] : {};
     return {
-      addr: Math.max(1, Math.min(512, Math.round(toSafeNum(raw.addr, sp.startAddr)))),
-      master: Math.max(0, Math.min(100, Math.round(toSafeNum(raw.master, 20)))),
-      r: Math.max(0, Math.min(255, Math.round(toSafeNum(raw.r, 120)))),
-      g: Math.max(0, Math.min(255, Math.round(toSafeNum(raw.g, 120)))),
-      b: Math.max(0, Math.min(255, Math.round(toSafeNum(raw.b, 120)))),
-      pan: Math.max(0, Math.min(100, Math.round(toSafeNum(raw.pan, 25)))),
-      tilt: Math.max(0, Math.min(100, Math.round(toSafeNum(raw.tilt, 25))))
+      addr: Math.max(1, Math.min(512, Math.round(toSafeNumber(raw.addr, sp.startAddr)))),
+      master: Math.max(0, Math.min(100, Math.round(toSafeNumber(raw.master, 20)))),
+      r: Math.max(0, Math.min(255, Math.round(toSafeNumber(raw.r, 120)))),
+      g: Math.max(0, Math.min(255, Math.round(toSafeNumber(raw.g, 120)))),
+      b: Math.max(0, Math.min(255, Math.round(toSafeNumber(raw.b, 120)))),
+      pan: Math.max(0, Math.min(100, Math.round(toSafeNumber(raw.pan, 25)))),
+      tilt: Math.max(0, Math.min(100, Math.round(toSafeNumber(raw.tilt, 25))))
     };
   });
 
@@ -126,11 +117,11 @@ export function evaluateDmxConfiguration(state = {}) {
     const addrClean = !conflictingIds.has(i);
 
     const colorOk =
-      fx.master >= 60 &&
-      Math.abs(fx.r - t.r) <= 55 &&
-      Math.abs(fx.g - t.g) <= 55 &&
-      Math.abs(fx.b - t.b) <= 55;
-    const aimOk = Math.abs(fx.pan - t.pan) <= 18 && Math.abs(fx.tilt - t.tilt) <= 18;
+      fx.master >= 55 &&
+      Math.abs(fx.r - t.r) <= 65 &&
+      Math.abs(fx.g - t.g) <= 65 &&
+      Math.abs(fx.b - t.b) <= 65;
+    const aimOk = Math.abs(fx.pan - t.pan) <= 22 && Math.abs(fx.tilt - t.tilt) <= 22;
     if (aimOk) aimScore += 1;
 
     const ok = daisyOk && addrClean && addrExact && colorOk && aimOk;
@@ -172,23 +163,27 @@ export function evaluateDmxConfiguration(state = {}) {
   };
 }
 
-export function computeDmxScore3D(metrics = {}) {
+export function evaluateDmxScore3D(metrics = {}) {
   const m = metrics && typeof metrics === 'object' ? metrics : {};
   const hasStage1Metrics =
     m.cablesConnected !== undefined || m.terminatorInstalled !== undefined;
+  const elapsed = Math.max(0, toSafeNumber(m.elapsedSec, 120));
 
   if (hasStage1Metrics) {
-    const cables = Math.max(0, Math.min(4, toSafeNum(m.cablesConnected, 0)));
+    const cables = Math.max(0, Math.min(4, toSafeNumber(m.cablesConnected, 0)));
     const termOk = Boolean(m.terminatorInstalled);
-    const exactAddr = Math.max(0, Math.min(4, toSafeNum(m.exactAddressesCount, 0)));
+    const exactAddr = Math.max(0, Math.min(4, toSafeNumber(m.exactAddressesCount, 0)));
     const noOverlap = Boolean(m.dmxNoOverlap);
-    const matchedFixtures = Math.max(0, Math.min(4, toSafeNum(m.matchedFixtures, 0)));
-    const aim = Math.max(0, Math.min(4, toSafeNum(m.aimScore, 0)));
+    const matchedFixtures = Math.max(0, Math.min(4, toSafeNumber(m.matchedFixtures, 0)));
+    const aim = Math.max(0, Math.min(4, toSafeNumber(m.aimScore, 0)));
 
     const cablePts = (cables / 4) * 4.5;
     const termPts = termOk ? 2.0 : 0;
-    const addrPts = (exactAddr / 4) * 4.0 + (noOverlap ? 1.5 : 0);
-    const scenePts = (matchedFixtures / 4) * 6.0 + (aim / 4) * 2.0;
+    const addrPts = (exactAddr / 4) * 4.0;
+    const overlapPts = noOverlap ? 1.5 : 0;
+    const scenePts = (matchedFixtures / 4) * 6.0;
+    const aimPts = (aim / 4) * 2.0;
+    const timeBonus = elapsed <= 300 ? 0.5 : 0;
 
     const allMet =
       cables >= 4 &&
@@ -198,31 +193,67 @@ export function computeDmxScore3D(metrics = {}) {
       matchedFixtures >= 4 &&
       aim >= 4;
 
-    if (allMet) {
-      return 20;
-    }
+    const rawScore = allMet
+      ? 20
+      : Math.min(20, cablePts + termPts + addrPts + overlapPts + scenePts + aimPts + timeBonus);
+    const hasCriticalError = !allMet;
+    const score = allMet ? 20 : finalizeGrade20(rawScore, { hasCriticalError });
 
-    const elapsed = Math.max(0, toSafeNum(m.elapsedSec, 120));
-    const bonus = elapsed < 100 ? 0.5 : 0;
-    const raw = cablePts + termPts + addrPts + scenePts + bonus;
-    return clamp20(raw);
+    const items = [
+      { label: `Chaînage XLR-5 DMX (${cables}/4)`, earned: cablePts, max: 4.5 },
+      { label: 'Bouchon de terminaison 120 Ω', earned: termPts, max: 2.0 },
+      { label: `Adresses DMX exactes (${exactAddr}/4)`, earned: addrPts, max: 4.0 },
+      { label: 'Absence de chevauchement de canaux', earned: overlapPts, max: 1.5 },
+      { label: `Colorimétrie & Master (${matchedFixtures}/4)`, earned: scenePts, max: 6.0 },
+      { label: `Orientation Pan / Tilt (${aim}/4)`, earned: aimPts, max: 2.0 }
+    ];
+
+    let tip = '';
+    if (cables < 4) tip = 'Reliez les 4 liaisons XLR en série (OUT → IN).';
+    else if (!termOk) tip = 'Installez le bouchon de terminaison 120 Ω sur PAR-4 OUT.';
+    else if (exactAddr < 4 || !noOverlap) tip = 'Réglez les adresses sans conflit : A001, A009, A017, A025.';
+    else if (matchedFixtures < 4 || aim < 4) tip = 'Ajustez Master, RGB et Pan/Tilt sur les 4 projecteurs.';
+
+    const breakdown = createGradeBreakdown({
+      items,
+      bonuses: !allMet && timeBonus > 0 ? [{ label: 'Rythme confortable', points: timeBonus, detail: `${Math.round(elapsed)}s` }] : [],
+      rawScore,
+      finalScore: score,
+      hasCriticalError,
+      tip
+    });
+
+    return { score, rawScore, breakdown };
   }
 
   const noConflicts = Boolean(m.dmxNoOverlap);
-  const overlapCount = Math.max(0, toSafeNum(m.overlapCount, 2));
-  const conflictPts = noConflicts ? 5 : Math.max(0, 5 - overlapCount * 2);
-  const matchedFixtures = Math.max(0, Math.min(4, toSafeNum(m.matchedFixtures, 0)));
-  const faderPts = (matchedFixtures / 4) * 11;
-  const aimPts = Math.max(0, Math.min(4, toSafeNum(m.aimScore, 0)));
+  const overlapCount = Math.max(0, toSafeNumber(m.overlapCount, 2));
+  const conflictPts = noConflicts ? 5.0 : Math.max(0, 5.0 - overlapCount * 2);
+  const matchedFixtures = Math.max(0, Math.min(4, toSafeNumber(m.matchedFixtures, 0)));
+  const faderPts = (matchedFixtures / 4) * 11.0;
+  const aimPts = Math.max(0, Math.min(4, toSafeNumber(m.aimScore, 0)));
+  const timeBonus = elapsed <= 300 ? 0.5 : 0;
 
-  if (noConflicts && matchedFixtures >= 4 && aimPts >= 4) {
-    return 20;
-  }
+  const allMet = noConflicts && matchedFixtures >= 4 && aimPts >= 4;
+  const rawScore = allMet ? 20 : Math.min(20, conflictPts + faderPts + aimPts + timeBonus);
+  const score = allMet ? 20 : finalizeGrade20(rawScore, { hasCriticalError: !allMet });
 
-  const elapsed = Math.max(0, toSafeNum(m.elapsedSec, 90));
-  const bonus = elapsed < 80 ? 0.5 : 0;
-  const raw = conflictPts + faderPts + aimPts + bonus;
-  return clamp20(raw);
+  const breakdown = createGradeBreakdown({
+    items: [
+      { label: 'Adressage sans conflit', earned: conflictPts, max: 5.0 },
+      { label: `Rendu faders RGB/Master (${matchedFixtures}/4)`, earned: faderPts, max: 11.0 },
+      { label: `Orientation Pan/Tilt (${aimPts}/4)`, earned: aimPts, max: 4.0 }
+    ],
+    rawScore,
+    finalScore: score,
+    hasCriticalError: !allMet
+  });
+
+  return { score, rawScore, breakdown };
+}
+
+export function computeDmxScore3D(metrics = {}) {
+  return evaluateDmxScore3D(metrics).score;
 }
 
 const CAM_VIEWS = [
@@ -1399,7 +1430,7 @@ export function createDmxLightingGame(api) {
     if (state.submitted) return;
     state.submitted = true;
     const finalEv = evaluateDmx();
-    const finalScore = computeDmxScore3D({
+    const evalRes = evaluateDmxScore3D({
       cablesConnected: finalEv.cablesConnected,
       terminatorInstalled: state.terminatorInstalled,
       exactAddressesCount: finalEv.exactAddressesCount,
@@ -1410,7 +1441,7 @@ export function createDmxLightingGame(api) {
       elapsedSec: (performance.now() - state.startMs) / 1000
     });
     api.finishTp(
-      finalScore,
+      evalRes.score,
       `
         <p>Plateforme Éclairage Scénique DMX512 évaluée par le <strong>Professeur CIEL</strong> :</p>
         <ul>
@@ -1418,7 +1449,8 @@ export function createDmxLightingGame(api) {
           <li>Adressage DMX512 sans conflit : <strong>${finalEv.exactAddressesCount}/4 adresses exactes</strong> (Conflits : ${finalEv.overlaps})</li>
           <li>Restitution chromatique & orientation lyres : <strong>${finalEv.matchedFixtures}/4 projecteurs conformes</strong></li>
         </ul>
-      `
+      `,
+      evalRes.breakdown
     );
   }
 

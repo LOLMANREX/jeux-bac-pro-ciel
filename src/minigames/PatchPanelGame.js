@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import {
   createWorkbench3D,
   makeCanvasScreen,
@@ -86,14 +87,16 @@ export function evaluatePatchConfiguration(stage, state) {
 
   const maxPoints = stage.panelPorts.length * 2 + bonusTotal;
   const earned = correctLinks + correctMedia + bonusChecks;
-  const score = Math.round((earned / Math.max(1, maxPoints)) * 20);
+  const score = finalizeGrade20((earned / Math.max(1, maxPoints)) * 20, {
+    hasCriticalError: earned < maxPoints
+  });
   return {
     score,
     correctLinks,
     totalPorts: stage.panelPorts.length,
     correctMedia,
     details,
-    passed: score >= 12
+    passed: score >= 10
   };
 }
 
@@ -108,41 +111,145 @@ export const T568B_ORDER = [
   { id: 'BR', pin: 8, name: 'Marron', hex: 0x78350f, stripe: null, css: '#92400e' }
 ];
 
+export function evaluatePatchPanelScore3D(metrics = {}) {
+  const m = metrics && typeof metrics === 'object' ? metrics : {};
+  const matchedWires = Math.max(0, Math.min(8, toSafeNumber(m.t568bMatches, 0)));
+  const crimped = Boolean(m.crimped);
+  const wirePts = (matchedWires / 8) * 6.0;
+  const crimpPts = crimped ? (matchedWires === 8 ? 2.0 : 1.0) : 0;
+
+  const totalLinks = Math.max(1, toSafeNumber(m.totalLinks, 6));
+  const patchCorrect = Math.max(0, Math.min(totalLinks, toSafeNumber(m.patchCorrect, 0)));
+  const colorCorrect = Math.max(0, Math.min(totalLinks, toSafeNumber(m.colorCorrect, 0)));
+  const patchPts = (patchCorrect / totalLinks) * 6.0;
+  const colorPts = (colorCorrect / totalLinks) * 2.5;
+
+  const guidesUsed = Boolean(m.guidesUsed);
+  const tidyPts = guidesUsed ? 1.5 : 0;
+  const continuityPassed = Boolean(m.continuityPassed);
+  const testerRun = Boolean(m.testerRun);
+  const testPts = continuityPassed ? 2.0 : testerRun ? 1.0 : 0;
+
+  const elapsed = Math.max(0, toSafeNumber(m.elapsedSec, 90));
+  const timeBonus = elapsed <= 300 ? 0.5 : elapsed <= 450 ? 0.25 : 0;
+
+  const baseRaw = wirePts + crimpPts + patchPts + colorPts + tidyPts + testPts;
+  const rawScore = Math.min(20, baseRaw + timeBonus);
+  const hasCriticalError = matchedWires < 8 || !crimped || patchCorrect < totalLinks || !continuityPassed;
+  const score = finalizeGrade20(rawScore, { hasCriticalError });
+
+  const items = [
+    { label: `Câblage T568B (${matchedWires}/8 paires)`, earned: wirePts, max: 6.0 },
+    { label: 'Sertissage fiche RJ45', earned: crimpPts, max: 2.0 },
+    { label: `Brassage Baie 19" (${patchCorrect}/${totalLinks})`, earned: patchPts, max: 6.0 },
+    { label: `Code couleur cordons (${colorCorrect}/${totalLinks})`, earned: colorPts, max: 2.5 },
+    { label: 'Peignage goulottes passe-câbles', earned: tidyPts, max: 1.5 },
+    { label: 'Testeur continuité RJ45 1–8', earned: testPts, max: 2.0 }
+  ];
+
+  const bonuses =
+    timeBonus > 0
+      ? [{ label: 'Rythme confortable', points: timeBonus, detail: `${Math.round(elapsed)}s` }]
+      : [];
+
+  let tip = '';
+  if (matchedWires < 8) tip = 'Alignez les 8 brins selon la norme T568B.';
+  else if (!crimped) tip = 'Actionnez la pince à sertir RJ45 3D.';
+  else if (patchCorrect < totalLinks) tip = 'Branchez tous les cordons du panneau P01..P18 vers les bons ports S01..S18.';
+  else if (!continuityPassed) tip = 'Lancez le testeur de continuité RJ45 (LEDs 1 à 8).';
+  else if (colorCorrect < totalLinks) tip = 'Respectez les couleurs de cordons (Bleu/Jaune/Rouge).';
+  else if (!guidesUsed) tip = 'Activez les goulottes passe-câbles 19" pour un câblage propre.';
+
+  const breakdown = createGradeBreakdown({
+    items,
+    bonuses,
+    rawScore,
+    finalScore: score,
+    hasCriticalError,
+    tip
+  });
+
+  return { score, rawScore, breakdown };
+}
+
 export function computePatchPanelScore3D(metrics = {}) {
-  const matchedWires = Math.max(0, Math.min(8, metrics.t568bMatches ?? 0));
-  const wirePts = (matchedWires / 8) * 6;
-  const crimpPts = metrics.crimped ? (matchedWires === 8 ? 2 : 0.8) : 0;
-
-  const totalLinks = Math.max(1, metrics.totalLinks ?? 6);
-  const patchCorrect = Math.max(0, Math.min(totalLinks, metrics.patchCorrect ?? 0));
-  const colorCorrect = Math.max(0, Math.min(totalLinks, metrics.colorCorrect ?? 0));
-  const patchPts = (patchCorrect / totalLinks) * 6 + (colorCorrect / totalLinks) * 2.5;
-
-  const tidyPts = metrics.guidesUsed ? 1.5 : 0;
-  const testPts = metrics.continuityPassed ? 2 : metrics.testerRun ? 0.8 : 0;
-
-  const elapsed = metrics.elapsedSec ?? 90;
-  const timeBonus = elapsed < 80 ? 1 : elapsed < 140 ? 0.4 : 0;
-  const raw = wirePts + crimpPts + patchPts + tidyPts + testPts + timeBonus;
-  return Math.max(0, Math.min(20, Math.round(raw * 2) / 2));
+  return evaluatePatchPanelScore3D(metrics).score;
 }
 
 export function computeRackVlanScore3D(metrics = {}) {
-  const totalCables = Math.max(1, metrics.totalCables ?? 4);
-  const matchedCables = Math.max(0, Math.min(totalCables, metrics.matchedCables ?? 0));
-  const mediaOk = Math.max(0, Math.min(totalCables, metrics.mediaOk ?? 0));
-  const cablePts = (matchedCables / totalCables) * 5.5 + (mediaOk / totalCables) * 2.5;
-  const bonusPts = (metrics.fiberCleaned ? 1 : 0) + (metrics.psuRedundant ? 1 : 0);
-  const vlansOk = Math.max(0, Math.min(3, metrics.vlansConfigured ?? 0));
-  const portsOk = Math.max(0, Math.min(4, metrics.portsConfigured ?? 0));
-  const pingTotal = Math.max(1, metrics.pingTotal ?? 3);
-  const pingOk = Math.max(0, Math.min(pingTotal, metrics.pingSuccessCount ?? 0));
-  const netPts = (vlansOk / 3) * 3 + (portsOk / 4) * 3 + (pingOk / pingTotal) * 3;
-  const penalty = Math.min(3, (metrics.cableErrors ?? 0) * 0.5);
-  const timeBonus = (metrics.elapsedSec ?? 180) < 160 ? 1 : 0;
-  const score = Math.max(0, Math.min(20, Math.round((cablePts + bonusPts + netPts + timeBonus - penalty) * 2) / 2));
+  const m = metrics && typeof metrics === 'object' ? metrics : {};
+  const totalCables = Math.max(1, toSafeNumber(m.totalCables, 4));
+  const matchedCables = Math.max(0, Math.min(totalCables, toSafeNumber(m.matchedCables, 0)));
+  const mediaOk = Math.max(0, Math.min(totalCables, toSafeNumber(m.mediaOk, 0)));
+  const cablePts = (matchedCables / totalCables) * 6.0;
+  const mediaPts = (mediaOk / totalCables) * 2.5;
+  const fiberPts = m.fiberCleaned ? 1.0 : 0;
+  const psuPts = m.psuRedundant ? 1.0 : 0;
+  const vlansOk = Math.max(0, Math.min(3, toSafeNumber(m.vlansConfigured, 0)));
+  const portsOk = Math.max(0, Math.min(4, toSafeNumber(m.portsConfigured, 0)));
+  const pingTotal = Math.max(1, toSafeNumber(m.pingTotal, 3));
+  const pingOk = Math.max(0, Math.min(pingTotal, toSafeNumber(m.pingSuccessCount, 0)));
+  const vlanPts = (vlansOk / 3) * 3.0;
+  const portPts = (portsOk / 4) * 3.0;
+  const pingPts = (pingOk / pingTotal) * 3.0;
+  const elapsed = Math.max(0, toSafeNumber(m.elapsedSec, 180));
+  const timePts = elapsed <= 300 ? 0.5 : elapsed <= 480 ? 0.25 : 0;
+
+  const cableErrors = Math.max(0, Math.floor(toSafeNumber(m.cableErrors, 0)));
+  const forgivenErrors = Math.min(2, cableErrors);
+  const billedErrors = Math.max(0, cableErrors - 2);
+  const penalty = Math.min(2.0, billedErrors * 0.5);
+
+  const rawScore = Math.max(
+    0,
+    cablePts + mediaPts + fiberPts + psuPts + vlanPts + portPts + pingPts + timePts - penalty
+  );
+  const hasCriticalError =
+    matchedCables < totalCables ||
+    mediaOk < totalCables ||
+    !m.fiberCleaned ||
+    !m.psuRedundant ||
+    vlansOk < 3 ||
+    portsOk < 4 ||
+    pingOk < pingTotal;
+
+  const score = finalizeGrade20(rawScore, { hasCriticalError });
   const xp = Math.round(score * 16 + (score >= 16 ? 70 : 0));
-  return { score, xp };
+
+  const items = [
+    { label: `Brassage câbles (${matchedCables}/${totalCables})`, earned: cablePts, max: 6.0 },
+    { label: `Médias Cat6A / Fibre (${mediaOk}/${totalCables})`, earned: mediaPts, max: 2.5 },
+    { label: 'Nettoyage ferrules optiques', earned: fiberPts, max: 1.0 },
+    { label: 'Alimentation ondulée UPS-B', earned: psuPts, max: 1.0 },
+    { label: `VLANs configurés (${vlansOk}/3)`, earned: vlanPts, max: 3.0 },
+    { label: `Ports configurés (${portsOk}/4)`, earned: portPts, max: 3.0 },
+    { label: `Tests Ping (${pingOk}/${pingTotal})`, earned: pingPts, max: 3.0 },
+    { label: 'Rythme d’intervention', earned: timePts, max: 0.5, detail: `${Math.round(elapsed)}s` }
+  ];
+
+  const penalties =
+    cableErrors > 0
+      ? [
+          {
+            label:
+              billedErrors === 0
+                ? `Erreurs de brassage (${cableErrors})`
+                : `Erreurs de brassage (${billedErrors} facturée(s), 2 offertes)`,
+            points: penalty,
+            forgivenCount: forgivenErrors
+          }
+        ]
+      : [];
+
+  const breakdown = createGradeBreakdown({
+    items,
+    penalties,
+    rawScore,
+    finalScore: score,
+    hasCriticalError
+  });
+
+  return { score, xp, rawScore, breakdown };
 }
 
 const CORD_PALETTE = [
@@ -941,7 +1048,7 @@ export function createPatchPanelGame(api) {
           if (state.submitted) return;
           state.submitted = true;
           const finalEval = evaluatePatchProgress();
-          const finalScore = computePatchPanelScore3D({
+          const evalRes = evaluatePatchPanelScore3D({
             t568bMatches: countT568bMatches(),
             crimped: state.crimped,
             patchCorrect: finalEval.patchCorrect,
@@ -952,10 +1059,10 @@ export function createPatchPanelGame(api) {
             continuityPassed: state.testerPassed,
             elapsedSec: (performance.now() - state.startMs) / 1000
           });
-          if (finalScore >= 12) sfx.success();
+          if (evalRes.score >= 10) sfx.success();
           else sfx.error();
           api.finishTp(
-            finalScore,
+            evalRes.score,
             `
               <p>Atelier Sertissage RJ45 & Brassage Baie 19" évalué :</p>
               <ul>
@@ -963,7 +1070,8 @@ export function createPatchPanelGame(api) {
                 <li>Brassage Switch PoE : <strong>${finalEval.patchCorrect}/${PATCH_SPECS.length} liaisons • ${finalEval.colorCorrect}/${PATCH_SPECS.length} couleurs exactes</strong> (${state.guidesUsed ? 'Goulottes OK' : 'Sans peignage'})</li>
                 <li>Testeur de continuité 1-8 : <strong>${state.testerPassed ? 'Continuité certifiée ✔' : 'Test incomplet'}</strong></li>
               </ul>
-            `
+            `,
+            evalRes.breakdown
           );
         }
       }

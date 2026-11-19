@@ -2580,7 +2580,9 @@ async function openTp(tpId, stationItem = null) {
       const p = { ...gameState.profile, grades: { ...gameState.profile.grades } };
       const prev = typeof p.grades[doneId] === 'number' ? p.grades[doneId] : -1;
       if (safeScore > prev) p.grades[doneId] = safeScore;
-      const coreVals = TP_CATALOG.map((item) => p.grades[item.id]).filter((v) => typeof v === 'number');
+      const coreVals = TP_CATALOG.map((item) => p.grades[item.id])
+        .filter((v) => typeof v === 'number' && Number.isFinite(v))
+        .map((v) => Math.max(0, Math.min(20, v)));
       p.average = coreVals.length
         ? Math.round((coreVals.reduce((a, b) => a + b, 0) / coreVals.length) * 10) / 10
         : null;

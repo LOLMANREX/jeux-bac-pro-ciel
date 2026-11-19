@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import {
   createWorkbench3D,
   makeCanvasScreen,
@@ -40,20 +41,20 @@ export function simulateLedCircuit(vcc, ledUf, ohms, ledForwardPolarity) {
     return { status: 'burned', currentMa: 999, vLed: vcc, message: 'Court-circuit ! Résistance nulle : la LED a grillé instantanément !' };
   }
   const currentMa = ((vcc - ledUf) / ohms) * 1000;
-  if (currentMa > 32) {
+  if (currentMa > 35) {
     return {
       status: 'burned',
       currentMa: Math.round(currentMa * 10) / 10,
       vLed: ledUf,
-      message: `Surintensité (${currentMa.toFixed(1)} mA > 30 mA) ! La LED a grillé !`
+      message: `Surintensité (${currentMa.toFixed(1)} mA > 35 mA) ! La LED a grillé !`
     };
   }
-  if (currentMa < 6) {
+  if (currentMa < 5) {
     return {
       status: 'dim',
       currentMa: Math.round(currentMa * 10) / 10,
       vLed: ledUf,
-      message: `Courant trop faible (${currentMa.toFixed(1)} mA). La LED éclaire à peine (visez 15–22 mA).`
+      message: `Courant trop faible (${currentMa.toFixed(1)} mA). La LED éclaire à peine (visez 12–25 mA).`
     };
   }
   return {
@@ -67,14 +68,14 @@ export function simulateLedCircuit(vcc, ledUf, ohms, ledForwardPolarity) {
 export function simulateDividerCircuit(vin, r1Ohms, r2Ohms) {
   if (r1Ohms <= 0 || r2Ohms <= 0) return { vout: 0, ok: false, message: 'Résistances invalides.' };
   const vout = vin * (r2Ohms / (r1Ohms + r2Ohms));
-  const ok = vout >= 3.1 && vout <= 3.45;
+  const ok = vout >= 3.0 && vout <= 3.5;
   return {
     vout: Math.round(vout * 100) / 100,
     ok,
     message: ok
       ? `Parfait ! Vout = ${vout.toFixed(2)} V (compatible entrée GPIO 3.3V ESP32).`
-      : vout > 3.45
-        ? `DANGER : Vout = ${vout.toFixed(2)} V (> 3.45 V) risque de détruire l'ESP32 !`
+      : vout > 3.5
+        ? `DANGER : Vout = ${vout.toFixed(2)} V (> 3.5 V) risque de détruire l'ESP32 !`
         : `Vout = ${vout.toFixed(2)} V trop faible pour détecter un niveau logique HAUT.`
   };
 }
@@ -86,19 +87,88 @@ export const ELEC_STAGES = [
 ];
 
 export function computeElectronicsScore3D(metrics = {}) {
-  let pts = 0;
-  if (metrics.multimeterChecked) pts += 3;
-  if (metrics.ledStatus === 'ok') pts += 6;
-  else if (metrics.ledStatus === 'dim') pts += 2.5;
-  if (metrics.dividerOk) pts += 7;
-  else if ((metrics.dividerVout || 0) > 0 && (metrics.dividerVout || 0) <= 3.6) pts += 3;
-  if (metrics.powerTested) pts += 4;
-  const burns = Math.max(0, metrics.burnCount || 0);
-  const elapsed = metrics.elapsedSec || 0;
-  const timePenalty = elapsed > 240 ? Math.min(1.5, (elapsed - 240) / 100) : 0;
-  const score = Math.max(0, Math.min(20, Math.round(pts - burns * 1.5 - timePenalty)));
-  const xp = Math.max(45, Math.round(score * 16 + (metrics.ledStatus === 'ok' && metrics.dividerOk ? 60 : 15)));
-  return { score, xp, accuracy: Math.round((score / 20) * 100) };
+  const m = metrics && typeof metrics === 'object' ? metrics : {};
+  const multimeterChecked = Boolean(m.multimeterChecked);
+  const ledStatus = m.ledStatus || 'open';
+  const dividerOk = Boolean(m.dividerOk);
+  const dividerVout = toSafeNumber(m.dividerVout, 0);
+  const powerTested = Boolean(m.powerTested);
+  const burns = Math.max(0, Math.floor(toSafeNumber(m.burnCount, 0)));
+  const elapsed = Math.max(0, toSafeNumber(m.elapsedSec, 90));
+
+  const dmmPts = multimeterChecked ? 3.0 : 0;
+  const ledPts = ledStatus === 'ok' ? 6.0 : ledStatus === 'dim' ? 3.5 : 0;
+  const divPts = dividerOk ? 7.0 : dividerVout > 0 && dividerVout <= 3.6 ? 3.5 : 0;
+  const pwrPts = powerTested ? 4.0 : 0;
+
+  const forgivenBurns = ledStatus === 'ok' ? Math.min(1, burns) : 0;
+  const billedBurns = Math.max(0, burns - forgivenBurns);
+  const burnPenalty = Math.min(2.0, billedBurns * 0.75);
+  const timePenalty = elapsed > 420 ? Math.min(0.5, ((elapsed - 420) / 180) * 0.5) : 0;
+
+  const rawScore = Math.max(0, dmmPts + ledPts + divPts + pwrPts - burnPenalty - timePenalty);
+  const hasCriticalError = !multimeterChecked || ledStatus !== 'ok' || !dividerOk || !powerTested;
+  const score = finalizeGrade20(rawScore, { hasCriticalError });
+  const xp = Math.max(45, Math.round(score * 16 + (ledStatus === 'ok' && dividerOk ? 60 : 15)));
+
+  const items = [
+    { label: 'Mesure au Multimètre 3D', earned: dmmPts, max: 3.0 },
+    {
+      label: 'Circuit LED 5V (Loi d’Ohm & polarité)',
+      earned: ledPts,
+      max: 6.0,
+      status: ledStatus === 'ok' ? 'ok' : ledStatus === 'dim' ? 'warn' : 'fail'
+    },
+    {
+      label: `Pont diviseur 5V → 3.3V (${dividerVout.toFixed(2)}V)`,
+      earned: divPts,
+      max: 7.0
+    },
+    { label: 'Validation sous tension +5V', earned: pwrPts, max: 4.0 }
+  ];
+
+  const penalties = [];
+  if (burns > 0) {
+    penalties.push({
+      label:
+        billedBurns === 0
+          ? `Surintensité LED corrigée (${burns})`
+          : `Surintensités LED (${billedBurns} facturée(s), 1 offerte)`,
+      points: burnPenalty,
+      forgivenCount: forgivenBurns
+    });
+  }
+  if (timePenalty > 0) {
+    penalties.push({
+      label: `Dépassement temps confortable (${Math.round(elapsed)}s > 420s)`,
+      points: Math.round(timePenalty * 100) / 100,
+      forgivenCount: 0
+    });
+  }
+
+  let tip = '';
+  if (!multimeterChecked) tip = 'Sélectionnez ou mesurez une résistance au multimètre 3D.';
+  else if (ledStatus !== 'ok') tip = 'Insérez la résistance 220 Ω en R_LED et vérifiez la polarité directe.';
+  else if (!dividerOk) tip = 'Montez R1 = 10 kΩ et R2 = 20 kΩ pour obtenir 3.33 V sur l’ESP32.';
+  else if (!powerTested) tip = 'Activez l’interrupteur +5V avant de valider l’atelier.';
+  else if (burnPenalty > 0) tip = 'Vérifiez la résistance de limitation avant d’alimenter en +5V.';
+
+  const breakdown = createGradeBreakdown({
+    items,
+    penalties,
+    rawScore,
+    finalScore: score,
+    hasCriticalError,
+    tip
+  });
+
+  return {
+    score,
+    xp,
+    accuracy: Math.round((score / 20) * 100),
+    rawScore,
+    breakdown
+  };
 }
 
 const RESISTOR_STOCK = [
@@ -512,7 +582,8 @@ export function createElectronicsGame(api) {
           <li>Pont Diviseur 5V → 3.3V : <strong>Vout = ${divSim.vout} V (${divSim.ok ? 'Conforme' : 'Hors plage'})</strong></li>
           <li>Pénalités surintensité / LED grillée : <strong>${state.burnCount}</strong></li>
         </ul>
-      `
+      `,
+      res.breakdown
     );
   }
 

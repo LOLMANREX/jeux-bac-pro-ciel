@@ -1,40 +1,31 @@
+import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import { createDmxLightingGame } from './DmxLightingGame.js';
 import { createStudioRegieGame } from './StudioRegieGame.js';
-
-function toFiniteNumber(val, fallback = 0) {
-  const n = Number(val);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function clampScore20(raw) {
-  const n = toFiniteNumber(raw, 0);
-  return Math.max(0, Math.min(20, Math.round(n * 2) / 2));
-}
 
 export const AV_STAGES = [
   {
     id: 1,
     name: '1. Plateau Caméra & Éclairage DMX',
     brief:
-      'Préparez le plateau fond vert : calibrez la balance des blancs à 5600K (lumière du jour), réglez le projecteur Key DMX entre 70% et 85% et activez l’éclairage uniforme du fond vert.',
+      'Préparez le plateau fond vert : calibrez la balance des blancs à 5600K (lumière du jour), réglez le projecteur Key DMX entre 65% et 90% et activez l’éclairage uniforme du fond vert.',
     teacherTip:
-      'Professeur CIEL : Calibrez la caméra sur 5600K (lumière du jour), ajustez le Key Light DMX entre 70% et 85% et allumez le rétro-éclairage du cyclorama fond vert.',
+      'Professeur CIEL : Calibrez la caméra sur 5600K (lumière du jour), ajustez le Key Light DMX entre 65% et 90% et allumez le rétro-éclairage du cyclorama fond vert.',
     kind: 'lighting',
     targetKelvin: 5600,
-    kelvinTol: 200,
-    minKeyDimmer: 70,
-    maxKeyDimmer: 85
+    kelvinTol: 300,
+    minKeyDimmer: 65,
+    maxKeyDimmer: 90
   },
   {
     id: 2,
     name: '2. Console Audio & Cabines Studio',
     brief:
-      'En régie audio, activez l’alimentation fantôme +48V pour le micro statique XLR, le filtre coupe-bas 80 Hz et ajustez le gain pour obtenir un niveau nominal entre -14 et -10 dBFS.',
+      'En régie audio, activez l’alimentation fantôme +48V pour le micro statique XLR, le filtre coupe-bas 80 Hz et ajustez le gain pour obtenir un niveau nominal entre -15 et -9 dBFS.',
     teacherTip:
-      'Professeur CIEL : Un microphone statique XLR nécessite impérativement le +48V fantôme ! Activez aussi le filtre coupe-bas 80 Hz et stabilisez la modulation entre -14 et -10 dBFS.',
+      'Professeur CIEL : Un microphone statique XLR nécessite impérativement le +48V fantôme ! Activez aussi le filtre coupe-bas 80 Hz et stabilisez la modulation entre -15 et -9 dBFS.',
     kind: 'audio',
-    minDb: -14,
-    maxDb: -10
+    minDb: -15,
+    maxDb: -9
   },
   {
     id: 3,
@@ -64,12 +55,12 @@ export function evaluateAvStage(stage, state = {}) {
 
   if (safeStage.kind === 'lighting') {
     let pts = 0;
-    const kelvin = toFiniteNumber(safeState.kelvin, 3200);
-    const keyDimmer = toFiniteNumber(safeState.keyDimmer, 0);
-    const targetKelvin = toFiniteNumber(safeStage.targetKelvin, 5600);
-    const kelvinTol = toFiniteNumber(safeStage.kelvinTol, 200);
-    const minKeyDimmer = toFiniteNumber(safeStage.minKeyDimmer, 70);
-    const maxKeyDimmer = toFiniteNumber(safeStage.maxKeyDimmer, 85);
+    const kelvin = toSafeNumber(safeState.kelvin, 3200);
+    const keyDimmer = toSafeNumber(safeState.keyDimmer, 0);
+    const targetKelvin = toSafeNumber(safeStage.targetKelvin, 5600);
+    const kelvinTol = toSafeNumber(safeStage.kelvinTol, 300);
+    const minKeyDimmer = toSafeNumber(safeStage.minKeyDimmer, 65);
+    const maxKeyDimmer = toSafeNumber(safeStage.maxKeyDimmer, 90);
 
     const kelvinOk = Math.abs(kelvin - targetKelvin) <= kelvinTol;
     const dimmerOk = keyDimmer >= minKeyDimmer && keyDimmer <= maxKeyDimmer;
@@ -82,24 +73,24 @@ export function evaluateAvStage(stage, state = {}) {
     if (chromaOk) pts += 1;
     else details.push('Éclairage fond vert désactivé (ombres portées détectées)');
 
-    const score = Math.max(0, Math.min(20, Math.round((pts / 3) * 20)));
+    const score = finalizeGrade20((pts / 3) * 20, { hasCriticalError: pts < 3 });
     return {
       score,
       details,
-      passed: score >= 13,
+      passed: score >= 10,
       teacherTip: safeStage.teacherTip || ''
     };
   }
 
   if (safeStage.kind === 'audio') {
     let pts = 0;
-    const gain = toFiniteNumber(safeState.gain, 0);
+    const gain = toSafeNumber(safeState.gain, 0);
     const db =
       safeState.db !== undefined && Number.isFinite(Number(safeState.db))
         ? Number(safeState.db)
         : -32 + gain * 0.4;
-    const minDb = toFiniteNumber(safeStage.minDb, -14);
-    const maxDb = toFiniteNumber(safeStage.maxDb, -10);
+    const minDb = toSafeNumber(safeStage.minDb, -15);
+    const maxDb = toSafeNumber(safeStage.maxDb, -9);
 
     if (safeState.phantom48v) pts += 1;
     else details.push('Alimentation fantôme +48V désactivée : micro statique muet');
@@ -108,11 +99,11 @@ export function evaluateAvStage(stage, state = {}) {
     if (db >= minDb && db <= maxDb) pts += 1;
     else details.push(`Niveau crête à ${db.toFixed(1)} dBFS (cible ${minDb} à ${maxDb} dBFS)`);
 
-    const score = Math.max(0, Math.min(20, Math.round((pts / 3) * 20)));
+    const score = finalizeGrade20((pts / 3) * 20, { hasCriticalError: pts < 3 });
     return {
       score,
       details,
-      passed: score >= 13,
+      passed: score >= 10,
       teacherTip: safeStage.teacherTip || ''
     };
   }
@@ -124,47 +115,67 @@ export function evaluateAvStage(stage, state = {}) {
     if (routing[r.id] === r.expected) ok += 1;
     else details.push(`${r.label} : source routée incorrecte`);
   }
-  const score = Math.max(0, Math.min(20, Math.round((ok / routes.length) * 20)));
+  const score = finalizeGrade20((ok / routes.length) * 20, { hasCriticalError: ok < routes.length });
   return {
     score,
     details,
-    passed: score >= 13,
+    passed: score >= 10,
     teacherTip: safeStage.teacherTip || ''
   };
 }
 
 export function computeAvStudioScore3D(metrics = {}) {
   const m = metrics && typeof metrics === 'object' ? metrics : {};
-  const chroma = Math.max(0, Math.min(100, toFiniteNumber(m.chromaUniformity, 0)));
-  const chromaOk = chroma >= 85;
+  const chroma = Math.max(0, Math.min(100, toSafeNumber(m.chromaUniformity, 0)));
+  const chromaOk = chroma >= 80;
   const lightPts = chromaOk ? 5.5 : (chroma / 100) * 4.5;
 
-  const kelvin = toFiniteNumber(m.kelvin, 3200);
+  const kelvin = toSafeNumber(m.kelvin, 3200);
   const kelvinDiff = Math.abs(kelvin - 5600);
-  const wbOk = kelvinDiff <= 250;
+  const wbOk = kelvinDiff <= 350;
   const wbPts = wbOk ? 2.5 : Math.max(0, 2 - kelvinDiff / 1200);
 
-  const focus = Math.max(0, Math.min(100, toFiniteNumber(m.focusSharpness, 0)));
-  const focusOk = focus >= 85;
+  const focus = Math.max(0, Math.min(100, toSafeNumber(m.focusSharpness, 0)));
+  const focusOk = focus >= 80;
   const irisOk = Boolean(m.irisOk);
-  const camPts = (focusOk ? 3.5 : (focus / 100) * 3.5) + (irisOk ? 2.5 : 0.8);
+  const focusPts = focusOk ? 3.5 : (focus / 100) * 3.5;
+  const irisPts = irisOk ? 2.5 : 0.8;
 
-  let audioPts = 0;
-  if (m.phantom48v) audioPts += 1.5;
-  if (m.highPass80) audioPts += 1.5;
-  const db = toFiniteNumber(m.audioMasterDb, -32);
-  const dbOk = db >= -14.5 && db <= -9.5;
-  if (dbOk) audioPts += 3;
-  else if (db >= -18 && db <= -6) audioPts += 1.5;
+  const phantom48v = Boolean(m.phantom48v);
+  const highPass80 = Boolean(m.highPass80);
+  const db = toSafeNumber(m.audioMasterDb, -32);
+  const dbOk = db >= -15.5 && db <= -8.5;
+  const p48Pts = phantom48v ? 1.5 : 0;
+  const hpfPts = highPass80 ? 1.5 : 0;
+  const dbPts = dbOk ? 3.0 : db >= -19 && db <= -5 ? 1.5 : 0;
 
-  const allConsignesMet = chromaOk && wbOk && focusOk && irisOk && Boolean(m.phantom48v) && Boolean(m.highPass80) && dbOk;
-  const elapsed = Math.max(0, toFiniteNumber(m.elapsedSec, 120));
-  const bonus = allConsignesMet ? 0 : elapsed < 120 ? 1 : elapsed < 180 ? 0.5 : 0;
+  const allConsignesMet = chromaOk && wbOk && focusOk && irisOk && phantom48v && highPass80 && dbOk;
+  const elapsed = Math.max(0, toSafeNumber(m.elapsedSec, 120));
+  const bonus = allConsignesMet ? 0 : elapsed <= 300 ? 1 : elapsed <= 450 ? 0.5 : 0;
 
-  const raw = allConsignesMet ? 20 : lightPts + wbPts + camPts + audioPts + bonus;
-  const score = clampScore20(raw);
+  const rawScore = allConsignesMet
+    ? 20
+    : Math.min(20, lightPts + wbPts + focusPts + irisPts + p48Pts + hpfPts + dbPts + bonus);
+  const score = allConsignesMet ? 20 : finalizeGrade20(rawScore, { hasCriticalError: !allConsignesMet });
   const xp = Math.max(0, Math.round(score * 16 + (score >= 16 ? 70 : 0)));
-  return { score, xp };
+
+  const breakdown = createGradeBreakdown({
+    items: [
+      { label: `Uniformité fond vert (${Math.round(chroma)}%)`, earned: lightPts, max: 5.5 },
+      { label: `Balance des blancs (${Math.round(kelvin)}K)`, earned: wbPts, max: 2.5 },
+      { label: `Netteté Focus (${Math.round(focus)}%)`, earned: focusPts, max: 3.5 },
+      { label: 'Exposition Iris caméra', earned: irisPts, max: 2.5 },
+      { label: 'Alimentation fantôme +48V', earned: p48Pts, max: 1.5 },
+      { label: 'Filtre coupe-bas HPF 80 Hz', earned: hpfPts, max: 1.5 },
+      { label: `Niveau audio (${db.toFixed(1)} dBFS)`, earned: dbPts, max: 3.0 }
+    ],
+    bonuses: !allConsignesMet && bonus > 0 ? [{ label: 'Rythme confortable', points: bonus, detail: `${Math.round(elapsed)}s` }] : [],
+    rawScore,
+    finalScore: score,
+    hasCriticalError: !allConsignesMet
+  });
+
+  return { score, xp, rawScore, breakdown };
 }
 
 export function createAudioVisualGame(api, opts = {}) {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import { createWorkbench3D, makeCanvasScreen } from './Workbench3DHost.js';
 
 export const SOLDER_STAGES = [
@@ -30,35 +31,138 @@ export const SOLDER_STAGES = [
 ];
 
 export function evaluateSolderStage(pads, tempC, fumeExtractorOn, reworkCount) {
-  const allGood = pads.every((p) => p.state === 'good');
+  const list = Array.isArray(pads) ? pads : [];
+  const allGood = list.every((p) => p.state === 'good');
   const safeTemp = Number.isFinite(Number(tempC)) ? Math.round(Number(tempC)) : 0;
-  const tempOk = safeTemp >= 335 && safeTemp <= 370;
+  const safeReworks = Math.max(0, Math.floor(toSafeNumber(reworkCount, 0)));
+  const tempOk = safeTemp >= 330 && safeTemp <= 375;
   let ratio = 0;
   if (allGood) ratio += 0.7;
   if (tempOk) ratio += 0.15;
   if (fumeExtractorOn) ratio += 0.15;
-  ratio = Math.max(0.4, ratio - Math.min(0.15, reworkCount * 0.02));
+  const billedReworks = Math.max(0, safeReworks - 2);
+  ratio = Math.max(0.4, ratio - Math.min(0.15, billedReworks * 0.02));
   return { allGood, tempOk, ratio };
 }
 
-export function computeSolderingScore3D({ pads, tempC, fumeExtractorOn, burnCount, reworkCount, powerTestedOk, durationSec }) {
+export function evaluateSolderingScore3D({ pads, tempC, fumeExtractorOn, burnCount, reworkCount, powerTestedOk, durationSec } = {}) {
   const list = Array.isArray(pads) ? pads : [];
   const total = Math.max(1, list.length);
   const goodCount = list.filter((p) => p.state === 'good').length;
   const coldCount = list.filter((p) => p.state === 'cold').length;
   const bridgeCount = list.filter((p) => p.state === 'bridge').length;
+  const burntCount = list.filter((p) => p.burnt || p.state === 'burnt').length;
   const safeTemp = Number.isFinite(Number(tempC)) ? Math.round(Number(tempC)) : 0;
-  const safeBurns = Math.max(0, Number.isFinite(Number(burnCount)) ? Number(burnCount) : 0);
-  const safeReworks = Math.max(0, Number.isFinite(Number(reworkCount)) ? Number(reworkCount) : 0);
-  const safeDuration = Math.max(0, Number.isFinite(Number(durationSec)) ? Number(durationSec) : 0);
-  const qualityPts = (goodCount / total) * 12 + (coldCount / total) * 4;
-  const safetyPts =
-    (fumeExtractorOn ? 2.5 : 0) +
-    (safeTemp >= 335 && safeTemp <= 370 ? 2.5 : safeTemp >= 315 && safeTemp <= 385 ? 1.2 : 0);
+  const safeBurns = Math.max(0, Math.floor(toSafeNumber(burnCount, 0)));
+  const safeReworks = Math.max(0, Math.floor(toSafeNumber(reworkCount, 0)));
+  const safeDuration = Math.max(0, toSafeNumber(durationSec, 90));
+
+  const qualityPts = Math.min(12.0, (goodCount / total) * 12.0 + (coldCount / total) * 5.0);
+  const extractorPts = fumeExtractorOn ? 2.5 : 0;
+  const tempPts = safeTemp >= 330 && safeTemp <= 375 ? 2.5 : safeTemp >= 310 && safeTemp <= 390 ? 1.5 : 0;
   const powerPts = powerTestedOk ? 2.0 : 0;
-  const speedPts = safeDuration <= 240 ? 1.0 : safeDuration <= 360 ? 0.5 : 0.2;
-  const penalties = safeBurns * 1.5 + bridgeCount * 1.2 + Math.min(1.5, safeReworks * 0.25);
-  return Math.max(0, Math.min(20, Math.round((qualityPts + safetyPts + powerPts + speedPts - penalties) * 10) / 10));
+  const speedPts = safeDuration <= 360 ? 1.0 : safeDuration <= 540 ? 0.75 : 0.5;
+
+  const forgivenReworks = Math.min(2, safeReworks);
+  const billedReworks = Math.max(0, safeReworks - 2);
+  const reworkPenalty = Math.min(1.0, billedReworks * 0.25);
+
+  const allClean = goodCount === total && bridgeCount === 0 && burntCount === 0;
+  const burnPenalty =
+    safeBurns === 0
+      ? 0
+      : allClean
+        ? Math.min(2.5, 0.5 + Math.max(0, safeBurns - 1) * 0.75)
+        : Math.min(2.5, safeBurns * 1.0);
+  const bridgePenalty = Math.min(2.5, bridgeCount * 1.2);
+
+  const rawScore = Math.max(
+    0,
+    qualityPts + extractorPts + tempPts + powerPts + speedPts - reworkPenalty - burnPenalty - bridgePenalty
+  );
+
+  const hasCriticalError =
+    goodCount < total ||
+    bridgeCount > 0 ||
+    burntCount > 0 ||
+    !fumeExtractorOn ||
+    !powerTestedOk ||
+    safeTemp < 310 ||
+    safeTemp > 390;
+
+  const score = finalizeGrade20(rawScore, { hasCriticalError });
+
+  const items = [
+    {
+      label: `Qualité des brasures (${goodCount}/${total})`,
+      earned: qualityPts,
+      max: 12.0,
+      status: goodCount === total ? 'ok' : goodCount > 0 ? 'warn' : 'fail'
+    },
+    { label: 'Extracteur de fumées (EPI)', earned: extractorPts, max: 2.5 },
+    {
+      label: `Température station (${safeTemp}°C)`,
+      earned: tempPts,
+      max: 2.5,
+      detail: 'Cible 330–375°C'
+    },
+    { label: 'Mise sous tension & Test 5V LEDs', earned: powerPts, max: 2.0 },
+    {
+      label: 'Maîtrise du rythme de brasage',
+      earned: speedPts,
+      max: 1.0,
+      detail: `${Math.round(safeDuration)}s`
+    }
+  ];
+
+  const penalties = [];
+  if (safeReworks > 0) {
+    penalties.push({
+      label:
+        billedReworks === 0
+          ? `Reprises à la tresse (${safeReworks})`
+          : `Reprises à la tresse (${billedReworks} facturée(s), 2 offertes)`,
+      points: reworkPenalty,
+      forgivenCount: forgivenReworks
+    });
+  }
+  if (safeBurns > 0) {
+    penalties.push({
+      label: `Surchauffes PCB (${safeBurns})`,
+      points: burnPenalty,
+      forgivenCount: 0
+    });
+  }
+  if (bridgeCount > 0) {
+    penalties.push({
+      label: `Ponts d’étain non nettoyés (${bridgeCount})`,
+      points: bridgePenalty,
+      forgivenCount: 0
+    });
+  }
+
+  let tip = '';
+  if (!fumeExtractorOn) tip = 'Allumez l’extracteur de fumées avant de commencer à braser.';
+  else if (bridgeCount > 0) tip = 'Nettoyez les ponts d’étain à la tresse cuivre.';
+  else if (goodCount < total) tip = 'Terminez toutes les pastilles jusqu’à obtenir une brasure brillante.';
+  else if (safeTemp < 330 || safeTemp > 375) tip = 'Réglez la station entre 330°C et 375°C (idéal 350°C).';
+  else if (!powerTestedOk) tip = 'Actionnez l’interrupteur 5V pour valider les LEDs.';
+  else if (safeBurns > 0) tip = 'Retirez le fer dès que la pastille atteint ~215°C et 65% d’étain.';
+
+  const breakdown = createGradeBreakdown({
+    items,
+    penalties,
+    rawScore,
+    finalScore: score,
+    hasCriticalError,
+    tip
+  });
+
+  return { score, rawScore, breakdown };
+}
+
+export function computeSolderingScore3D(metrics = {}) {
+  return evaluateSolderingScore3D(metrics).score;
 }
 
 export function createSolderingGame(api) {
@@ -347,29 +451,29 @@ export function createSolderingGame(api) {
         if (activePad !== pad || tool === 'wick' || pad.state === 'bridge' || pad.state === 'good') return;
         const tipHeatFactor = Math.max(0.25, (tempC - 210) / 145) / (pad.mass || 1);
         if (heatingActive) {
-          const heatRate = pad.temp > 320 ? 34 : 108;
+          const heatRate = pad.temp > 320 ? 26 : 108;
           pad.temp = Math.min(440, pad.temp + dt * heatRate * tipHeatFactor);
           pad.smokeTimer += dt;
           if (pad.smokeTimer > 0.14) {
             pad.smokeTimer = 0;
             const wp = new THREE.Vector3();
             grp.getWorldPosition(wp);
-            if (pad.temp > 395) {
+            if (pad.temp > 405) {
               wb.spawnSmoke(wp, { color: '#1f2937', count: 4, scale: 0.024, speed: 0.22 });
-            } else if (pad.temp >= 210) {
+            } else if (pad.temp >= 205) {
               wb.spawnSmoke(wp, { color: '#f1f5f9', count: 2, scale: 0.015, speed: 0.14 });
             }
           }
         }
-        if ((tinFeeding || tool === 'tin') && pad.temp >= 205 && !pad.burnt && pad.state !== 'bridge') {
-          pad.tinProgress = Math.min(1, pad.tinProgress + dt * 0.9);
+        if ((tinFeeding || tool === 'tin') && pad.temp >= 200 && !pad.burnt && pad.state !== 'bridge') {
+          pad.tinProgress = Math.min(1, pad.tinProgress + dt * 0.95);
           if (pad.smokeTimer === 0) {
             const wp = new THREE.Vector3();
             grp.getWorldPosition(wp);
             wb.spawnSparks(wp, { color: '#fde68a', count: 2 });
           }
         }
-        if (pad.temp >= 405 && !pad.burnt) {
+        if (pad.temp >= 425 && !pad.burnt) {
           pad.burnt = true;
           pad.state = 'burnt';
           burnCount += 1;
@@ -389,7 +493,7 @@ export function createSolderingGame(api) {
       onDragEnd: () => {
         if (activePad === pad && tool !== 'wick') {
           if (!pad.burnt && pad.state !== 'bridge' && pad.state !== 'good') {
-            if (pad.temp >= 215 && pad.temp < 405 && pad.tinProgress >= 0.72 && Math.round(tempC) >= 325) {
+            if (pad.temp >= 200 && pad.temp < 425 && pad.tinProgress >= 0.65 && Math.round(tempC) >= 315) {
               pad.state = 'good';
               const wp = new THREE.Vector3();
               grp.getWorldPosition(wp);
@@ -406,9 +510,9 @@ export function createSolderingGame(api) {
               pad.state = 'cold';
               sfx.error();
               const reason =
-                Math.round(tempC) < 325
-                  ? `station trop froide (${Math.round(tempC)}°C < 325°C)`
-                  : pad.tinProgress < 0.72
+                Math.round(tempC) < 315
+                  ? `station trop froide (${Math.round(tempC)}°C < 315°C)`
+                  : pad.tinProgress < 0.65
                     ? `étain insuffisant (${Math.round(pad.tinProgress * 100)}%)`
                     : `${Math.round(pad.temp)}°C`;
               wb.showToast(`❄️ ${pad.label} : soudure froide (${reason})`, 'error');
@@ -466,9 +570,9 @@ export function createSolderingGame(api) {
 
     if (activePad === pad && pad.temp > 35) {
       pm.heatHaloMat.opacity = 0.85;
-      if (pad.temp >= 390) pm.heatHaloMat.color.set('#f43f5e');
-      else if (pad.temp >= 215 && pad.tinProgress >= 0.72 && Math.round(tempC) >= 325) pm.heatHaloMat.color.set('#10b981');
-      else if (pad.temp >= 215) pm.heatHaloMat.color.set('#fbbf24');
+      if (pad.temp >= 405) pm.heatHaloMat.color.set('#f43f5e');
+      else if (pad.temp >= 200 && pad.tinProgress >= 0.65 && Math.round(tempC) >= 315) pm.heatHaloMat.color.set('#10b981');
+      else if (pad.temp >= 200) pm.heatHaloMat.color.set('#fbbf24');
       else pm.heatHaloMat.color.set('#38bdf8');
     } else {
       pm.heatHaloMat.opacity = 0;
@@ -745,7 +849,7 @@ export function createSolderingGame(api) {
     }
 
     const durationSec = Math.round(wb.getElapsedSec());
-    const finalScore = computeSolderingScore3D({
+    const evalRes = evaluateSolderingScore3D({
       pads: allPads,
       tempC,
       fumeExtractorOn,
@@ -762,14 +866,15 @@ export function createSolderingGame(api) {
       wb.showToast('🚀 Toutes les LEDs s’allument ! Carte validée !', 'success');
       setTimeout(() => {
         api.finishTp(
-          finalScore,
+          evalRes.score,
           `
           <ul>
             <li>✅ Pastilles brasées propres : <strong>${allPads.filter((p) => p.state === 'good').length}/${allPads.length}</strong></li>
             <li>💨 Extracteur de fumées : <strong>${fumeExtractorOn ? 'Activé' : 'Oublié'}</strong></li>
             <li>🌡️ Température station : <strong>${Math.round(tempC)}°C</strong></li>
             <li>🔥 Surchauffes PCB : <strong>${burnCount}</strong> • Test 5V LEDs : <strong>OK</strong></li>
-          </ul>`
+          </ul>`,
+          evalRes.breakdown
         );
       }, 1500);
     } else {

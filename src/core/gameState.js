@@ -432,9 +432,9 @@ export class GameState {
       ...(profile?.grades || {}),
       ...(account.tpScores || {})
     };
-    const coreVals = TP_CATALOG.map((item) => nextGrades[item.id]).filter(
-      (v) => typeof v === 'number'
-    );
+    const coreVals = TP_CATALOG.map((item) => nextGrades[item.id])
+      .filter((v) => typeof v === 'number' && Number.isFinite(v))
+      .map((v) => Math.max(0, Math.min(20, v)));
     const avg =
       profile?.average ??
       (coreVals.length

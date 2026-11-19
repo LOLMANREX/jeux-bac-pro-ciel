@@ -304,7 +304,9 @@ export function normalizeDivineSkinList(rawList) {
 }
 
 export function computeAverage(grades = {}) {
-  const values = TP_IDS.map((id) => grades[id]).filter((v) => typeof v === 'number');
+  const values = TP_IDS.map((id) => grades[id])
+    .filter((v) => typeof v === 'number' && Number.isFinite(v))
+    .map((v) => Math.max(0, Math.min(20, v)));
   if (values.length === 0) return null;
   const sum = values.reduce((acc, n) => acc + n, 0);
   return Math.round((sum / values.length) * 10) / 10;

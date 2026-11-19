@@ -1,80 +1,49 @@
-# RAPPORT TECHNIQUE — Mise à jour v4.23
-**Titre** : `v4.23 - Optimisation Massive des Performances FPS, Correction Déblocage Baie de Brassage & Heure de Colle en Solo`
-**Date** : 18/11/2026
-**Statut** : Validé, testé (91/91 tests) & compilé (Vite build production sans erreur)
+# RAPPORT TECHNIQUE — Mise à jour v4.25
+**Titre** : `v4.25 - Refonte & Équilibrage de Tous les Barèmes (20/20 Accessible et Transparent)`
+**Date** : 19/11/2026
+**Statut** : Validé, testé (109/109 tests) & compilé (Vite build production sans erreur)
 
 ---
 
-## 1. Diagnostic Technique
+## 1. Synthèse de l'Audit & Principes Appliqués
 
-1. **Ralentissements & Chutes de FPS (Écrans CIEL OS & Moteur Three.js)** :
-   - Dans `src/world/LabBuilder.js`, chaque poste PC du Plateau U300 embarque une instance `CielOsDesktop` (`1024x640`) reliée à une `THREE.CanvasTexture`. Même à distance ou hors du champ de vision, tous les écrans se redessinaient périodiquement (ou à 60 FPS si un mini-jeu restait ouvert), provoquant des transferts CPU → GPU (`canvasTexture.needsUpdate = true`) simultanés.
-   - Dans `src/world/SceneManager.js`, le `pixelRatio` pouvait monter jusqu'à `2.0` en mode `high` et `sun.shadow.mapSize` basculait à `2048x2048` lors de `updateWorldBounds`. De plus, `renderToTarget` et la boucle principale allouaient des vecteurs/tableaux temporaires (`Vector3.clone()`, `new THREE.Vector2()`, `new THREE.Plane()`, `new Map()`) à chaque frame.
-   - Dans `src/world/LabBuilder.js` et `src/world/SurvivalArena3D.js`, les murs, sols, plafonds et meubles statiques conservaient `matrixAutoUpdate = true`, recalculant leurs matrices locales et mondiales à chaque frame, tandis que de petits accessoires (chaises, boîtiers d'écrans, pieds de meubles) projetaient inutilement des ombres dynamiques.
-2. **Bug de Sortie des Baies de Brassage (`hiding_rack` — Écran Noir & Joueur Bloqué)** :
-   - Dans `src/world/LabBuilder.js`, les entrées `hideEntry` de `lab.hidingSpots` définissaient `position: new THREE.Vector3(...)` et `exitPos: new THREE.Vector3(...)` mais pas les propriétés numériques `x`, `z`, `exitX`, `exitZ` ni `rotRad`.
-   - Dans `src/main.js` (`toggleHidingInRack`), l'appel `player.teleportTo({ x: spot.x, z: spot.z }, { x: spot.exitX, z: spot.exitZ })` recevait `undefined`, ce qui injectait `NaN` dans `player.position` et `camera.position`, provoquant un écran noir WebGL immédiat et le blocage complet des collisions/déplacements.
-   - En outre, la distance de sortie n'était pas validée contre les colliders environnants à `1.15m` devant la porte et `#survival-hide-overlay` ne réinitialisait pas explicitement `style.opacity = '0'` et `style.display = 'none'`.
-3. **Fin de Partie Immédiate en Mode Survie Solo (1 Joueur) au Lieu de la Salle d'Heure de Colle 3D** :
-   - Dans `src/world/SurvivalEngine.js` (`SurvivalMatchController.step`), dès que `this.getAliveParticipants().length === 0`, la partie se terminait immédiatement par `this._finishMatch('defeat', nowMs)`. En partie solo (`this.participants.size === 1`), dès que le joueur était attrapé par le Professeur CIEL, le serveur émettait `survival_ended`, stoppait la patrouille du Professeur CIEL et affichait l'écran de défaite bloquant au lieu de laisser le joueur solo expérimenter la Salle d'Heure de Colle 3D.
+1. **Moteur de notation unifié ([src/core/grading.js](file:///opt/atelier-dev/src/core/grading.js))** :
+   - Suppression de tout risque de `NaN`, `Infinity` ou dépassement hors `[0, 20]` via `toSafeNumber`.
+   - Harmonisation des arrondis avec `finalizeGrade20` : arrondi généreux au `0.5` supérieur (`roundHalfUp`), et attribution automatique de `20/20` dès que le score brut atteint `>= 19.25` sans erreur critique (plafonné à `19.5` si une exigence critique manque).
+   - Génération systématique d'un objet `breakdown` structuré pour afficher le barème point par point sur PC (`renderBreakdownHtml`) et sur le panneau spatial VR (`buildBreakdownLines`).
+2. **Correction des plafonds bloqués & pondérations exactes sur 20** :
+   - Suppression des bugs qui bloquaient la note maximale à `19/20` ou `19.5/20` dès que le temps dépassait `150–160s` (`VlanConfigGame`, `PatchRackGame` / `computeRackVlanScore3D`, `StudioRegieGame`).
+   - Toutes les grilles d'évaluation totalisent désormais exactement `20.0` points de critères principaux, plus un bonus confort de rythme et un arrondi bienveillant.
+3. **Droit à l'erreur corrigée, chronos confortables & tolérances VR/PC élargies** :
+   - Les 1 à 2 premières erreurs mineures / reprises (reprises à la tresse, mauvais clic sonde, 1er ESD oublié avant manipulation ou 1er POST raté, surintensité corrigée, faux positif SOC) sont désormais pardonnées (`0 pt`) lorsque l'élève corrige et rend un résultat conforme ; les pénalités au-delà sont plafonnées.
+   - Les temps cibles pour obtenir le plein de points passent à `300s–420s` (5 à 7 minutes) afin de s'adapter confortablement à la visée et aux déplacements VR WebXR.
+   - Les seuils de validation et tolérances analogiques (Oscilloscope, Brasure, Électronique, DMX512, Studio Régie, AudioVisual) sont élargis, et le drain d'intégrité du poste SOC (`AntivirusGame`) est fortement adouci avec restauration `+15%` à la fin du scan EDR.
+4. **Transparence PC & VR + Célébration 20/20** :
+   - Sur PC (`MiniGameModal` + `minigames.css`) et sur le panneau spatial VR (`VRHudPanel`), affichage du détail complet critère par critère (`obtenu / max`), des erreurs pardonnées, des gains XP / CIEL Coins, d'un conseil concret si la note est `< 20`, du bandeau doré `🏆 PARFAIT 20/20` et de la nouvelle fanfare `sfx.perfect20()`.
 
 ---
 
-## 2. Modifications Réalisées (Fichier par Fichier)
+## 2. Tableau Récapitulatif Avant / Après de Chaque Barème
 
-- **[src/minigames/CielOsDesktop.js](file:///opt/atelier-dev/src/minigames/CielOsDesktop.js)** :
-  - Ajout du système de veille et de throttling (`sleepMode`, `inView`, `isFocusedStation`, `setSleepMode`, `textureUploadCount`, `lastActiveDrawAt`).
-  - Mise en pause complète (`return false` sans redessin ni upload GPU) lorsque l'écran est hors du champ de vision (`inView === false`) et non modifié (`!dirty`).
-  - Mode veille automatique pour les PC distants (`>= 4m`) avec rafraîchissement de l'horloge limité à 1 fois toutes les `2.0s` maximum (même si une application/jeu est ouverte).
-  - Rafraîchissement temps réel (`30-60 FPS`) réservé au PC actif ou aux écrans situés à moins de `4m` dans le champ de vision de la caméra.
-- **[src/world/SceneManager.js](file:///opt/atelier-dev/src/world/SceneManager.js)** :
-  - Plafonnement de `renderer.setPixelRatio(Math.min(dpr, 1.5))` en qualité `high` (`1.25` en `balanced`, `1` en `eco`).
-  - Plafonnement de `sun.shadow.mapSize` à `1024x1024` maximum dans `_setupLights()` et `updateWorldBounds()`.
-  - Ajout de `restoreNormalExposure()` pour restaurer instantanément `toneMappingExposure = 0.96`.
-  - Élimination des allocations mémoire dans `renderToTarget` et `setHorrorAtmosphere` grâce à des vecteurs et tableaux pré-alloués (`_savedFlashPos`, `_savedFlashTargetPos`, `_hiddenStatesScratch`).
-- **[src/world/LabBuilder.js](file:///opt/atelier-dev/src/world/LabBuilder.js)** :
-  - Désactivation de `castShadow` et `receiveShadow` sur les petits objets décoratifs, chaises d'élèves, boîtiers d'écrans, claviers, souris, oscilloscopes, supports d'accessoires, anneaux et sprites.
-  - Activation de `matrixAutoUpdate = false` (après `updateMatrix()` et `worldGroup.updateMatrixWorld(true)`) sur l'ensemble des murs, sols, plafonds, meubles et objets statiques de l'atelier.
-  - Throttling intelligent de `pcStations` dans `lab.update(elapsed, playerPos, diplomaEarned, camera)` selon la distance (`< 4.0m`) et le produit scalaire avec la direction de la caméra (`_camWorldPos`, `_camWorldDir` pré-alloués).
-  - Renseignement complet de `x`, `z`, `rotRad`, `rad`, `exitX`, `exitZ`, `position` et `exitPos` sur chaque `hiding_rack` via `computeRackExitPosition`.
-- **[src/world/SurvivalEngine.js](file:///opt/atelier-dev/src/world/SurvivalEngine.js)** :
-  - Création et export de `computeRackExitPosition(rack, colliders, bounds, playerRadius)` calculant une position de sortie dégagée à `1.15m` devant la porte de la baie selon sa rotation `rotRad`, validée sans collision avec les murs ni la baie elle-même.
-  - Adaptation de `SurvivalMatchController.step()` et ajout de `isSoloDetentionActive()` / `finishSoloDetention()` : en partie solo (`1 joueur`), lorsque le joueur est attrapé par le Professeur CIEL, la partie reste en phase `'active'` (`soloDetained: true`) et le Professeur CIEL poursuit sa ronde A* dans l'atelier afin d'alimenter en direct l'écran POV de la Salle d'Heure de Colle 3D.
-- **[src/world/SurvivalArena3D.js](file:///opt/atelier-dev/src/world/SurvivalArena3D.js)** :
-  - Optimisation du `WebGLRenderTarget` POV de la salle de colle en `512x288`.
-  - Ajout d'un bouton/badge 3D discret sur le coin avant-gauche du bureau d'heure de colle (`deskExitMesh`, surface interactive `detention_desk_exit_btn`, `getDetentionDeskExitHitBoxes`) permettant au joueur sur PC (clic souris) et en VR (laser / toucher main) de relancer immédiatement une partie (`🔄 Relancer une partie`) ou de quitter l'heure de colle (`🚪 Quitter la colle`).
-  - Gel des matrices statiques (`matrixAutoUpdate = false` après `updateMatrix()`) sur les salles 3D d'attente et de colle.
-- **[src/world/PlayerController.js](file:///opt/atelier-dev/src/world/PlayerController.js)** :
-  - Sécurisation anti-`NaN` de `teleportTo(targetPos, lookAtPos)` et ajout de `resolveUnstuckPosition(desiredX, desiredZ, rotRad)` garantissant qu'aucune téléportation de sortie de baie ne laisse le joueur coincé dans un collider.
-- **[src/ui/HudManager.js](file:///opt/atelier-dev/src/ui/HudManager.js)** :
-  - Mise à jour de `hideHidingOverlay()` pour appliquer immédiatement `opacity = '0'`, `display = 'none'` et la classe `hidden` dès la sortie d'une baie de brassage (et restauration dans `showHidingOverlay()`).
-- **[src/vr/VRManager.js](file:///opt/atelier-dev/src/vr/VRManager.js) & [src/world/RemotePlayers.js](file:///opt/atelier-dev/src/world/RemotePlayers.js)** :
-  - Suppression des allocations mémoire par frame (`workPlane`, `tempWorkPt`, `tempProjVec`, `_worldSurfHoverThisFrame.clear()`, `_povPosePos`).
-  - Ajout de `exitHidingRackVr(exitX, exitZ, yaw)` réactivant immédiatement la locomotion VR, le snap-turn et fermant le panneau spatial de cachette.
-- **[server/wsHub.js](file:///opt/atelier-dev/server/wsHub.js) & [src/core/network.js](file:///opt/atelier-dev/src/core/network.js) & [src/main.js](file:///opt/atelier-dev/src/main.js)** :
-  - Ajout du message WebSocket `survival_restart` (`network.sendSurvivalRestart()`) et des handlers `exitDetentionAndReturnToHall()` / `restartSurvivalFromDetention()` reliés au bouton 3D sur le coin du bureau de la Salle de Colle.
-  - Rafraîchissement du rendu POV `renderDetentionLivePov` cadencé à `0.045s` (~22 FPS) sans allocation mémoire par frame.
-  - Correction complète de `toggleHidingInRack` (réinitialisation immédiate de l'overlay noir et de l'exposition, téléportation dégagée à `1.15m` devant la porte, déverrouillage immédiat des contrôles PC/VR et de l'avatar).
-- **[vite.config.js](file:///opt/atelier-dev/vite.config.js) & [src/ui/ChangelogModal.js](file:///opt/atelier-dev/src/ui/ChangelogModal.js)** :
-  - Passage de la version à `v4.23` et ajout de l'entrée `v4.23` en tête de `CHANGELOG_RELEASES` (`tag: 'DERNIÈRE MÀJ'`, `v4.22` passé à `'HISTORIQUE'`).
-- **[tests/ciel-os.test.js](file:///opt/atelier-dev/tests/ciel-os.test.js), [tests/survival-horror.test.js](file:///opt/atelier-dev/tests/survival-horror.test.js) & [tests/celebration-debug.test.js](file:///opt/atelier-dev/tests/celebration-debug.test.js)** :
-  - Ajout des tests unitaires et d'intégration validant le throttling des écrans CIEL OS, `matrixAutoUpdate = false`, la sortie dégagée des baies de brassage à `1.15m` sans écran noir ni blocage, et l'accès à la Salle d'Heure de Colle 3D en mode 1 joueur avec bouton 3D de sortie/relance sur le coin du bureau.
+| TP / Module | Avant (v4.24) | Après (v4.25) |
+| :--- | :--- | :--- |
+| **Moteur commun** (`grading.js`) | Formules hétérogènes (`Math.round`, `round*2/2`, `round*10/10`) sans récapitulatif structuré | `finalizeGrade20` (arrondi `0.5` supérieur, `>= 19.25` sans erreur critique → `20/20`) + `createGradeBreakdown` PC & VR |
+| **TP Oscilloscope** (`OscilloscopeGame.js`) | `durationSec <= 130s` pour 1 pt (`<= 200s` : 0.5 pt) ; `-0.7/erreur` dès la 1re (max `-3.5`) ; tolérances étroites (`framing 1.2..6.5`, `fErr 8%`, `vPerDiv <= 2` sur TP3) | Temps confortable `<= 300s` (1 pt) / `<= 480s` (0.75) / `> 480s` (0.5) ; 2 premières erreurs pardonnées (`0 pt`), puis `-0.75` max `-2.5` ; tolérances élargies (`1.0..8.0` périodes, `fErr 12%`, `vPerDiv <= 5`) + breakdown |
+| **TP Brasure PCB** (`SolderingGame.js`) | Température `335–370°C`, chrono `<= 240s` pour 1 pt, `-1.5/surchauffe` et `-0.25/reprise` dès la 1re, surchauffe dès `405°C` | Température `330–375°C` (partiel `310–390°C`), chrono `<= 360s` (1 pt) / `<= 540s` (0.75) / `> 540s` (0.5) ; 2 reprises offertes, surchauffe `425°C` + chauffe ralentie, pénalités plafonnées (`-2.5`) + breakdown |
+| **TP Électronique** (`ElectronicsGame.js`) | LED `6–32 mA`, pont `3.10–3.45V`, `-1.5/burn` dès le 1er, pénalité temps après `240s` (max `-1.5`) | LED `5–35 mA`, pont `3.00–3.50V`, 1re surintensité corrigée offerte (`0 pt`, puis `-0.75` max `-2.0`), aucune pénalité temps jusqu'à `420s` (max `-0.5`) + breakdown |
+| **TP Cybersécurité SOC** (`AntivirusGame.js`) | Drain intégrité rapide (`1.3/s`), `-6%` sur clic `svchost.exe`, score exigeait `100%` d'intégrité pour `3/3` pts, `-1.2/erreur` dès la 1re, chrono `> 200s` pénalisé (`-1.5`) | Drain divisé par ~3 (`0.45/s`), `+15%` restaurés après scan EDR, score max intégrité dès `>= 60%`, 1re erreur pardonnée si réseau sécurisé (puis `-0.75` max `-2.25`), chrono confortable `360s` (max `-0.5`) + breakdown |
+| **TP VLAN 802.1Q** (`VlanConfigGame.js`) | Somme sans bonus temps bloquée à `19/20` (Trunk `3 pts`, bonus `1 pt` perdu après `160s` / `150s`) ; seuil son à `12/20` | Somme critères principaux portée à `19.5/20` + rythme confortable (`0.5` jusqu'à `300s`, `0.25` jusqu'à `480s`) = `20/20` garanti sans speedrun ; seuil validation `>= 10` + breakdown |
+| **TP Baie de Brassage & Rack** (`PatchPanelGame.js`) | `computePatchPanelScore3D`: plafond à `19/20` si temps `>= 140s` ; `computeRackVlanScore3D`: plafond à `19/20` si temps `>= 160s` et `-0.5/erreur` dès la 1re ; `evaluatePatchConfiguration` exigeait `>= 12/20` | `20/20` atteignable jusqu'à `450s`/`480s` et au-delà via arrondi généreux ; 2 premières `cableErrors` pardonnées ; `evaluatePatchConfiguration` validée dès `>= 10/20` + breakdown |
+| **TP Montage PC** (`PcHardwareGame.js`) | `-1.2/erreur ESD` et `-0.8/POST raté` dès la 1re erreur ; pénalité temps après `240s` (max `-2.0`) ; `evaluateHardwareBuild` validé à `>= 12/20` | 1re erreur ESD & 1er POST raté pardonnés si corrigés (pénalité totale plafonnée à `-3.0`) ; temps confortable `420s` (max `-0.5`) ; `evaluateHardwareBuild` validé à `>= 10/20` + breakdown |
+| **TP DMX512 & AV** (`DmxLightingGame.js`, `AudioVisualGame.js`) | Master `>= 60`, RGB `±55`, Pan/Tilt `±18` ; AV Kelvin `±200K`, Dimmer `70–85%`, Audio `-14..-10 dBFS`, `passed >= 13/20` | DMX Master `>= 55`, RGB `±65`, Pan/Tilt `±22` ; AV Kelvin `±300/350K`, Dimmer `65–90%`, Audio `-15.5..-8.5 dBFS`, `passed >= 10/20`, chrono `300–450s` + breakdown |
+| **TP Studio Régie** (`StudioRegieGame.js`) | **Bug mathématique** en mode Patch : somme max sans `allMet` bloquée à `19.5/20` (WB `1.0 pt` au lieu de `1.5`), tolérances étroites (`Focus ±8`, `Iris ±9`, `WB ±250K`, `Chroma 74–94%`, `-14.5..-9.5 dBFS`) | Somme max exacte `20.0/20` (WB `1.5 pt`), tolérances élargies (`Focus ±12`, `Iris ±12`, `WB ±350K`, `Chroma 70–96%`, `-15.5..-8.5 dBFS`), bonus temps jusqu'à `300s` + breakdown |
+| **Moyenne, Économie & Persistance** (`store.js`, `gameState.js`, `main.js`) | Filtrage `typeof === 'number'` sans `Number.isFinite` | Filtrage strict `Number.isFinite` et clamp `[0, 20]` ; 100% rétrocompatible avec `db.json`, `accounts.json` et `computeTpCoinReward` (25/50/100 + 50 CC) |
 
 ---
 
 ## 3. Résultats des Tests & du Build
 
-- **Tests automatisés (`node --test --test-force-exit tests/*.test.js`)** : **91 tests exécutés, 91 réussis, 0 échec**.
-- **Build de production (`npm run build`)** : **Succès en ~1.3s**, aucune erreur ni avertissement.
-- **Intégrité des données** : `server/data/map.json` et `server/data/db.json` intacts (`git diff` vide sur ces fichiers).
-
----
-
-## 4. Guide de Vérification
-
-1. **Fluidité & Throttling CIEL OS** :
-   - Se déplacer dans l'atelier U300/U305/U307 : seuls les écrans PC à moins de 4 mètres dans le champ de vision ou le poste actif utilisé se rafraîchissent en temps réel ; les PC distants passent en veille (horloge toutes les 2s ou pause hors caméra).
-2. **Sortie des Baies de Brassage (`hiding_rack`)** :
-   - Lancer une partie Survie Horreur, s'approcher d'une Baie de Brassage et appuyer sur `[E]` (ou gâchette VR) pour s'y cacher, puis appuyer à nouveau sur `[E]` (ou bouton VR « Sortir ») : l'overlay sombre disparaît instantanément (`opacity: 0`, `display: none`), le joueur apparaît à `1.15m` devant la porte face au couloir sans aucune collision ni écran noir, et peut se déplacer immédiatement.
-3. **Salle d'Heure de Colle 3D en Solo (1 Joueur)** :
-   - Lancer le Mode Survie Horreur seul (1 joueur) et se laisser attraper par le Professeur CIEL : après le jumpscare, le joueur est envoyé dans la Salle d'Heure de Colle 3D (assis devant la feuille de tableaux de variation interactifs et l'écran du tableau affichant en direct la caméra POV du Professeur CIEL en patrouille dans l'atelier), et peut cliquer sur le bouton 3D discret situé sur le coin avant-gauche du bureau pour relancer une partie ou quitter la colle.
+- **Tests automatisés (`node --test --test-force-exit tests/*.test.js`)** : **109 tests exécutés, 109 réussis, 0 échec**.
+  - Nouvelle suite dédiée [tests/grading-scales.test.js](file:///opt/atelier-dev/tests/grading-scales.test.js) validant les 9 TPs actifs + toutes les fonctions auxiliaires, l'anti-`NaN`, les temps non-speedrun, le droit à l'erreur corrigée, le panneau résultat VR, `computeAverage`, `GameStore` et l'absence de nom interdit.
+- **Build de production (`npm run build`)** : **Succès** (`vite build` sans aucune erreur).
+- **Protection des données & règles strictes** : `server/data/map.json`, `server/data/db.json`, `server/data/accounts.json` et les fichiers de géométrie n'ont subi aucune modification ; zéro commentaire dans les fichiers générés/modifiés.

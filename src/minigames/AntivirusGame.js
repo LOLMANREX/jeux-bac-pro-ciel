@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import {
   createWorkbench3D,
   makeCanvasScreen,
@@ -103,28 +104,87 @@ export function evaluateAntivirusStage(state) {
 }
 
 export function computeSocDefenseScore3D(metrics = {}) {
-  let pts = 0;
-  if (metrics.isolatedCompromised) pts += 4;
-  const fwTotal = Math.max(1, metrics.firewallTotal || 3);
-  const fwDone = Math.min(fwTotal, metrics.firewallBlockedCount || 0);
-  pts += (fwDone / fwTotal) * 5;
+  const m = metrics && typeof metrics === 'object' ? metrics : {};
+  const isolated = Boolean(m.isolatedCompromised);
+  const fwTotal = Math.max(1, toSafeNumber(m.firewallTotal, 3));
+  const fwDone = Math.max(0, Math.min(fwTotal, toSafeNumber(m.firewallBlockedCount, 0)));
+  const cveTotal = Math.max(1, toSafeNumber(m.cveTotal, 3));
+  const cveDone = Math.max(0, Math.min(cveTotal, toSafeNumber(m.cvePatchedCount, 0)));
+  const edrScanDone = Boolean(m.edrScanDone);
+  const integ = Math.max(0, Math.min(100, toSafeNumber(m.integrityRemaining, 0)));
+  const mistakes = Math.max(0, Math.floor(toSafeNumber(m.mistakes, 0)));
+  const elapsed = Math.max(0, toSafeNumber(m.elapsedSec, 90));
 
-  const cveTotal = Math.max(1, metrics.cveTotal || 3);
-  const cveDone = Math.min(cveTotal, metrics.cvePatchedCount || 0);
-  pts += (cveDone / cveTotal) * 5;
+  const isoPts = isolated ? 4.0 : 0;
+  const fwPts = (fwDone / fwTotal) * 5.0;
+  const cvePts = (cveDone / cveTotal) * 5.0;
+  const edrPts = edrScanDone ? 3.0 : 0;
+  const integPts = integ >= 60 ? 3.0 : (integ / 60) * 3.0;
 
-  if (metrics.edrScanDone) pts += 3;
+  const hasCriticalError = !isolated || fwDone < fwTotal || cveDone < cveTotal || !edrScanDone;
+  const forgivenMistakes = !hasCriticalError ? Math.min(1, mistakes) : 0;
+  const billedMistakes = Math.max(0, mistakes - forgivenMistakes);
+  const mistakePenalty = Math.min(2.25, billedMistakes * 0.75);
+  const timePenalty = elapsed > 360 ? Math.min(0.5, ((elapsed - 360) / 180) * 0.5) : 0;
 
-  const integ = Math.max(0, Math.min(100, metrics.integrityRemaining ?? 0));
-  pts += (integ / 100) * 3;
-
-  const mistakes = Math.max(0, metrics.mistakes || 0);
-  const elapsed = metrics.elapsedSec || 0;
-  const timePenalty = elapsed > 200 ? Math.min(1.5, (elapsed - 200) / 100) : 0;
-  const score = Math.max(0, Math.min(20, Math.round(pts - mistakes * 1.2 - timePenalty)));
-  const xp = Math.max(50, Math.round(score * 16 + (integ >= 70 ? 60 : 20)));
+  const rawScore = Math.max(
+    0,
+    isoPts + fwPts + cvePts + edrPts + integPts - mistakePenalty - timePenalty
+  );
+  const score = finalizeGrade20(rawScore, { hasCriticalError });
+  const xp = Math.max(50, Math.round(score * 16 + (integ >= 60 ? 60 : 20)));
   const accuracy = Math.round((score / 20) * 100);
-  return { score, xp, accuracy };
+
+  const items = [
+    { label: 'Isolation réseau du poste PC-WORK', earned: isoPts, max: 4.0 },
+    { label: `Règles Pare-feu FW-01 (${fwDone}/${fwTotal})`, earned: fwPts, max: 5.0 },
+    { label: `Correctifs CVE & processus (${cveDone}/${cveTotal})`, earned: cvePts, max: 5.0 },
+    { label: 'Scan laser CielGuard EDR complet', earned: edrPts, max: 3.0 },
+    {
+      label: `Intégrité infrastructure (${Math.round(integ)}%)`,
+      earned: integPts,
+      max: 3.0,
+      detail: 'Cible ≥ 60%'
+    }
+  ];
+
+  const penalties = [];
+  if (mistakes > 0) {
+    penalties.push({
+      label:
+        billedMistakes === 0
+          ? `Faux positif processus (${mistakes})`
+          : `Faux positifs processus (${billedMistakes} facturé(s), 1 offert)`,
+      points: mistakePenalty,
+      forgivenCount: forgivenMistakes
+    });
+  }
+  if (timePenalty > 0) {
+    penalties.push({
+      label: `Dépassement temps confortable (${Math.round(elapsed)}s > 360s)`,
+      points: Math.round(timePenalty * 100) / 100,
+      forgivenCount: 0
+    });
+  }
+
+  let tip = '';
+  if (!isolated) tip = 'Isolez PC-WORK dès le début pour bloquer la propagation latérale.';
+  else if (fwDone < fwTotal) tip = 'Bloquez les 3 règles critiques sur le pare-feu FW-01.';
+  else if (cveDone < cveTotal) tip = 'Patchez SRV-WEB, SRV-BDD et supprimez svch0st.exe (avec zéro).';
+  else if (!edrScanDone) tip = 'Lancez et terminez le scan laser CielGuard EDR.';
+  else if (integ < 60) tip = 'Isolez rapidement PC-WORK pour garder ≥ 60% d’intégrité serveur.';
+  else if (mistakePenalty > 0) tip = 'Ne tuez pas le processus légitime svchost.exe dans System32.';
+
+  const breakdown = createGradeBreakdown({
+    items,
+    penalties,
+    rawScore,
+    finalScore: score,
+    hasCriticalError,
+    tip
+  });
+
+  return { score, xp, accuracy, rawScore, breakdown };
 }
 
 export function createAntivirusGame(api) {
@@ -565,7 +625,7 @@ export function createAntivirusGame(api) {
     });
     drawer.querySelector('#soc-false-svchost')?.addEventListener('click', () => {
       state.mistakes += 1;
-      state.integrity = Math.max(10, state.integrity - 6);
+      state.integrity = Math.max(10, state.integrity - 3);
       sfx.error();
       bench.showToast('Erreur ! svchost.exe dans System32 est un processus Windows légitime.', 'error');
       refreshAll();
@@ -611,7 +671,8 @@ export function createAntivirusGame(api) {
           <li>Règles Pare-feu FW-01 : <strong>${st.fwCount}/3</strong> · Patchs CVE : <strong>${st.cveCount}/3</strong></li>
           <li>Scan Laser CielGuard EDR : <strong>${state.edrDone ? 'Terminé' : 'Incomplet'}</strong></li>
         </ul>
-      `
+      `,
+      res.breakdown
     );
   }
 
@@ -766,7 +827,7 @@ export function createAntivirusGame(api) {
     if (fwDome.visible) fwDome.rotation.y = -elapsed * 0.9;
 
     if (st.activeThreats > 0 && !state.finished) {
-      const drain = (!state.isolated ? 1.3 : 0.2) + (3 - st.fwCount) * 0.45 + (3 - st.cveCount) * 0.35;
+      const drain = (!state.isolated ? 0.45 : 0.08) + (3 - st.fwCount) * 0.16 + (3 - st.cveCount) * 0.12;
       state.integrity = Math.max(15, state.integrity - drain * dt);
     }
 
@@ -776,6 +837,9 @@ export function createAntivirusGame(api) {
       if (state.scanPct >= 100) {
         state.edrScanning = false;
         state.edrDone = true;
+        if (getStats().secured) {
+          state.integrity = Math.min(100, state.integrity + 15);
+        }
         scanPlane.visible = false;
         sfx.success();
         bench.spawnPulseRing(nodes['PC-WORK'].basePos, '#22c55e', 0.18);

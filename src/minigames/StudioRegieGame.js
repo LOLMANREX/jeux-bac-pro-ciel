@@ -1,21 +1,12 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
+import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import { buildStudentAvatarMesh } from '../world/AvatarBuilder.js';
 import {
   buildFlexibleCable,
   createWorkbench3D,
   makeCanvasScreen
 } from './Workbench3DHost.js';
-
-function toSafeNum(val, fallback = 0) {
-  const n = Number(val);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp20(raw) {
-  const n = toSafeNum(raw, 0);
-  return Math.max(0, Math.min(20, Math.round(n * 2) / 2));
-}
 
 export const STUDIO_PATCH_LINKS = [
   {
@@ -55,10 +46,10 @@ export const STUDIO_CUE_LIST = CUE_LIST;
 export function computeStudioAudioDb(state = {}) {
   const s = state && typeof state === 'object' ? state : {};
   if (s.xlrMicConnected === false || !s.phantom48v) return -48;
-  const cravate = Math.max(0, Math.min(100, toSafeNum(s.micCravate, 44)));
-  const ambiance = Math.max(0, Math.min(100, toSafeNum(s.micAmbiance, 24)));
-  const music = Math.max(0, Math.min(100, toSafeNum(s.music, 36)));
-  const master = Math.max(0, Math.min(100, toSafeNum(s.masterAudio, 72)));
+  const cravate = Math.max(0, Math.min(100, toSafeNumber(s.micCravate, 44)));
+  const ambiance = Math.max(0, Math.min(100, toSafeNumber(s.micAmbiance, 24)));
+  const music = Math.max(0, Math.min(100, toSafeNumber(s.music, 36)));
+  const master = Math.max(0, Math.min(100, toSafeNumber(s.masterAudio, 72)));
   const mix = cravate * 0.68 + ambiance * 0.22 + music * 0.18;
   const masterScale = master / 100;
   const hpfOffset = s.hpf80 ? 0.4 : 0;
@@ -85,7 +76,7 @@ export function evaluateStudioRegieState(state = {}) {
     xlrMicOk = set.has(1);
     sdiPgmOk = set.has(2);
   } else if (s.cablesConnected !== undefined) {
-    cablesConnected = Math.max(0, Math.min(STUDIO_PATCH_LINKS.length, Math.round(toSafeNum(s.cablesConnected, 0))));
+    cablesConnected = Math.max(0, Math.min(STUDIO_PATCH_LINKS.length, Math.round(toSafeNumber(s.cablesConnected, 0))));
     sdiCam1Ok = cablesConnected >= 1;
     xlrMicOk = cablesConnected >= 2;
     sdiPgmOk = cablesConnected >= 3;
@@ -93,20 +84,20 @@ export function evaluateStudioRegieState(state = {}) {
   cablesConnected = Math.max(0, Math.min(STUDIO_PATCH_LINKS.length, cablesConnected));
   const patchAllOk = cablesConnected === STUDIO_PATCH_LINKS.length;
 
-  const focus = Math.max(0, Math.min(100, toSafeNum(s.focus, 32)));
-  const iris = Math.max(0, Math.min(100, toSafeNum(s.iris, 26)));
-  const kelvin = Math.max(2000, Math.min(9000, toSafeNum(s.kelvin, 3600)));
-  const chromaKey = Math.max(0, Math.min(100, toSafeNum(s.chromaKey, 38)));
+  const focus = Math.max(0, Math.min(100, toSafeNumber(s.focus, 32)));
+  const iris = Math.max(0, Math.min(100, toSafeNumber(s.iris, 26)));
+  const kelvin = Math.max(2000, Math.min(9000, toSafeNumber(s.kelvin, 3600)));
+  const chromaKey = Math.max(0, Math.min(100, toSafeNumber(s.chromaKey, 38)));
 
-  const focusOk = Math.abs(focus - 72) <= 8;
-  const irisOk = Math.abs(iris - 56) <= 9;
-  const wbOk = Math.abs(kelvin - 5600) <= 250;
-  const chromaOk = chromaKey >= 74 && chromaKey <= 94;
+  const focusOk = Math.abs(focus - 72) <= 12;
+  const irisOk = Math.abs(iris - 56) <= 12;
+  const wbOk = Math.abs(kelvin - 5600) <= 350;
+  const chromaOk = chromaKey >= 70 && chromaKey <= 96;
 
   const phantom48v = Boolean(s.phantom48v);
   const hpf80 = Boolean(s.hpf80);
   const peakDb = computeStudioAudioDb({ ...s, xlrMicConnected: xlrMicOk });
-  const audioLevelOk = xlrMicOk && phantom48v && peakDb >= -14.5 && peakDb <= -9.5;
+  const audioLevelOk = xlrMicOk && phantom48v && peakDb >= -15.5 && peakDb <= -8.5;
   const audioClipping = peakDb > -3;
 
   let cuesCompleted = 0;
@@ -115,7 +106,7 @@ export function evaluateStudioRegieState(state = {}) {
   } else if (Array.isArray(s.cuesDone)) {
     cuesCompleted = new Set(s.cuesDone).size;
   } else if (s.cuesCompleted !== undefined) {
-    cuesCompleted = Math.max(0, Math.min(3, Math.round(toSafeNum(s.cuesCompleted, 0))));
+    cuesCompleted = Math.max(0, Math.min(3, Math.round(toSafeNumber(s.cuesCompleted, 0))));
   }
   cuesCompleted = Math.max(0, Math.min(CUE_LIST.length, cuesCompleted));
 
@@ -129,16 +120,16 @@ export function evaluateStudioRegieState(state = {}) {
     teacherAdvice = `Professeur CIEL : « Commence par câbler les liaisons SDI & XLR du studio : Caméra 1 → ATEM, Micro Cravate → Console Audio, puis ATEM PGM → Mur Multiview (${cablesConnected}/3). »`;
   } else if (!opticsAllOk) {
     teacherAdvice =
-      'Professeur CIEL : « Règle maintenant l’optique de la Caméra 1 (Focus ~72%, Iris ~56%, Balance des Blancs 5600K) puis ajuste le seuil Chroma Key entre 74% et 94% pour incruster le fond vert ! »';
+      'Professeur CIEL : « Règle maintenant l’optique de la Caméra 1 (Focus ~72%, Iris ~56%, Balance des Blancs 5600K) puis ajuste le seuil Chroma Key entre 70% et 96% pour incruster le fond vert ! »';
   } else if (!audioAllOk) {
     if (!phantom48v || !hpf80) {
       teacherAdvice =
         'Professeur CIEL : « Sur la console audio, enclenche l’alimentation fantôme +48V pour le micro statique ainsi que le filtre coupe-bas HPF 80 Hz contre les bruits graves ! »';
     } else {
-      teacherAdvice = `Professeur CIEL : « Ajuste les faders Micro Cravate et Master Mix pour stabiliser le VU-mètre dans la plage broadcast -14 à -10 dBFS (actuel : ${peakDb.toFixed(1)} dBFS). »`;
+      teacherAdvice = `Professeur CIEL : « Ajuste les faders Micro Cravate et Master Mix pour stabiliser le VU-mètre dans la plage broadcast -15 à -9 dBFS (actuel : ${peakDb.toFixed(1)} dBFS). »`;
     }
   } else if (!atemAllOk) {
-    const nextCue = CUE_LIST[Math.min(CUE_LIST.length - 1, toSafeNum(s.cueIdx, cuesCompleted))];
+    const nextCue = CUE_LIST[Math.min(CUE_LIST.length - 1, toSafeNumber(s.cueIdx, cuesCompleted))];
     teacherAdvice = `Professeur CIEL : « Câblage, optique et son prêts pour le direct ! Sur le mélangeur ATEM, sélectionne ${nextCue?.target || 'CAM-1'} en Preview puis appuie sur CUT / TAKE (${cuesCompleted}/3 tops). »`;
   } else {
     teacherAdvice =
@@ -169,11 +160,11 @@ export function evaluateStudioRegieState(state = {}) {
   };
 }
 
-export function computeStudioRegieScore3D(metrics = {}) {
+export function evaluateStudioRegieScore3D(metrics = {}) {
   const m = metrics && typeof metrics === 'object' ? metrics : {};
   const hasPatchMetrics = m.cablesConnected !== undefined || m.patchAllOk !== undefined;
   const cables = hasPatchMetrics
-    ? Math.max(0, Math.min(STUDIO_PATCH_LINKS.length, toSafeNum(m.cablesConnected, m.patchAllOk ? 3 : 0)))
+    ? Math.max(0, Math.min(STUDIO_PATCH_LINKS.length, toSafeNumber(m.cablesConnected, m.patchAllOk ? 3 : 0)))
     : STUDIO_PATCH_LINKS.length;
   const patchOk = hasPatchMetrics ? Boolean(m.patchAllOk || cables >= STUDIO_PATCH_LINKS.length) : true;
 
@@ -186,7 +177,7 @@ export function computeStudioRegieScore3D(metrics = {}) {
   const hpf80 = Boolean(m.hpf80);
   const audioClipping = Boolean(m.audioClipping);
   const audioInZone = Boolean(m.audioLevelOk) && !audioClipping;
-  const cues = Math.max(0, Math.min(3, toSafeNum(m.cuesCompleted, 0)));
+  const cues = Math.max(0, Math.min(3, toSafeNumber(m.cuesCompleted, 0)));
 
   const allMet =
     patchOk &&
@@ -199,27 +190,50 @@ export function computeStudioRegieScore3D(metrics = {}) {
     audioInZone &&
     cues >= 3;
 
-  if (allMet) {
-    return 20;
-  }
-
-  const elapsed = Math.max(0, toSafeNum(m.elapsedSec, 95));
-  const bonus = elapsed < 90 ? 0.5 : 0;
+  const elapsed = Math.max(0, toSafeNumber(m.elapsedSec, 95));
+  const timeBonus = elapsed <= 300 ? 0.5 : 0;
 
   if (hasPatchMetrics) {
     const patchPts = (cables / STUDIO_PATCH_LINKS.length) * 4.0;
-    const camPts =
-      (focusOk ? 1.5 : 0.3) +
-      (irisOk ? 1.5 : 0.3) +
-      (wbOk ? 1.0 : 0.2) +
-      (chromaOk ? 1.5 : 0.3);
-    let audioPts = 0;
-    if (phantom48v) audioPts += 1.0;
-    if (hpf80) audioPts += 1.0;
-    if (audioInZone) audioPts += 3.0;
-    else if (!audioClipping) audioPts += 1.0;
+    const focusPts = focusOk ? 1.5 : 0.3;
+    const irisPts = irisOk ? 1.5 : 0.3;
+    const wbPts = wbOk ? 1.5 : 0.3;
+    const chromaPts = chromaOk ? 1.5 : 0.3;
+    const p48Pts = phantom48v ? 1.0 : 0;
+    const hpfPts = hpf80 ? 1.0 : 0;
+    const dbPts = audioInZone ? 3.0 : !audioClipping ? 1.0 : 0;
     const atemPts = (cues / 3) * 5.0;
-    return clamp20(patchPts + camPts + audioPts + atemPts + bonus);
+
+    const rawScore = allMet
+      ? 20
+      : Math.min(20, patchPts + focusPts + irisPts + wbPts + chromaPts + p48Pts + hpfPts + dbPts + atemPts + timeBonus);
+    const hasCriticalError = !allMet;
+    const score = allMet ? 20 : finalizeGrade20(rawScore, { hasCriticalError });
+
+    const camPts = focusPts + irisPts + wbPts + chromaPts;
+    const audioPts = p48Pts + hpfPts + dbPts;
+
+    let tip = '';
+    if (!patchOk) tip = 'Raccordez les 3 câbles SDI et XLR sur le plateau studio.';
+    else if (!focusOk || !irisOk || !wbOk || !chromaOk) tip = 'Réglez Focus (72%), Iris (56%), 5600K et Chroma Key (70–96%).';
+    else if (!phantom48v || !hpf80 || !audioInZone) tip = 'Activez +48V, HPF 80 Hz et stabilisez le niveau audio entre -15.5 et -8.5 dBFS.';
+    else if (cues < 3) tip = 'Exécutez les 3 tops d’antenne CUT/TAKE sur le mélangeur ATEM.';
+
+    const breakdown = createGradeBreakdown({
+      items: [
+        { label: `Patch SDI & XLR (${cables}/3)`, earned: patchPts, max: 4.0 },
+        { label: 'Optique Caméra & Chroma Key', earned: camPts, max: 6.0 },
+        { label: 'Console Audio (+48V, HPF, -12 dBFS)', earned: audioPts, max: 5.0 },
+        { label: `Conduite Direct ATEM (${cues}/3 tops)`, earned: atemPts, max: 5.0 }
+      ],
+      bonuses: !allMet && timeBonus > 0 ? [{ label: 'Rythme confortable', points: timeBonus, detail: `${Math.round(elapsed)}s` }] : [],
+      rawScore,
+      finalScore: score,
+      hasCriticalError,
+      tip
+    });
+
+    return { score, rawScore, breakdown };
   }
 
   const camPts =
@@ -228,15 +242,31 @@ export function computeStudioRegieScore3D(metrics = {}) {
     (wbOk ? 1.5 : 0.3) +
     (chromaOk ? 2.5 : 0.5);
 
-  let audioPts = 0;
-  if (phantom48v) audioPts += 1.25;
-  if (hpf80) audioPts += 1.25;
-  if (audioInZone) audioPts += 4.0;
-  else if (!audioClipping) audioPts += 1.5;
-
+  const p48Pts = phantom48v ? 1.25 : 0;
+  const hpfPts = hpf80 ? 1.25 : 0;
+  const dbPts = audioInZone ? 4.0 : !audioClipping ? 1.5 : 0;
+  const audioPts = p48Pts + hpfPts + dbPts;
   const atemPts = (cues / 3) * 5.5;
-  const raw = camPts + audioPts + atemPts + bonus;
-  return clamp20(raw);
+
+  const rawScore = allMet ? 20 : Math.min(20, camPts + audioPts + atemPts + timeBonus);
+  const score = allMet ? 20 : finalizeGrade20(rawScore, { hasCriticalError: !allMet });
+
+  const breakdown = createGradeBreakdown({
+    items: [
+      { label: 'Optique Caméra & Chroma Key', earned: camPts, max: 8.0 },
+      { label: 'Console Audio Broadcast', earned: audioPts, max: 6.5 },
+      { label: `Conduite Direct ATEM (${cues}/3 tops)`, earned: atemPts, max: 5.5 }
+    ],
+    rawScore,
+    finalScore: score,
+    hasCriticalError: !allMet
+  });
+
+  return { score, rawScore, breakdown };
+}
+
+export function computeStudioRegieScore3D(metrics = {}) {
+  return evaluateStudioRegieScore3D(metrics).score;
 }
 
 const CAM_VIEWS = [
@@ -1564,7 +1594,7 @@ export function createStudioRegieGame(api) {
     if (state.submitted) return;
     state.submitted = true;
     const finalEv = evaluateRegie();
-    const finalScore = computeStudioRegieScore3D({
+    const evalRes = evaluateStudioRegieScore3D({
       cablesConnected: finalEv.cablesConnected,
       patchAllOk: finalEv.patchAllOk,
       focusOk: finalEv.focusOk,
@@ -1579,16 +1609,17 @@ export function createStudioRegieGame(api) {
       elapsedSec: (performance.now() - state.startMs) / 1000
     });
     api.finishTp(
-      finalScore,
+      evalRes.score,
       `
         <p>Atelier Régie Broadcast, Caméra & Mixage Son évalué par le <strong>Professeur CIEL</strong> :</p>
         <ul>
           <li>Liaisons SDI & XLR plateau : <strong>${finalEv.cablesConnected}/3 câbles raccordés</strong></li>
           <li>Optique Caméra & Fond Vert : <strong>${finalEv.focusOk && finalEv.irisOk && finalEv.wbOk ? 'Optique 5600K OK ✔' : 'Optique à affiner'} • Chroma Key ${finalEv.chromaOk ? 'Propre ✔' : 'Incomplet'}</strong></li>
-          <li>Console Audio Broadcast : <strong>${finalEv.xlrMicOk ? `${finalEv.peakDb.toFixed(1)} dBFS` : 'Micro débranché'} (${finalEv.audioLevelOk ? 'Dans la cible -14 à -10 dBFS ✔' : 'Hors plage'}) • +48V ${state.phantom48v ? 'ON' : 'OFF'} • HPF 80Hz ${state.hpf80 ? 'ON' : 'OFF'}</strong></li>
+          <li>Console Audio Broadcast : <strong>${finalEv.xlrMicOk ? `${finalEv.peakDb.toFixed(1)} dBFS` : 'Micro débranché'} (${finalEv.audioLevelOk ? 'Dans la cible -15 à -9 dBFS ✔' : 'Hors plage'}) • +48V ${state.phantom48v ? 'ON' : 'OFF'} • HPF 80Hz ${state.hpf80 ? 'ON' : 'OFF'}</strong></li>
           <li>Conduite Direct ATEM : <strong>${finalEv.cuesCompleted}/3 tops d’antenne exécutés</strong></li>
         </ul>
-      `
+      `,
+      evalRes.breakdown
     );
   }
 

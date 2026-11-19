@@ -392,6 +392,26 @@ export class SoundEngine {
     this.playAscensionFanfare('cyber');
   }
 
+  perfect20() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    const notes = [
+      { f: 523.25, t: 0, d: 0.14 },
+      { f: 659.25, t: 0.08, d: 0.14 },
+      { f: 783.99, t: 0.16, d: 0.16 },
+      { f: 1046.5, t: 0.25, d: 0.26 },
+      { f: 1318.51, t: 0.36, d: 0.38 },
+      { f: 1567.98, t: 0.48, d: 0.48 }
+    ];
+    notes.forEach((n) => {
+      this.playTone(n.f, n.d, 'triangle', 0.085, n.t);
+      this.playTone(n.f * 0.5, n.d, 'sine', 0.045, n.t);
+    });
+    for (let i = 0; i < 12; i++) {
+      this._playClapGrain(0.24 + i * 0.052, 1100 + Math.random() * 800, 0.036);
+    }
+  }
+
   playAscensionFanfare(specialty = 'cyber') {
     const ctx = this._ensureCtx();
     if (!ctx) return;
