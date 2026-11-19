@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { sfx } from './core/audio.js';
 import { getBattlePassSkinId } from './core/battlePassSkins.js';
 import {
+  detectDeviceProfile,
   GameState,
   getAllTps,
   getTpById,
@@ -68,6 +69,7 @@ import { FaqModal } from './ui/FaqModal.js';
 import { BattlePassModal } from './ui/BattlePassModal.js';
 import { buildShopViewModel, ShopModal } from './ui/ShopModal.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
+import { getCielOsTouchLayout } from './minigames/TouchTpHelpers.js';
 import { VariationTableSession } from './minigames/VariationTableGame.js';
 import { createOscilloscopeGame } from './minigames/OscilloscopeGame.js';
 import { createSolderingGame } from './minigames/SolderingGame.js';
@@ -102,6 +104,7 @@ const network = new NetworkClient();
 
 const canvas = document.getElementById('game-canvas');
 const sceneMgr = new SceneManager(canvas);
+sceneMgr.setDeviceProfile(detectDeviceProfile());
 sceneMgr.setQuality(gameState.quality);
 sceneMgr.setFov(gameState.fov);
 
@@ -116,6 +119,7 @@ const player = new PlayerController(sceneMgr.camera, canvas, lab.colliders, {
 });
 player.setBounds(currentMapData.bounds);
 player.setSensitivity(gameState.mouseSens);
+player.setTouchSensitivity(gameState.touchSens);
 player.setCameraMode(gameState.cameraMode);
 player.setTouchMode(gameState.touchMode);
 
@@ -2666,6 +2670,73 @@ function openTeacherDialogue(customDialogue = '') {
 
 let activePcSession = null;
 let cielOsDom = null;
+let cielOsTouchRepeatTimer = null;
+let lastCielOsPadKey = '';
+
+function clearCielOsTouchRepeat() {
+  if (cielOsTouchRepeatTimer) {
+    clearInterval(cielOsTouchRepeatTimer);
+    cielOsTouchRepeatTimer = null;
+  }
+}
+
+function syncCielOsTouchPad(force = false) {
+  if (!cielOsDom?.touchPad) return;
+  const visible = Boolean(activePcSession && gameState.touchMode && !vrManager?.isVrActive?.());
+  cielOsDom.touchPad.classList.toggle('hidden', !visible);
+  if (!visible) {
+    clearCielOsTouchRepeat();
+    lastCielOsPadKey = '';
+    return;
+  }
+  const desktop = activePcSession.pcStation?.desktop;
+  const appId = desktop?.activeAppId || null;
+  const flagActive = appId === 'minesweeper' ? Boolean(desktop?.games?.get?.('minesweeper')?.flagMode) : false;
+  const key = `${appId || 'desktop'}:${flagActive ? '1' : '0'}`;
+  if (!force && key === lastCielOsPadKey) return;
+  lastCielOsPadKey = key;
+  clearCielOsTouchRepeat();
+
+  const layout = getCielOsTouchLayout(appId);
+  cielOsDom.touchDpad.classList.toggle('hidden', !layout.showDpad);
+  cielOsDom.touchDpad.dataset.repeat = layout.dpadRepeat ? '1' : '0';
+  if (cielOsDom.touchHint) {
+    cielOsDom.touchHint.textContent = layout.hint || '';
+  }
+  if (cielOsDom.touchActions) {
+    cielOsDom.touchActions.innerHTML = '';
+    for (const act of layout.actions || []) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const isToggled = act.toggle && appId === 'minesweeper' && flagActive;
+      btn.className = `ciel-os-touch-btn${act.primary ? ' primary' : ''}${isToggled ? ' active' : ''}`;
+      btn.textContent = act.label;
+      btn.dataset.actionId = act.id;
+      const fireAction = () => {
+        const curDesktop = activePcSession?.pcStation?.desktop;
+        if (!curDesktop) return;
+        if (act.terminalCmd) {
+          curDesktop.executeTerminalCommand?.(act.terminalCmd);
+        } else if (act.code) {
+          curDesktop.handleKeyDown?.(act.code, act.key || act.code);
+        }
+        curDesktop.redraw?.();
+        syncCielOsTouchPad(true);
+      };
+      btn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        btn.classList.add('pressed');
+        fireAction();
+      });
+      const release = () => btn.classList.remove('pressed');
+      btn.addEventListener('pointerup', release);
+      btn.addEventListener('pointercancel', release);
+      btn.addEventListener('pointerleave', release);
+      cielOsDom.touchActions.appendChild(btn);
+    }
+  }
+}
 
 function ensureCielOsOverlayUi() {
   if (cielOsDom || typeof document === 'undefined' || !document.body) return cielOsDom;
@@ -2675,13 +2746,13 @@ function ensureCielOsOverlayUi() {
   bar.className = 'ciel-os-session-bar hidden';
   bar.innerHTML = `
     <div class="ciel-os-bar-left">
-      <span class="ciel-os-bar-badge">🖥️ CIEL OS 4.23</span>
+      <span class="ciel-os-bar-badge">🖥️ CIEL OS 4.26</span>
       <span id="ciel-os-bar-title" class="ciel-os-bar-title">Poste PC</span>
-      <span class="ciel-os-bar-hint">Cliquez sur l’écran 3D • Clavier ZQSD / Flèches • Clic droit : Drapeau Démineur</span>
+      <span class="ciel-os-bar-hint">Touchez ou cliquez l’écran • Plein Écran Confort recommandé sur mobile</span>
     </div>
     <div class="ciel-os-bar-actions">
       <button type="button" id="ciel-os-btn-comfort" class="ciel-os-bar-btn primary">⛶ Mode Plein Écran Confort</button>
-      <button type="button" id="ciel-os-btn-exit" class="ciel-os-bar-btn danger">✕ Quitter le PC (Échap)</button>
+      <button type="button" id="ciel-os-btn-exit" class="ciel-os-bar-btn danger">✕ Quitter le PC</button>
     </div>
   `;
   document.body.appendChild(bar);
@@ -2696,11 +2767,61 @@ function ensureCielOsOverlayUi() {
   `;
   document.body.appendChild(comfortBackdrop);
 
+  const touchPad = document.createElement('div');
+  touchPad.id = 'ciel-os-touch-pad';
+  touchPad.className = 'ciel-os-touch-pad hidden';
+  touchPad.innerHTML = `
+    <div id="ciel-os-touch-dpad" class="ciel-os-touch-dpad hidden">
+      <button type="button" class="ciel-os-dpad-btn up" data-key-code="ArrowUp" aria-label="Haut">▲</button>
+      <button type="button" class="ciel-os-dpad-btn left" data-key-code="ArrowLeft" aria-label="Gauche">◀</button>
+      <button type="button" class="ciel-os-dpad-btn right" data-key-code="ArrowRight" aria-label="Droite">▶</button>
+      <button type="button" class="ciel-os-dpad-btn down" data-key-code="ArrowDown" aria-label="Bas">▼</button>
+    </div>
+    <div class="ciel-os-touch-right">
+      <div id="ciel-os-touch-hint" class="ciel-os-touch-hint"></div>
+      <div id="ciel-os-touch-actions" class="ciel-os-touch-actions"></div>
+    </div>
+  `;
+  document.body.appendChild(touchPad);
+
   const comfortCanvas = comfortBackdrop.querySelector('#ciel-os-comfort-canvas');
+  if (comfortCanvas?.style) {
+    comfortCanvas.style.touchAction = 'none';
+  }
   const comfortCtx = comfortCanvas?.getContext?.('2d') || null;
   const btnComfort = bar.querySelector('#ciel-os-btn-comfort');
   const btnExit = bar.querySelector('#ciel-os-btn-exit');
   const titleEl = bar.querySelector('#ciel-os-bar-title');
+  const touchDpad = touchPad.querySelector('#ciel-os-touch-dpad');
+  const touchActions = touchPad.querySelector('#ciel-os-touch-actions');
+  const touchHint = touchPad.querySelector('#ciel-os-touch-hint');
+
+  touchDpad?.querySelectorAll('[data-key-code]').forEach((btn) => {
+    const code = btn.dataset.keyCode;
+    const stepKey = () => {
+      const desktop = activePcSession?.pcStation?.desktop;
+      if (!desktop) return;
+      desktop.handleKeyDown?.(code, code);
+      desktop.redraw?.();
+    };
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      btn.classList.add('pressed');
+      stepKey();
+      clearCielOsTouchRepeat();
+      if (touchDpad.dataset.repeat === '1') {
+        cielOsTouchRepeatTimer = setInterval(stepKey, 125);
+      }
+    });
+    const endPress = () => {
+      btn.classList.remove('pressed');
+      clearCielOsTouchRepeat();
+    };
+    btn.addEventListener('pointerup', endPress);
+    btn.addEventListener('pointercancel', endPress);
+    btn.addEventListener('pointerleave', endPress);
+  });
 
   btnComfort?.addEventListener('click', () => {
     sfx.osClick?.();
@@ -2721,24 +2842,41 @@ function ensureCielOsOverlayUi() {
     return { x: u, y: v };
   };
 
-  comfortCanvas?.addEventListener('mousemove', (ev) => {
+  let comfortActivePointerId = null;
+  comfortCanvas?.addEventListener('pointermove', (ev) => {
     if (!activePcSession?.comfortMode) return;
+    if (comfortActivePointerId !== null && ev.pointerId !== comfortActivePointerId && ev.pointerType !== 'mouse') return;
     const uv = eventToComfortUv(ev);
     if (uv) activePcSession.pcStation.desktop.handlePointerMoveUv(uv);
   });
 
-  comfortCanvas?.addEventListener('mousedown', (ev) => {
+  comfortCanvas?.addEventListener('pointerdown', (ev) => {
     if (!activePcSession?.comfortMode) return;
     ev.preventDefault();
+    comfortActivePointerId = ev.pointerId ?? 0;
+    comfortCanvas.setPointerCapture?.(ev.pointerId);
     const uv = eventToComfortUv(ev);
-    if (uv) activePcSession.pcStation.desktop.handlePointerDownUv(uv, ev.button);
+    if (uv) {
+      activePcSession.pcStation.desktop.handlePointerDownUv(uv, ev.button ?? 0);
+      syncCielOsTouchPad(true);
+    }
   });
 
-  comfortCanvas?.addEventListener('mouseup', (ev) => {
+  const endComfortPointer = (ev) => {
     if (!activePcSession?.comfortMode) return;
+    if (comfortActivePointerId !== null && ev.pointerId !== undefined && ev.pointerId !== comfortActivePointerId) return;
+    comfortActivePointerId = null;
+    if (comfortCanvas.hasPointerCapture?.(ev.pointerId)) {
+      comfortCanvas.releasePointerCapture?.(ev.pointerId);
+    }
     const uv = eventToComfortUv(ev);
-    if (uv) activePcSession.pcStation.desktop.handlePointerUpUv(uv, ev.button);
-  });
+    if (uv) {
+      activePcSession.pcStation.desktop.handlePointerUpUv(uv, ev.button ?? 0);
+      syncCielOsTouchPad(true);
+    }
+  };
+  comfortCanvas?.addEventListener('pointerup', endComfortPointer);
+  comfortCanvas?.addEventListener('pointercancel', endComfortPointer);
 
   comfortCanvas?.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
@@ -2751,7 +2889,11 @@ function ensureCielOsOverlayUi() {
     comfortCtx,
     btnComfort,
     btnExit,
-    titleEl
+    titleEl,
+    touchPad,
+    touchDpad,
+    touchActions,
+    touchHint
   };
   return cielOsDom;
 }
@@ -2769,10 +2911,13 @@ function toggleCielOsComfortMode(forceState = null) {
         : '⛶ Mode Plein Écran Confort';
     }
   }
+  syncCielOsTouchPad(true);
   return activePcSession.comfortMode;
 }
 
 function closeCielOsPc({ restoreCamera = true } = {}) {
+  clearCielOsTouchRepeat();
+  lastCielOsPadKey = '';
   if (vrManager?.activePcStation) {
     vrManager.closeCielOsPanel();
   }
@@ -2785,6 +2930,7 @@ function closeCielOsPc({ restoreCamera = true } = {}) {
   if (cielOsDom) {
     cielOsDom.bar.classList.add('hidden');
     cielOsDom.comfortBackdrop.classList.add('hidden');
+    cielOsDom.touchPad?.classList.add('hidden');
   }
   activeCameraTweenId++;
   network.sendActivity('Dans l’atelier');
@@ -2824,9 +2970,10 @@ async function openCielOsPc(target) {
     document.exitPointerLock?.();
   }
 
+  const startInComfort = Boolean(gameState.touchMode);
   activePcSession = {
     pcStation,
-    comfortMode: false,
+    comfortMode: startInComfort,
     target
   };
   pcStation.isActiveSession = true;
@@ -2836,17 +2983,24 @@ async function openCielOsPc(target) {
   const dom = ensureCielOsOverlayUi();
   if (dom) {
     if (dom.titleEl) dom.titleEl.textContent = pcStation.label;
-    if (dom.btnComfort) dom.btnComfort.textContent = '⛶ Mode Plein Écran Confort';
+    if (dom.btnComfort) {
+      dom.btnComfort.textContent = startInComfort
+        ? '🖥️ Vue Écran 3D Bureau'
+        : '⛶ Mode Plein Écran Confort';
+    }
     dom.bar.classList.remove('hidden');
-    dom.comfortBackdrop.classList.add('hidden');
+    dom.comfortBackdrop.classList.toggle('hidden', !startInComfort);
   }
+  syncCielOsTouchPad(true);
 
   setModalActive(true, false, true);
 
-  const focusPose = pcStation.getCameraFocusPose?.(player.position);
-  if (focusPose?.camPos && focusPose?.lookAt) {
-    await animateCameraPose(focusPose.camPos, focusPose.lookAt, 340);
-    if (openSeq !== tpOpenSeqId || !joined || !activePcSession) return false;
+  if (!startInComfort) {
+    const focusPose = pcStation.getCameraFocusPose?.(player.position);
+    if (focusPose?.camPos && focusPose?.lookAt) {
+      await animateCameraPose(focusPose.camPos, focusPose.lookAt, 340);
+      if (openSeq !== tpOpenSeqId || !joined || !activePcSession) return false;
+    }
   }
   pcStation.desktop.redraw();
   return true;
@@ -2911,9 +3065,11 @@ hud = new HudManager(gameState, network, {
   },
   onTouchModeChange: (active) => {
     player.setTouchMode(active);
+    sceneMgr.setDeviceProfile(detectDeviceProfile());
     touchControls?.setVisible(joined && !modalOpen && !vrManager?.isVrActive?.() && !isDetentionSeatedActive() && active);
     mainMenu?.updatePlatformButton?.(active);
     platformModal?.syncActiveChoice?.(active);
+    syncCielOsTouchPad(true);
   },
   onOpenPlatform: () => {
     if (!platformModal) return;
@@ -2935,6 +3091,7 @@ hud = new HudManager(gameState, network, {
   },
   onOpenShop: () => openShopUi('skins'),
   onSensitivityChange: (s) => player.setSensitivity(s),
+  onTouchSensitivityChange: (s) => player.setTouchSensitivity(s),
   onQuickNav: (id) => teleportNearTarget(id),
   onModalOpen: (isOpen) => setModalActive(isOpen, false, false),
   onSkinChange: (skin) => {
@@ -3930,8 +4087,8 @@ let hoveredInteractable = null;
 let lastHoverPollAt = 0;
 let lastCursorPos = null;
 
-function getRayHitInteractable(clientX = null, clientY = null) {
-  if (!joined || modalOpen || gameState.touchMode || vrManager?.isVrActive?.()) return null;
+function getRayHitInteractable(clientX = null, clientY = null, { allowTouch = false, maxDist = 7.5 } = {}) {
+  if (!joined || modalOpen || (!allowTouch && gameState.touchMode) || vrManager?.isVrActive?.()) return null;
   if (document.pointerLockElement === canvas || clientX === null || clientY === null) {
     raycaster.setFromCamera(_ndcCenter, sceneMgr.camera);
   } else {
@@ -3943,7 +4100,7 @@ function getRayHitInteractable(clientX = null, clientY = null) {
     );
     raycaster.setFromCamera(_ndcScratch, sceneMgr.camera);
   }
-  return pickLabInteractable(raycaster, getActiveInteractables(), lab.solidWallMeshes, 7.5);
+  return pickLabInteractable(raycaster, getActiveInteractables(), lab.solidWallMeshes, maxDist);
 }
 
 function setDesktopHoveredInteractable(item) {
@@ -3958,7 +4115,7 @@ function setDesktopHoveredInteractable(item) {
 }
 
 function tryRaycastInteract(clientX, clientY) {
-  const item = getRayHitInteractable(clientX, clientY);
+  const item = getRayHitInteractable(clientX, clientY, { allowTouch: true, maxDist: 8.5 });
   if (!item) return false;
   setDesktopHoveredInteractable(null);
   interactWith(item);
@@ -4112,6 +4269,46 @@ canvas.addEventListener('mouseup', (e) => {
   }
 });
 
+let pcTouchPointerId = null;
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse') return;
+  if (activePcSession && !activePcSession.comfortMode && !vrManager?.isVrActive?.()) {
+    const uv = pickActivePcScreenUv(e.clientX, e.clientY);
+    if (uv) {
+      e.preventDefault();
+      pcTouchPointerId = e.pointerId;
+      canvas.setPointerCapture?.(e.pointerId);
+      activePcSession.pcStation.desktop.handlePointerDownUv(uv, 0);
+      syncCielOsTouchPad(true);
+    }
+  }
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'mouse' || e.pointerId !== pcTouchPointerId) return;
+  if (!activePcSession || activePcSession.comfortMode || vrManager?.isVrActive?.()) {
+    pcTouchPointerId = null;
+    return;
+  }
+  const uv = pickActivePcScreenUv(e.clientX, e.clientY);
+  if (uv) activePcSession.pcStation.desktop.handlePointerMoveUv(uv);
+});
+const endPcTouchPointer = (e) => {
+  if (e.pointerType === 'mouse' || e.pointerId !== pcTouchPointerId) return;
+  pcTouchPointerId = null;
+  if (canvas.hasPointerCapture?.(e.pointerId)) {
+    canvas.releasePointerCapture?.(e.pointerId);
+  }
+  if (activePcSession && !activePcSession.comfortMode && !vrManager?.isVrActive?.()) {
+    const uv = pickActivePcScreenUv(e.clientX, e.clientY);
+    if (uv) {
+      activePcSession.pcStation.desktop.handlePointerUpUv(uv, 0);
+      syncCielOsTouchPad(true);
+    }
+  }
+};
+canvas.addEventListener('pointerup', endPcTouchPointer);
+canvas.addEventListener('pointercancel', endPcTouchPointer);
+
 let detTouchId = null;
 let detTouchLast = { x: 0, y: 0 };
 let detTouchMoved = 0;
@@ -4176,6 +4373,9 @@ sceneMgr.addUpdater((dt, elapsed) => {
   lab.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned, sceneMgr.camera);
   if (activePcSession?.comfortMode && cielOsDom?.comfortCtx && activePcSession.pcStation?.canvas) {
     cielOsDom.comfortCtx.drawImage(activePcSession.pcStation.canvas, 0, 0);
+  }
+  if (activePcSession) {
+    syncCielOsTouchPad(false);
   }
   localAvatar?.updateEffects?.(elapsed);
   if (localPet) {
@@ -4303,7 +4503,12 @@ sceneMgr.addUpdater((dt, elapsed) => {
       }
     }
     const best = bestPrimary || bestProp;
-    nearestTarget = best;
+    let touchLookTarget = null;
+    if (!vrOn && gameState.touchMode && !seatedDet && !activeCinematic && !survivalState.introActive && !best) {
+      touchLookTarget = getRayHitInteractable(null, null, { allowTouch: true, maxDist: 4.5 });
+    }
+    const activeTouchTarget = best || touchLookTarget;
+    nearestTarget = gameState.touchMode ? activeTouchTarget : best;
 
     if (!vrOn && seatedDet && elapsed - lastHoverPollAt >= 0.08) {
       lastHoverPollAt = elapsed;
@@ -4330,10 +4535,10 @@ sceneMgr.addUpdater((dt, elapsed) => {
       ? null
       : (!vrOn && document.pointerLockElement === canvas && hoveredInteractable)
         ? hoveredInteractable
-        : best;
+        : (gameState.touchMode ? activeTouchTarget : best);
     hud?.setInteractPrompt?.(promptTarget);
-    crosshairEl?.classList.toggle('interact-ready', Boolean(!activeCinematic && !seatedDet && !survivalState.introActive && (hoveredInteractable || best)));
-    touchControls?.setInteractTarget?.(activeCinematic || seatedDet || survivalState.introActive ? null : best);
+    crosshairEl?.classList.toggle('interact-ready', Boolean(!activeCinematic && !seatedDet && !survivalState.introActive && (hoveredInteractable || promptTarget)));
+    touchControls?.setInteractTarget?.(activeCinematic || seatedDet || survivalState.introActive ? null : activeTouchTarget);
   }
 });
 
@@ -4471,6 +4676,7 @@ try {
       const isMobile = mode === 'mobile';
       gameState.setTouchMode(isMobile);
       player.setTouchMode(isMobile);
+      sceneMgr.setDeviceProfile(detectDeviceProfile());
       hud?.syncTouchUi?.();
       mainMenu?.updatePlatformButton?.(isMobile);
       hud?.toast?.(
@@ -4483,6 +4689,15 @@ try {
   platformModal.open(gameState.touchMode, null, false, Boolean(vrManager?.isVrActive?.()));
 } catch (err) {
   console.warn('Sélecteur de plateforme indisponible:', err);
+}
+
+if (typeof window !== 'undefined') {
+  const handleViewportProfileChange = () => {
+    sceneMgr.setDeviceProfile(detectDeviceProfile());
+    hud?.syncViewportClasses?.();
+  };
+  window.addEventListener('resize', handleViewportProfileChange, { passive: true });
+  window.addEventListener('orientationchange', handleViewportProfileChange, { passive: true });
 }
 
 (function checkAutoLaunchPrivateDebug() {

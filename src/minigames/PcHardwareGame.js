@@ -889,6 +889,13 @@ export function createPcHardwareGame(api) {
   }
   updateBios(false, false, [], '', false);
 
+  bench.setInspectableView?.({
+    title: 'CIEL-BIOS UEFI / POST',
+    subtitle: 'Diagnostic LEDs & état matériel en plein écran',
+    label: '🔎 Zoom BIOS',
+    canvas: biosScreen.canvas
+  });
+
   function selectPartTool(partId, label) {
     if (!state.esdWorn && partId !== 'cables') {
       state.esdMistakes += 1;
@@ -999,7 +1006,16 @@ export function createPcHardwareGame(api) {
       }
     );
 
-    const actions = [{ id: 'reset', label: 'Réinitialiser', onClick: resetWorkshop }];
+    const actions = [
+      {
+        id: 'hint-hw',
+        label: '💡 Indice',
+        onClick: () => {
+          bench.showToast('Ordre : 1) Bracelet ESD 2) Ouvrir socket → CPU → Fermer → Pâte → Ventirad 3) RAM en A2 & B2 4) SSD M.2 + GPU PCIe 5) Câbles ATX → POWER !', 'info');
+        }
+      },
+      { id: 'reset', label: '🔄 Réinitialiser', onClick: resetWorkshop }
+    ];
     if (state.postPassed && !state.finished) {
       actions.push({
         id: 'finish',
@@ -1016,6 +1032,86 @@ export function createPcHardwareGame(api) {
       });
     }
     bench.setActions(actions);
+
+    const socketStepLabel = !state.cpuInstalled
+      ? state.socketOpen
+        ? '🔲 Poser CPU sur Socket'
+        : '🔓 Ouvrir Levier Socket'
+      : !state.socketClosed
+        ? '🔒 Fermer Levier Socket'
+        : !state.pasteApplied
+          ? '💉 Appliquer Pâte Therm.'
+          : !state.coolerInstalled
+            ? '❄️ Fixer Ventirad CPU'
+            : '✅ Ensemble CPU / Ventirad OK';
+
+    const drawerEl = bench.setSideDrawer?.(`
+      <div style="display:flex;flex-direction:column;gap:7px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;font-size:12px;">
+        <div style="font-weight:800;color:#38bdf8;font-size:12px;">ASSEMBLAGE PC 3D (${progress}/9 ÉTAPES)</div>
+        <button type="button" id="hw-drw-esd" class="tp-connect-btn ${state.esdWorn ? 'done' : ''}" ${state.esdWorn ? 'disabled' : ''}>
+          ${state.esdWorn ? '✅ Bracelet ESD relié à la terre' : '🦺 1. Enfiler Bracelet ESD'}
+        </button>
+        <button type="button" id="hw-drw-socket" class="tp-connect-btn ${state.coolerInstalled ? 'done' : ''}" ${state.coolerInstalled ? 'disabled' : ''}>
+          ${socketStepLabel}
+        </button>
+        <div style="font-weight:700;color:#94a3b8;font-size:11px;margin-top:2px;">Slots Mémoire DDR5 (Cible Dual-Channel A2 & B2) :</div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;">
+          ${dimmSlots
+            .map(
+              (ds) => `<button type="button" class="tp-connect-btn ${ds.populated ? 'done' : ''}" data-hw-ram="${ds.id}" style="justify-content:center;">
+                ${ds.populated ? '✅' : ds.recommended ? '⭐' : '📊'} ${ds.id}
+              </button>`
+            )
+            .join('')}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <button type="button" id="hw-drw-m2" class="tp-connect-btn ${state.nvmeInstalled ? 'done' : ''}" ${state.nvmeInstalled ? 'disabled' : ''}>
+            ${state.nvmeInstalled ? '✅ M.2 OK' : '💾 Poser M.2'}
+          </button>
+          <button type="button" id="hw-drw-pcie" class="tp-connect-btn ${state.gpuInstalled ? 'done' : ''}" ${state.gpuInstalled ? 'disabled' : ''}>
+            ${state.gpuInstalled ? '✅ RTX PCIe' : '🎮 Poser GPU'}
+          </button>
+        </div>
+        <button type="button" id="hw-drw-cables" class="tp-connect-btn ${state.cablesConnected ? 'done' : ''}" ${state.cablesConnected ? 'disabled' : ''}>
+          ${state.cablesConnected ? '✅ Câbles ATX 24+8 & PCIe branchés' : '🔌 Brancher Faisceau ATX/EPS/PCIe'}
+        </button>
+        <button type="button" id="hw-drw-pwr" class="tp3d-act-btn ${state.cablesConnected && !state.postPassed ? 'primary' : ''}">
+          ${state.postPassed ? '✅ POST UEFI Réussi' : '⚡ Appuyer Bouton POWER (POST)'}
+        </button>
+      </div>
+    `);
+    if (drawerEl) {
+      drawerEl.querySelector('#hw-drw-esd')?.addEventListener('click', () => wearEsdStrap());
+      drawerEl.querySelector('#hw-drw-socket')?.addEventListener('click', () => {
+        if (!state.cpuInstalled && state.socketOpen) state.selectedTool = 'cpu';
+        else if (state.socketClosed && !state.pasteApplied) state.selectedTool = 'paste';
+        else if (state.pasteApplied && !state.coolerInstalled) state.selectedTool = 'cooler';
+        handleSocketClick();
+      });
+      drawerEl.querySelectorAll('[data-hw-ram]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const ds = dimmSlots.find((s) => s.id === btn.dataset.hwRam);
+          if (!ds) return;
+          if (!ds.populated && state.ramPlacedSlots.length < 2) {
+            state.selectedTool = 'ram';
+          }
+          ds.body.userData?.__tpInteract?.onClick?.();
+        });
+      });
+      drawerEl.querySelector('#hw-drw-m2')?.addEventListener('click', () => {
+        state.selectedTool = 'nvme';
+        m2SlotMesh.userData?.__tpInteract?.onClick?.();
+      });
+      drawerEl.querySelector('#hw-drw-pcie')?.addEventListener('click', () => {
+        state.selectedTool = 'gpu';
+        pcieSlotMesh.userData?.__tpInteract?.onClick?.();
+      });
+      drawerEl.querySelector('#hw-drw-cables')?.addEventListener('click', () => {
+        state.selectedTool = 'cables';
+        installPowerCables();
+      });
+      drawerEl.querySelector('#hw-drw-pwr')?.addEventListener('click', () => runPowerPost());
+    }
 
     bench.setVrExtras?.({
       buttons: [
@@ -1324,6 +1420,13 @@ export function createPcHardwareGame(api) {
     gpuLogoMat.emissiveIntensity = 0.15;
     clearPostLeds();
     updateBios(false, false, [], '', false);
+
+  bench.setInspectableView?.({
+    title: 'CIEL-BIOS UEFI / POST',
+    subtitle: 'Diagnostic LEDs & état matériel en plein écran',
+    label: '🔎 Zoom BIOS',
+    canvas: biosScreen.canvas
+  });
     refreshHud();
   }
 
@@ -1345,14 +1448,111 @@ export function createPcHardwareGame(api) {
   bench.addInteractive(esdBlock, { label: 'Bracelet Antistatique ESD (Clic pour enfiler)', onClick: wearEsdStrap });
   bench.addInteractive(strapBand, { label: 'Bracelet Antistatique ESD (Clic pour enfiler)', onClick: wearEsdStrap });
 
-  bench.addInteractive(trayCpu, { label: 'Processeur Core i5', onClick: () => selectPartTool('cpu', 'CPU Core i5') });
-  bench.addInteractive(traySyringe, { label: 'Seringue Pâte Thermique', onClick: () => selectPartTool('paste', 'Pâte thermique') });
-  bench.addInteractive(trayCooler, { label: 'Ventirad Dual-Tower', onClick: () => selectPartTool('cooler', 'Ventirad Dual-Tower') });
-  bench.addInteractive(trayRam1, { label: 'Barrette DDR5 16 Go', onClick: () => selectPartTool('ram', 'Barrette DDR5 16 Go') });
-  bench.addInteractive(trayRam2, { label: 'Barrette DDR5 16 Go', onClick: () => selectPartTool('ram', 'Barrette DDR5 16 Go') });
-  bench.addInteractive(trayNvme, { label: 'SSD NVMe 1 To', onClick: () => selectPartTool('nvme', 'SSD NVMe 1 To') });
-  bench.addInteractive(trayGpu, { label: 'Carte Graphique RTX', onClick: () => selectPartTool('gpu', 'Carte Graphique RTX') });
-  bench.addInteractive(trayCables, { label: 'Faisceau câbles ATX 24+8 pins', onClick: () => selectPartTool('cables', 'Faisceau câbles ATX') });
+  const hwWpScratch = new THREE.Vector3();
+  const hwDropScratch = new THREE.Vector3();
+  const hwLocalScratch = new THREE.Vector3();
+
+  function bindTrayPart(mesh, { partId, label, homePos, getTargets }) {
+    bench.addInteractive(mesh, {
+      label: `${label} (Tap ou glisser vers la carte mère)`,
+      dragPlaneHeight: 0.08,
+      onDragStart: () => {
+        if (state.esdWorn || partId === 'cables') {
+          state.selectedTool = partId;
+        }
+      },
+      onDragMove: (pt) => {
+        if (!pt) return;
+        hwLocalScratch.set(pt.x, 0.08, pt.z);
+        trayGroup.worldToLocal(hwLocalScratch);
+        mesh.position.copy(hwLocalScratch);
+      },
+      onDragEnd: (info) => {
+        mesh.getWorldPosition(hwDropScratch);
+        mesh.position.copy(homePos);
+        if ((info?.dragDist || 0) < 18) return;
+        if (!state.esdWorn && partId !== 'cables') {
+          state.esdMistakes += 1;
+          sfx.error();
+          bench.showToast('Attention ESD ! Enfilez d’abord le bracelet antistatique.', 'error');
+          return;
+        }
+        state.selectedTool = partId;
+        const candidates = getTargets();
+        let best = null;
+        let bestDist = Infinity;
+        for (const cand of candidates) {
+          cand.mesh.getWorldPosition(hwWpScratch);
+          const d = Math.hypot(hwDropScratch.x - hwWpScratch.x, hwDropScratch.z - hwWpScratch.z);
+          if (d < bestDist) {
+            bestDist = d;
+            best = cand;
+          }
+        }
+        if (best && bestDist <= 0.28) {
+          best.run();
+        }
+      },
+      onClick: () => selectPartTool(partId, label)
+    });
+  }
+
+  const socketTarget = [{ mesh: socketGroup, run: () => handleSocketClick() }];
+  bindTrayPart(trayCpu, {
+    partId: 'cpu',
+    label: 'Processeur Core i5',
+    homePos: trayCpu.position.clone(),
+    getTargets: () => socketTarget
+  });
+  bindTrayPart(traySyringe, {
+    partId: 'paste',
+    label: 'Seringue Pâte Thermique',
+    homePos: traySyringe.position.clone(),
+    getTargets: () => socketTarget
+  });
+  bindTrayPart(trayCooler, {
+    partId: 'cooler',
+    label: 'Ventirad Dual-Tower',
+    homePos: trayCooler.position.clone(),
+    getTargets: () => socketTarget
+  });
+  const ramTargets = dimmSlots.map((ds) => ({
+    mesh: ds.body,
+    run: () => ds.body.userData?.__tpInteract?.onClick?.()
+  }));
+  bindTrayPart(trayRam1, {
+    partId: 'ram',
+    label: 'Barrette DDR5 16 Go',
+    homePos: trayRam1.position.clone(),
+    getTargets: () => ramTargets
+  });
+  bindTrayPart(trayRam2, {
+    partId: 'ram',
+    label: 'Barrette DDR5 16 Go',
+    homePos: trayRam2.position.clone(),
+    getTargets: () => ramTargets
+  });
+  bindTrayPart(trayNvme, {
+    partId: 'nvme',
+    label: 'SSD NVMe 1 To',
+    homePos: trayNvme.position.clone(),
+    getTargets: () => [{ mesh: m2SlotMesh, run: () => m2SlotMesh.userData?.__tpInteract?.onClick?.() }]
+  });
+  bindTrayPart(trayGpu, {
+    partId: 'gpu',
+    label: 'Carte Graphique RTX',
+    homePos: trayGpu.position.clone(),
+    getTargets: () => [{ mesh: pcieSlotMesh, run: () => pcieSlotMesh.userData?.__tpInteract?.onClick?.() }]
+  });
+  bindTrayPart(trayCables, {
+    partId: 'cables',
+    label: 'Faisceau câbles ATX 24+8 pins',
+    homePos: trayCables.position.clone(),
+    getTargets: () => [
+      { mesh: atx24Header, run: () => installPowerCables() },
+      { mesh: eps8Header, run: () => installPowerCables() }
+    ]
+  });
 
   function handleSocketClick() {
     if (!state.esdWorn) {

@@ -938,9 +938,39 @@ export function createStudioRegieGame(api) {
     studioPorts[portId] = { mesh: ring, anchor, label, baseHex };
 
     bench.addInteractive(holder, {
-      label: `Connecteur ${label}`,
+      label: `Connecteur ${label} (Tap ou glisser vers la prise cible)`,
       cursor: 'pointer',
       highlightTargets: [ring],
+      onDragStart: () => {
+        if (!state.selectedPort) {
+          state.selectedPort = portId;
+          syncStudio3D();
+        }
+      },
+      onDragEnd: (info) => {
+        if ((info?.dragDist || 0) < 18) return;
+        const rect = bench.canvas?.getBoundingClientRect?.();
+        if (!rect?.width || !rect?.height) return;
+        const proj = new THREE.Vector3();
+        let bestId = null;
+        let bestDist = Infinity;
+        for (const [otherId, otherObj] of Object.entries(studioPorts)) {
+          if (otherId === portId) continue;
+          otherObj.anchor.getWorldPosition(proj);
+          proj.project(bench.camera);
+          const sx = rect.left + (proj.x * 0.5 + 0.5) * rect.width;
+          const sy = rect.top + (-proj.y * 0.5 + 0.5) * rect.height;
+          const d = Math.hypot(info.clientX - sx, info.clientY - sy);
+          if (d < bestDist) {
+            bestDist = d;
+            bestId = otherId;
+          }
+        }
+        if (bestId && bestDist <= 64) {
+          state.selectedPort = portId;
+          handleStudioPortClick(bestId);
+        }
+      },
       onClick: () => handleStudioPortClick(portId)
     });
     return holder;
@@ -1477,13 +1507,20 @@ export function createStudioRegieGame(api) {
     bench.refreshDrawerControls?.();
   }
 
+  bench.setInspectableView?.({
+    title: 'Moniteur Antenne PGM',
+    subtitle: 'Sortie programme broadcast & fond vert agrandis',
+    label: '🔎 Zoom PGM',
+    canvas: monitors.PGM.canvas
+  });
+
   function updateSidebar() {
     const ev = evaluateRegie();
     const curCue = CUE_LIST[state.cueIdx];
 
     const patchRows = STUDIO_PATCH_LINKS.map((lk) => {
       const ok = state.cablesDone.has(lk.id);
-      return `<div class="av-link-row ${ok ? 'ok' : 'pending'}"><span>${lk.label}</span><strong>${ok ? '✔ Relié' : 'À relier'}</strong></div>`;
+      return `<button type="button" class="av-link-row ${ok ? 'ok' : 'pending'}" data-studio-link="${lk.id}"><span>${lk.label}</span><strong>${ok ? '✔ Relié' : '🔌 Relier'}</strong></button>`;
     }).join('');
 
     const drawer = bench.setSideDrawer(`
@@ -1502,22 +1539,22 @@ export function createStudioRegieGame(api) {
         </div>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Focus (72%)</span>
-          <input type="range" min="0" max="100" value="${state.focus}" data-cam="focus" data-vr-label="Focus (72%)" data-vr-unit="%" />
+          <input type="range" min="0" max="100" data-fine-step="2" value="${state.focus}" data-cam="focus" data-vr-label="Focus (72%)" data-vr-unit="%" />
           <span data-cam-val="focus" class="av-slider-val" style="color:${ev.focusOk ? '#4ade80' : '#fbbf24'};">${state.focus}%</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Iris (56%)</span>
-          <input type="range" min="0" max="100" value="${state.iris}" data-cam="iris" data-vr-label="Iris (56%)" data-vr-unit="%" />
+          <input type="range" min="0" max="100" data-fine-step="2" value="${state.iris}" data-cam="iris" data-vr-label="Iris (56%)" data-vr-unit="%" />
           <span data-cam-val="iris" class="av-slider-val" style="color:${ev.irisOk ? '#4ade80' : '#fbbf24'};">${state.iris}%</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">WB (5600K)</span>
-          <input type="range" min="2800" max="7200" step="50" value="${state.kelvin}" data-cam="kelvin" data-vr-label="WB (5600K)" data-vr-unit="K" />
+          <input type="range" min="2800" max="7200" step="50" data-fine-step="50" value="${state.kelvin}" data-cam="kelvin" data-vr-label="WB (5600K)" data-vr-unit="K" />
           <span data-cam-val="kelvin" class="av-slider-val" style="color:${ev.wbOk ? '#4ade80' : '#fbbf24'};">${state.kelvin}K</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Chroma (84%)</span>
-          <input type="range" min="0" max="100" value="${state.chromaKey}" data-cam="chromaKey" data-vr-label="Chroma (84%)" data-vr-unit="%" />
+          <input type="range" min="0" max="100" data-fine-step="2" value="${state.chromaKey}" data-cam="chromaKey" data-vr-label="Chroma (84%)" data-vr-unit="%" />
           <span data-cam-val="chromaKey" class="av-slider-val" style="color:${ev.chromaOk ? '#4ade80' : '#fbbf24'};">${state.chromaKey}%</span>
         </label>
 
@@ -1531,28 +1568,36 @@ export function createStudioRegieGame(api) {
         </div>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Cravate (78%)</span>
-          <input type="range" min="0" max="100" value="${state.micCravate}" data-cam="micCravate" data-vr-label="Cravate (78%)" data-vr-unit="%" />
+          <input type="range" min="0" max="100" data-fine-step="2" value="${state.micCravate}" data-cam="micCravate" data-vr-label="Cravate (78%)" data-vr-unit="%" />
           <span data-cam-val="micCravate" class="av-slider-val">${state.micCravate}%</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Ambiance (25%)</span>
-          <input type="range" min="0" max="100" value="${state.micAmbiance}" data-cam="micAmbiance" data-vr-label="Ambiance (25%)" data-vr-unit="%" />
+          <input type="range" min="0" max="100" data-fine-step="2" value="${state.micAmbiance}" data-cam="micAmbiance" data-vr-label="Ambiance (25%)" data-vr-unit="%" />
           <span data-cam-val="micAmbiance" class="av-slider-val">${state.micAmbiance}%</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Musique (25%)</span>
-          <input type="range" min="0" max="100" value="${state.music}" data-cam="music" data-vr-label="Musique (25%)" data-vr-unit="%" />
+          <input type="range" min="0" max="100" data-fine-step="2" value="${state.music}" data-cam="music" data-vr-label="Musique (25%)" data-vr-unit="%" />
           <span data-cam-val="music" class="av-slider-val">${state.music}%</span>
         </label>
         <label class="av-slider-row">
           <span class="av-slider-lbl">Master (80%)</span>
-          <input type="range" min="0" max="100" value="${state.masterAudio}" data-cam="masterAudio" data-vr-label="Master (80%)" data-vr-unit="%" />
+          <input type="range" min="0" max="100" data-fine-step="2" value="${state.masterAudio}" data-cam="masterAudio" data-vr-label="Master (80%)" data-vr-unit="%" />
           <span data-cam-val="masterAudio" class="av-slider-val">${state.masterAudio}%</span>
         </label>
 
         <div class="av-step-header">
           <span class="av-step-title rose">4. RÉALISATION ATEM (${ev.cuesCompleted}/3)</span>
           <button type="button" id="studio-side-cut" class="av-btn compact danger">CUT / TAKE (${state.previewSrc})</button>
+        </div>
+        <div class="av-btn-row">
+          ${atemSources
+            .map(
+              (s) =>
+                `<button type="button" class="av-btn ${state.previewSrc === s.id ? 'primary' : 'neutral'}" data-src-pvw="${s.id}">Preview ${s.id}</button>`
+            )
+            .join('')}
         </div>
         <div class="av-cue-box">
           ${CUE_LIST.map((c) => {
@@ -1565,6 +1610,37 @@ export function createStudioRegieGame(api) {
     `);
 
     if (!drawer) return;
+    drawer.querySelectorAll('[data-studio-link]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const lid = btn.dataset.studioLink;
+        if (!lid) return;
+        const lk = STUDIO_PATCH_LINKS.find((x) => x.id === lid);
+        if (state.cablesDone.has(lid)) {
+          state.cablesDone.delete(lid);
+          sfx.click();
+        } else {
+          state.cablesDone.add(lid);
+          if (lk?.kind === 'xlr') sfx.xlrPlug();
+          else sfx.sdiPatch();
+          if (lk && studioPorts[lk.toId]) {
+            const wp = new THREE.Vector3();
+            studioPorts[lk.toId].anchor.getWorldPosition(wp);
+            bench.spawnPulseRing(wp, lk.color, 0.08);
+          }
+        }
+        rebuildStudioCables();
+        syncStudio3D();
+        refreshUi();
+      });
+    });
+    drawer.querySelectorAll('[data-src-pvw]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.previewSrc = btn.dataset.srcPvw;
+        sfx.sdiPatch();
+        syncStudio3D();
+        refreshUi();
+      });
+    });
     drawer.querySelector('#studio-patch-btn')?.addEventListener('click', connectNextStudioCable);
     drawer.querySelector('#studio-cal-optics')?.addEventListener('click', calibrateOpticsAndChroma);
     drawer.querySelector('#studio-cal-audio')?.addEventListener('click', calibrateAudioConsole);
@@ -1675,6 +1751,41 @@ export function createStudioRegieGame(api) {
         primary: ev.allValid,
         disabled: state.submitted,
         onClick: submitStudioTp
+      },
+      {
+        id: 'hint-studio-btn',
+        label: '💡 Indice',
+        onClick: () => {
+          bench.showToast('1) Patch SDI & XLR 3/3. 2) Focus 72%, Iris 56%, WB 5600K, Chroma 84%. 3) Activez +48V & HPF 80Hz, cible -12 dBFS. 4) Enchaînez les 3 CUT ATEM !', 'info');
+        }
+      },
+      {
+        id: 'reset-studio-btn',
+        label: '🔄 Réinitialiser',
+        onClick: () => {
+          state.selectedPort = null;
+          state.cablesDone.clear();
+          state.focus = 32;
+          state.iris = 26;
+          state.kelvin = 3600;
+          state.chromaKey = 38;
+          state.phantom48v = false;
+          state.hpf80 = false;
+          state.micCravate = 44;
+          state.micAmbiance = 24;
+          state.music = 36;
+          state.masterAudio = 72;
+          state.previewSrc = 'CAM-1';
+          state.pgmSrc = 'CAM-2';
+          state.cueIdx = 0;
+          state.cuesDone.clear();
+          state.submitted = false;
+          rebuildStudioCables();
+          syncStudio3D();
+          sfx.click();
+          bench.showToast('Régie Broadcast & Caméra réinitialisées.', 'info');
+          refreshUi();
+        }
       }
     ]);
 

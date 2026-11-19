@@ -1,6 +1,33 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { detectDeviceProfile } from '../core/gameState.js';
 import { resolveAscensionSpecialty } from './AvatarBuilder.js';
+
+export function computeAdaptivePixelRatio({
+  devicePixelRatio = 1,
+  quality = 'high',
+  isMobile = false,
+  isTablet = false,
+  isVr = false
+} = {}) {
+  const dpr = Math.max(0.75, Number(devicePixelRatio) || 1);
+  if (isVr) {
+    return Math.min(dpr, 1.5);
+  }
+  if (isMobile) {
+    if (quality === 'eco') return Math.min(dpr, 0.9);
+    if (quality === 'balanced') return Math.min(dpr, 1.0);
+    return Math.min(dpr, 1.15);
+  }
+  if (isTablet) {
+    if (quality === 'eco') return Math.min(dpr, 1.0);
+    if (quality === 'balanced') return Math.min(dpr, 1.1);
+    return Math.min(dpr, 1.25);
+  }
+  if (quality === 'eco') return 1;
+  if (quality === 'balanced') return Math.min(dpr, 1.25);
+  return Math.min(dpr, 1.5);
+}
 
 export const INTRO_CINEMATIC_SHOTS = [
   {
@@ -490,6 +517,7 @@ export class SceneManager {
     this.vrPresenting = false;
     this.vrManager = null;
     this.quality = 'high';
+    this.deviceProfile = options.deviceProfile || detectDeviceProfile();
     this.updaters = [];
     this.alwaysUpdaters = [];
     this.beforeRenderCallbacks = [];
@@ -586,6 +614,8 @@ export class SceneManager {
     this._onResize = this._handleResize.bind(this);
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('resize', this._onResize);
+      window.addEventListener('orientationchange', this._onResize);
+      window.visualViewport?.addEventListener?.('resize', this._onResize);
     }
     this._handleResize();
 
@@ -835,20 +865,35 @@ export class SceneManager {
     }
   }
 
+  setDeviceProfile(profile) {
+    if (profile && typeof profile === 'object') {
+      this.deviceProfile = profile;
+      this.setQuality(this.quality);
+    }
+  }
+
   setQuality(quality) {
     this.quality = quality;
     const xrPresenting = Boolean(this.renderer.xr?.isPresenting || this.vrPresenting);
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const targetPr = computeAdaptivePixelRatio({
+      devicePixelRatio: dpr,
+      quality,
+      isMobile: Boolean(this.deviceProfile?.isMobile),
+      isTablet: Boolean(this.deviceProfile?.isTablet),
+      isVr: xrPresenting
+    });
+    if (!xrPresenting) {
+      this.renderer.setPixelRatio?.(targetPr);
+    }
     if (quality === 'eco') {
-      if (!xrPresenting) this.renderer.setPixelRatio?.(1);
       if (this.renderer.shadowMap) this.renderer.shadowMap.enabled = false;
       this.sun.castShadow = false;
     } else if (quality === 'balanced') {
-      if (!xrPresenting) this.renderer.setPixelRatio?.(Math.min(dpr, 1.25));
-      if (this.renderer.shadowMap) this.renderer.shadowMap.enabled = true;
-      this.sun.castShadow = true;
+      const shadowsAllowed = !this.deviceProfile?.isMobile;
+      if (this.renderer.shadowMap) this.renderer.shadowMap.enabled = shadowsAllowed;
+      this.sun.castShadow = shadowsAllowed;
     } else {
-      if (!xrPresenting) this.renderer.setPixelRatio?.(Math.min(dpr, 1.5));
       if (this.renderer.shadowMap) this.renderer.shadowMap.enabled = true;
       this.sun.castShadow = true;
     }
@@ -1148,6 +1193,8 @@ export class SceneManager {
     this.canvas?.removeEventListener?.('webglcontextrestored', this._onContextRestored, false);
     if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
       window.removeEventListener('resize', this._onResize);
+      window.removeEventListener('orientationchange', this._onResize);
+      window.visualViewport?.removeEventListener?.('resize', this._onResize);
     }
     this.envRenderTarget?.dispose?.();
     this.pmremGenerator?.dispose?.();

@@ -165,9 +165,59 @@ export const QUICK_EMOTES = [
 
 export const TEACHER_POS = PLATEAU_TEACHER_POS;
 
-export function detectTouchDevice() {
-  if (typeof window === 'undefined') return false;
-  return 'ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+export function detectDeviceProfile(env = null) {
+  const win = env?.window ?? (typeof window !== 'undefined' ? window : null);
+  const nav = env?.navigator ?? (typeof navigator !== 'undefined' ? navigator : null);
+  if (!win) {
+    return {
+      isTouch: false,
+      isVr: false,
+      isMobile: false,
+      isTablet: false,
+      formFactor: 'desktop',
+      viewportWidth: 1280,
+      viewportHeight: 720,
+      isPortrait: false,
+      isLandscape: true
+    };
+  }
+  const ua = String(nav?.userAgent || '');
+  const isVr = /OculusBrowser|Quest|Meta Quest/i.test(ua);
+  const maxTouchPoints = Number(nav?.maxTouchPoints) || 0;
+  const coarsePointer = Boolean(win.matchMedia?.('(pointer: coarse)')?.matches);
+  const hasTouch =
+    'ontouchstart' in win ||
+    maxTouchPoints > 0 ||
+    coarsePointer ||
+    /Android|iPhone|iPad|iPod/i.test(ua);
+  const isTouch = Boolean(hasTouch && !isVr);
+  const w = Math.max(1, Number(win.innerWidth) || 1280);
+  const h = Math.max(1, Number(win.innerHeight) || 720);
+  const shortSide = Math.min(w, h);
+  const isIpadOs = /Macintosh/i.test(ua) && maxTouchPoints > 1;
+  const isMobileUa = /iPhone|iPod|Android.*Mobile|Windows Phone/i.test(ua);
+  const isTabletUa =
+    /iPad|Tablet|PlayBook|Silk/i.test(ua) ||
+    (/Android/i.test(ua) && !/Mobile/i.test(ua)) ||
+    isIpadOs;
+  const isMobile = isTouch && (isMobileUa || (!isTabletUa && shortSide < 600));
+  const isTablet = isTouch && !isMobile;
+  const formFactor = isVr ? 'vr' : isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop';
+  return {
+    isTouch,
+    isVr,
+    isMobile,
+    isTablet,
+    formFactor,
+    viewportWidth: w,
+    viewportHeight: h,
+    isPortrait: h > w,
+    isLandscape: w >= h
+  };
+}
+
+export function detectTouchDevice(env = null) {
+  return detectDeviceProfile(env).isTouch;
 }
 
 export function getTpById(id) {
@@ -273,6 +323,11 @@ export class GameState {
     this.fov = Number.isFinite(savedFov) && savedFov >= 50 && savedFov <= 110 ? savedFov : 70;
     const savedSens = Number(readStorage('ciel_sens'));
     this.mouseSens = Number.isFinite(savedSens) && savedSens >= 0.4 && savedSens <= 2.2 ? savedSens : 1.0;
+    const savedTouchSens = Number(readStorage('ciel_touch_sens'));
+    this.touchSens =
+      Number.isFinite(savedTouchSens) && savedTouchSens >= 0.4 && savedTouchSens <= 2.4
+        ? savedTouchSens
+        : 1.0;
     this.voiceMode = readStorage('ciel_voice_mode') === 'ptt' ? 'ptt' : 'open';
     const savedTpVoice = readStorage('ciel_voice_tp_mode');
     this.voiceTpMode = ['active', 'duck', 'mute'].includes(savedTpVoice) ? savedTpVoice : 'duck';
@@ -1032,6 +1087,13 @@ export class GameState {
     const clamped = Math.max(0.4, Math.min(2.2, Math.round(Number(sens) * 10) / 10 || 1.0));
     this.mouseSens = clamped;
     writeStorage('ciel_sens', String(clamped));
+    this.emit();
+  }
+
+  setTouchSens(sens) {
+    const clamped = Math.max(0.4, Math.min(2.4, Math.round(Number(sens) * 10) / 10 || 1.0));
+    this.touchSens = clamped;
+    writeStorage('ciel_touch_sens', String(clamped));
     this.emit();
   }
 

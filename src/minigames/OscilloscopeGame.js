@@ -762,6 +762,81 @@ export function createOscilloscopeBench3D(api, opts = {}) {
   };
   syncCables();
 
+  wb.addInteractive(gndClipGroup, {
+    label: () => '⚫ Glissez ou touchez GND pour relier la pince de masse noire',
+    dragPlaneHeight: 0.08,
+    onDragStart: () => {
+      activeTool = 'gnd_clip';
+    },
+    onDragMove: (pt) => {
+      if (!pt) return;
+      gndClipGroup.position.set(pt.x, 0.09, pt.z);
+      syncCables();
+    },
+    onDragEnd: (info) => {
+      if ((info?.dragDist || 0) < 18) return;
+      const gndPt = tpPoints[0];
+      const gx = pcbGroup.position.x + gndPt.x;
+      const gz = pcbGroup.position.z + gndPt.z;
+      const dist = Math.hypot(gndClipGroup.position.x - gx, gndClipGroup.position.z - gz);
+      if (dist <= 0.24) {
+        selectTestPoint(gndPt);
+      } else {
+        gndClipGroup.position.set(gndAttached ? gx : -0.72, gndAttached ? 0.068 : 0.06, gndAttached ? gz : 0.34);
+        syncCables();
+      }
+    },
+    onClick: () => {
+      activeTool = 'gnd_clip';
+      selectTestPoint(tpPoints[0]);
+    }
+  });
+
+  wb.addInteractive(probeMeshGroup, {
+    label: () => '🔴 Glissez la sonde rouge sur TP1, TP2 ou TP3',
+    dragPlaneHeight: 0.1,
+    onDragStart: () => {
+      activeTool = 'probe';
+    },
+    onDragMove: (pt) => {
+      if (!pt) return;
+      probeMeshGroup.position.set(pt.x, 0.12, pt.z);
+      syncCables();
+    },
+    onDragEnd: (info) => {
+      if ((info?.dragDist || 0) < 18) return;
+      let nearest = null;
+      let bestDist = Infinity;
+      for (const tp of tpPoints.slice(1)) {
+        const tx = pcbGroup.position.x + tp.x;
+        const tz = pcbGroup.position.z + tp.z;
+        const d = Math.hypot(probeMeshGroup.position.x - tx, probeMeshGroup.position.z - tz);
+        if (d < bestDist) {
+          bestDist = d;
+          nearest = tp;
+        }
+      }
+      if (nearest && bestDist <= 0.24) {
+        selectTestPoint(nearest);
+      } else {
+        const cur = tpPoints.find((x) => x.id === activeProbePoint);
+        if (cur) {
+          probeMeshGroup.position.set(pcbGroup.position.x + cur.x, 0.095, pcbGroup.position.z + cur.z + 0.045);
+        } else {
+          probeMeshGroup.position.set(-0.62, 0.12, 0.45);
+        }
+        syncCables();
+      }
+    }
+  });
+
+  wb.setInspectableView?.({
+    title: 'Écran Oscilloscope 3D',
+    subtitle: 'Lecture agrandie tension, base de temps et déclenchement',
+    label: '🔎 Zoom Oscillo',
+    canvas: scopeScreen.canvas
+  });
+
   const pointTags = new Map();
   const selectTestPoint = (pt) => {
     const wx = pcbGroup.position.x + pt.x;
@@ -958,7 +1033,7 @@ export function createOscilloscopeBench3D(api, opts = {}) {
 
     wb.setActions([
       {
-        label: '🎛️ Trigger Auto (-/+)',
+        label: '🎛️ Trigger Auto',
         onClick: () => {
           triggerV = activeProbePoint === 'TP1' && !isElecVariant ? 0.5 : 2.0;
           vDivIdx = 2;
@@ -976,8 +1051,133 @@ export function createOscilloscopeBench3D(api, opts = {}) {
           sfx.click();
           checkOscilloProgress();
         }
+      },
+      {
+        label: '💡 Indice',
+        onClick: () => {
+          const msg = !gndAttached
+            ? 'Étape 1 : Touchez GND (pince noire) avant de sonder TP1.'
+            : !tp1Stabilized
+              ? 'Étape 2 : Sélectionnez TP1, restez en couplage DC, réglez V/div ~1V, ms/div ~0.5ms et Trigger proche de 0V–2V.'
+              : !tp2Probed || !tp3Probed
+                ? 'Étape 3 : Sondez TP2 et TP3 pour identifier la chute de tension.'
+                : !componentReplaced
+                  ? 'Étape 4 : Touchez « Remplacer Pièce » (ou le composant neuf 3D) puis vérifiez TP3.'
+                  : 'Re-sondez TP3 pour confirmer le retour au signal nominal.';
+          wb.showToast(msg, 'info');
+        }
+      },
+      {
+        label: '🔄 Réinitialiser',
+        onClick: () => {
+          vDivIdx = 4;
+          tDivIdx = 5;
+          triggerV = -4.2;
+          coupling = 'DC';
+          activeTool = 'gnd_clip';
+          gndAttached = false;
+          activeProbePoint = null;
+          tp1Stabilized = false;
+          tp2Probed = false;
+          tp3Probed = false;
+          componentReplaced = false;
+          tp3VerifiedAfterRepair = false;
+          mistakes = 0;
+          finalized = false;
+          gndClipGroup.position.set(-0.72, 0.06, 0.34);
+          probeMeshGroup.position.set(-0.62, 0.12, 0.45);
+          syncCables();
+          syncKnobAngles();
+          badCapMesh.visible = !isElecVariant;
+          bulgeCap.visible = !isElecVariant;
+          badResMesh.visible = isElecVariant;
+          healthyPartMesh.visible = false;
+          sparePart.visible = true;
+          spareTag.setVisible(true);
+          statusLedMat.color.set('#ef4444');
+          statusLedMat.emissive.set('#dc2626');
+          tpPoints.forEach((pt) => {
+            const ft = pointTags.get(pt.id);
+            if (ft) {
+              ft.el.className = 'tp3d-float-tag';
+              ft.setHtml(pt.tag);
+            }
+          });
+          sfx.click();
+          wb.showToast('Banc Oscilloscope réinitialisé.', 'info');
+          refreshHud();
+        }
       }
     ]);
+
+    const drawerEl = wb.setSideDrawer?.(`
+      <div class="tp3d-drawer-section">
+        <div class="tp3d-drawer-title">🔌 Sonde & Points de Test (Tap / Glisser)</div>
+        <div class="av-link-grid">
+          ${tpPoints
+            .map((pt) => {
+              const isDone =
+                (pt.id === 'GND' && gndAttached) ||
+                (pt.id === 'TP1' && tp1Stabilized) ||
+                (pt.id === 'TP2' && tp2Probed) ||
+                (pt.id === 'TP3' && tp3VerifiedAfterRepair);
+              const isCur = pt.id !== 'GND' && activeProbePoint === pt.id;
+              return `<button type="button" class="tp-connect-btn ${isDone ? 'done' : ''} ${isCur ? 'selected' : ''}" data-osc-pt="${pt.id}">${isDone ? '✅' : pt.id === 'GND' ? '⚫' : '🔴'} ${pt.id}</button>`;
+            })
+            .join('')}
+          <button type="button" class="tp-connect-btn ${componentReplaced ? 'done' : ''}" id="osc-drawer-replace" ${componentReplaced ? 'disabled' : ''}>${componentReplaced ? '✅ Pièce Neuve OK' : '🧰 Remplacer Pièce'}</button>
+        </div>
+      </div>
+      <div class="tp3d-drawer-section">
+        <div class="tp3d-drawer-title">🎛️ Réglages Oscilloscope</div>
+        <div class="av-slider-row">
+          <div class="av-slider-head"><span>⚡ Trigger</span><span>${triggerV.toFixed(1)} V</span></div>
+          <input type="range" id="osc-rng-trig" min="-5" max="5" step="0.2" data-fine-step="0.2" value="${triggerV.toFixed(1)}">
+        </div>
+        <div class="av-slider-row">
+          <div class="av-slider-head"><span>📊 VOLTS / DIV</span><span>${voltsSteps[vDivIdx]} V</span></div>
+          <input type="range" id="osc-rng-vdiv" min="0" max="${voltsSteps.length - 1}" step="1" data-fine-step="1" value="${vDivIdx}">
+        </div>
+        <div class="av-slider-row">
+          <div class="av-slider-head"><span>⏱️ TIME / DIV</span><span>${timeStepsMs[tDivIdx]} ms</span></div>
+          <input type="range" id="osc-rng-tdiv" min="0" max="${timeStepsMs.length - 1}" step="1" data-fine-step="1" value="${tDivIdx}">
+        </div>
+        <button type="button" class="av-mini-btn tp-connect-btn" id="osc-drawer-coupling">Couplage actuel : ${coupling} (Toucher pour AC/DC)</button>
+      </div>
+    `);
+
+    if (drawerEl) {
+      drawerEl.querySelectorAll('[data-osc-pt]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const found = tpPoints.find((p) => p.id === btn.dataset.oscPt);
+          if (found) selectTestPoint(found);
+        });
+      });
+      drawerEl.querySelector('#osc-drawer-replace')?.addEventListener('click', () => replaceFaultyComponent());
+      drawerEl.querySelector('#osc-drawer-coupling')?.addEventListener('click', () => {
+        coupling = coupling === 'DC' ? 'AC' : 'DC';
+        sfx.click();
+        checkOscilloProgress();
+      });
+      const trigInput = drawerEl.querySelector('#osc-rng-trig');
+      const vdivInput = drawerEl.querySelector('#osc-rng-vdiv');
+      const tdivInput = drawerEl.querySelector('#osc-rng-tdiv');
+      trigInput?.addEventListener('change', () => {
+        triggerV = Number(trigInput.value);
+        syncKnobAngles();
+        checkOscilloProgress();
+      });
+      vdivInput?.addEventListener('change', () => {
+        vDivIdx = Math.max(0, Math.min(voltsSteps.length - 1, Math.round(Number(vdivInput.value))));
+        syncKnobAngles();
+        checkOscilloProgress();
+      });
+      tdivInput?.addEventListener('change', () => {
+        tDivIdx = Math.max(0, Math.min(timeStepsMs.length - 1, Math.round(Number(tdivInput.value))));
+        syncKnobAngles();
+        checkOscilloProgress();
+      });
+    }
 
     wb.setVrExtras?.({
       sliders: [

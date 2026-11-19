@@ -6,6 +6,9 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Atelier CIEL 3D — BAC PRO CIEL (Plateau U300)</title>
     <meta
       name="description"
@@ -720,9 +723,16 @@
               <div id="touch-joystick-knob" class="touch-joystick-knob"></div>
             </div>
           </div>
+          <button type="button" id="touch-context-interact" class="touch-context-interact hidden" aria-label="Interagir avec le poste ciblé">
+            <span class="tci-ico">👆</span>
+            <span class="tci-text">
+              <strong class="tci-main">Interagir</strong>
+              <small class="tci-sub"></small>
+            </span>
+          </button>
           <div id="touch-action-pad" class="touch-action-pad">
             <button type="button" id="touch-btn-interact" class="touch-btn touch-btn-interact" disabled>
-              <span class="tb-ico">⚡</span>
+              <span class="tb-ico">👆</span>
               <span class="tb-lbl">Interagir</span>
             </button>
             <button type="button" id="touch-btn-jump" class="touch-btn touch-btn-jump">
@@ -877,6 +887,14 @@
                 <strong id="set-sens-val" class="setting-badge">1.0×</strong>
               </div>
               <input id="set-sens" type="range" min="0.4" max="2.2" step="0.1" value="1.0" />
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-head">
+                <label for="set-touch-sens">Sensibilité caméra tactile (Mobile / Tablette)</label>
+                <strong id="set-touch-sens-val" class="setting-badge">1.0×</strong>
+              </div>
+              <input id="set-touch-sens" type="range" min="0.4" max="2.4" step="0.1" value="1.0" />
             </div>
 
             <div class="setting-item">

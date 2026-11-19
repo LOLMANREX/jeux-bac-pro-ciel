@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.25 - Refonte & Équilibrage des Barèmes (20/20 Accessible et Transparent)'),
+    __APP_VERSION__: JSON.stringify("v4.26 - Adaptation Complète de Tous les TPs et de l'Interface au Mobile & Tablette"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

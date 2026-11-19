@@ -7,6 +7,7 @@ import {
   makeCanvasScreen,
   buildFlexibleCable
 } from './Workbench3DHost.js';
+import { createVirtualKeypad } from './TouchTpHelpers.js';
 
 export const FIXTURE_SPECS = [
   {
@@ -411,9 +412,39 @@ export function createDmxLightingGame(api) {
     xlrPorts[portId] = { mesh: ring, anchor: worldAnchor, label, baseHex };
 
     bench.addInteractive(holder, {
-      label: `Port XLR ${label}`,
+      label: `Port XLR ${label} (Tap ou glisser vers la prise suivante)`,
       cursor: 'pointer',
       highlightTargets: [ring],
+      onDragStart: () => {
+        if (!state.selectedPort && portId !== 'P3_OUT') {
+          state.selectedPort = portId;
+          syncDmx3D();
+        }
+      },
+      onDragEnd: (info) => {
+        if ((info?.dragDist || 0) < 18) return;
+        const rect = bench.canvas?.getBoundingClientRect?.();
+        if (!rect?.width || !rect?.height) return;
+        const proj = new THREE.Vector3();
+        let bestId = null;
+        let bestDist = Infinity;
+        for (const [otherId, otherObj] of Object.entries(xlrPorts)) {
+          if (otherId === portId) continue;
+          otherObj.anchor.getWorldPosition(proj);
+          proj.project(bench.camera);
+          const sx = rect.left + (proj.x * 0.5 + 0.5) * rect.width;
+          const sy = rect.top + (-proj.y * 0.5 + 0.5) * rect.height;
+          const d = Math.hypot(info.clientX - sx, info.clientY - sy);
+          if (d < bestDist) {
+            bestDist = d;
+            bestId = otherId;
+          }
+        }
+        if (bestId && bestDist <= 64) {
+          state.selectedPort = portId;
+          handlePortClick(bestId);
+        }
+      },
       onClick: () => handlePortClick(portId)
     });
     return holder;
@@ -1311,7 +1342,19 @@ export function createDmxLightingGame(api) {
     bench.refreshDrawerControls?.();
   }
 
+  let dmxKeypadCleanup = null;
+  let dmxKeypadOpen = false;
+
+  bench.setInspectableView?.({
+    title: 'Console DMX512 & Adresses',
+    subtitle: 'Affichage agrandi canaux, projecteurs et état bus XLR',
+    label: '🔎 Zoom Écran DMX',
+    canvas: lcdScreen.canvas
+  });
+
   function updateSidebar() {
+    dmxKeypadCleanup?.();
+    dmxKeypadCleanup = null;
     const ev = evaluateDmx();
     const selSpec = FIXTURE_SPECS[state.selectedFixture];
     const fx = state.fixtures[state.selectedFixture];
@@ -1319,7 +1362,7 @@ export function createDmxLightingGame(api) {
 
     const linkRows = DAISY_LINKS.map((lk) => {
       const ok = state.cablesDone.has(lk.id);
-      return `<div class="av-link-row ${ok ? 'ok' : 'pending'}"><span>${lk.label}</span><strong>${ok ? '✔ Relié' : 'À relier'}</strong></div>`;
+      return `<button type="button" class="av-link-row ${ok ? 'ok' : 'pending'}" data-daisy-id="${lk.id}"><span>${lk.label}</span><strong>${ok ? '✔ Relié' : '🔌 Relier'}</strong></button>`;
     }).join('');
 
     const fixCards = FIXTURE_SPECS.map((sp, i) => {
@@ -1365,15 +1408,23 @@ export function createDmxLightingGame(api) {
               <span data-addr-cur class="av-addr-readout" style="color:${fx.addr === selSpec.targetAddr ? '#4ade80' : '#38bdf8'};">A${String(fx.addr).padStart(3, '0')}</span>
               <button type="button" class="av-mini-btn" data-addr="1">+1</button>
               <button type="button" class="av-mini-btn" data-addr="4">+4</button>
+              <button type="button" id="dmx-kp-toggle" class="av-mini-btn">${dmxKeypadOpen ? 'Fermer' : '#️⃣ Pavé DMX'}</button>
               <button type="button" id="dmx-preset-fix" class="av-btn primary compact" title="Appliquer les valeurs cibles sur ${selSpec.code}">Calibrer ${selSpec.code}</button>
             </div>
+          </div>
+          <div id="dmx-kp-wrap" class="${dmxKeypadOpen ? '' : 'hidden'}" style="margin:6px 0;">
+            <div style="display:flex;gap:6px;margin-bottom:6px;">
+              <input type="text" id="dmx-addr-input" value="${fx.addr}" placeholder="Adresse 1..505" style="flex:1;min-height:44px;padding:6px 8px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-family:monospace;font-size:13px;" />
+              <button type="button" id="dmx-addr-apply" class="av-btn primary compact">OK</button>
+            </div>
+            <div id="dmx-kp-mount"></div>
           </div>
           ${faderDefs
             .map(
               (fd) => `
             <label class="av-slider-row">
               <span class="av-slider-lbl">${fd.label} <small>(${selTarget[fd.key]})</small></span>
-              <input type="range" min="0" max="${fd.max}" value="${fx[fd.key]}" data-fader="${fd.key}" />
+              <input type="range" min="0" max="${fd.max}" data-fine-step="${fd.key === 'pan' || fd.key === 'tilt' ? 2 : 5}" value="${fx[fd.key]}" data-fader="${fd.key}" />
               <span data-fader-val="${fd.key}" class="av-slider-val">${fx[fd.key]}</span>
             </label>`
             )
@@ -1383,6 +1434,53 @@ export function createDmxLightingGame(api) {
     `);
 
     if (!drawer) return;
+    drawer.querySelectorAll('[data-daisy-id]').forEach((rowBtn) => {
+      rowBtn.addEventListener('click', () => {
+        const lid = rowBtn.dataset.daisyId;
+        if (!lid) return;
+        if (state.cablesDone.has(lid)) {
+          state.cablesDone.delete(lid);
+          sfx.click();
+        } else {
+          state.cablesDone.add(lid);
+          sfx.xlrPlug();
+          const lk = DAISY_LINKS.find((x) => x.id === lid);
+          const pTarget = new THREE.Vector3();
+          if (lk && xlrPorts[lk.toId]) {
+            xlrPorts[lk.toId].anchor.getWorldPosition(pTarget);
+            bench.spawnPulseRing(pTarget, '#38bdf8', 0.08);
+          }
+        }
+        rebuildXlrCables();
+        syncDmx3D();
+        refreshUi();
+      });
+    });
+    drawer.querySelector('#dmx-kp-toggle')?.addEventListener('click', () => {
+      dmxKeypadOpen = !dmxKeypadOpen;
+      updateSidebar();
+    });
+    const addrInp = drawer.querySelector('#dmx-addr-input');
+    const addrApply = drawer.querySelector('#dmx-addr-apply');
+    const kpMount = drawer.querySelector('#dmx-kp-mount');
+    const applyTypedAddr = (rawVal) => {
+      const parsed = Math.max(1, Math.min(505, Math.round(Number(rawVal) || fx.addr)));
+      state.fixtures[state.selectedFixture].addr = parsed;
+      sfx.dmxAddressBeep(parsed === selSpec.targetAddr);
+      syncDmx3D();
+      refreshUi();
+    };
+    addrApply?.addEventListener('click', () => applyTypedAddr(addrInp?.value));
+    if (dmxKeypadOpen && addrInp && kpMount) {
+      const kp = createVirtualKeypad({
+        mode: 'numeric',
+        targetInput: addrInp,
+        presets: ['1', '9', '17', '25', '33'],
+        onSubmit: (v) => applyTypedAddr(v)
+      });
+      kpMount.appendChild(kp.element);
+      dmxKeypadCleanup = () => kp.destroy();
+    }
     const xlrBtn = drawer.querySelector('#dmx-next-xlr');
     if (xlrBtn) xlrBtn.addEventListener('click', connectNextXlr);
 
@@ -1510,6 +1608,40 @@ export function createDmxLightingGame(api) {
         primary: ev.allValid,
         disabled: state.submitted,
         onClick: submitDmxTp
+      },
+      {
+        id: 'hint-dmx-btn',
+        label: '💡 Indice',
+        onClick: () => {
+          bench.showToast('1) Chaînez Pupitre→PAR-1→MOV-2→MOV-3→PAR-4 + bouchon 120 Ω. 2) Adresses : 1, 9, 17, 25 (pas de 8 canaux). 3) Réglez les faders !', 'info');
+        }
+      },
+      {
+        id: 'reset-dmx-btn',
+        label: '🔄 Réinitialiser',
+        onClick: () => {
+          state.selectedFixture = 0;
+          state.selectedPort = null;
+          state.cablesDone.clear();
+          state.terminatorInstalled = false;
+          termBenchPlug.visible = true;
+          mountedTermPlug.visible = false;
+          state.fixtures = FIXTURE_SPECS.map((sp) => ({
+            addr: sp.startAddr,
+            master: 20,
+            r: 120,
+            g: 120,
+            b: 120,
+            pan: 25,
+            tilt: 25
+          }));
+          state.submitted = false;
+          rebuildXlrCables();
+          syncDmx3D();
+          sfx.click();
+          bench.showToast('Pupitre DMX512 et liaisons XLR réinitialisés.', 'info');
+          refreshUi();
+        }
       }
     ]);
 
@@ -1549,6 +1681,8 @@ export function createDmxLightingGame(api) {
 
   return {
     destroy: () => {
+      dmxKeypadCleanup?.();
+      dmxKeypadCleanup = null;
       unsubTick();
       bench.destroy();
     }

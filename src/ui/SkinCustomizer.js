@@ -434,51 +434,39 @@ export class SkinPreview3D {
         }
       }
 
-      this.canvas.addEventListener('mousedown', (e) => {
+      if (this.canvas.style) {
+        this.canvas.style.touchAction = 'none';
+      }
+      let activeDragPointerId = null;
+      this.canvas.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        if (activeDragPointerId !== null) return;
+        e.preventDefault?.();
+        activeDragPointerId = e.pointerId ?? 0;
+        this.canvas.setPointerCapture?.(e.pointerId);
         this.dragging = true;
         this.yawVelocity = 0;
         this.lastMouseX = e.clientX;
       });
-      window.addEventListener('mouseup', () => {
-        this.dragging = false;
-      });
-      window.addEventListener('mousemove', (e) => {
+      window.addEventListener('pointermove', (e) => {
         if (!this.dragging || !this.active) return;
+        if (activeDragPointerId !== null && (e.pointerId ?? 0) !== activeDragPointerId) return;
         const dx = e.clientX - this.lastMouseX;
         this.lastMouseX = e.clientX;
         const delta = dx * 0.014;
         this.yaw += delta;
         this.yawVelocity = delta * 0.7;
       });
-      this.canvas.addEventListener(
-        'touchstart',
-        (e) => {
-          if (!this.active || !e.touches[0]) return;
-          e.preventDefault();
-          this.dragging = true;
-          this.yawVelocity = 0;
-          this.lastMouseX = e.touches[0].clientX;
-        },
-        { passive: false }
-      );
-      window.addEventListener(
-        'touchmove',
-        (e) => {
-          if (!this.dragging || !this.active || !e.touches[0]) return;
-          const dx = e.touches[0].clientX - this.lastMouseX;
-          this.lastMouseX = e.touches[0].clientX;
-          const delta = dx * 0.014;
-          this.yaw += delta;
-          this.yawVelocity = delta * 0.7;
-        },
-        { passive: true }
-      );
-      window.addEventListener('touchend', () => {
+      const endPointerDrag = (e) => {
+        if (activeDragPointerId !== null && e.pointerId !== undefined && e.pointerId !== activeDragPointerId) return;
+        if (activeDragPointerId !== null) {
+          this.canvas.releasePointerCapture?.(activeDragPointerId);
+        }
+        activeDragPointerId = null;
         this.dragging = false;
-      });
-      window.addEventListener('touchcancel', () => {
-        this.dragging = false;
-      });
+      };
+      window.addEventListener('pointerup', endPointerDrag);
+      window.addEventListener('pointercancel', endPointerDrag);
 
       this.rebuild();
 

@@ -1,5 +1,5 @@
 import { sfx } from '../core/audio.js';
-import { getMention, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
+import { detectDeviceProfile, getMention, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import { getCatalogItem, getStationTeleportInMap, getZoneAtPositionInMap } from '../world/mapSchema.js';
 import {
   ASCENSION_SPECIALTIES,
@@ -335,6 +335,8 @@ export class HudManager {
     const qualitySelect = document.getElementById('set-quality');
     const sensSlider = document.getElementById('set-sens');
     const sensVal = document.getElementById('set-sens-val');
+    const touchSensSlider = document.getElementById('set-touch-sens');
+    const touchSensVal = document.getElementById('set-touch-sens-val');
     const voiceModeSelect = document.getElementById('set-voice-mode');
     const voiceTpSelect = document.getElementById('set-voice-tp');
     const voiceVolSlider = document.getElementById('set-voice-vol');
@@ -351,6 +353,8 @@ export class HudManager {
       if (qualitySelect) qualitySelect.value = this.gameState.quality;
       if (sensSlider) sensSlider.value = String(this.gameState.mouseSens);
       if (sensVal) sensVal.textContent = `${this.gameState.mouseSens.toFixed(1)}×`;
+      if (touchSensSlider) touchSensSlider.value = String(this.gameState.touchSens ?? 1.0);
+      if (touchSensVal) touchSensVal.textContent = `${Number(this.gameState.touchSens ?? 1.0).toFixed(1)}×`;
       if (voiceModeSelect) voiceModeSelect.value = this.gameState.voiceMode;
       if (voiceTpSelect) voiceTpSelect.value = this.gameState.voiceTpMode;
       if (voiceVolSlider) voiceVolSlider.value = String(this.gameState.voiceVolume);
@@ -440,8 +444,14 @@ export class HudManager {
       this.orientationHintEl?.classList.add('hidden');
     });
 
-    window.addEventListener('resize', () => this.updateOrientationHint());
-    window.addEventListener('orientationchange', () => this.updateOrientationHint());
+    window.addEventListener('resize', () => {
+      this.syncViewportClasses();
+      this.updateOrientationHint();
+    });
+    window.addEventListener('orientationchange', () => {
+      this.syncViewportClasses();
+      this.updateOrientationHint();
+    });
 
     cameraSelect?.addEventListener('change', () => {
       sfx.click();
@@ -648,6 +658,13 @@ export class HudManager {
       syncSettingsUi();
     });
 
+    touchSensSlider?.addEventListener('input', () => {
+      const s = Number(touchSensSlider.value);
+      this.gameState.setTouchSens?.(s);
+      this.handlers.onTouchSensitivityChange?.(s);
+      syncSettingsUi();
+    });
+
     soundCheck?.addEventListener('change', () => {
       sfx.setMuted(!soundCheck.checked);
       syncMuteUi();
@@ -758,6 +775,7 @@ export class HudManager {
       this.gameState.setCameraMode('first');
       this.gameState.setQuality('high');
       this.gameState.setMouseSens(1.0);
+      this.gameState.setTouchSens?.(1.0);
       this.gameState.setVoiceMode('open');
       this.gameState.setVoiceTpMode('duck');
       this.gameState.setVoiceVolume(1.0);
@@ -766,6 +784,7 @@ export class HudManager {
       this.handlers.onCameraModeChange?.('first');
       this.handlers.onQualityChange?.('high');
       this.handlers.onSensitivityChange?.(1.0);
+      this.handlers.onTouchSensitivityChange?.(1.0);
       this.handlers.onVoiceModeChange?.('open');
       this.handlers.onVoiceTpModeChange?.('duck');
       this.handlers.onVoiceVolumeChange?.(1.0);
@@ -1110,6 +1129,15 @@ export class HudManager {
     this.handlers.onLocalEmote?.(emote);
   }
 
+  syncViewportClasses() {
+    if (typeof document === 'undefined' || !document.body?.classList) return;
+    const prof = detectDeviceProfile();
+    document.body.classList.toggle('device-mobile', prof.isMobile);
+    document.body.classList.toggle('device-tablet', prof.isTablet);
+    document.body.classList.toggle('orientation-portrait', prof.isPortrait);
+    document.body.classList.toggle('orientation-landscape', prof.isLandscape);
+  }
+
   updateOrientationHint() {
     if (!this.orientationHintEl) return;
     const hudVisible = !this.hudEl.classList.contains('hidden');
@@ -1126,8 +1154,9 @@ export class HudManager {
     this.hudEl.classList.remove('hidden');
     this.chatRoomNameEl.textContent = this.gameState.room;
     if (this.netRoomTag) this.netRoomTag.textContent = this.gameState.room;
+    this.syncViewportClasses();
     this.syncTouchUi?.();
-    if (window.innerWidth <= 900 || window.innerHeight <= 560) {
+    if (this.gameState.touchMode || window.innerWidth <= 1024 || window.innerHeight <= 560) {
       this.setQuestCollapsed?.(true);
       this.setMinimapCollapsed?.(true);
     } else {

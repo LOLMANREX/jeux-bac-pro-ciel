@@ -7,6 +7,7 @@ import {
   buildFlexibleCable,
   createEsdMatTexture
 } from './Workbench3DHost.js';
+import { createVirtualKeypad } from './TouchTpHelpers.js';
 
 export const AV_STAGES = [
   {
@@ -534,51 +535,124 @@ export function createAntivirusGame(api) {
     patchSwitch.ledMat.emissive.setHex(st.cveCount === 3 ? 0x22c55e : 0xf59e0b);
   }
 
+  let socKeypadCleanup = null;
+  let socKeypadOpen = false;
+
+  bench.setInspectableView?.({
+    title: 'Moniteur IDS Wireshark SOC',
+    subtitle: 'Flux d’attaque en temps réel & état des règles FW-01',
+    label: '🔎 Zoom IDS',
+    canvas: idsScreen.canvas
+  });
+
+  function applyManualFirewallRule(raw) {
+    const val = String(raw || '').trim();
+    if (!val) return;
+    let matched = false;
+    if (val.includes('185.42.19.88')) {
+      state.fw185 = true;
+      matched = true;
+    } else if (val.includes('91.203.11.4')) {
+      state.fw91 = true;
+      matched = true;
+    } else if (val.includes('4444')) {
+      state.fw4444 = true;
+      matched = true;
+    }
+    if (matched) {
+      sfx.click();
+      bench.spawnPulseRing(nodes['FW-01'].basePos, '#38bdf8', 0.14);
+      bench.showToast(`Règle pare-feu appliquée pour ${val} !`, 'success');
+    } else {
+      state.mistakes += 1;
+      sfx.error();
+      bench.showToast(`Cible inconnue (${val}) : vérifiez les IPs/ports sur l’IDS.`, 'error');
+    }
+    refreshAll();
+  }
+
   function renderSideDrawer() {
+    socKeypadCleanup?.();
+    socKeypadCleanup = null;
     const html = `
       <h4>Console Cyber-Défense SOC</h4>
       <div style="font-size:12px;color:#475569;margin-bottom:8px;">
         Stoppez les attaques en cours avant que l’intégrité serveur ne chute !
       </div>
-      <div style="display:grid;gap:6px;margin-bottom:10px;">
-        <button class="tp3d-tool-btn ${state.isolated ? 'active' : ''}" id="soc-iso">
+      <div style="display:grid;gap:7px;margin-bottom:10px;">
+        <button type="button" class="tp3d-tool-btn ${state.isolated ? 'active' : ''}" id="soc-iso">
           ${state.isolated ? '✔ PC-WORK Isolé du réseau' : '1. Isoler PC-WORK (Couper propagation)'}
         </button>
       </div>
-      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:#475569;margin:6px 0 4px;">Pare-feu Périmétrique (FW-01)</div>
-      <div style="display:grid;gap:5px;margin-bottom:10px;">
-        <button class="tp3d-tool-btn ${state.fw185 ? 'active' : ''}" id="soc-fw-185">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin:6px 0 6px;">
+        <span style="font-size:11px;font-weight:800;text-transform:uppercase;color:#475569;">Pare-feu Périmétrique (FW-01)</span>
+        <button type="button" class="av-mini-btn" id="soc-fw-kp-btn">${socKeypadOpen ? 'Masquer pavé IP' : '⌨️ Saisir IP/Port'}</button>
+      </div>
+      <div id="soc-fw-manual-wrap" class="${socKeypadOpen ? '' : 'hidden'}" style="margin-bottom:8px;">
+        <div style="display:flex;gap:6px;margin-bottom:6px;">
+          <input type="text" id="soc-fw-input" placeholder="185.42.19.88 / 4444" style="flex:1;min-height:44px;padding:6px 8px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-family:monospace;font-size:12px;" />
+          <button type="button" class="tp3d-act-btn primary" id="soc-fw-apply">Bloquer</button>
+        </div>
+        <div id="soc-fw-kp-mount"></div>
+      </div>
+      <div style="display:grid;gap:7px;margin-bottom:10px;">
+        <button type="button" class="tp3d-tool-btn ${state.fw185 ? 'active' : ''}" id="soc-fw-185">
           ${state.fw185 ? '✔ IP 185.42.19.88 bloquée (DDoS)' : 'Bloquer IP 185.42.19.88 (DDoS Web)'}
         </button>
-        <button class="tp3d-tool-btn ${state.fw91 ? 'active' : ''}" id="soc-fw-91">
+        <button type="button" class="tp3d-tool-btn ${state.fw91 ? 'active' : ''}" id="soc-fw-91">
           ${state.fw91 ? '✔ IP 91.203.11.4 bloquée (SSH)' : 'Bloquer IP 91.203.11.4 (SSH Bruteforce)'}
         </button>
-        <button class="tp3d-tool-btn ${state.fw4444 ? 'active' : ''}" id="soc-fw-4444">
+        <button type="button" class="tp3d-tool-btn ${state.fw4444 ? 'active' : ''}" id="soc-fw-4444">
           ${state.fw4444 ? '✔ Port 4444 C2 fermé' : 'Fermer Port 4444 (Backdoor C2)'}
         </button>
       </div>
-      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:#475569;margin:6px 0 4px;">Correctifs & Processus</div>
-      <div style="display:grid;gap:5px;margin-bottom:10px;">
-        <button class="tp3d-tool-btn ${state.cveWeb ? 'active' : ''}" id="soc-cve-web">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:#475569;margin:6px 0 6px;">Correctifs & Processus</div>
+      <div style="display:grid;gap:7px;margin-bottom:10px;">
+        <button type="button" class="tp3d-tool-btn ${state.cveWeb ? 'active' : ''}" id="soc-cve-web">
           ${state.cveWeb ? '✔ SRV-WEB Patché (CVE Apache)' : 'Patcher CVE sur SRV-WEB'}
         </button>
-        <button class="tp3d-tool-btn ${state.cveBdd ? 'active' : ''}" id="soc-cve-bdd">
+        <button type="button" class="tp3d-tool-btn ${state.cveBdd ? 'active' : ''}" id="soc-cve-bdd">
           ${state.cveBdd ? '✔ SRV-BDD Sécurisé (SQL/SSH)' : 'Patcher & Verrouiller SRV-BDD'}
         </button>
-        <button class="tp3d-tool-btn ${state.cveHost ? 'active' : ''}" id="soc-cve-host">
+        <button type="button" class="tp3d-tool-btn ${state.cveHost ? 'active' : ''}" id="soc-cve-host">
           ${state.cveHost ? '✔ Faux svch0st.exe supprimé' : 'Tuer svch0st.exe (typosquatting !)'}
         </button>
-        <button class="tp3d-tool-btn" id="soc-false-svchost">
+        <button type="button" class="tp3d-tool-btn" id="soc-false-svchost">
           Tuer svchost.exe (System32)
         </button>
       </div>
-      <button class="tp3d-act-btn primary" id="soc-edr-scan" style="width:100%;" ${state.edrDone || state.edrScanning ? 'disabled' : ''}>
+      <button type="button" class="tp3d-act-btn primary" id="soc-edr-scan" style="width:100%;" ${state.edrDone || state.edrScanning ? 'disabled' : ''}>
         ${state.edrDone ? '✔ Scan CielGuard EDR Terminé' : state.edrScanning ? `Scan EDR en cours (${Math.round(state.scanPct)}%)` : 'Lancer Scan Laser CielGuard EDR'}
       </button>
     `;
 
     const drawer = bench.setSideDrawer(html);
     if (!drawer) return;
+
+    drawer.querySelector('#soc-fw-kp-btn')?.addEventListener('click', () => {
+      socKeypadOpen = !socKeypadOpen;
+      renderSideDrawer();
+    });
+    const fwInp = drawer.querySelector('#soc-fw-input');
+    const fwApply = drawer.querySelector('#soc-fw-apply');
+    const fwMount = drawer.querySelector('#soc-fw-kp-mount');
+    fwApply?.addEventListener('click', () => {
+      applyManualFirewallRule(fwInp?.value);
+      if (fwInp) fwInp.value = '';
+    });
+    if (socKeypadOpen && fwInp && fwMount) {
+      const kp = createVirtualKeypad({
+        mode: 'ip-cli',
+        targetInput: fwInp,
+        presets: ['185.42.19.88', '91.203.11.4', '4444'],
+        onSubmit: (v) => {
+          applyManualFirewallRule(v);
+          fwInp.value = '';
+        }
+      });
+      fwMount.appendChild(kp.element);
+      socKeypadCleanup = () => kp.destroy();
+    }
 
     drawer.querySelector('#soc-iso')?.addEventListener('click', () => {
       state.isolated = !state.isolated;
@@ -697,7 +771,8 @@ export function createAntivirusGame(api) {
     );
 
     const actions = [
-      { id: 'reset', label: 'Réinitialiser', onClick: resetSoc },
+      { id: 'hint-soc', label: '💡 Indice', onClick: () => bench.showToast('1) Isoler PC-WORK 2) Bloquer 185.42.19.88, 91.203.11.4 et Port 4444 3) Patcher Web/BDD + tuer svch0st.exe (pas svchost) 4) Scan EDR !', 'info') },
+      { id: 'reset', label: '🔄 Réinitialiser', onClick: resetSoc },
       {
         id: 'finish-soc',
         label: st.secured ? 'Clôturer l’Incident & Noter /20' : 'Valider l’état actuel',
@@ -912,6 +987,10 @@ export function createAntivirusGame(api) {
   refreshAll();
 
   return {
-    destroy: () => bench.destroy()
+    destroy: () => {
+      socKeypadCleanup?.();
+      socKeypadCleanup = null;
+      bench.destroy();
+    }
   };
 }

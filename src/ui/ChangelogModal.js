@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.25 - Refonte & Équilibrage des Barèmes (20/20 Accessible et Transparent)';
+    : "v4.26 - Adaptation Complète de Tous les TPs et de l'Interface au Mobile & Tablette";
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.25 — Refonte & Équilibrage de Tous les Barèmes (20/20 Accessible et Transparent)',
+    version: 'v4.26 — Adaptation Complète de Tous les TPs et de l’Interface au Mobile & Tablette',
     date: '19/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'ERGONOMIE TACTILE 3D',
+        title: 'Détection Auto Mobile/Tablette, Joystick & Caméra Tactile, Bouton Contextuel & PixelRatio Adaptatif',
+        desc: 'Détection automatique iOS / Android / iPadOS (portrait et paysage, viewport 100dvh, safe-area et touch-action: none), curseur de sensibilité tactile dédié, gros bouton contextuel [👆 Interagir] affiché dès qu’un poste ou TP est ciblé ou à portée, et limitation adaptative du pixelRatio et des ombres pour un framerate fluide sans surchauffe tout en préservant le mode PC et la VR WebXR.'
+      },
+      {
+        badge: 'TOUS LES TPS AU DOIGT',
+        title: 'Refonte Tactile Universelle des 9 TPs 3D, Tap-to-Connect, Réglages Fins [-]/[+] & Pavés Intégrés',
+        desc: 'Support unifié Pointer Events sur 100 % des TPs (Oscilloscope, Brasure PCB, Électronique, Baie RJ45 T568B, VLAN CLI, Cybersécurité SOC, Montage PC, Régie DMX512 et Studio Broadcast) : glisser-déposer au doigt + mode Tap-to-Connect, boutons [-]/[+] d’ajustement fin sur chaque molette/curseur, pavés IP/CLI/DMX intégrés, zoom agrandi pour oscilloscopes/PCB/DMM/testeurs/moniteurs, mise en page responsive 360px–1024px (zones >= 44px) et manette tactile CIEL OS pour les 6 mini-jeux.'
+      }
+    ]
+  },
+  {
+    version: 'v4.25 — Refonte & Équilibrage de Tous les Barèmes (20/20 Accessible et Transparent)',
+    date: '19/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'BARÈMES RÉÉQUILIBRÉS /20',

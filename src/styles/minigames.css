@@ -1512,3 +1512,455 @@
     max-height: 210px;
   }
 }
+
+#minigame-modal,
+#minigame-modal .mg-dialog,
+.tp3d-root,
+.tp3d-side-drawer,
+.tp3d-bottom-dock {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.tp3d-root {
+  height: 100dvh;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.tp3d-canvas {
+  touch-action: none;
+}
+
+.tp3d-zoom-bar {
+  position: absolute;
+  top: 132px;
+  left: 14px;
+  z-index: 21;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.tp3d-zoom-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+}
+
+.tp3d-inspect-btn {
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.tp3d-drawer-toggle {
+  background: #0f172a;
+  color: #f8fafc;
+  border-color: rgba(56, 189, 248, 0.45);
+}
+
+.tp3d-root.drawer-collapsed .tp3d-side-drawer {
+  display: none !important;
+}
+
+.tp3d-drawer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  margin-bottom: 8px;
+}
+
+.tp3d-drawer-title {
+  font-weight: 800;
+  color: #38bdf8;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+
+.av-link-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.tp-connect-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.tp-connect-btn.selected {
+  border-color: #38bdf8;
+  background: rgba(2, 132, 199, 0.35);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.45);
+}
+
+.tp-connect-btn.done {
+  border-color: #22c55e;
+  background: rgba(20, 83, 45, 0.72);
+}
+
+.tp-hold-btn {
+  width: 100%;
+  min-height: 52px;
+  user-select: none;
+  touch-action: none;
+}
+
+.tp-hold-btn.pressed {
+  transform: scale(0.97);
+  filter: brightness(1.15);
+}
+
+.tp-stepper-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.tp-stepper-wrap input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 60px;
+  min-height: 36px;
+  accent-color: #0ea5e9;
+  touch-action: pan-y;
+}
+
+.tp3d-step-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 1.05rem;
+  font-weight: 900;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.tp3d-step-btn:active {
+  background: #0284c7;
+  transform: scale(0.94);
+}
+
+.tp-virtual-keypad {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #020617;
+  border: 1px solid #334155;
+}
+
+.tp-keypad-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tp-keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.tp-keypad-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #f8fafc;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.tp-keypad-btn.preset {
+  min-height: 40px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  background: #0f172a;
+  color: #38bdf8;
+}
+
+.tp-keypad-btn.action {
+  background: #334155;
+}
+
+.tp-keypad-btn.submit {
+  background: #059669;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.tp-keypad-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tp3d-zoom-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  background: rgba(2, 6, 23, 0.82);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+}
+
+.tp3d-zoom-card {
+  width: min(820px, 100%);
+  max-height: calc(100dvh - 28px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #0f172a;
+  color: #f8fafc;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.55);
+}
+
+.tp3d-zoom-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tp3d-zoom-title {
+  display: block;
+  font-size: 1rem;
+  color: #38bdf8;
+}
+
+.tp3d-zoom-sub {
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.tp3d-zoom-close {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: #7f1d1d;
+  color: #ffffff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.tp3d-zoom-body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: auto;
+}
+
+.tp3d-zoom-canvas {
+  width: 100%;
+  height: auto;
+  max-height: calc(100dvh - 150px);
+  border-radius: 8px;
+  background: #020617;
+  object-fit: contain;
+}
+
+.mg-close-btn,
+.mg-stage-tab,
+.tp3d-tool-btn,
+.tp3d-act-btn,
+.tp3d-action-btn,
+.tp3d-cam-btn,
+.av-mini-btn,
+.av-btn,
+.av-link-row {
+  min-width: 44px;
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
+.av-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  cursor: pointer;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #f8fafc;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.av-slider-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.av-slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+@media (max-width: 1024px) {
+  .mg-header {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  .mg-stages {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tp3d-side-drawer {
+    width: min(340px, calc(100vw - 24px));
+    max-height: calc(100dvh - 220px);
+  }
+  .tp3d-tools,
+  .tp3d-actions {
+    gap: 8px;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .tp3d-brief-bar {
+    top: 96px;
+    left: 8px;
+    right: 8px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tp3d-cameras {
+    top: auto;
+    bottom: 146px;
+    left: 8px;
+    right: 8px;
+    overflow-x: auto;
+    max-width: calc(100vw - 16px);
+  }
+  .tp3d-zoom-bar {
+    top: 164px;
+    left: 8px;
+    right: 8px;
+  }
+  .tp3d-side-drawer {
+    top: auto;
+    bottom: 148px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: min(44dvh, 300px);
+    padding: 10px;
+    overflow-x: hidden;
+  }
+  .tp3d-bottom-dock {
+    left: 8px;
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    gap: 6px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tp3d-tools,
+  .tp3d-actions {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding: 6px 8px;
+  }
+  .tp3d-tool-btn,
+  .tp3d-act-btn,
+  .tp3d-action-btn {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .av-link-grid {
+    grid-template-columns: 1fr;
+  }
+  .tp3d-brief-bar {
+    font-size: 0.78rem;
+  }
+  .tp3d-zoom-btn {
+    padding: 6px 8px;
+    font-size: 0.75rem;
+  }
+  .tp-keypad-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-height: 540px) and (orientation: landscape) {
+  .tp3d-brief-bar {
+    top: 66px;
+  }
+  .tp3d-zoom-bar {
+    top: 118px;
+  }
+  .tp3d-side-drawer {
+    top: 118px;
+    bottom: 74px;
+    left: auto;
+    right: 10px;
+    width: min(330px, 44vw);
+    max-height: none;
+  }
+  .tp3d-cameras {
+    bottom: 74px;
+  }
+}

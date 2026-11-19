@@ -589,6 +589,18 @@ export function createPatchPanelGame(api) {
   const panelLeds = [];
   const switchLeds = [];
 
+  function connectPanelToSwitch(pIdx, sIdx) {
+    for (const k of Object.keys(state.links)) {
+      if (state.links[k].switchIdx === sIdx) delete state.links[k];
+    }
+    state.links[pIdx] = { switchIdx: sIdx, color: state.activeCordColor };
+    state.selectedPanelIdx = null;
+    sfx.snap();
+    bench.showToast(`Brassage P${String(pIdx + 1).padStart(2, '0')} → S${String(sIdx + 1).padStart(2, '0')} effectué`, 'success');
+    rebuildCables();
+    refreshUi();
+  }
+
   for (let i = 0; i < 24; i++) {
     const col = i % 12;
     const row = Math.floor(i / 12);
@@ -636,8 +648,34 @@ export function createPatchPanelGame(api) {
     switchLeds.push(sLedMat);
 
     bench.addInteractive(pSock, {
-      label: `Panneau Prise P${String(i + 1).padStart(2, '0')}`,
+      label: `Panneau Prise P${String(i + 1).padStart(2, '0')} (Tap ou glisser vers Switch)`,
       cursor: 'pointer',
+      onDragStart: () => {
+        state.selectedPanelIdx = i;
+        updateRackLinkLeds();
+      },
+      onDragEnd: (info) => {
+        if ((info?.dragDist || 0) < 18) return;
+        const rect = bench.canvas?.getBoundingClientRect?.();
+        if (!rect?.width || !rect?.height) return;
+        const proj = new THREE.Vector3();
+        let closestSwitchIdx = -1;
+        let bestPxDist = Infinity;
+        switchSockets.forEach((sw, sIdx) => {
+          sw.getWorldPosition(proj);
+          proj.project(bench.camera);
+          const sx = rect.left + (proj.x * 0.5 + 0.5) * rect.width;
+          const sy = rect.top + (-proj.y * 0.5 + 0.5) * rect.height;
+          const d = Math.hypot(info.clientX - sx, info.clientY - sy);
+          if (d < bestPxDist) {
+            bestPxDist = d;
+            closestSwitchIdx = sIdx;
+          }
+        });
+        if (closestSwitchIdx >= 0 && bestPxDist <= 64) {
+          connectPanelToSwitch(i, closestSwitchIdx);
+        }
+      },
       onClick: () => {
         if (state.links[i]) {
           delete state.links[i];
@@ -650,7 +688,7 @@ export function createPatchPanelGame(api) {
         state.selectedPanelIdx = state.selectedPanelIdx === i ? null : i;
         sfx.click();
         if (state.selectedPanelIdx !== null) {
-          bench.showToast(`Prise P${String(i + 1).padStart(2, '0')} prête — cliquez le port Switch cible`, 'info');
+          bench.showToast(`Prise P${String(i + 1).padStart(2, '0')} prête — touchez le port Switch cible`, 'info');
         }
         updateRackLinkLeds();
         refreshUi();
@@ -671,19 +709,10 @@ export function createPatchPanelGame(api) {
               return;
             }
           }
-          bench.showToast('Cliquez d’abord une prise du panneau supérieur (P01..P24)', 'info');
+          bench.showToast('Touchez d’abord une prise du panneau supérieur (P01..P24)', 'info');
           return;
         }
-        const pIdx = state.selectedPanelIdx;
-        for (const k of Object.keys(state.links)) {
-          if (state.links[k].switchIdx === i) delete state.links[k];
-        }
-        state.links[pIdx] = { switchIdx: i, color: state.activeCordColor };
-        state.selectedPanelIdx = null;
-        sfx.snap();
-        bench.showToast(`Brassage P${String(pIdx + 1).padStart(2, '0')} → S${String(i + 1).padStart(2, '0')} effectué`, 'success');
-        rebuildCables();
-        refreshUi();
+        connectPanelToSwitch(state.selectedPanelIdx, i);
       }
     });
   }
@@ -810,6 +839,13 @@ export function createPatchPanelGame(api) {
     onClick: runContinuityTest
   });
 
+  bench.setInspectableView?.({
+    title: 'Testeur RJ45 T568B (Broches 1-8)',
+    subtitle: 'Continuité des paires & état du brassage baie 19"',
+    label: '🔎 Zoom Testeur',
+    canvas: testerScreen.canvas
+  });
+
   function drawTesterScreen() {
     const { ctx, canvas, texture } = testerScreen;
     ctx.fillStyle = '#071422';
@@ -903,11 +939,14 @@ export function createPatchPanelGame(api) {
       .map((w, i) => {
         const expected = T568B_ORDER[i];
         const ok = w.id === expected.id;
-        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 7px;border-radius:6px;background:${
+        return `<div class="tp-pin-row" style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 8px;min-height:44px;border-radius:8px;background:${
           state.selectedSlot === i ? 'rgba(56,189,248,0.22)' : 'rgba(15,23,42,0.55)'
-        };border:1px solid ${ok ? 'rgba(34,197,94,0.45)' : 'rgba(245,158,11,0.4)'};font-size:11px;cursor:pointer;" data-slot="${i}" data-active="${state.selectedSlot === i ? '1' : '0'}" data-vr-label="B${i + 1}: ${w.name} ${ok ? '✔' : '→' + expected.name}">
-          <span><strong style="color:#94a3b8;">B${i + 1}</strong> <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${w.css};margin:0 4px;"></span>${w.name}</span>
-          <span style="color:${ok ? '#4ade80' : '#fbbf24'};">${ok ? 'OK' : '→ ' + expected.name}</span>
+        };border:1px solid ${ok ? 'rgba(34,197,94,0.45)' : 'rgba(245,158,11,0.4)'};font-size:12px;cursor:pointer;" data-slot="${i}" data-active="${state.selectedSlot === i ? '1' : '0'}" data-vr-label="B${i + 1}: ${w.name} ${ok ? '✔' : '→' + expected.name}">
+          <span style="flex:1;min-width:0;"><strong style="color:#94a3b8;">B${i + 1}</strong> <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${w.css};margin:0 4px;"></span>${w.name} <em style="color:${ok ? '#4ade80' : '#fbbf24'};font-style:normal;">${ok ? '✔' : '→' + expected.name}</em></span>
+          <span style="display:inline-flex;gap:4px;">
+            <button type="button" class="av-mini-btn" data-pin-move="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Monter broche ${i + 1}">▲</button>
+            <button type="button" class="av-mini-btn" data-pin-move="${i}" data-dir="1" ${i === 7 ? 'disabled' : ''} aria-label="Descendre broche ${i + 1}">▼</button>
+          </span>
         </div>`;
       })
       .join('');
@@ -917,24 +956,41 @@ export function createPatchPanelGame(api) {
       const linkedOk = link && link.switchIdx === sp.switchIdx;
       const colorOk = linkedOk && link.color === sp.color;
       const pal = CORD_PALETTE.find((c) => c.id === sp.color);
-      return `<div style="display:flex;justify-content:space-between;padding:4px 6px;border-radius:6px;background:rgba(15,23,42,0.5);font-size:11px;">
+      return `<button type="button" class="tp-connect-btn ${colorOk ? 'done' : ''} ${state.selectedPanelIdx === sp.panelIdx ? 'selected' : ''}" data-patch-panel="${sp.panelIdx}" data-patch-switch="${sp.switchIdx}" data-patch-color="${sp.color}">
         <span><strong>${sp.panelLabel} → ${sp.switchLabel}</strong> <span style="color:${pal.css};">(${pal.label.split(' ')[0]})</span></span>
-        <span style="color:${colorOk ? '#4ade80' : linkedOk ? '#fbbf24' : '#94a3b8'};">${
-        colorOk ? 'OK' : linkedOk ? 'Couleur' : 'À brasser'
+        <span style="color:${colorOk ? '#4ade80' : linkedOk ? '#fbbf24' : '#cbd5e1'};font-weight:800;">${
+        colorOk ? '✅ OK' : linkedOk ? '🎨 Couleur ?' : '🔌 Brasser'
       }</span>
-      </div>`;
+      </button>`;
     }).join('');
 
     const drawer = bench.setSideDrawer(`
-      <div style="display:flex;flex-direction:column;gap:7px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;">
+      <div style="display:flex;flex-direction:column;gap:8px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;">
         <div style="font-weight:800;color:#38bdf8;font-size:12px;">1. SERTISSAGE T568B (${matches}/8) — ${state.crimped ? 'SERTI' : 'OUVERT'}</div>
-        <div style="display:flex;flex-direction:column;gap:3px;">${pinRows}</div>
-        <div style="font-weight:800;color:#facc15;font-size:12px;margin-top:3px;">2. CAHIER DE BRASSAGE (${patchCorrect}/${PATCH_SPECS.length})</div>
-        <div style="display:flex;flex-direction:column;gap:3px;">${patchRows}</div>
-        <div style="font-size:11px;color:${state.guidesUsed ? '#4ade80' : '#cbd5e1'};">Goulottes passe-câbles : ${state.guidesUsed ? 'Actives (peignage OK)' : 'Cliquer sur les goulottes 3D'}</div>
+        <div style="display:flex;flex-direction:column;gap:4px;">${pinRows}</div>
+        <div style="font-weight:800;color:#facc15;font-size:12px;margin-top:3px;">2. CAHIER DE BRASSAGE — Tap-to-Connect (${patchCorrect}/${PATCH_SPECS.length})</div>
+        <div style="display:flex;flex-direction:column;gap:5px;">${patchRows}</div>
+        <div style="font-size:11px;color:${state.guidesUsed ? '#4ade80' : '#cbd5e1'};">Goulottes passe-câbles : ${state.guidesUsed ? 'Actives (peignage OK)' : 'Touchez les goulottes 3D ou le bouton ci-dessous'}</div>
       </div>
     `);
     if (drawer) {
+      drawer.querySelectorAll('[data-pin-move]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = Number(btn.dataset.pinMove);
+          const dir = Number(btn.dataset.dir);
+          const targetIdx = idx + dir;
+          if (targetIdx < 0 || targetIdx >= 8) return;
+          if (state.crimped) state.crimped = false;
+          const tmp = state.wireSlots[idx];
+          state.wireSlots[idx] = state.wireSlots[targetIdx];
+          state.wireSlots[targetIdx] = tmp;
+          state.selectedSlot = null;
+          sfx.snap();
+          syncWiresAndCrimp();
+          refreshUi();
+        });
+      });
       drawer.querySelectorAll('[data-slot]').forEach((el) => {
         el.addEventListener('click', () => {
           const idx = Number(el.dataset.slot);
@@ -952,6 +1008,21 @@ export function createPatchPanelGame(api) {
           }
           syncWiresAndCrimp();
           refreshUi();
+        });
+      });
+      drawer.querySelectorAll('[data-patch-panel]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const pIdx = Number(btn.dataset.patchPanel);
+          const sIdx = Number(btn.dataset.patchSwitch);
+          const curLink = state.links[pIdx];
+          if (curLink && curLink.switchIdx === sIdx && curLink.color === state.activeCordColor) {
+            delete state.links[pIdx];
+            sfx.click();
+            rebuildCables();
+            refreshUi();
+          } else {
+            connectPanelToSwitch(pIdx, sIdx);
+          }
         });
       });
     }
@@ -1073,6 +1144,38 @@ export function createPatchPanelGame(api) {
             `,
             evalRes.breakdown
           );
+        }
+      },
+      {
+        id: 'hint-patch-btn',
+        label: '💡 Indice',
+        onClick: () => {
+          bench.showToast('T568B : B-O, O, B-V, B, B-B, V, B-M, M. Puis sélectionnez la bonne couleur de cordon et touchez source → destination !', 'info');
+        }
+      },
+      {
+        id: 'reset-patch-btn',
+        label: '🔄 Réinitialiser',
+        onClick: () => {
+          state.wireSlots = initialOrder.map((idx) => T568B_ORDER[idx]);
+          state.selectedSlot = null;
+          state.crimped = false;
+          state.crimpAnim = 0;
+          state.activeCordColor = 'blue';
+          state.selectedPanelIdx = null;
+          state.links = {};
+          state.guidesUsed = false;
+          state.testerRunning = false;
+          state.testerRunCount = 0;
+          state.testerStep = -1;
+          state.testerTimer = 0;
+          state.testerPassed = false;
+          state.submitted = false;
+          syncWiresAndCrimp();
+          rebuildCables();
+          sfx.click();
+          bench.showToast('Sertissage & baie 19" réinitialisés.', 'info');
+          refreshUi();
         }
       }
     ]);

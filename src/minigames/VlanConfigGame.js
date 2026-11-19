@@ -6,6 +6,7 @@ import {
   makeCanvasScreen,
   buildFlexibleCable
 } from './Workbench3DHost.js';
+import { createVirtualKeypad } from './TouchTpHelpers.js';
 
 export const VMVLAN_STAGES = [
   {
@@ -796,36 +797,57 @@ export function createVlanConfigGame(api) {
     bench.setCameras(CAM_VIEWS, cam.id, setCameraById);
   }
 
+  let keypadCleanup = null;
+  let keypadExpanded =
+    typeof document !== 'undefined' && Boolean(document.body?.classList?.contains('touch-active'));
+
+  bench.setInspectableView?.({
+    title: 'Terminal Console SW-COEUR-L3',
+    subtitle: 'Affichage agrandi CLI IOS & diagnostic VLAN',
+    label: '🔎 Zoom Console',
+    canvas: laptopScreen.canvas
+  });
+
   function updateSidebar() {
+    keypadCleanup?.();
+    keypadCleanup = null;
     const ev = evaluateTopology();
+    const recentCli = state.cliHistory.slice(-4);
     const drawer = bench.setSideDrawer(`
-      <div style="display:flex;flex-direction:column;gap:7px;font-size:11px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;">
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;">
         <div style="font-weight:800;color:#38bdf8;font-size:12px;">1. SEGMENTATION VLAN (${ev.vlansCreated}/3)</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;">
-          <button data-cmd="vlan 10" data-active="${state.vlans[10].active ? '1' : '0'}" style="padding:5px 3px;border-radius:5px;border:1px solid #334155;background:${state.vlans[10].active ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">VLAN 10 ADMIN</button>
-          <button data-cmd="vlan 20" data-active="${state.vlans[20].active ? '1' : '0'}" style="padding:5px 3px;border-radius:5px;border:1px solid #334155;background:${state.vlans[20].active ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">VLAN 20 ATELIER</button>
-          <button data-cmd="vlan 30" data-active="${state.vlans[30].active ? '1' : '0'}" style="padding:5px 3px;border-radius:5px;border:1px solid #334155;background:${state.vlans[30].active ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">VLAN 30 INVITES</button>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+          <button type="button" class="tp-connect-btn ${state.vlans[10].active ? 'done' : ''}" data-cmd="vlan 10" data-active="${state.vlans[10].active ? '1' : '0'}" style="justify-content:center;padding:8px 4px;">VLAN 10</button>
+          <button type="button" class="tp-connect-btn ${state.vlans[20].active ? 'done' : ''}" data-cmd="vlan 20" data-active="${state.vlans[20].active ? '1' : '0'}" style="justify-content:center;padding:8px 4px;">VLAN 20</button>
+          <button type="button" class="tp-connect-btn ${state.vlans[30].active ? 'done' : ''}" data-cmd="vlan 30" data-active="${state.vlans[30].active ? '1' : '0'}" style="justify-content:center;padding:8px 4px;">VLAN 30</button>
         </div>
 
         <div style="font-weight:800;color:#22c55e;font-size:12px;">2. PORTS ACCESS (${ev.accessPortsOk}/3) & TRUNK 802.1Q</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
-          <button data-cmd="access gi0/1 10" data-active="${ev.acc1Ok ? '1' : '0'}" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.acc1Ok ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/1 Access VLAN 10</button>
-          <button data-cmd="access gi0/2 20" data-active="${ev.acc2Ok ? '1' : '0'}" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.acc2Ok ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/2 Access VLAN 20</button>
-          <button data-cmd="access gi0/3 30" data-active="${ev.acc3Ok ? '1' : '0'}" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.acc3Ok ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/3 Access VLAN 30</button>
-          <button data-cmd="trunk gi0/24" data-active="${ev.trunkConfigured ? '1' : '0'}" style="padding:5px;border-radius:5px;border:1px solid #334155;background:${ev.trunkConfigured ? '#14532d' : '#1e293b'};color:#fff;cursor:pointer;">Gi0/24 Trunk 802.1Q</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <button type="button" class="tp-connect-btn ${ev.acc1Ok ? 'done' : ''}" data-cmd="access gi0/1 10" data-active="${ev.acc1Ok ? '1' : '0'}">Gi0/1 → VLAN 10</button>
+          <button type="button" class="tp-connect-btn ${ev.acc2Ok ? 'done' : ''}" data-cmd="access gi0/2 20" data-active="${ev.acc2Ok ? '1' : '0'}">Gi0/2 → VLAN 20</button>
+          <button type="button" class="tp-connect-btn ${ev.acc3Ok ? 'done' : ''}" data-cmd="access gi0/3 30" data-active="${ev.acc3Ok ? '1' : '0'}">Gi0/3 → VLAN 30</button>
+          <button type="button" class="tp-connect-btn ${ev.trunkConfigured ? 'done' : ''}" data-cmd="trunk gi0/24" data-active="${ev.trunkConfigured ? '1' : '0'}">Gi0/24 Trunk</button>
         </div>
 
         <div style="font-weight:800;color:#f59e0b;font-size:12px;">3. PASSERELLES INTER-VLAN (/24)</div>
-        <div style="display:flex;flex-direction:column;gap:4px;">
-          <button data-cmd="gw 20 192.168.20.254" data-active="${ev.gw20Ok ? '1' : '0'}" style="padding:5px 7px;border-radius:5px;border:1px solid #334155;background:${ev.gw20Ok ? '#14532d' : '#1e293b'};color:#fff;text-align:left;cursor:pointer;">Vlan20: ${state.gateways[20].ip} (${state.gateways[20].mask}) → <strong>Fix .20.254/24</strong></button>
-          <button data-cmd="gw 30 192.168.30.254" data-active="${ev.gw30Ok ? '1' : '0'}" style="padding:5px 7px;border-radius:5px;border:1px solid #334155;background:${ev.gw30Ok ? '#14532d' : '#1e293b'};color:#fff;text-align:left;cursor:pointer;">Vlan30: ${state.gateways[30].ip} → <strong>Activer .30.254/24</strong></button>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <button type="button" class="tp-connect-btn ${ev.gw20Ok ? 'done' : ''}" data-cmd="gw 20 192.168.20.254" data-active="${ev.gw20Ok ? '1' : '0'}">Vlan20: ${state.gateways[20].ip} → <strong>.20.254/24</strong></button>
+          <button type="button" class="tp-connect-btn ${ev.gw30Ok ? 'done' : ''}" data-cmd="gw 30 192.168.30.254" data-active="${ev.gw30Ok ? '1' : '0'}">Vlan30: ${state.gateways[30].ip} → <strong>.30.254/24</strong></button>
         </div>
 
-        <div style="font-weight:800;color:#e2e8f0;font-size:12px;">TERMINAL CLI</div>
-        <form id="cli-form" style="display:flex;gap:4px;">
-          <input id="cli-input" type="text" placeholder="ex: vlan 10, trunk gi0/24, ping, help" style="flex:1;padding:5px 7px;border-radius:5px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-family:monospace;font-size:11px;" />
-          <button type="submit" style="padding:5px 9px;border-radius:5px;border:none;background:#0284c7;color:#fff;font-weight:700;cursor:pointer;">CLI</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+          <span style="font-weight:800;color:#e2e8f0;font-size:12px;">TERMINAL CLI</span>
+          <button type="button" id="vlan-keypad-toggle" class="av-mini-btn">${keypadExpanded ? 'Masquer pavé' : '⌨️ Pavé IP/CLI'}</button>
+        </div>
+        <div style="background:#020617;border:1px solid #1e293b;border-radius:6px;padding:6px 8px;font-family:monospace;font-size:10px;color:#cbd5e1;line-height:1.35;">
+          ${recentCli.map((ln) => `<div>${ln}</div>`).join('')}
+        </div>
+        <form id="cli-form" style="display:flex;gap:6px;">
+          <input id="cli-input" type="text" placeholder="ex: vlan 10, gw 20 192.168.20.254" style="flex:1;min-height:44px;padding:6px 8px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-family:monospace;font-size:12px;" />
+          <button type="submit" style="min-width:52px;min-height:44px;padding:6px 10px;border-radius:6px;border:none;background:#0284c7;color:#fff;font-weight:700;cursor:pointer;">CLI</button>
         </form>
+        <div id="vlan-keypad-mount"></div>
       </div>
     `);
 
@@ -835,12 +857,39 @@ export function createVlanConfigGame(api) {
     });
     const form = drawer.querySelector('#cli-form');
     const inp = drawer.querySelector('#cli-input');
+    const toggleBtn = drawer.querySelector('#vlan-keypad-toggle');
+    const mount = drawer.querySelector('#vlan-keypad-mount');
+    toggleBtn?.addEventListener('click', () => {
+      keypadExpanded = !keypadExpanded;
+      updateSidebar();
+    });
     if (form && inp) {
       form.addEventListener('submit', (e) => {
         e.preventDefault();
         runCliCommand(inp.value);
         inp.value = '';
       });
+      if (keypadExpanded && mount) {
+        const kp = createVirtualKeypad({
+          mode: 'ip-cli',
+          targetInput: inp,
+          presets: [
+            'vlan 10',
+            'vlan 20',
+            'vlan 30',
+            'trunk gi0/24',
+            'gw 20 192.168.20.254',
+            'gw 30 192.168.30.254',
+            'ping'
+          ],
+          onSubmit: (cmd) => {
+            runCliCommand(cmd);
+            inp.value = '';
+          }
+        });
+        mount.appendChild(kp.element);
+        keypadCleanup = () => kp.destroy();
+      }
     }
   }
 
@@ -941,6 +990,48 @@ export function createVlanConfigGame(api) {
             evalRes.breakdown
           );
         }
+      },
+      {
+        id: 'hint-vlan-btn',
+        label: '💡 Indice',
+        onClick: () => {
+          bench.showToast('Activez VLAN 10/20/30, assignez Gi0/1→10, Gi0/2→20, Gi0/3→30, Gi0/24 en Trunk, corrigez .20.254 et .30.254 puis Ping + Traceroute !', 'info');
+        }
+      },
+      {
+        id: 'reset-vlan-btn',
+        label: '🔄 Réinitialiser',
+        onClick: () => {
+          state.vlans = {
+            10: { name: 'ADMIN', active: false },
+            20: { name: 'ATELIER', active: false },
+            30: { name: 'INVITES', active: false }
+          };
+          state.ports = {
+            'Gi0/1': { mode: 'ACCESS', pvid: 1, allowed: [] },
+            'Gi0/2': { mode: 'ACCESS', pvid: 1, allowed: [] },
+            'Gi0/3': { mode: 'ACCESS', pvid: 1, allowed: [] },
+            'Gi0/24': { mode: 'ACCESS', pvid: 1, allowed: [] }
+          };
+          state.gateways = {
+            10: { ip: '192.168.10.254', mask: '255.255.255.0', up: true },
+            20: { ip: '192.168.20.1', mask: '255.255.0.0', up: false },
+            30: { ip: '0.0.0.0', mask: '255.255.255.0', up: false }
+          };
+          state.cliHistory = [
+            'SW-COEUR-L3# show vlan brief',
+            '! Réinitialisation effectuée. VLANs 10/20/30 inactifs.',
+            'SW-COEUR-L3#'
+          ];
+          state.probeRunCount = 0;
+          state.lastPingOk = false;
+          state.lastTraceOk = false;
+          state.submitted = false;
+          syncTopology3D();
+          sfx.click();
+          bench.showToast('Configuration switch VLAN réinitialisée.', 'info');
+          refreshUi();
+        }
       }
     ]);
 
@@ -1002,6 +1093,8 @@ export function createVlanConfigGame(api) {
 
   return {
     destroy: () => {
+      keypadCleanup?.();
+      keypadCleanup = null;
       unsubTick();
       bench.destroy();
     }

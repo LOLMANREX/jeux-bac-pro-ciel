@@ -182,11 +182,20 @@ export function createSolderingGame(api) {
   let heatingActive = false;
   let tinFeeding = false;
   let activePad = null;
+  let selectedPadId = allPads[0]?.id || 'P1';
+  let touchSolderTimer = null;
   let burnCount = 0;
   let reworkCount = 0;
   let powerOn = false;
   let pcbPowerLedTime = 0;
   let finalized = false;
+
+  const stopTouchHold = () => {
+    if (touchSolderTimer) {
+      clearInterval(touchSolderTimer);
+      touchSolderTimer = null;
+    }
+  };
 
   const wb = createWorkbench3D(api.container, {
     cameraPos: [0, 1.32, 1.48],
@@ -392,6 +401,8 @@ export function createSolderingGame(api) {
     const tagPos = new THREE.Vector3(pad.x + 0.02, 0.21, pad.z + 0.04);
     const tag = wb.addFloatingTag(tagPos, `${pad.label}`);
 
+    const getPadEntry = (pad) => padMeshes.get(pad.id);
+
     wb.addInteractive(grp, {
       label: () => {
         if (pad.state === 'bridge') return `⚠️ ${pad.label} : Pont d'étain — Utiliser Tresse cuivre`;
@@ -402,135 +413,161 @@ export function createSolderingGame(api) {
       },
       dragPlane: solderWorkPlane,
       onDragStart: () => {
-        if (tool === 'wick') {
-          activePad = pad;
-          if (pad.state === 'bridge' || pad.burnt || pad.state === 'cold' || pad.tinProgress > 0) {
-            if (pad.state !== 'bridge') {
-              reworkCount += 1;
-            }
-            if (pad.id === 'U2' || pad.id === 'U3') {
-              allPads.forEach((op) => {
-                if (op.id === 'U2' || op.id === 'U3') {
-                  op.state = 'empty';
-                  op.tinProgress = 0;
-                  op.burnt = false;
-                  op.temp = 60;
-                }
-              });
-              bridgeMesh.visible = false;
-            } else {
-              pad.state = 'empty';
-              pad.tinProgress = 0;
-              pad.burnt = false;
-              pad.temp = 60;
-            }
-            const wp = new THREE.Vector3();
-            grp.getWorldPosition(wp);
-            wb.spawnSparks(wp, { color: '#fbbf24', count: 10 });
-            wb.spawnSmoke(wp, { color: '#f8fafc', count: 5 });
-            sfx.interact();
-            wb.showToast('Tresse cuivre : pastille nettoyée !', 'success');
-            refreshHud();
-          }
-          return;
-        }
-        if (pad.state === 'bridge') {
-          sfx.error();
-          wb.showToast(`⚠️ Pont d’étain sur ${pad.label} : sélectionnez la 🩹 Tresse cuivre !`, 'error');
-          return;
-        }
-        if (pad.state === 'good') {
-          wb.showToast(`✅ ${pad.label} est déjà brasée proprement !`, 'info');
-          return;
-        }
-        activePad = pad;
-        heatingActive = true;
-        if (tool === 'tin') tinFeeding = true;
+        selectedPadId = pad.id;
+        beginPadAction(pad);
       },
       onHoldTick: (dt) => {
-        if (activePad !== pad || tool === 'wick' || pad.state === 'bridge' || pad.state === 'good') return;
-        const tipHeatFactor = Math.max(0.25, (tempC - 210) / 145) / (pad.mass || 1);
-        if (heatingActive) {
-          const heatRate = pad.temp > 320 ? 26 : 108;
-          pad.temp = Math.min(440, pad.temp + dt * heatRate * tipHeatFactor);
-          pad.smokeTimer += dt;
-          if (pad.smokeTimer > 0.14) {
-            pad.smokeTimer = 0;
-            const wp = new THREE.Vector3();
-            grp.getWorldPosition(wp);
-            if (pad.temp > 405) {
-              wb.spawnSmoke(wp, { color: '#1f2937', count: 4, scale: 0.024, speed: 0.22 });
-            } else if (pad.temp >= 205) {
-              wb.spawnSmoke(wp, { color: '#f1f5f9', count: 2, scale: 0.015, speed: 0.14 });
-            }
-          }
-        }
-        if ((tinFeeding || tool === 'tin') && pad.temp >= 200 && !pad.burnt && pad.state !== 'bridge') {
-          pad.tinProgress = Math.min(1, pad.tinProgress + dt * 0.95);
-          if (pad.smokeTimer === 0) {
-            const wp = new THREE.Vector3();
-            grp.getWorldPosition(wp);
-            wb.spawnSparks(wp, { color: '#fde68a', count: 2 });
-          }
-        }
-        if (pad.temp >= 425 && !pad.burnt) {
-          pad.burnt = true;
-          pad.state = 'burnt';
-          burnCount += 1;
-          sfx.error();
-          const wp = new THREE.Vector3();
-          grp.getWorldPosition(wp);
-          wb.spawnSmoke(wp, { color: '#111827', count: 10, scale: 0.032, life: 1.3 });
-          wb.showToast(`🔥 Surchauffe sur ${pad.label} ! Retirez le fer plus vite !`, 'error');
-        }
-        updatePadVisual(pad);
-        holdHudAccum += dt;
-        if (holdHudAccum >= 0.08) {
-          holdHudAccum = 0;
-          refreshHud();
-        }
+        tickPadHold(pad, dt, true);
       },
       onDragEnd: () => {
-        if (activePad === pad && tool !== 'wick') {
-          if (!pad.burnt && pad.state !== 'bridge' && pad.state !== 'good') {
-            if (pad.temp >= 200 && pad.temp < 425 && pad.tinProgress >= 0.65 && Math.round(tempC) >= 315) {
-              pad.state = 'good';
-              const wp = new THREE.Vector3();
-              grp.getWorldPosition(wp);
-              wb.spawnPulseRing(wp, '#10b981', 0.08);
-              sfx.success();
-              if (
-                stageIdx === 0 &&
-                SOLDER_STAGES[0].pads.every((sp) => allPads.find((p) => p.id === sp.id)?.state === 'good')
-              ) {
-                stageIdx = 1;
-                wb.showToast('✅ Étape 1 validée ! Passez à U1 : nettoyez d’abord le pont à la Tresse cuivre.', 'success');
-              }
-            } else if (pad.tinProgress > 0.08) {
-              pad.state = 'cold';
-              sfx.error();
-              const reason =
-                Math.round(tempC) < 315
-                  ? `station trop froide (${Math.round(tempC)}°C < 315°C)`
-                  : pad.tinProgress < 0.65
-                    ? `étain insuffisant (${Math.round(pad.tinProgress * 100)}%)`
-                    : `${Math.round(pad.temp)}°C`;
-              wb.showToast(`❄️ ${pad.label} : soudure froide (${reason})`, 'error');
-            }
-          }
-          heatingActive = false;
-          tinFeeding = false;
-          activePad = null;
-          updatePadVisual(pad);
-          refreshHud();
-        } else if (activePad === pad && tool === 'wick') {
-          activePad = null;
-        }
+        finishPadAction(pad);
       }
     });
 
     padMeshes.set(pad.id, { grp, ring, cone, heatHalo, heatHaloMat, tag });
   });
+
+  function beginPadAction(pad) {
+    if (!pad) return;
+    selectedPadId = pad.id;
+    const pm = padMeshes.get(pad.id);
+    if (!pm) return;
+    const wpPos = new THREE.Vector3();
+    pm.grp.getWorldPosition(wpPos);
+    ironTargetPos.set(wpPos.x, 0.23, wpPos.z);
+
+    if (tool === 'wick') {
+      activePad = pad;
+      if (pad.state === 'bridge' || pad.burnt || pad.state === 'cold' || pad.tinProgress > 0) {
+        if (pad.state !== 'bridge') {
+          reworkCount += 1;
+        }
+        if (pad.id === 'U2' || pad.id === 'U3') {
+          allPads.forEach((op) => {
+            if (op.id === 'U2' || op.id === 'U3') {
+              op.state = 'empty';
+              op.tinProgress = 0;
+              op.burnt = false;
+              op.temp = 60;
+            }
+          });
+          bridgeMesh.visible = false;
+        } else {
+          pad.state = 'empty';
+          pad.tinProgress = 0;
+          pad.burnt = false;
+          pad.temp = 60;
+        }
+        allPads.forEach(updatePadVisual);
+        wb.spawnSparks(wpPos, { color: '#fbbf24', count: 10 });
+        wb.spawnSmoke(wpPos, { color: '#f8fafc', count: 5 });
+        sfx.interact();
+        wb.showToast('Tresse cuivre : pastille nettoyée !', 'success');
+        refreshHud();
+      }
+      return;
+    }
+    if (pad.state === 'bridge') {
+      sfx.error();
+      wb.showToast(`⚠️ Pont d’étain sur ${pad.label} : sélectionnez la 🩹 Tresse cuivre !`, 'error');
+      return;
+    }
+    if (pad.state === 'good') {
+      wb.showToast(`✅ ${pad.label} est déjà brasée proprement !`, 'info');
+      return;
+    }
+    activePad = pad;
+    heatingActive = true;
+    if (tool === 'tin') tinFeeding = true;
+  }
+
+  function tickPadHold(pad, dt, allowHudRefresh = false) {
+    if (!pad || activePad !== pad || tool === 'wick' || pad.state === 'bridge' || pad.state === 'good') return;
+    const pm = padMeshes.get(pad.id);
+    if (!pm) return;
+    const wp = new THREE.Vector3();
+    pm.grp.getWorldPosition(wp);
+    const tipHeatFactor = Math.max(0.25, (tempC - 210) / 145) / (pad.mass || 1);
+    if (heatingActive) {
+      const heatRate = pad.temp > 320 ? 26 : 108;
+      pad.temp = Math.min(440, pad.temp + dt * heatRate * tipHeatFactor);
+      pad.smokeTimer += dt;
+      if (pad.smokeTimer > 0.14) {
+        pad.smokeTimer = 0;
+        if (pad.temp > 405) {
+          wb.spawnSmoke(wp, { color: '#1f2937', count: 4, scale: 0.024, speed: 0.22 });
+        } else if (pad.temp >= 205) {
+          wb.spawnSmoke(wp, { color: '#f1f5f9', count: 2, scale: 0.015, speed: 0.14 });
+        }
+      }
+    }
+    if ((tinFeeding || tool === 'tin') && pad.temp >= 200 && !pad.burnt && pad.state !== 'bridge') {
+      pad.tinProgress = Math.min(1, pad.tinProgress + dt * 0.95);
+      if (pad.smokeTimer === 0) {
+        wb.spawnSparks(wp, { color: '#fde68a', count: 2 });
+      }
+    }
+    if (pad.temp >= 425 && !pad.burnt) {
+      pad.burnt = true;
+      pad.state = 'burnt';
+      burnCount += 1;
+      sfx.error();
+      wb.spawnSmoke(wp, { color: '#111827', count: 10, scale: 0.032, life: 1.3 });
+      wb.showToast(`🔥 Surchauffe sur ${pad.label} ! Retirez le fer plus vite !`, 'error');
+    }
+    updatePadVisual(pad);
+    if (allowHudRefresh) {
+      holdHudAccum += dt;
+      if (holdHudAccum >= 0.14) {
+        holdHudAccum = 0;
+        syncLiveSolderReadout(pad);
+      }
+    }
+  }
+
+  function finishPadAction(pad) {
+    if (!pad) return;
+    const pm = padMeshes.get(pad.id);
+    if (activePad === pad && tool !== 'wick') {
+      if (!pad.burnt && pad.state !== 'bridge' && pad.state !== 'good') {
+        if (pad.temp >= 200 && pad.temp < 425 && pad.tinProgress >= 0.65 && Math.round(tempC) >= 315) {
+          pad.state = 'good';
+          if (pm) {
+            const wp = new THREE.Vector3();
+            pm.grp.getWorldPosition(wp);
+            wb.spawnPulseRing(wp, '#10b981', 0.08);
+          }
+          sfx.success();
+          const nextPending = allPads.find((p) => p.state !== 'good');
+          if (nextPending) selectedPadId = nextPending.id;
+          if (
+            stageIdx === 0 &&
+            SOLDER_STAGES[0].pads.every((sp) => allPads.find((p) => p.id === sp.id)?.state === 'good')
+          ) {
+            stageIdx = 1;
+            wb.showToast('✅ Étape 1 validée ! Passez à U1 : nettoyez d’abord le pont à la Tresse cuivre.', 'success');
+          }
+        } else if (pad.tinProgress > 0.08) {
+          pad.state = 'cold';
+          sfx.error();
+          const reason =
+            Math.round(tempC) < 315
+              ? `station trop froide (${Math.round(tempC)}°C < 315°C)`
+              : pad.tinProgress < 0.65
+                ? `étain insuffisant (${Math.round(pad.tinProgress * 100)}%)`
+                : `${Math.round(pad.temp)}°C`;
+          wb.showToast(`❄️ ${pad.label} : soudure froide (${reason})`, 'error');
+        }
+      }
+      heatingActive = false;
+      tinFeeding = false;
+      activePad = null;
+      updatePadVisual(pad);
+      refreshHud();
+    } else if (activePad === pad && tool === 'wick') {
+      activePad = null;
+    }
+  }
 
   function updatePadVisual(pad) {
     const pm = padMeshes.get(pad.id);
@@ -888,6 +925,57 @@ export function createSolderingGame(api) {
     refreshHud();
   }
 
+  let liveReadoutEl = null;
+  function syncLiveSolderReadout(pad) {
+    if (!pad || !liveReadoutEl) return;
+    liveReadoutEl.textContent = `${pad.label} : ${Math.round(pad.temp)}°C • Étain ${Math.round(pad.tinProgress * 100)}%`;
+  }
+
+  wb.setInspectableView?.({
+    title: 'Zoom Carte PCB & Pastilles',
+    subtitle: 'Visualisation agrandie des 8 pastilles, température et qualité de brasure',
+    label: '🔎 Zoom PCB',
+    draw: (ctx, w, h) => {
+      ctx.fillStyle = '#064e3b';
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = '#34d399';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(24, 24, w - 48, h - 48);
+      ctx.fillStyle = '#ecfdf5';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText(`PCB CIEL — Station ${Math.round(tempC)}°C (Cible 340–365°C)`, 44, 58);
+      allPads.forEach((pad) => {
+        const px = w * 0.5 + pad.x * (w * 0.68);
+        const py = h * 0.54 + pad.z * (h * 1.15);
+        const r = pad.r * 520;
+        const isSel = pad.id === selectedPadId;
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fillStyle =
+          pad.state === 'good'
+            ? '#22c55e'
+            : pad.state === 'bridge'
+              ? '#f59e0b'
+              : pad.burnt
+                ? '#334155'
+                : pad.state === 'cold'
+                  ? '#60a5fa'
+                  : '#d97706';
+        ctx.fill();
+        ctx.lineWidth = isSel ? 5 : 2;
+        ctx.strokeStyle = isSel ? '#38bdf8' : '#fef3c7';
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(pad.label, px, py - r - 10);
+        ctx.font = '12px sans-serif';
+        ctx.fillText(`${Math.round(pad.temp)}°C | ${Math.round(pad.tinProgress * 100)}%`, px, py + r + 18);
+      });
+      ctx.textAlign = 'left';
+    }
+  });
+
   function refreshHud() {
     const stagePads = SOLDER_STAGES[stageIdx].pads.map((sp) => allPads.find((p) => p.id === sp.id));
     api.setStages(
@@ -958,8 +1046,168 @@ export function createSolderingGame(api) {
         label: '⚡ Tester PCB 5V',
         primary: goodCount === allPads.length,
         onClick: () => triggerPowerTest()
+      },
+      {
+        label: '💡 Indice',
+        onClick: () => {
+          const hasBridge = allPads.some((p) => p.state === 'bridge');
+          const msg = !fumeExtractorOn
+            ? 'Allumez d’abord l’extracteur de fumées et réglez le fer entre 340°C et 365°C.'
+            : hasBridge && tool !== 'wick'
+              ? 'Un pont d’étain reste sur U1-TX/RX : passez en outil « Tresse cuivre » et touchez U1.'
+              : 'Sélectionnez une pastille P1..LED-OK, utilisez « Fer + Fil d’étain », maintenez jusqu’à 70–100% sous 425°C puis relâchez !';
+          wb.showToast(msg, 'info');
+        }
+      },
+      {
+        label: '🔄 Réinitialiser',
+        onClick: () => {
+          stopTouchHold();
+          stageIdx = 0;
+          tempC = 280;
+          tempDialRaw = 280;
+          fumeExtractorOn = false;
+          fumeLedMat.emissiveIntensity = 0.05;
+          tool = 'iron';
+          heatingActive = false;
+          tinFeeding = false;
+          activePad = null;
+          burnCount = 0;
+          reworkCount = 0;
+          powerOn = false;
+          pcbPowerLedTime = 0;
+          finalized = false;
+          pwrLever.rotation.x = -0.35;
+          pcbLeds.forEach((l) => (l.mat.emissiveIntensity = 0.05));
+          const initialMap = new Map(
+            [...SOLDER_STAGES[0].pads, ...SOLDER_STAGES[1].pads].map((p) => [p.id, p])
+          );
+          allPads.forEach((pad) => {
+            const orig = initialMap.get(pad.id);
+            pad.state = orig?.state || 'empty';
+            pad.temp = 25;
+            pad.tinProgress = pad.state === 'bridge' ? 1 : 0;
+            pad.burnt = false;
+            pad.smokeTimer = 0;
+            updatePadVisual(pad);
+          });
+          selectedPadId = allPads[0]?.id || 'P1';
+          bridgeMesh.visible = true;
+          syncKnobAngle();
+          sfx.click();
+          wb.showToast('Carte PCB & station de soudure réinitialisées.', 'info');
+          refreshHud();
+        }
       }
     ]);
+
+    const curPad = allPads.find((p) => p.id === selectedPadId) || allPads[0];
+    const drawerEl = wb.setSideDrawer?.(`
+      <div class="tp3d-drawer-section">
+        <div class="tp3d-drawer-title">🌡️ Station de Soudage</div>
+        <div class="av-slider-row">
+          <div class="av-slider-head"><span>Température Fer</span><span id="solder-temp-lbl">${Math.round(tempC)}°C</span></div>
+          <input type="range" id="solder-rng-temp" min="260" max="420" step="5" data-fine-step="5" value="${Math.round(tempC)}">
+        </div>
+      </div>
+      <div class="tp3d-drawer-section">
+        <div class="tp3d-drawer-title">🔩 Pastilles PCB (Tap pour cibler)</div>
+        <div class="av-link-grid">
+          ${allPads
+            .map((p) => {
+              const icon =
+                p.state === 'good'
+                  ? '✅'
+                  : p.state === 'bridge'
+                    ? '⚠️'
+                    : p.burnt
+                      ? '💀'
+                      : p.state === 'cold'
+                        ? '❄️'
+                        : '🔥';
+              return `<button type="button" class="tp-connect-btn ${p.state === 'good' ? 'done' : ''} ${p.id === selectedPadId ? 'selected' : ''}" data-pad-id="${p.id}">${icon} ${p.label}</button>`;
+            })
+            .join('')}
+        </div>
+      </div>
+      <div class="tp3d-drawer-section">
+        <div class="tp3d-drawer-title">✋ Action Tactile : ${curPad?.label || ''}</div>
+        <div id="solder-live-stat" class="av-status-line">${curPad ? `${curPad.label} : ${Math.round(curPad.temp)}°C • Étain ${Math.round(curPad.tinProgress * 100)}%` : ''}</div>
+        <button type="button" id="solder-hold-btn" class="tp3d-action-btn primary tp-hold-btn">
+          ${tool === 'wick' ? `🩹 Nettoyer ${curPad?.label || ''} (Tresse)` : `🔥 Maintenir pour Braser ${curPad?.label || ''}`}
+        </button>
+      </div>
+    `);
+
+    if (drawerEl) {
+      liveReadoutEl = drawerEl.querySelector('#solder-live-stat');
+      const tempInput = drawerEl.querySelector('#solder-rng-temp');
+      const tempLbl = drawerEl.querySelector('#solder-temp-lbl');
+      tempInput?.addEventListener('input', () => {
+        tempC = Math.round(Number(tempInput.value));
+        tempDialRaw = tempC;
+        if (tempLbl) tempLbl.textContent = `${tempC}°C`;
+        syncKnobAngle();
+      });
+      tempInput?.addEventListener('change', () => {
+        tempC = Math.round(Number(tempInput.value));
+        tempDialRaw = tempC;
+        syncKnobAngle();
+        refreshHud();
+      });
+      drawerEl.querySelectorAll('[data-pad-id]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          selectedPadId = btn.dataset.padId;
+          const target = allPads.find((p) => p.id === selectedPadId);
+          const pm = target && padMeshes.get(target.id);
+          if (pm) {
+            const wp = new THREE.Vector3();
+            pm.grp.getWorldPosition(wp);
+            ironTargetPos.set(wp.x, 0.25, wp.z);
+          }
+          sfx.click();
+          refreshHud();
+        });
+      });
+      const holdBtn = drawerEl.querySelector('#solder-hold-btn');
+      if (holdBtn) {
+        let holdingTouch = false;
+        const releaseHold = () => {
+          if (!holdingTouch) return;
+          holdingTouch = false;
+          holdBtn.classList.remove('pressed');
+          stopTouchHold();
+          const pad = allPads.find((p) => p.id === selectedPadId);
+          if (pad) finishPadAction(pad);
+        };
+        holdBtn.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const pad = allPads.find((p) => p.id === selectedPadId);
+          if (!pad) return;
+          if (tool === 'iron' && pad.state !== 'bridge' && pad.state !== 'good') {
+            tool = 'tin';
+          }
+          beginPadAction(pad);
+          if (tool === 'wick') return;
+          if (pad.state === 'bridge' || pad.state === 'good') return;
+          holdingTouch = true;
+          holdBtn.classList.add('pressed');
+          stopTouchHold();
+          touchSolderTimer = setInterval(() => {
+            const cur = allPads.find((p) => p.id === selectedPadId);
+            if (!cur || cur.burnt || cur.state === 'good') {
+              releaseHold();
+              return;
+            }
+            tickPadHold(cur, 0.05, true);
+          }, 50);
+        });
+        holdBtn.addEventListener('pointerup', releaseHold);
+        holdBtn.addEventListener('pointercancel', releaseHold);
+        holdBtn.addEventListener('pointerleave', releaseHold);
+      }
+    }
 
     wb.setVrExtras?.({
       sliders: [
@@ -1058,6 +1306,9 @@ export function createSolderingGame(api) {
   refreshHud();
 
   return {
-    destroy: () => wb.destroy()
+    destroy: () => {
+      stopTouchHold();
+      wb.destroy();
+    }
   };
 }

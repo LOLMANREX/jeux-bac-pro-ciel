@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { sfx } from '../core/audio.js';
+import { detectDeviceProfile } from '../core/gameState.js';
+import { computeAdaptivePixelRatio } from '../world/SceneManager.js';
+import { createInspectZoomOverlay, enhanceRangeInputsWithSteppers } from './TouchTpHelpers.js';
 
 function createRng(seed) {
   let s = seed >>> 0;
@@ -132,6 +135,13 @@ export function createWorkbench3D(container, options = {}) {
       </div>
     </div>
     <div class="tp3d-cameras" id="tp3d-cameras"></div>
+    <div class="tp3d-zoom-bar" id="tp3d-zoom-bar">
+      <button type="button" class="tp3d-zoom-btn" id="tp3d-zoom-in" title="Zoomer">🔍+</button>
+      <button type="button" class="tp3d-zoom-btn" id="tp3d-zoom-out" title="Dézoomer">🔍−</button>
+      <button type="button" class="tp3d-zoom-btn" id="tp3d-zoom-reset" title="Réinitialiser la vue">🎯</button>
+      <button type="button" class="tp3d-zoom-btn tp3d-inspect-btn hidden" id="tp3d-inspect-btn">🔎 Agrandir l’écran</button>
+      <button type="button" class="tp3d-zoom-btn tp3d-drawer-toggle hidden" id="tp3d-drawer-toggle">📋 Panneau TP ▾</button>
+    </div>
     <div class="tp3d-side-drawer hidden" id="tp3d-side-drawer"></div>
     <div class="tp3d-tooltip hidden" id="tp3d-tooltip"></div>
     <div class="tp3d-toast hidden" id="tp3d-toast"></div>
@@ -150,6 +160,12 @@ export function createWorkbench3D(container, options = {}) {
   const briefSubEl = root.querySelector('#tp3d-brief-sub');
   const accValEl = root.querySelector('#tp3d-acc-val');
   const camerasEl = root.querySelector('#tp3d-cameras');
+  const zoomBarEl = root.querySelector('#tp3d-zoom-bar');
+  const zoomInBtn = root.querySelector('#tp3d-zoom-in');
+  const zoomOutBtn = root.querySelector('#tp3d-zoom-out');
+  const zoomResetBtn = root.querySelector('#tp3d-zoom-reset');
+  const inspectBtn = root.querySelector('#tp3d-inspect-btn');
+  const drawerToggleBtn = root.querySelector('#tp3d-drawer-toggle');
   const sideDrawerEl = root.querySelector('#tp3d-side-drawer');
   const tooltipEl = root.querySelector('#tp3d-tooltip');
   const toastEl = root.querySelector('#tp3d-toast');
@@ -185,6 +201,7 @@ export function createWorkbench3D(container, options = {}) {
   camera.position.copy(baseCamPos);
   camera.lookAt(curLookAt);
 
+  const devProfile = detectDeviceProfile();
   let renderer = null;
   let envTarget = null;
   if (vrActive) {
@@ -194,10 +211,17 @@ export function createWorkbench3D(container, options = {}) {
   } else {
     renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: !devProfile.isMobile,
       powerPreference: 'high-performance'
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(
+      computeAdaptivePixelRatio({
+        devicePixelRatio: window.devicePixelRatio || 1,
+        quality: 'high',
+        isMobile: devProfile.isMobile,
+        isTablet: devProfile.isTablet
+      })
+    );
     renderer.setSize(initW, initH, false);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.02;
@@ -219,7 +243,7 @@ export function createWorkbench3D(container, options = {}) {
   const keyLight = new THREE.DirectionalLight('#fff6e8', 1.48);
   keyLight.position.set(2.8, 4.6, 2.9);
   keyLight.castShadow = true;
-  keyLight.shadow.mapSize.set(1024, 1024);
+  keyLight.shadow.mapSize.set(devProfile.isMobile ? 512 : 1024, devProfile.isMobile ? 512 : 1024);
   keyLight.shadow.camera.near = 0.5;
   keyLight.shadow.camera.far = 14;
   keyLight.shadow.camera.left = -3.5;
@@ -466,6 +490,9 @@ export function createWorkbench3D(container, options = {}) {
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   const defaultDragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.02);
+  const activePointers = new Map();
+  let pinchStartDist = 0;
+  let pinchStartZoom = 1.0;
   let activePointerId = null;
   let hoveredEntry = null;
   let dragEntry = null;
@@ -474,6 +501,10 @@ export function createWorkbench3D(container, options = {}) {
   let pointerDownPos = { x: 0, y: 0 };
   let lastPointerPos = { x: 0, y: 0 };
   let totalDragPx = 0;
+  let drawerSteppersCleanup = null;
+  let inspectViewSpec = null;
+  let activeZoomOverlay = null;
+  let drawerCollapsed = false;
 
   const toNdc = (clientX, clientY) => {
     const b = canvas.getBoundingClientRect();
@@ -482,7 +513,7 @@ export function createWorkbench3D(container, options = {}) {
     return ndc;
   };
 
-  const pickInteractive = (clientX, clientY) => {
+  const raycastSinglePoint = (clientX, clientY) => {
     toNdc(clientX, clientY);
     raycaster.setFromCamera(ndc, camera);
     const hits = raycaster.intersectObjects(interactiveMeshes, false);
@@ -491,6 +522,21 @@ export function createWorkbench3D(container, options = {}) {
       if (entry && entry.enabled()) {
         return { entry, hit: h };
       }
+    }
+    return null;
+  };
+
+  const pickInteractive = (clientX, clientY, isTouch = false) => {
+    const direct = raycastSinglePoint(clientX, clientY);
+    if (direct || !isTouch) return direct;
+    const offsets = [
+      [14, 0], [-14, 0], [0, 14], [0, -14],
+      [12, 12], [-12, 12], [12, -12], [-12, -12],
+      [22, 0], [-22, 0], [0, 22], [0, -22]
+    ];
+    for (const [ox, oy] of offsets) {
+      const near = raycastSinglePoint(clientX + ox, clientY + oy);
+      if (near) return near;
     }
     return null;
   };
@@ -582,6 +628,8 @@ export function createWorkbench3D(container, options = {}) {
       canvas.releasePointerCapture?.(activePointerId);
       activePointerId = null;
     }
+    activePointers.clear();
+    pinchStartDist = 0;
     if (hoveredEntry) {
       setEntryHighlight(hoveredEntry, false);
       hoveredEntry = null;
@@ -610,6 +658,17 @@ export function createWorkbench3D(container, options = {}) {
   const onPointerMoveCallbackFns = [];
 
   const handlePointerDown = (e) => {
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (activePointers.size === 2) {
+      const pts = Array.from(activePointers.values());
+      pinchStartDist = Math.max(10, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
+      pinchStartZoom = zoomFactor;
+      activePointerId = null;
+      dragEntry = null;
+      dragHit = null;
+      orbiting = false;
+      return;
+    }
     if (activePointerId !== null && activePointerId !== e.pointerId) return;
     activePointerId = e.pointerId;
     canvas.setPointerCapture?.(e.pointerId);
@@ -617,14 +676,20 @@ export function createWorkbench3D(container, options = {}) {
     lastPointerPos = { x: e.clientX, y: e.clientY };
     totalDragPx = 0;
 
-    const picked = pickInteractive(e.clientX, e.clientY);
+    const isTouch = e.pointerType === 'touch';
+    const picked = pickInteractive(e.clientX, e.clientY, isTouch);
     if (picked) {
       dragEntry = picked.entry;
       dragHit = picked.hit;
       orbiting = false;
       const planePt = projectOntoPlane(e.clientX, e.clientY, dragEntry.dragPlane);
       runWithSuspendedHighlight(() => {
-        dragEntry?.onDragStart?.(dragHit, { clientX: e.clientX, clientY: e.clientY, planePoint: planePt });
+        dragEntry?.onDragStart?.(dragHit, {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          planePoint: planePt,
+          pointerType: e.pointerType
+        });
       });
     } else {
       dragEntry = null;
@@ -634,6 +699,16 @@ export function createWorkbench3D(container, options = {}) {
   };
 
   const handlePointerMove = (e) => {
+    if (activePointers.has(e.pointerId)) {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activePointers.size === 2 && pinchStartDist > 0) {
+        const pts = Array.from(activePointers.values());
+        const dist = Math.max(10, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
+        zoomFactor = Math.max(0.55, Math.min(1.55, pinchStartZoom * (pinchStartDist / dist)));
+        return;
+      }
+    }
+
     const dx = e.clientX - lastPointerPos.x;
     const dy = e.clientY - lastPointerPos.y;
     lastPointerPos = { x: e.clientX, y: e.clientY };
@@ -647,7 +722,11 @@ export function createWorkbench3D(container, options = {}) {
       if (dragEntry) {
         const planePt = projectOntoPlane(e.clientX, e.clientY, dragEntry.dragPlane);
         runWithSuspendedHighlight(() => {
-          dragEntry?.onDragMove?.(planePt, dx, dy, dragHit, { clientX: e.clientX, clientY: e.clientY });
+          dragEntry?.onDragMove?.(planePt, dx, dy, dragHit, {
+            clientX: e.clientX,
+            clientY: e.clientY,
+            pointerType: e.pointerType
+          });
         });
         updateTooltip(dragEntry, e.clientX, e.clientY);
         return;
@@ -659,6 +738,8 @@ export function createWorkbench3D(container, options = {}) {
       }
     }
 
+    if (e.pointerType === 'touch') return;
+
     if (e.target && e.target !== canvas) {
       if (hoveredEntry) {
         setEntryHighlight(hoveredEntry, false);
@@ -669,7 +750,7 @@ export function createWorkbench3D(container, options = {}) {
       return;
     }
 
-    const picked = pickInteractive(e.clientX, e.clientY);
+    const picked = pickInteractive(e.clientX, e.clientY, false);
     const nextHover = picked?.entry || null;
     if (nextHover !== hoveredEntry) {
       if (hoveredEntry) setEntryHighlight(hoveredEntry, false);
@@ -681,18 +762,34 @@ export function createWorkbench3D(container, options = {}) {
   };
 
   const handlePointerUp = (e) => {
+    activePointers.delete(e.pointerId);
+    if (activePointers.size < 2) {
+      pinchStartDist = 0;
+    }
     if (activePointerId !== e.pointerId) return;
     canvas.releasePointerCapture?.(e.pointerId);
     if (dragEntry) {
       const targetDrag = dragEntry;
       const targetHit = dragHit;
       const dist = totalDragPx;
+      const tapThreshold = e.pointerType === 'touch' ? 16 : 9;
       const planePt = projectOntoPlane(e.clientX, e.clientY, targetDrag.dragPlane);
       runWithSuspendedHighlight(() => {
-        if (dist < 9 && targetDrag.onClick) {
-          targetDrag.onClick(targetHit, { clientX: e.clientX, clientY: e.clientY, planePoint: planePt });
+        if (dist < tapThreshold && targetDrag.onClick) {
+          targetDrag.onClick(targetHit, {
+            clientX: e.clientX,
+            clientY: e.clientY,
+            planePoint: planePt,
+            pointerType: e.pointerType
+          });
         }
-        targetDrag.onDragEnd?.({ clientX: e.clientX, clientY: e.clientY, planePoint: planePt, dragDist: dist });
+        targetDrag.onDragEnd?.({
+          clientX: e.clientX,
+          clientY: e.clientY,
+          planePoint: planePt,
+          dragDist: dist,
+          pointerType: e.pointerType
+        });
       });
     }
     activePointerId = null;
@@ -736,11 +833,44 @@ export function createWorkbench3D(container, options = {}) {
     window.addEventListener('blur', resetInteractionState);
     canvas.addEventListener('wheel', handleWheel, { passive: false });
     window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
     resizeObserver =
       typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => handleResize()) : null;
     resizeObserver?.observe(container);
     requestAnimationFrame(() => handleResize());
   }
+
+  zoomInBtn?.addEventListener('click', () => {
+    sfx.click();
+    zoomFactor = Math.max(0.55, Math.min(1.55, zoomFactor - 0.14));
+  });
+  zoomOutBtn?.addEventListener('click', () => {
+    sfx.click();
+    zoomFactor = Math.max(0.55, Math.min(1.55, zoomFactor + 0.14));
+  });
+  zoomResetBtn?.addEventListener('click', () => {
+    sfx.click();
+    orbitYaw = 0;
+    orbitPitch = 0;
+    zoomFactor = 1.0;
+  });
+  inspectBtn?.addEventListener('click', () => {
+    if (!inspectViewSpec) return;
+    sfx.click();
+    activeZoomOverlay?.close?.();
+    activeZoomOverlay = createInspectZoomOverlay(root, {
+      ...inspectViewSpec,
+      onClose: () => {
+        activeZoomOverlay = null;
+      }
+    });
+  });
+  drawerToggleBtn?.addEventListener('click', () => {
+    sfx.click();
+    drawerCollapsed = !drawerCollapsed;
+    root.classList.toggle('drawer-collapsed', drawerCollapsed);
+    drawerToggleBtn.textContent = drawerCollapsed ? '📋 Panneau TP ▸' : '📋 Panneau TP ▾';
+  });
 
   let rafId = null;
   const mountTime = performance.now();
@@ -793,6 +923,13 @@ export function createWorkbench3D(container, options = {}) {
     );
     elements.forEach((el) => {
       if (seenEls.has(el) || el.hidden || el.style.display === 'none') return;
+      if (
+        el.dataset?.stepperBtn === '1' ||
+        el.dataset?.keypadBtn === '1' ||
+        el.closest?.('.tp-virtual-keypad')
+      ) {
+        return;
+      }
       seenEls.add(el);
       if (el.tagName === 'INPUT' && el.type === 'text') {
         const form = el.closest('form');
@@ -1134,20 +1271,40 @@ export function createWorkbench3D(container, options = {}) {
       syncVrPanel();
     },
     setSideDrawer: (html) => {
+      drawerSteppersCleanup?.();
+      drawerSteppersCleanup = null;
       if (!html) {
         sideDrawerEl.classList.add('hidden');
         sideDrawerEl.innerHTML = '';
+        drawerToggleBtn?.classList.add('hidden');
         vrState.drawerControls = [];
         syncVrPanel();
         return null;
       }
       sideDrawerEl.innerHTML = html;
       sideDrawerEl.classList.remove('hidden');
+      drawerToggleBtn?.classList.remove('hidden');
+      drawerSteppersCleanup = enhanceRangeInputsWithSteppers(sideDrawerEl, {
+        onStep: () => sfx.click()
+      });
       extractDrawerControls();
       syncVrPanel();
       return sideDrawerEl;
     },
+    setInspectableView: (spec) => {
+      inspectViewSpec = spec || null;
+      if (inspectBtn) {
+        inspectBtn.classList.toggle('hidden', !inspectViewSpec);
+        if (inspectViewSpec?.label) {
+          inspectBtn.textContent = inspectViewSpec.label;
+        }
+      }
+    },
     refreshDrawerControls: () => {
+      drawerSteppersCleanup?.();
+      drawerSteppersCleanup = enhanceRangeInputsWithSteppers(sideDrawerEl, {
+        onStep: () => sfx.click()
+      });
       extractDrawerControls();
       syncVrPanel();
     },
@@ -1184,6 +1341,10 @@ export function createWorkbench3D(container, options = {}) {
     destroy: () => {
       if (rafId) cancelAnimationFrame(rafId);
       if (toastTimer) clearTimeout(toastTimer);
+      activeZoomOverlay?.close?.();
+      activeZoomOverlay = null;
+      drawerSteppersCleanup?.();
+      drawerSteppersCleanup = null;
       resetInteractionState();
       updaters.length = 0;
       onPointerMoveCallbackFns.length = 0;
@@ -1198,6 +1359,7 @@ export function createWorkbench3D(container, options = {}) {
         window.removeEventListener('blur', resetInteractionState);
         canvas.removeEventListener('wheel', handleWheel);
         window.removeEventListener('resize', handleResize);
+        window.removeEventListener('orientationchange', handleResize);
         resizeObserver?.disconnect();
       }
       for (const pt of particles) pt.mat.dispose();

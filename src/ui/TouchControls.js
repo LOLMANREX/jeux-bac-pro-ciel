@@ -1,3 +1,43 @@
+export function formatInteractAction(target) {
+  if (!target) {
+    return { icon: '👆', shortLabel: 'Interagir', fullLabel: 'Interagir' };
+  }
+  const lbl = String(target.label || '').trim();
+  if (target.id === 'teacher') {
+    return {
+      icon: '👨‍🏫',
+      shortLabel: 'Parler',
+      fullLabel: lbl || 'Parler au Professeur CIEL'
+    };
+  }
+  if (target.type === 'pc_station' || /PC|CIEL OS/i.test(lbl)) {
+    return {
+      icon: '🖥️',
+      shortLabel: 'Utiliser PC',
+      fullLabel: lbl || 'Utiliser le PC (CIEL OS)'
+    };
+  }
+  if (target.type === 'hiding_rack' || /Baie|Cacher/i.test(lbl)) {
+    return {
+      icon: '🗄️',
+      shortLabel: 'Baie',
+      fullLabel: lbl || 'Baie de Brassage'
+    };
+  }
+  if (target.type === 'shop_kiosk' || /Boutique/i.test(lbl)) {
+    return {
+      icon: '🛒',
+      shortLabel: 'Boutique',
+      fullLabel: lbl || 'Ouvrir la Boutique CIEL'
+    };
+  }
+  return {
+    icon: '👆',
+    shortLabel: 'Interagir',
+    fullLabel: lbl || 'Lancer le TP'
+  };
+}
+
 export class TouchControls {
   constructor(player, handlers = {}) {
     this.player = player;
@@ -11,6 +51,7 @@ export class TouchControls {
     this.hudTopEl = document.querySelector('.hud-top');
     this.hudActionsEl = document.querySelector('.hud-actions');
 
+    this.btnContextInteract = document.getElementById('touch-context-interact');
     this.btnInteract = document.getElementById('touch-btn-interact');
     this.btnJump = document.getElementById('touch-btn-jump');
     this.btnSprint = document.getElementById('touch-btn-sprint');
@@ -18,22 +59,26 @@ export class TouchControls {
     this.btnMic = document.getElementById('touch-btn-mic');
 
     this.visible = false;
-    this.joyTouchId = null;
-    this.joyMouseActive = false;
+    this.joyPointerId = null;
     this.joyOrigin = { x: 0, y: 0 };
     this.joyRadius = 46;
 
-    this.lookTouchId = null;
+    this.lookPointerId = null;
     this.lookLast = { x: 0, y: 0 };
     this.lookStart = { x: 0, y: 0 };
     this.lookMoved = 0;
 
     this.sprintActive = false;
+    this.currentTarget = null;
+    this._cleanups = [];
 
     this._bindJoystick();
     this._bindLookZone();
     this._bindActionButtons();
-    window.addEventListener('blur', () => this.resetInputs());
+
+    const onBlur = () => this.resetInputs();
+    window.addEventListener('blur', onBlur);
+    this._cleanups.push(() => window.removeEventListener('blur', onBlur));
   }
 
   setVisible(show) {
@@ -44,12 +89,12 @@ export class TouchControls {
     if (!this.visible) {
       this.resetInputs();
     }
+    this.setInteractTarget(this.currentTarget);
   }
 
   resetInputs() {
-    this.joyTouchId = null;
-    this.joyMouseActive = false;
-    this.lookTouchId = null;
+    this.joyPointerId = null;
+    this.lookPointerId = null;
     this.player.setMoveVector(0, 0);
     if (this.joyKnob) {
       this.joyKnob.style.transform = 'translate(0px, 0px)';
@@ -76,7 +121,7 @@ export class TouchControls {
     const transmitting = Boolean(voiceState.transmitting);
     const speaking = Boolean(voiceState.isSpeaking);
     const inTpMuted = Boolean(voiceState.inTp && voiceState.tpBehavior === 'mute');
-    const err = Boolean(voiceState.errorMessage && !voiceState.micEnabled);
+    const err = Boolean(voiceState.errorMessage && !micOn);
 
     this.btnMic.classList.toggle('active', micOn && !inTpMuted);
     this.btnMic.classList.toggle('speaking', speaking);
@@ -104,15 +149,27 @@ export class TouchControls {
   }
 
   setInteractTarget(target) {
-    if (!this.btnInteract) return;
-    const available = Boolean(target);
-    this.btnInteract.classList.toggle('ready', available);
-    this.btnInteract.disabled = !available;
-    const lbl = this.btnInteract.querySelector('.tb-lbl');
-    if (lbl) {
-      if (!target) lbl.textContent = 'Interagir';
-      else if (target.id === 'teacher') lbl.textContent = 'Parler';
-      else lbl.textContent = 'Lancer TP';
+    this.currentTarget = target || null;
+    const available = Boolean(this.currentTarget);
+    const info = formatInteractAction(this.currentTarget);
+
+    if (this.btnInteract) {
+      this.btnInteract.classList.toggle('ready', available);
+      this.btnInteract.disabled = !available;
+      const ico = this.btnInteract.querySelector('.tb-ico');
+      const lbl = this.btnInteract.querySelector('.tb-lbl');
+      if (ico) ico.textContent = info.icon;
+      if (lbl) lbl.textContent = info.shortLabel;
+    }
+
+    if (this.btnContextInteract) {
+      this.btnContextInteract.classList.toggle('hidden', !(available && this.visible));
+      const ico = this.btnContextInteract.querySelector('.tci-ico');
+      const main = this.btnContextInteract.querySelector('.tci-main');
+      const sub = this.btnContextInteract.querySelector('.tci-sub');
+      if (ico) ico.textContent = info.icon;
+      if (main) main.textContent = `${info.icon} Interagir`;
+      if (sub) sub.textContent = available ? info.fullLabel : '';
     }
   }
 
@@ -141,85 +198,71 @@ export class TouchControls {
     this.player.setMoveVector(nx, -ny);
   }
 
-  _initJoyOrigin() {
+  _initJoyOrigin(clientX = null, clientY = null) {
     if (!this.joyBase) return;
-    const rect = this.joyBase.getBoundingClientRect();
-    this.joyOrigin = {
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2
-    };
-    this.joyRadius = Math.max(32, rect.width * 0.42);
+    const rect = this.joyBase.getBoundingClientRect?.();
+    if (rect && rect.width > 0) {
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
+        const distFromCenter = Math.hypot(clientX - cx, clientY - cy);
+        if (distFromCenter <= rect.width * 0.72) {
+          this.joyOrigin = { x: cx, y: cy };
+        } else {
+          this.joyOrigin = { x: clientX, y: clientY };
+        }
+      } else {
+        this.joyOrigin = { x: cx, y: cy };
+      }
+      this.joyRadius = Math.max(34, rect.width * 0.42);
+    } else if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
+      this.joyOrigin = { x: clientX, y: clientY };
+      this.joyRadius = 46;
+    }
     this.joyBase.classList.add('active');
   }
 
   _bindJoystick() {
     if (!this.joyZone) return;
 
-    this.joyZone.addEventListener(
-      'touchstart',
-      (e) => {
-        if (!this.visible || !this.player.enabled) return;
-        e.preventDefault();
-        if (this.joyTouchId !== null) return;
-        const touch = e.changedTouches[0];
-        if (!touch) return;
-        this.joyTouchId = touch.identifier;
-        this._initJoyOrigin();
-        this._updateJoystickFromClient(touch.clientX, touch.clientY);
-      },
-      { passive: false }
-    );
-
-    window.addEventListener(
-      'touchmove',
-      (e) => {
-        if (this.joyTouchId === null) return;
-        for (const t of e.changedTouches) {
-          if (t.identifier === this.joyTouchId) {
-            e.preventDefault();
-            this._updateJoystickFromClient(t.clientX, t.clientY);
-            break;
-          }
-        }
-      },
-      { passive: false }
-    );
-
-    const endTouchJoy = (e) => {
-      if (this.joyTouchId === null) return;
-      for (const t of e.changedTouches) {
-        if (t.identifier === this.joyTouchId) {
-          this.joyTouchId = null;
-          this.player.setMoveVector(0, 0);
-          if (this.joyKnob) this.joyKnob.style.transform = 'translate(0px, 0px)';
-          this.joyBase?.classList.remove('active');
-          break;
-        }
-      }
+    const onDown = (e) => {
+      if (!this.visible || !this.player.enabled) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (this.joyPointerId !== null) return;
+      e.preventDefault?.();
+      this.joyPointerId = e.pointerId ?? 0;
+      this.joyZone.setPointerCapture?.(e.pointerId);
+      this._initJoyOrigin(e.clientX, e.clientY);
+      this._updateJoystickFromClient(e.clientX, e.clientY);
     };
 
-    window.addEventListener('touchend', endTouchJoy);
-    window.addEventListener('touchcancel', endTouchJoy);
-
-    this.joyZone.addEventListener('mousedown', (e) => {
-      if (!this.visible || !this.player.enabled || e.button !== 0) return;
-      e.preventDefault();
-      this.joyMouseActive = true;
-      this._initJoyOrigin();
+    const onMove = (e) => {
+      if (this.joyPointerId === null) return;
+      if ((e.pointerId ?? 0) !== this.joyPointerId) return;
+      e.preventDefault?.();
       this._updateJoystickFromClient(e.clientX, e.clientY);
-    });
+    };
 
-    window.addEventListener('mousemove', (e) => {
-      if (!this.joyMouseActive) return;
-      this._updateJoystickFromClient(e.clientX, e.clientY);
-    });
-
-    window.addEventListener('mouseup', () => {
-      if (!this.joyMouseActive) return;
-      this.joyMouseActive = false;
+    const onUp = (e) => {
+      if (this.joyPointerId === null) return;
+      if ((e.pointerId ?? 0) !== this.joyPointerId) return;
+      this.joyZone.releasePointerCapture?.(e.pointerId);
+      this.joyPointerId = null;
       this.player.setMoveVector(0, 0);
       if (this.joyKnob) this.joyKnob.style.transform = 'translate(0px, 0px)';
       this.joyBase?.classList.remove('active');
+    };
+
+    this.joyZone.addEventListener('pointerdown', onDown);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+
+    this._cleanups.push(() => {
+      this.joyZone.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     });
   }
 
@@ -228,14 +271,14 @@ export class TouchControls {
       target &&
       typeof target.closest === 'function' &&
       target.closest(
-        '.hud-top, .hud-brand, .hud-actions, button, a, input, select, textarea, .quest-panel, .chat-drawer, .modal-backdrop, .dialogue-overlay'
+        '.hud-top, .hud-brand, .hud-actions, button, a, input, select, textarea, .quest-panel, .chat-drawer, .modal-backdrop, .dialogue-overlay, .touch-context-interact'
       )
     ) {
       return true;
     }
     const boxes = [this.hudActionsEl, this.hudTopEl];
     for (const el of boxes) {
-      if (!el) continue;
+      if (!el || typeof el.getBoundingClientRect !== 'function') continue;
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
       if (clientX >= r.left - 6 && clientX <= r.right + 6 && clientY >= r.top - 6 && clientY <= r.bottom + 6) {
@@ -248,87 +291,92 @@ export class TouchControls {
   _bindLookZone() {
     if (!this.lookZone) return;
 
-    this.lookZone.addEventListener(
-      'touchstart',
-      (e) => {
-        if (!this.visible || !this.player.enabled) return;
-        const t = e.changedTouches[0];
-        if (!t) return;
-        if (this._isUiOverlayTouch(t.clientX, t.clientY, e.target)) return;
-        e.preventDefault();
-        if (this.lookTouchId !== null) return;
-        this.lookTouchId = t.identifier;
-        this.lookLast = { x: t.clientX, y: t.clientY };
-        this.lookStart = { x: t.clientX, y: t.clientY };
-        this.lookMoved = 0;
-      },
-      { passive: false }
-    );
-
-    window.addEventListener(
-      'touchmove',
-      (e) => {
-        if (this.lookTouchId === null) return;
-        for (const t of e.changedTouches) {
-          if (t.identifier === this.lookTouchId) {
-            e.preventDefault();
-            const dx = t.clientX - this.lookLast.x;
-            const dy = t.clientY - this.lookLast.y;
-            this.lookLast = { x: t.clientX, y: t.clientY };
-            this.lookMoved += Math.hypot(dx, dy);
-            this.player.lookDelta(dx, dy);
-            break;
-          }
-        }
-      },
-      { passive: false }
-    );
-
-    const endLook = (e) => {
-      if (this.lookTouchId === null) return;
-      for (const t of e.changedTouches) {
-        if (t.identifier === this.lookTouchId) {
-          if (this.lookMoved < 10) {
-            this.handlers.onTapLookZone?.(t.clientX, t.clientY);
-          }
-          this.lookTouchId = null;
-          break;
-        }
-      }
+    const onDown = (e) => {
+      if (!this.visible || !this.player.enabled) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (this._isUiOverlayTouch(e.clientX, e.clientY, e.target)) return;
+      if (this.lookPointerId !== null) return;
+      e.preventDefault?.();
+      this.lookPointerId = e.pointerId ?? 0;
+      this.lookZone.setPointerCapture?.(e.pointerId);
+      this.lookLast = { x: e.clientX, y: e.clientY };
+      this.lookStart = { x: e.clientX, y: e.clientY };
+      this.lookMoved = 0;
     };
 
-    window.addEventListener('touchend', endLook);
-    window.addEventListener('touchcancel', endLook);
+    const onMove = (e) => {
+      if (this.lookPointerId === null) return;
+      if ((e.pointerId ?? 0) !== this.lookPointerId) return;
+      e.preventDefault?.();
+      const dx = e.clientX - this.lookLast.x;
+      const dy = e.clientY - this.lookLast.y;
+      this.lookLast = { x: e.clientX, y: e.clientY };
+      this.lookMoved += Math.hypot(dx, dy);
+      this.player.lookDelta(dx, dy);
+    };
+
+    const onUp = (e) => {
+      if (this.lookPointerId === null) return;
+      if ((e.pointerId ?? 0) !== this.lookPointerId) return;
+      this.lookZone.releasePointerCapture?.(e.pointerId);
+      if (this.lookMoved < 12) {
+        this.handlers.onTapLookZone?.(e.clientX, e.clientY);
+      }
+      this.lookPointerId = null;
+    };
+
+    this.lookZone.addEventListener('pointerdown', onDown);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+
+    this._cleanups.push(() => {
+      this.lookZone.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    });
   }
 
   _bindPressAction(btn, action) {
     if (!btn) return;
-    let handledTouch = false;
+    let handledPointer = false;
 
-    btn.addEventListener(
-      'touchstart',
-      (e) => {
-        if (!this.visible) return;
-        e.preventDefault();
-        e.stopPropagation();
-        handledTouch = true;
-        btn.classList.add('pressed');
-        action();
-      },
-      { passive: false }
-    );
+    const onDown = (e) => {
+      if (!this.visible) return;
+      if (btn.disabled) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      handledPointer = true;
+      btn.classList.add('pressed');
+      action();
+    };
 
     const clearPress = () => btn.classList.remove('pressed');
-    btn.addEventListener('touchend', clearPress);
-    btn.addEventListener('touchcancel', clearPress);
 
-    btn.addEventListener('click', (e) => {
-      if (handledTouch) {
-        handledTouch = false;
+    const onClick = (e) => {
+      if (handledPointer) {
+        handledPointer = false;
         return;
       }
-      e.stopPropagation();
+      if (btn.disabled) return;
+      e.stopPropagation?.();
       action();
+    };
+
+    btn.addEventListener('pointerdown', onDown);
+    btn.addEventListener('pointerup', clearPress);
+    btn.addEventListener('pointercancel', clearPress);
+    btn.addEventListener('pointerleave', clearPress);
+    btn.addEventListener('click', onClick);
+
+    this._cleanups.push(() => {
+      btn.removeEventListener('pointerdown', onDown);
+      btn.removeEventListener('pointerup', clearPress);
+      btn.removeEventListener('pointercancel', clearPress);
+      btn.removeEventListener('pointerleave', clearPress);
+      btn.removeEventListener('click', onClick);
     });
   }
 
@@ -338,6 +386,10 @@ export class TouchControls {
     });
 
     this._bindPressAction(this.btnInteract, () => {
+      this.handlers.onInteract?.();
+    });
+
+    this._bindPressAction(this.btnContextInteract, () => {
       this.handlers.onInteract?.();
     });
 
@@ -352,41 +404,58 @@ export class TouchControls {
     });
 
     if (this.btnMic) {
-      let handledTouch = false;
-      this.btnMic.addEventListener(
-        'touchstart',
-        (e) => {
-          if (!this.visible) return;
-          e.preventDefault();
-          e.stopPropagation();
-          handledTouch = true;
-          this.btnMic.classList.add('pressed');
-          if (this.handlers.getVoiceMode?.() === 'ptt') {
-            this.handlers.onVoicePttStart?.();
-          } else {
-            this.handlers.onVoiceToggle?.();
-          }
-        },
-        { passive: false }
-      );
+      let handledPointer = false;
+      const onDown = (e) => {
+        if (!this.visible) return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        e.preventDefault?.();
+        e.stopPropagation?.();
+        handledPointer = true;
+        this.btnMic.classList.add('pressed');
+        if (this.handlers.getVoiceMode?.() === 'ptt') {
+          this.handlers.onVoicePttStart?.();
+        } else {
+          this.handlers.onVoiceToggle?.();
+        }
+      };
 
-      const endMicTouch = () => {
+      const endMic = () => {
         this.btnMic.classList.remove('pressed');
         if (this.handlers.getVoiceMode?.() === 'ptt') {
           this.handlers.onVoicePttEnd?.();
         }
       };
-      this.btnMic.addEventListener('touchend', endMicTouch);
-      this.btnMic.addEventListener('touchcancel', endMicTouch);
 
-      this.btnMic.addEventListener('click', (e) => {
-        if (handledTouch) {
-          handledTouch = false;
+      const onClick = (e) => {
+        if (handledPointer) {
+          handledPointer = false;
           return;
         }
-        e.stopPropagation();
+        e.stopPropagation?.();
         this.handlers.onVoiceToggle?.();
+      };
+
+      this.btnMic.addEventListener('pointerdown', onDown);
+      this.btnMic.addEventListener('pointerup', endMic);
+      this.btnMic.addEventListener('pointercancel', endMic);
+      this.btnMic.addEventListener('click', onClick);
+
+      this._cleanups.push(() => {
+        this.btnMic.removeEventListener('pointerdown', onDown);
+        this.btnMic.removeEventListener('pointerup', endMic);
+        this.btnMic.removeEventListener('pointercancel', endMic);
+        this.btnMic.removeEventListener('click', onClick);
       });
+    }
+  }
+
+  destroy() {
+    this.resetInputs();
+    while (this._cleanups.length > 0) {
+      const fn = this._cleanups.pop();
+      try {
+        fn();
+      } catch {}
     }
   }
 }

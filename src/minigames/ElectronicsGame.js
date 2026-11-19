@@ -613,34 +613,53 @@ export function createElectronicsGame(api) {
     );
     bench.setAccuracy(`LED: ${ledSim.currentMa} mA · Vout: ${divSim.vout.toFixed(2)}V`);
 
+    const selectedRes = RESISTOR_STOCK.find((r) => r.id === state.selectedResistorId);
     const drawer = bench.setSideDrawer(`
-      <div style="display:flex;flex-direction:column;gap:6px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;font-size:11px;">
+      <div style="display:flex;flex-direction:column;gap:8px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;font-size:12px;">
         <div style="font-weight:800;color:#38bdf8;font-size:12px;">BANC ÉLECTRONIQUE & MULTIMÈTRE</div>
-        <div style="display:flex;justify-content:space-between;background:#020617;padding:5px 7px;border-radius:6px;">
+        <div style="display:flex;justify-content:space-between;background:#020617;padding:6px 8px;border-radius:6px;">
           <span>Circuit LED 5V :</span>
           <strong style="color:${ledSim.status === 'ok' ? '#4ade80' : '#fbbf24'};">${ledSim.message}</strong>
         </div>
-        <div style="display:flex;justify-content:space-between;background:#020617;padding:5px 7px;border-radius:6px;">
+        <div style="display:flex;justify-content:space-between;background:#020617;padding:6px 8px;border-radius:6px;">
           <span>GPIO ESP32 Vout :</span>
           <strong style="color:${divSim.ok ? '#4ade80' : '#fbbf24'};">${divSim.vout.toFixed(2)} V (cible 3.3V)</strong>
         </div>
-        <div style="font-weight:700;color:#94a3b8;margin-top:2px;">Insérer la résistance active (${formatOhms(RESISTOR_STOCK.find((r) => r.id === state.selectedResistorId)?.ohms || 0)}) :</div>
-        <div style="display:grid;grid-template-columns:1fr;gap:4px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button type="button" id="elec-prev-res" class="tp3d-step-btn" title="Résistance précédente">◀</button>
+          <div style="flex:1;text-align:center;font-weight:800;color:#bae6fd;">${selectedRes ? `${selectedRes.label} (${formatOhms(selectedRes.ohms)})` : 'Aucune'}</div>
+          <button type="button" id="elec-next-res" class="tp3d-step-btn" title="Résistance suivante">▶</button>
+        </div>
+        <div style="font-weight:700;color:#94a3b8;margin-top:2px;">Tap-to-Connect sur un slot Breadboard :</div>
+        <div style="display:grid;grid-template-columns:1fr;gap:6px;">
           ${slotDefs
             .map((sd) => {
               const curId = state.slots[sd.id];
               const curRes = RESISTOR_STOCK.find((r) => r.id === curId);
-              return `<button data-slot-id="${sd.id}" style="padding:5px 7px;border-radius:5px;border:1px solid #475569;background:${curRes ? '#1e3a5f' : '#1e293b'};color:#fff;cursor:pointer;text-align:left;">
-                ${sd.label} : <strong style="color:#38bdf8;">${curRes ? formatOhms(curRes.ohms) : 'Vide'}</strong>
+              return `<button type="button" class="tp-connect-btn ${curRes ? 'done' : ''}" data-slot-id="${sd.id}">
+                <span>${curRes ? '✅' : '🔌'} ${sd.label}</span>
+                <strong style="color:#38bdf8;">${curRes ? formatOhms(curRes.ohms) : 'Vide'}</strong>
               </button>`;
             })
             .join('')}
         </div>
-        <button id="elec-pol-btn" style="padding:5px 7px;border-radius:5px;border:1px solid #475569;background:#1e293b;color:#fff;cursor:pointer;">
+        <button type="button" id="elec-pol-btn" class="tp-connect-btn">
           Polarité LED : <strong>${state.ledForwardPolarity ? 'Directe (+ → -)' : 'Inversée'}</strong>
         </button>
       </div>
     `);
+    const cycleRes = (delta) => {
+      const idx = RESISTOR_STOCK.findIndex((r) => r.id === state.selectedResistorId);
+      const next = (Math.max(0, idx) + delta + RESISTOR_STOCK.length) % RESISTOR_STOCK.length;
+      state.selectedResistorId = RESISTOR_STOCK[next].id;
+      state.dmmMode = 'OHM';
+      state.multimeterChecked = true;
+      sfx.click();
+      updateVisuals();
+      refreshHud();
+    };
+    drawer?.querySelector('#elec-prev-res')?.addEventListener('click', () => cycleRes(-1));
+    drawer?.querySelector('#elec-next-res')?.addEventListener('click', () => cycleRes(1));
     drawer?.querySelectorAll('[data-slot-id]').forEach((btn) => {
       btn.addEventListener('click', () => placeResistorInSlot(btn.dataset.slotId));
     });
@@ -666,7 +685,15 @@ export function createElectronicsGame(api) {
     bench.setActions([
       { id: 'dmm-mode', label: state.dmmMode === 'OHM' ? 'Multimètre: Mode Ω → V DC' : 'Multimètre: Mode V DC → Ω', onClick: () => { state.dmmMode = state.dmmMode === 'OHM' ? 'VDC' : 'OHM'; state.multimeterChecked = true; updateVisuals(); refreshHud(); } },
       { id: 'pwr-5v', label: state.powerOn ? 'Couper +5V' : 'Alimenter +5V', primary: !ready, onClick: togglePower5V },
-      { id: 'finish-elec', label: 'Valider l’Atelier /20', primary: ready, onClick: finishWorkshop }
+      { id: 'finish-elec', label: 'Valider l’Atelier /20', primary: ready, onClick: finishWorkshop },
+      {
+        id: 'hint-elec',
+        label: '💡 Indice',
+        onClick: () => {
+          bench.showToast('Cible LED 5V : R_LED = 220 Ω • Pont diviseur 3.3V : R1 = 10 kΩ et R2 = 20 kΩ (Direct + → -).', 'info');
+        }
+      },
+      { id: 'reset-elec', label: '🔄 Réinitialiser', onClick: () => { sfx.click(); resetAll(); } }
     ]);
   }
 
@@ -684,9 +711,45 @@ export function createElectronicsGame(api) {
     refreshHud();
   }
 
-  for (const resDef of RESISTOR_STOCK) {
-    bench.addInteractive(trayResistorMeshes[resDef.id], {
-      label: `Résistance ${resDef.label} (Mesurer au multimètre)`,
+  RESISTOR_STOCK.forEach((resDef, idx) => {
+    const rMesh = trayResistorMeshes[resDef.id];
+    const homePos = new THREE.Vector3(-0.20 + idx * 0.10, 0.032, 0);
+    const wpSlot = new THREE.Vector3();
+    const localDragPt = new THREE.Vector3();
+    bench.addInteractive(rMesh, {
+      label: `Résistance ${resDef.label} (Toucher pour mesurer ou glisser vers un slot)`,
+      dragPlaneHeight: 0.07,
+      onDragStart: () => {
+        state.selectedResistorId = resDef.id;
+        state.dmmMode = 'OHM';
+        state.multimeterChecked = true;
+        updateVisuals();
+      },
+      onDragMove: (pt) => {
+        if (!pt) return;
+        localDragPt.set(pt.x, 0.09, pt.z);
+        trayGroup.worldToLocal(localDragPt);
+        rMesh.position.copy(localDragPt);
+      },
+      onDragEnd: (info) => {
+        const dropWorld = new THREE.Vector3();
+        rMesh.getWorldPosition(dropWorld);
+        rMesh.position.copy(homePos);
+        if ((info?.dragDist || 0) < 18) return;
+        let closestSlot = null;
+        let bestDist = Infinity;
+        for (const sd of slotDefs) {
+          slotMeshes[sd.id].getWorldPosition(wpSlot);
+          const d = Math.hypot(dropWorld.x - wpSlot.x, dropWorld.z - wpSlot.z);
+          if (d < bestDist) {
+            bestDist = d;
+            closestSlot = sd;
+          }
+        }
+        if (closestSlot && bestDist <= 0.22) {
+          placeResistorInSlot(closestSlot.id);
+        }
+      },
       onClick: () => {
         state.selectedResistorId = resDef.id;
         state.dmmMode = 'OHM';
@@ -697,7 +760,14 @@ export function createElectronicsGame(api) {
         refreshHud();
       }
     });
-  }
+  });
+
+  bench.setInspectableView?.({
+    title: 'Multimètre Fluke 3D',
+    subtitle: 'Affichage agrandi résistance (Ω) et tension ESP32 (V DC)',
+    label: '🔎 Zoom Multimètre',
+    canvas: dmmScreen.canvas
+  });
 
   for (const sd of slotDefs) {
     bench.addInteractive(slotMeshes[sd.id], {

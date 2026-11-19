@@ -6235,3 +6235,304 @@ body.survival-detention-active #toast-container {
     overflow-y: auto;
   }
 }
+
+html,
+body {
+  height: 100dvh;
+  max-width: 100vw;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+}
+
+#game-canvas,
+.skin-preview-wrap canvas,
+#ciel-os-comfort-canvas {
+  touch-action: none;
+}
+
+.touch-context-interact {
+  position: fixed;
+  left: 50%;
+  bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 42;
+  min-width: min(260px, calc(100vw - 180px));
+  max-width: calc(100vw - 32px);
+  min-height: 52px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(56, 189, 248, 0.9);
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.95), rgba(16, 185, 129, 0.92));
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 0.95rem;
+  box-shadow: 0 10px 28px rgba(2, 132, 199, 0.45);
+  pointer-events: auto;
+  touch-action: manipulation;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.touch-context-interact:active {
+  transform: translateX(-50%) scale(0.96);
+}
+
+.touch-btn {
+  min-width: 48px;
+  min-height: 48px;
+  touch-action: manipulation;
+}
+
+.touch-interact {
+  min-width: 56px;
+  min-height: 56px;
+}
+
+.ciel-os-touch-pad {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  z-index: 95;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 0 calc(12px + env(safe-area-inset-right, 0px)) 0 calc(12px + env(safe-area-inset-left, 0px));
+  pointer-events: none;
+}
+
+.ciel-os-touch-dpad {
+  pointer-events: auto;
+  display: grid;
+  grid-template-areas:
+    '. up .'
+    'left down right';
+  grid-template-columns: repeat(3, 48px);
+  grid-template-rows: repeat(2, 48px);
+  gap: 6px;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.86);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  backdrop-filter: blur(8px);
+}
+
+.ciel-os-dpad-btn {
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(30, 41, 59, 0.95);
+  color: #f8fafc;
+  font-size: 1.05rem;
+  font-weight: 900;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.ciel-os-dpad-btn.up {
+  grid-area: up;
+}
+
+.ciel-os-dpad-btn.left {
+  grid-area: left;
+}
+
+.ciel-os-dpad-btn.right {
+  grid-area: right;
+}
+
+.ciel-os-dpad-btn.down {
+  grid-area: down;
+}
+
+.ciel-os-dpad-btn.pressed,
+.ciel-os-touch-btn.pressed {
+  transform: scale(0.94);
+  background: #0284c7;
+  color: #ffffff;
+}
+
+.ciel-os-touch-right {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: min(360px, 60vw);
+  margin-left: auto;
+}
+
+.ciel-os-touch-hint {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #bae6fd;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.ciel-os-touch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.86);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 14px;
+  padding: 6px;
+  backdrop-filter: blur(8px);
+}
+
+.ciel-os-touch-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(30, 41, 59, 0.96);
+  color: #f8fafc;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.ciel-os-touch-btn.primary {
+  background: linear-gradient(135deg, #0284c7, #10b981);
+  border-color: transparent;
+}
+
+.ciel-os-touch-btn.active {
+  background: #f59e0b;
+  color: #0f172a;
+  border-color: #fde68a;
+}
+
+@media (max-width: 1024px) {
+  .modal-card,
+  .platform-card,
+  .shop-modal-card,
+  .skin-modal-card,
+  .dialogue-card,
+  .changelog-card,
+  .faq-card {
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    overflow-x: hidden;
+    box-sizing: border-box;
+  }
+  .ciel-os-session-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .ciel-os-bar-hint {
+    display: none;
+  }
+  .ciel-os-bar-btn {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+  .ciel-os-comfort-frame {
+    width: calc(100vw - 16px);
+    max-width: 1024px;
+    max-height: calc(100dvh - 160px);
+  }
+  #ciel-os-comfort-canvas {
+    width: 100%;
+    height: auto;
+    max-height: calc(100dvh - 168px);
+    object-fit: contain;
+  }
+}
+
+@media (max-width: 760px) {
+  body.touch-active .hud-panel,
+  #hud .hud-top {
+    max-width: calc(100vw - 16px);
+    flex-wrap: wrap;
+  }
+  .touch-context-interact {
+    bottom: calc(158px + env(safe-area-inset-bottom, 0px));
+    min-width: min(230px, calc(100vw - 32px));
+    font-size: 0.88rem;
+  }
+  .ciel-os-touch-pad {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .ciel-os-touch-right {
+    max-width: 100%;
+    align-items: center;
+  }
+  .ciel-os-touch-actions {
+    justify-content: center;
+  }
+  .settings-grid,
+  .platform-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .touch-move-zone {
+    width: 140px;
+    height: 140px;
+    left: 10px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+  .touch-look-zone {
+    width: 55vw;
+  }
+  .touch-right-actions {
+    right: 10px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    gap: 8px;
+  }
+  .menu-panel {
+    width: calc(100vw - 18px);
+    padding: 16px 14px;
+    max-height: calc(100dvh - 20px);
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .touch-btn {
+    min-width: 46px;
+    min-height: 46px;
+    font-size: 0.78rem;
+  }
+}
+
+@media (max-height: 540px) and (orientation: landscape) {
+  .touch-move-zone {
+    width: 132px;
+    height: 132px;
+    bottom: 8px;
+  }
+  .touch-right-actions {
+    bottom: 8px;
+    gap: 6px;
+  }
+  .touch-context-interact {
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    min-width: 180px;
+    min-height: 44px;
+    font-size: 0.84rem;
+    padding: 8px 14px;
+  }
+  .ciel-os-touch-dpad {
+    grid-template-columns: repeat(3, 44px);
+    grid-template-rows: repeat(2, 44px);
+  }
+  .ciel-os-dpad-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

@@ -32,6 +32,9 @@ export class PlayerController {
     this.enabled = false;
     this.hasPointerLock = false;
     this.sensitivity = 1.0;
+    this.touchSensitivity = 1.0;
+    this._activePointerId = null;
+    this._pointerActive = false;
     this.cameraMode = 'first';
     this.avatar = null;
     this.avatarVisible = false;
@@ -80,11 +83,17 @@ export class PlayerController {
     this.sensitivity = Math.max(0.4, Math.min(2.2, Number(val) || 1.0));
   }
 
+  setTouchSensitivity(val) {
+    this.touchSensitivity = Math.max(0.4, Math.min(2.4, Number(val) || 1.0));
+  }
+
   clearKeys() {
     this.keys.clear();
     this.virtualMove.right = 0;
     this.virtualMove.forward = 0;
     this.dragging = false;
+    this._activePointerId = null;
+    this._pointerActive = false;
   }
 
   setTouchMode(enabled) {
@@ -111,8 +120,9 @@ export class PlayerController {
   lookDelta(dx, dy) {
     if (!this.enabled) return;
     const maxPitch = this.seated ? 1.15 : 1.1;
-    this.yaw -= dx * 0.0052 * this.sensitivity;
-    this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.0052 * this.sensitivity));
+    const sens = this.touchMode ? this.touchSensitivity : this.sensitivity;
+    this.yaw -= dx * 0.0052 * sens;
+    this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.0052 * sens));
   }
 
   triggerJump() {
@@ -201,14 +211,48 @@ export class PlayerController {
       this.clearKeys();
     });
 
+    this.canvas.addEventListener('pointerdown', (e) => {
+      if (!this.enabled) return;
+      if (e.pointerType === 'touch' && !this.seated) return;
+      if (e.pointerType !== 'touch' && e.button !== 0 && !(this.seated && e.button === 2)) return;
+      this._activePointerId = e.pointerId;
+      this._pointerActive = true;
+      this.dragging = true;
+      this.lastMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (!this.enabled || !this._pointerActive || e.pointerId !== this._activePointerId) return;
+      if (document.pointerLockElement === this.canvas) return;
+      const maxPitch = this.seated ? 1.15 : 1.1;
+      const dx = e.clientX - this.lastMouse.x;
+      const dy = e.clientY - this.lastMouse.y;
+      this.lastMouse = { x: e.clientX, y: e.clientY };
+      const sens = e.pointerType === 'touch' ? this.touchSensitivity : this.sensitivity;
+      this.yaw -= dx * 0.004 * sens;
+      this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.004 * sens));
+    });
+
+    const endPointerDrag = (e) => {
+      if (this._pointerActive && (e.pointerId === undefined || e.pointerId === this._activePointerId)) {
+        this._activePointerId = null;
+        this._pointerActive = false;
+        this.dragging = false;
+      }
+    };
+    window.addEventListener('pointerup', endPointerDrag);
+    window.addEventListener('pointercancel', endPointerDrag);
+
     this.canvas.addEventListener('mousedown', (e) => {
-      if (!this.enabled || (e.button !== 0 && !(this.seated && e.button === 2))) return;
+      if (!this.enabled || this._pointerActive || (e.button !== 0 && !(this.seated && e.button === 2))) return;
       this.dragging = true;
       this.lastMouse = { x: e.clientX, y: e.clientY };
     });
 
     window.addEventListener('mouseup', () => {
-      this.dragging = false;
+      if (!this._pointerActive) {
+        this.dragging = false;
+      }
     });
 
     window.addEventListener('mousemove', (e) => {
@@ -217,7 +261,7 @@ export class PlayerController {
       if (document.pointerLockElement === this.canvas) {
         this.yaw -= e.movementX * 0.0023 * this.sensitivity;
         this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - e.movementY * 0.0023 * this.sensitivity));
-      } else if (this.dragging) {
+      } else if (this.dragging && !this._pointerActive) {
         const dx = e.clientX - this.lastMouse.x;
         const dy = e.clientY - this.lastMouse.y;
         this.lastMouse = { x: e.clientX, y: e.clientY };
