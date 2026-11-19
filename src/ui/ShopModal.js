@@ -101,7 +101,8 @@ export class ShopPreview3D {
     this.initialized = true;
     try {
       this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      const dprCap = (typeof window !== 'undefined' && window.innerWidth < 768) ? 1.15 : 1.5;
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
       this.renderer.setSize(this.width, this.height, false);
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -113,7 +114,9 @@ export class ShopPreview3D {
       this.camera.lookAt(0, 0.92, 0);
 
       this._pmrem = new THREE.PMREMGenerator(this.renderer);
-      this._envRt = this._pmrem.fromScene(new RoomEnvironment(), 0.04);
+      const roomEnv = new RoomEnvironment();
+      this._envRt = this._pmrem.fromScene(roomEnv, 0.04);
+      roomEnv.dispose();
       this.scene.environment = this._envRt.texture;
       this.scene.environmentIntensity = 0.78;
 
@@ -150,20 +153,23 @@ export class ShopPreview3D {
       this.ringMesh.position.y = 0.012;
       this.scene.add(this.ringMesh);
 
-      this.canvas.addEventListener('pointerdown', (e) => {
+      this._onPointerDown = (e) => {
         this.dragging = true;
         this.lastMouseX = e.clientX;
-      });
-      window.addEventListener('pointermove', (e) => {
-        if (!this.dragging) return;
+      };
+      this._onPointerMove = (e) => {
+        if (!this.dragging || !this.active) return;
         const dx = e.clientX - this.lastMouseX;
         this.lastMouseX = e.clientX;
         this.yaw += dx * 0.014;
         this.yawVelocity = dx * 0.04;
-      });
-      window.addEventListener('pointerup', () => {
+      };
+      this._onPointerUp = () => {
         this.dragging = false;
-      });
+      };
+      this.canvas.addEventListener('pointerdown', this._onPointerDown);
+      window.addEventListener('pointermove', this._onPointerMove);
+      window.addEventListener('pointerup', this._onPointerUp);
     } catch {
       this.renderer = null;
     }
@@ -234,9 +240,14 @@ export class ShopPreview3D {
     }
   }
 
+  isAnimating() {
+    return this.active && this.animId !== null;
+  }
+
   setActive(active) {
     this.active = Boolean(active);
     if (!this.active) {
+      this.dragging = false;
       if (this.animId !== null && typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(this.animId);
         this.animId = null;
@@ -249,6 +260,10 @@ export class ShopPreview3D {
     const tick = (now) => {
       if (!this.active) {
         this.animId = null;
+        return;
+      }
+      if (typeof document !== 'undefined' && document.hidden) {
+        this.animId = requestAnimationFrame(tick);
         return;
       }
       const dt = Math.min(0.05, Math.max(0.004, (now - lastMs) / 1000));
@@ -274,10 +289,15 @@ export class ShopPreview3D {
 
   dispose() {
     this.setActive(false);
+    if (this._onPointerDown) this.canvas?.removeEventListener?.('pointerdown', this._onPointerDown);
+    if (this._onPointerMove) window.removeEventListener('pointermove', this._onPointerMove);
+    if (this._onPointerUp) window.removeEventListener('pointerup', this._onPointerUp);
     this._clearPreview();
     this._envRt?.dispose?.();
     this._pmrem?.dispose?.();
     this.renderer?.dispose?.();
+    this.renderer = null;
+    this.initialized = false;
   }
 }
 
@@ -349,10 +369,10 @@ export class ShopModal {
   }
 
   close() {
+    this.preview?.setActive(false);
     if (!this.backdropEl || this.backdropEl.classList.contains('hidden')) return false;
     this.busy = false;
     this.backdropEl.classList.add('hidden');
-    this.preview?.setActive(false);
     this.onClose?.();
     return true;
   }

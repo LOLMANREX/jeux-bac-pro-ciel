@@ -176,6 +176,7 @@ export class VRManager {
     this.workPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.18);
     this.tempWorkPt = new THREE.Vector3();
     this.tempProjVec = new THREE.Vector3();
+    this._planePtScratch = new THREE.Vector3();
     this._worldSurfHoverThisFrame = new Map();
 
     this._onXrSessionEnd = () => {
@@ -556,9 +557,17 @@ export class VRManager {
     this.xrFloorFallbackOffset = refType === 'local' ? 1.65 : 0;
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType(refType);
+    const vrOpt = this.sceneMgr?.getVrOptimizationConfig?.() || { foveation: 1.0, framebufferScaleFactor: 0.9 };
+    if (typeof this.renderer.xr.setFramebufferScaleFactor === 'function') {
+      try {
+        this.renderer.xr.setFramebufferScaleFactor(vrOpt.framebufferScaleFactor);
+      } catch {}
+    }
+    this.renderer.xr.setFoveation?.(vrOpt.foveation ?? 1.0);
     this.renderer.setRenderTarget?.(null);
 
     await this.renderer.xr.setSession(session);
+    this.renderer.xr.setFoveation?.(vrOpt.foveation ?? 1.0);
 
     this.xrSession = session;
     this.simMode = false;
@@ -2103,7 +2112,7 @@ export class VRManager {
           this._pulseHaptic(slot, 0.55, 35);
           this.tpContext.setHoveredEntry?.(null);
           const dragPlane = hitInteractiveEntry.dragPlane || this.defaultPlane;
-          const planePt = new THREE.Vector3();
+          const planePt = this._planePtScratch.set(0, 0, 0);
           this.raycaster.ray.intersectPlane(dragPlane, planePt);
           const fakePt = this._projectWorldToFakeScreen(planePt);
           hitInteractiveEntry.onClick(hitIntersection, {
@@ -2113,7 +2122,7 @@ export class VRManager {
           });
         } else {
           const dragPlane = hitInteractiveEntry.dragPlane || this.defaultPlane;
-          const planePt = new THREE.Vector3();
+          const planePt = this._planePtScratch.set(0, 0, 0);
           this.raycaster.ray.intersectPlane(dragPlane, planePt);
           this.tpContext.setHoveredEntry?.(null);
           slot.dragState = {
@@ -2134,7 +2143,7 @@ export class VRManager {
     } else if (state.triggerPressed && slot.dragState) {
       const ds = slot.dragState;
       const dragPlane = ds.entry.dragPlane || this.defaultPlane;
-      const planePt = new THREE.Vector3();
+      const planePt = this._planePtScratch.set(0, 0, 0);
       if (this.raycaster.ray.intersectPlane(dragPlane, planePt)) {
         const curScreen = this._projectWorldToFakeScreen(planePt);
         const dx = curScreen.x - ds.lastScreen.x;

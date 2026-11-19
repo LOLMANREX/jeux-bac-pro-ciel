@@ -764,6 +764,11 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   let lastLocalCoins = 0;
   let arcadeGameEndHandler = null;
   let lastGrades = {};
+  let qualityProfile = {
+    textureThrottleMult: 1.0,
+    lowResPc: Boolean(options.lowRes)
+  };
+  let pcIdleCursor = 0;
   const showSprites = !options.hideSprites;
   let hoveredItem = null;
   const hoverSnapshot = new Map();
@@ -904,8 +909,11 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       playerName: lastLocalPlayerName || 'Eleve_CIEL',
       coins: lastLocalCoins,
       onGameFinished: arcadeGameEndHandler,
-      themeId: defaultTheme
+      themeId: defaultTheme,
+      renderScale: qualityProfile.lowResPc ? 0.5 : 1.0,
+      idleThrottleMult: qualityProfile.textureThrottleMult
     });
+    desktop.lastIdleDrawAt = -2.0 - (pcStations.length % 10) * 0.23;
 
     const osTexture = new THREE.CanvasTexture(desktop.canvas);
     osTexture.colorSpace = THREE.SRGBColorSpace;
@@ -1085,7 +1093,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   }
 
   function renderMapIntoGroup(mapData) {
-    const mats = createRealisticMaterialPack(options.maxAnisotropy || 8);
+    const mats = createRealisticMaterialPack(options.maxAnisotropy || 8, { lowRes: Boolean(options.lowRes) });
     materialPack = mats;
     const b = mapData.bounds;
     const H = b.height || 4.6;
@@ -2416,6 +2424,139 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     for (const h of animatedRefs.shopHolograms) {
       dynamicNodes.add(h);
     }
+
+    const excludedFromBatch = new Set(dynamicNodes);
+    for (const r of animatedRefs.rings) {
+      if (r?.ring) excludedFromBatch.add(r.ring);
+    }
+    for (const l of animatedRefs.leds) {
+      if (l?.mesh) excludedFromBatch.add(l.mesh);
+    }
+    for (const sb of animatedRefs.survivalBeacons) {
+      if (sb?.mesh) excludedFromBatch.add(sb.mesh);
+    }
+    for (const pc of pcStations) {
+      for (const sm of pc.screenMeshes || []) {
+        excludedFromBatch.add(sm);
+      }
+    }
+    const highlightMatSet = new Set();
+    for (const it of interactables) {
+      if (Array.isArray(it.highlightMats)) {
+        for (const hm of it.highlightMats) {
+          if (hm) highlightMatSet.add(hm);
+        }
+      }
+      if (it.mesh && typeof it.mesh.traverse === 'function') {
+        let keptAnchor = false;
+        it.mesh.traverse((n) => {
+          if (keptAnchor || !n.isMesh || n.isInstancedMesh) return;
+          if (n.geometry?.type === 'BoxGeometry' || n.geometry?.type === 'PlaneGeometry') {
+            excludedFromBatch.add(n);
+            keptAnchor = true;
+          }
+        });
+      }
+    }
+
+    const solidWallSet = new Set(solidWallMeshes);
+    const dedupSimpleMats = new Map();
+    const resolveBatchedMaterial = (mat) => {
+      if (!mat || Array.isArray(mat) || highlightMatSet.has(mat)) return mat;
+      if (mat.userData?.managedByMaterialPack) return mat;
+      if (!mat.map && !mat.roughnessMap && !mat.bumpMap && !mat.alphaMap && !mat.emissiveMap) {
+        if (mat.isMeshBasicMaterial) {
+          const key = `basic:${mat.color?.getHexString?.()}:${mat.transparent ? mat.opacity : 1}:${mat.side}`;
+          let shared = dedupSimpleMats.get(key);
+          if (!shared) {
+            shared = mat;
+            dedupSimpleMats.set(key, shared);
+          }
+          return shared;
+        }
+        if (mat.isMeshStandardMaterial) {
+          const key = `std:${mat.color?.getHexString?.()}:${mat.emissive?.getHexString?.()}:${mat.emissiveIntensity}:${mat.roughness}:${mat.metalness}:${mat.transparent ? mat.opacity : 1}:${mat.side}`;
+          let shared = dedupSimpleMats.get(key);
+          if (!shared) {
+            shared = mat;
+            dedupSimpleMats.set(key, shared);
+          }
+          return shared;
+        }
+      }
+      return mat;
+    };
+
+    const batchBuckets = new Map();
+    worldGroup.traverse((node) => {
+      if (!node.isMesh || node.isInstancedMesh) return;
+      if (excludedFromBatch.has(node)) return;
+      if (!node.geometry || node.geometry.type !== 'BoxGeometry') return;
+      const p = node.geometry.parameters;
+      if (!p || (p.widthSegments && p.widthSegments !== 1) || (p.heightSegments && p.heightSegments !== 1) || (p.depthSegments && p.depthSegments !== 1)) {
+        return;
+      }
+      if (!node.material || Array.isArray(node.material) || highlightMatSet.has(node.material)) return;
+      const resolvedMat = resolveBatchedMaterial(node.material);
+      const isWall = solidWallSet.has(node);
+      const key = `${resolvedMat.uuid}|${node.castShadow ? 1 : 0}|${node.receiveShadow ? 1 : 0}|${isWall ? 1 : 0}`;
+      let bucket = batchBuckets.get(key);
+      if (!bucket) {
+        bucket = { material: resolvedMat, castShadow: Boolean(node.castShadow), receiveShadow: Boolean(node.receiveShadow), isWall, items: [] };
+        batchBuckets.set(key, bucket);
+      }
+      bucket.items.push(node);
+    });
+
+    const unitBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const scaleMat = new THREE.Matrix4();
+    const instMat = new THREE.Matrix4();
+    let usedUnitBox = false;
+    const batchedWallNodes = new Set();
+
+    for (const bucket of batchBuckets.values()) {
+      if (bucket.items.length < 2) continue;
+      usedUnitBox = true;
+      const inst = new THREE.InstancedMesh(unitBoxGeo, bucket.material, bucket.items.length);
+      inst.castShadow = bucket.castShadow;
+      inst.receiveShadow = bucket.receiveShadow;
+      for (let i = 0; i < bucket.items.length; i++) {
+        const m = bucket.items[i];
+        const p = m.geometry.parameters;
+        scaleMat.makeScale(p.width ?? 1, p.height ?? 1, p.depth ?? 1);
+        instMat.multiplyMatrices(m.matrixWorld, scaleMat);
+        inst.setMatrixAt(i, instMat);
+        const origMat = m.material;
+        m.parent?.remove(m);
+        m.geometry.dispose?.();
+        if (origMat && origMat !== bucket.material && !origMat.userData?.managedByMaterialPack) {
+          origMat.dispose?.();
+        }
+        if (bucket.isWall) {
+          batchedWallNodes.add(m);
+        }
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      inst.computeBoundingSphere?.();
+      inst.updateMatrix();
+      inst.matrixAutoUpdate = false;
+      worldGroup.add(inst);
+      if (bucket.isWall) {
+        solidWallMeshes.push(inst);
+      }
+    }
+    if (!usedUnitBox) {
+      unitBoxGeo.dispose();
+    }
+    if (batchedWallNodes.size > 0) {
+      for (let i = solidWallMeshes.length - 1; i >= 0; i--) {
+        if (batchedWallNodes.has(solidWallMeshes[i])) {
+          solidWallMeshes.splice(i, 1);
+        }
+      }
+    }
+
+    worldGroup.updateMatrixWorld(true);
     worldGroup.traverse((node) => {
       if (node === worldGroup || dynamicNodes.has(node)) return;
       node.updateMatrix();
@@ -2507,11 +2648,60 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     }
   }
 
+  function setVisible(visible) {
+    worldGroup.visible = Boolean(visible);
+    if (!worldGroup.visible) {
+      hoverHaloMesh.visible = false;
+    }
+  }
+
+  function setQualityProfile(profile = {}) {
+    if (Number.isFinite(Number(profile.textureThrottleMult))) {
+      qualityProfile.textureThrottleMult = Math.max(0.5, Math.min(6.0, Number(profile.textureThrottleMult)));
+    }
+    if (profile.lowResPc !== undefined) {
+      qualityProfile.lowResPc = Boolean(profile.lowResPc);
+    }
+    for (let i = 0; i < pcStations.length; i++) {
+      const pc = pcStations[i];
+      pc.desktop?.setQualityProfile?.({
+        idleThrottleMult: qualityProfile.textureThrottleMult,
+        renderScale: pc.isActiveSession ? 1.0 : qualityProfile.lowResPc ? 0.5 : 1.0
+      });
+    }
+  }
+
+  function getRenderStats() {
+    let meshCount = 0;
+    let instancedMeshCount = 0;
+    let totalInstances = 0;
+    let staticFrozenCount = 0;
+    worldGroup.traverse((n) => {
+      if (n.isInstancedMesh) {
+        instancedMeshCount++;
+        totalInstances += n.count || 0;
+        if (n.matrixAutoUpdate === false) staticFrozenCount++;
+      } else if (n.isMesh) {
+        meshCount++;
+        if (n.matrixAutoUpdate === false) staticFrozenCount++;
+      }
+    });
+    return {
+      meshCount,
+      instancedMeshCount,
+      totalInstances,
+      drawCallEstimate: meshCount + instancedMeshCount,
+      staticFrozenCount,
+      pcStationCount: pcStations.length
+    };
+  }
+
   let lastPcUpdateElapsed = 0;
   const _camWorldPos = new THREE.Vector3();
   const _camWorldDir = new THREE.Vector3(0, 0, -1);
 
   function update(elapsed, playerPos = null, diplomaEarned = false, camera = null) {
+    if (!worldGroup.visible) return;
     const dt = Math.max(0.008, Math.min(0.1, elapsed - lastPcUpdateElapsed || 0.016));
     lastPcUpdateElapsed = elapsed;
 
@@ -2522,18 +2712,23 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       r.updateMatrix();
       r.matrixWorldNeedsUpdate = true;
     }
-    for (const led of animatedRefs.leds) {
+    for (let i = 0; i < animatedRefs.leds.length; i++) {
+      const led = animatedRefs.leds[i];
       const blink = Math.sin(elapsed * (led.alert ? 9 : 4.5) + led.phase) > 0;
-      led.mesh.visible = blink;
+      if (led.mesh.visible !== blink) {
+        led.mesh.visible = blink;
+      }
     }
-    for (const sb of animatedRefs.survivalBeacons) {
+    for (let i = 0; i < animatedRefs.survivalBeacons.length; i++) {
+      const sb = animatedRefs.survivalBeacons[i];
       const pulse = 0.5 + 0.5 * Math.sin(elapsed * 4.5 + sb.phase);
       sb.mesh.scale.setScalar(0.85 + pulse * 0.35);
       sb.mesh.updateMatrix();
       sb.mesh.matrixWorldNeedsUpdate = true;
       sb.portal.opacity = 0.28 + pulse * 0.24;
     }
-    for (const tr of teacherRefs) {
+    for (let i = 0; i < teacherRefs.length; i++) {
+      const tr = teacherRefs[i];
       if (tr.root?.visible !== false) {
         tr.update(elapsed, playerPos, diplomaEarned);
       }
@@ -2555,8 +2750,13 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         Number.isFinite(Number(playerPos.z))
     );
 
-    for (const pc of pcStations) {
+    const pcLen = pcStations.length;
+    let idleUploadedThisFrame = false;
+    for (let k = 0; k < pcLen; k++) {
+      const idx = (pcIdleCursor + k) % pcLen;
+      const pc = pcStations[idx];
       if (pc.isActiveSession) {
+        pc.desktop.setQualityProfile?.({ renderScale: 1.0 });
         pc.desktop.setSleepMode?.(false, true, true);
         pc.desktop.update(dt, elapsed);
         continue;
@@ -2565,26 +2765,52 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       if (hasPlayerPos || hasCamera) {
         const px = hasPlayerPos ? Number(playerPos.x) : _camWorldPos.x;
         const pz = hasPlayerPos ? Number(playerPos.z) : _camWorldPos.z;
-        const dist = Math.hypot(pc.position.x - px, pc.position.z - pz);
+        const dx = pc.position.x - px;
+        const dz = pc.position.z - pz;
+        const distSq = dx * dx + dz * dz;
+        if (distSq > 196 && !pc.desktop.dirty) {
+          pc.desktop.inView = false;
+          pc.desktop.sleepMode = true;
+          continue;
+        }
         let inView = true;
         if (hasCamera) {
           const vx = pc.position.x - _camWorldPos.x;
           const vy = 1.08 - _camWorldPos.y;
           const vz = pc.position.z - _camWorldPos.z;
-          const vLen = Math.hypot(vx, vy, vz);
+          const vLenSq = vx * vx + vy * vy + vz * vz;
           const dot =
-            vLen > 0.05
-              ? (vx * _camWorldDir.x + vy * _camWorldDir.y + vz * _camWorldDir.z) / vLen
+            vLenSq > 0.0025
+              ? (vx * _camWorldDir.x + vy * _camWorldDir.y + vz * _camWorldDir.z) / Math.sqrt(vLenSq)
               : 1;
-          inView = dot > 0.15 && dist < 18;
+          inView = dot > 0.15 && distSq < 256;
         } else {
-          inView = dist < 14;
+          inView = distSq < 196;
         }
-        const near = dist < 4.0 && inView;
-        pc.desktop.updateIdle(elapsed, { focused: false, near, inView });
+        const near = distSq < 16.0 && inView;
+        const didUpload = pc.desktop.updateIdle(elapsed, {
+          focused: false,
+          near,
+          inView,
+          allowIdleUpload: !idleUploadedThisFrame
+        });
+        if (didUpload) {
+          idleUploadedThisFrame = true;
+        }
       } else {
-        pc.desktop.updateIdle(elapsed, { focused: false, near: false, inView: true });
+        const didUpload = pc.desktop.updateIdle(elapsed, {
+          focused: false,
+          near: false,
+          inView: true,
+          allowIdleUpload: !idleUploadedThisFrame
+        });
+        if (didUpload) {
+          idleUploadedThisFrame = true;
+        }
       }
+    }
+    if (pcLen > 0) {
+      pcIdleCursor = (pcIdleCursor + 1) % pcLen;
     }
   }
 
@@ -2629,6 +2855,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   rebuildWorld(currentMapData);
 
   return {
+    worldGroup,
     colliders,
     interactables,
     solidWallMeshes,
@@ -2641,6 +2868,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     getPcStationById,
     setArcadeGameEndHandler,
     setLocalCoins,
+    setVisible,
+    setQualityProfile,
+    getRenderStats,
     get mapData() {
       return currentMapData;
     },

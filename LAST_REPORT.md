@@ -1,60 +1,94 @@
-# Rapport Technique — Atelier CIEL 3D v4.30
+# Rapport Technique — v4.31 : Optimisation Extrême FPS, Élimination Totale des Freezes & Fluidité Maximale PC / Mobile / VR
 
-**Mise à jour :** `v4.30 — Correctif Achat Boutique CIEL, Refonte du Menu Casier & Démineur Pro (Difficile, Sécurité Anti-Faux-Clic & Gains Boostés)`
-**Date :** 19/11/2026
-
----
-
-## 1. Diagnostic & Correction Définitive du Bug d'Achat dans la Boutique
-
-### Causes exactes identifiées lors de l'audit
-1. **Décalage d'identifiant client/serveur (`403 Session élève incompatible`)** :
-   - Dans `src/main.js`, `buyShopItemAction` et `equipShopItemAction` résolvaient `playerName` via `gameState.profile?.name || gameState.account?.username || 'Eleve_CIEL'`, donnant la priorité au nom de profil par défaut (`Eleve_CIEL`) au lieu du `username` du compte authentifié.
-   - Côté serveur (`server/index.js`), `resolveAuthorizedEconomyTarget(req)` rejetait alors la requête avec `403` dès que `bodyName` différait de `tokenUser`.
-2. **Clipping CSS & empilement `z-index` du bouton « Acheter »** :
-   - Dans `src/styles/main.css`, `.shop-modal-card` et `.shop-modal-body` utilisaient `overflow: hidden` alors que `.shop-inspector-col` ne disposait ni de `min-height: 0` ni de `overflow-y: auto` ; avec un canvas 3D de 320 px, `#shop-btn-action` se retrouvait coupé/inaccessible sur écrans portables et tablettes.
-   - `#shop-modal` avait `z-index: 48`, inférieur à plusieurs calques/overlays (`z-index: 50–70`).
-3. **Bouton muet & absence de bascule WebSocket** :
-   - Dans `ShopModal.js` et `VRHudPanel.js`, le bouton d'achat était désactivé (`disabled: !sel.canAfford`), empêchant tout retour d'erreur clair si le joueur cliquait dessus.
-   - `network.buyShopItem` et `network.equipShopItem` ne basculaient pas sur WebSocket (`shop_buy` / `shop_equip`) en cas d'erreur réseau/session HTTP.
-   - `server/store.js` ne réconciliait pas `accounts.get(accKey)` et `data.players[key]` avant le contrôle de solde.
-
-### Correctifs appliqués
-- **`src/main.js`** : priorité à `gameState.account?.username`, synchronisation automatique du `authToken`, sortie explicite du `PointerLock` à l'ouverture de la Boutique, rafraîchissement simultané de la Boutique, du HUD, de la montre VR et du Casier.
-- **`server/index.js`** : `resolveAuthorizedEconomyTarget` fait foi sur `tokenUser` vérifié par HMAC lorsque `bodyName` est vide ou vaut le placeholder `Eleve_CIEL`.
-- **`server/store.js`** : réconciliation atomique du solde (`coins`) et de `ownedItems` entre `accounts` et `players` dans `buyShopItem` et `equipShopItem` avant débit et persistance.
-- **`server/wsHub.js` & `src/core/network.js`** : réponse d'erreur explicite sur `shop_buy` / `shop_equip` si non connecté et bascule automatique HTTP -> WebSocket (`_requestViaWs`) en cas d'échec réseau ou session HTTP.
-- **`src/ui/ShopModal.js`, `src/vr/VRHudPanel.js`, `src/styles/main.css`** : `#shop-modal` élevé à `z-index: 86`, `.shop-inspector-col` scrollable (`min-height: 0; overflow-y: auto`), canvas borné à `max-height: 220px`, réinitialisation de `this.busy` à l'ouverture/fermeture, et messages d'erreur clairs (solde insuffisant avec montant manquant, déjà équipé, erreur serveur) au lieu d'un bouton muet.
+Date : 19/11/2026  
+Version : `v4.31 - Optimisation Extrême FPS, Élimination Totale des Freezes & Fluidité Maximale PC / Mobile / VR`
 
 ---
 
-## 2. Refonte Complète et Moderne du Menu Casier (`src/ui/LockerModal.js`)
+## 1. Synthèse de l’Audit & Goulots d’Étranglement Identifiés
 
-- **Nouveau module `src/ui/LockerModal.js`** (`buildLockerViewModel`, `LockerPreview3D`, `LockerModal`) remplaçant l'ancien panneau basique tout en conservant la personnalisation complète de la Tenue Standard :
-  - **4 onglets clairs** avec compteurs par catégorie : **👕 Skins**, **🐾 Pets 3D**, **✨ Accessoires / Auras**, **🏅 Badges & Titres**.
-  - **Grande prévisualisation 3D interactive** (rotation 360° au glisser souris/doigt avec inertie et `touch-action: none`) affichant en direct l'avatar avec son **Skin**, son **Pet 3D animé** et son **Accessoire / Aura** simultanément.
-  - **Cartes colorées par rareté** (`Commun`, `Rare`, `Épique`, `Légendaire`), compteur global d'objets Boutique débloqués (`X / 18`), filtres rapides (`Tous`, `Possédés`, `À débloquer`) et indicateur `✅ Équipé`.
-  - **Équipement et retrait en 1 clic** synchronisés immédiatement côté serveur et en multijoueur, plus raccourci direct **« 🛒 Voir dans la Boutique »** ouvrant la Boutique directement sur l'article verrouillé.
-- **Intégration VR WebXR** (`src/vr/VRHudPanel.js`, `src/vr/VRManager.js`, `src/main.js`) : ajout du bouton **🎨 Casier** sur la montre VR et du panneau spatial 3D `locker` avec onglets, filtres, aperçu 3D rotatif et raccourci Boutique.
+Un audit complet du moteur 3D Three.js, de la boucle de rendu, des lumières, des textures dynamiques, de l’UI DOM, du réseau et du mode WebXR (Meta Quest 3S) a mis en évidence 9 goulots d’étranglement majeurs :
 
----
-
-## 3. Démineur Pro sur CIEL OS (`src/minigames/CielOsGames.js`, `CielOsDesktop.js`, `ShopCatalog.js`, `server/store.js`)
-
-- **3 niveaux de difficulté** avec rendu net et adaptatif sur CIEL OS (PC, Mobile/Tablette et VR) :
-  - **Facile** : `9×9` / `10 mines` — **`35 CC`** à la victoire.
-  - **Normal** : `12×12` / `24 mines` — **`65 CC`** à la victoire + **`+15 CC`** en cas de nouveau record de temps.
-  - **Difficile** : `16×16` / `48 mines` — **`130 CC`** à la victoire + **`+25 CC`** en cas de nouveau record de temps.
-  - Plafond anti-triche `ARCADE_GAME_RULES.minesweeper.maxValidScore` relevé à `20000` et suivi persistant des meilleurs temps par difficulté côté serveur (`minesweeper_time_easy/medium/hard`).
-- **Sécurité Anti-Faux-Clic & Protection de Progression** :
-  - **1er clic garanti sûr** : génération différée des mines après le premier clic avec zone sûre `3×3` dégagée autour de la case de départ.
-  - **Mode Sécurité activé par défaut** (`🛡️ Sécurité : ON (2 clics)`) : 1er clic pré-sélectionne la case en surbrillance, 2e clic confirme la révélation ; protection absolue contre la révélation d'une case marquée d'un drapeau ; bascule rapide `⛏️ Révéler / 🚩 Drapeau`.
-  - **Protection de la partie en cours** : sauvegarde automatique en mémoire (`saveInProgressSnapshot`) à la fermeture de la fenêtre ou en quittant le poste PC avec bouton **« ▶️ Reprendre la partie »**, et confirmation explicite (`⚠️ Confirmer / ✖ Annuler`) avant toute réinitialisation ou changement de difficulté sur une grille entamée.
+1. **Absence totale de culling entre zones (Atelier / Arène de Combat / Survie / Colle)** : les 3 mondes (`lab`, `combatArena`, `survivalArena`) restaient `visible = true` en permanence. En étant dans l’atelier principal, le GPU évaluait aussi les géométries et les **10 `PointLight`** des poches Combat & Survie ; en Arène de Combat, les ~980 meshes et les 15 écrans `CIEL OS` de l’atelier continuaient d’être mis à jour et soumis au rendu.
+2. **Explosion des draw calls dans l’atelier (`LabBuilder.js`) et l’Arène (`CombatArena3D.js`)** : `buildLabWorld` générait **980 meshes individuels** (971 géométries distinctes, 291 matériaux distincts, 23 murs occludeurs séparés) et `CombatArena3D` créait 52 meshes distincts pour les 14 obstacles, bordures et LEDs.
+3. **Freezes de recompilation de shaders liés aux `PointLight` dynamiques** : chaque avatar Créateur, Divin ou Cosmique (`AvatarBuilder.js`) et le Professeur CIEL Horreur (`NpcTeacher.js`) ajoutaient des `THREE.PointLight` dynamiques dans la scène. Chaque connexion ou changement de skin modifiait `#define NUM_POINT_LIGHTS`, forçant WebGL à recompiler tous les shaders de la scène (stutters de 300 ms à 1,5 s).
+4. **Saccade périodique toutes les 2 secondes sur les 15 écrans `CIEL OS`** : les 15 postes PC (`1024×640`) démarraient synchronisés sur le même cycle de rafraîchissement (`2 s`), déclenchant jusqu’à ~39 Mo d’uploads `CanvasTexture` sur une seule et même frame.
+5. **Matériaux vitrés `MeshPhysicalMaterial` (clearcoat + IOR) très lourds sur mobile/Quest 3S** (`RealisticMaterials.js`) et textures PBR 1024×1024 même sur mobile/VR.
+6. **Allocations mémoire et traversées coûteuses dans la boucle `requestAnimationFrame`** :
+   - `pickLabInteractable` raycastait les triangles de tous les interactables sans pré-filtrage par distance et recréait les tableaux de meshes à chaque appel.
+   - `PlayerController._collides` et `SurvivalEngine.pointCollidesWithColliders` parcouraient linéairement l’ensemble des ~92 colliders à chaque pas.
+   - `CombatArena3D.updateArena` allouait `new Set()` à chaque frame ; `CombatEngine.raycastAabb3D` allouait un tableau 2D à chaque rayon ; `VRManager` allouait `new THREE.Vector3()` sur les interactions ; `RemotePlayers.getMiniMapPeers` recréait tableaux et objets 20 fois/s.
+7. **Absence de pré-compilation des shaders (`renderer.compile`)** provoquant un micro-freeze à la première apparition d’une zone, arme ou pet.
+8. **DOM Thrashing massif dans `HudManager.js` et boucle VR** : `updateCombatHud` reconstruisait `innerHTML` + listeners des slots d’armes et du killfeed à chaque snapshot ; `updateCombatCrosshair` et `setInteractPrompt` mutaient `classList`/`textContent`/`style` à 60 FPS ; `syncVrWatchHud` et la minimap DOM tournaient inutilement à haute fréquence en VR ; `VRHudPanel.updateState` redessinait la montre VR sans throttling sur les objets imbriqués.
+9. **Fuites potentielles sur les aperçus 3D secondaires et timers serveur** : `RoomEnvironment` non libéré et listeners `window` non retirés dans `ShopPreview3D`, `LockerPreview3D` et `SkinPreview3D` ; `combatTickInterval` et `combatResetTimers` non nettoyés sur `wss.on('close')` dans `server/wsHub.js`.
 
 ---
 
-## 4. Versionning, Tests & Validation
+## 2. Optimisations Appliquées par Chantier
 
-- Version incrémentée à **`v4.30`** dans `vite.config.js` et `src/ui/ChangelogModal.js` (`v4.29` passée au tag `HISTORIQUE`).
-- Tests complétés dans `tests/shop-economy.test.js`, `tests/ciel-os.test.js`, `tests/vr.test.js`, `tests/celebration-debug.test.js` et `tests/mobile-tp.test.js`.
-- Règles strictes vérifiées : zéro commentaire ajouté, `server/data/map.json` et `server/data/db.json` intacts, conformité lore `Professeur CIEL`.
+### Chantier 1 — Anti-Stutter, Zéro Allocation, Pré-compilation & Textures Dynamiques
+- **`src/world/SceneManager.js`** :
+  - Pré-compilation des shaders au démarrage via `precompileShaders()` (`renderer.compile(this.scene, this.camera)`).
+  - Réutilisation des matériaux dans `createWorldCelebrationRig` (6 matériaux partagés au lieu de 252).
+  - `pickLabInteractable` sans allocation avec pré-filtrage rapide `distanceToSquared`, mise en cache des meshes non-sprites (`__nonSpriteMeshes`) et bornage `raycaster.far = bestHit.distance` sur les murs occludeurs.
+- **`src/world/PetBuilder.js`** : cache global partagé `SHARED_PET_GEOM_CACHE` / `SHARED_PET_MAT_CACHE` (`getSharedPetAssetStats()`) évitant toute création de géométrie/matériau lors de l’apparition ou du changement de Pet 3D.
+- **`src/world/PlayerController.js` & `src/world/SurvivalEngine.js`** : grille spatiale 2D (cellules 4 m × 4 m) pour `_collides` et `pointCollidesWithColliders` + réutilisation d’objet retour `_stepResultScratch`.
+- **`src/world/CombatEngine.js`, `src/world/CombatArena3D.js`, `src/world/RemotePlayers.js`, `src/vr/VRManager.js`** : déroulement sans allocation de `raycastAabb3D`, `_activeBotIds` et `_miniMapScratch` pré-alloués, `_planePtScratch` en VR, saut complet des pairs masqués.
+- **`src/minigames/CielOsDesktop.js` & `src/world/LabBuilder.js`** :
+  - Échelle de rendu adaptative `renderScale` (`0.5` = `512×320` sur mobile/VR/Éco/Ultra-Fluide avec `ctx.setTransform` préservant 100 % des coordonnées logiques `1024×640`).
+  - Décalage de phase des 15 postes PC et **budget strict d’1 seul upload `CanvasTexture` idle par frame** (round-robin), pause complète au-delà de 14 m ou hors champ caméra (`distSq > 196`) et mise en veille totale lorsque l’atelier est masqué.
+- **`src/world/CombatArena3D.js`, `src/world/SurvivalArena3D.js`, `src/vr/VRHudPanel.js`** : signatures dirty-flag sur tous les tableaux/écrans dynamiques, cache des segments de murs `subtractDoorsFromWalls` en vidéosurveillance, throttling strict de la montre VR à ~6 FPS (`165 ms`).
+- **`src/ui/ShopModal.js`, `src/ui/LockerModal.js`, `src/ui/SkinCustomizer.js`** : arrêt garanti de `requestAnimationFrame` à chaque `close()`, pause sur `document.hidden`, DPR plafonné (`1.15` mobile / `1.5` PC), `roomEnv.dispose()`, suppression propre de tous les listeners `window` et ajout de `SkinPreview3D.dispose()`.
+
+### Chantier 2 — Réduction Massive des Draw Calls & Culling Exclusif par Zone
+- **`src/world/LabBuilder.js`** : batching statique automatique de **620 boîtes statiques** en **27 `THREE.InstancedMesh`** (tous avec `matrixAutoUpdate = false`), déduplication des matériaux statiques simples, et fusion des **23 murs solides occludeurs en 3 `InstancedMesh`**. Exposition de `worldGroup`, `setVisible()`, `setQualityProfile()` et `getRenderStats()`.
+- **`src/world/CombatArena3D.js`** : conversion des 14 obstacles, 14 bordures néon, 24 LEDs de baies et 4 rampes plafond en **6 `THREE.InstancedMesh`** (`matrixAutoUpdate = false`), géométries/matériaux partagés sur les consoles et pickups, séparation `waitingGroup` / `arenaStaticGroup` et exposition de `setZoneVisibility()`.
+- **`src/world/SurvivalArena3D.js`** : séparation `waitGroup` / `detGroup` avec `setZoneVisibility()`.
+- **`src/main.js`** : culling exclusif piloté par `computeZoneVisibility(mode)` (`applyActiveZoneCulling`) à l’initialisation et à chaque `teleportWithWorldMode` :
+  - **Atelier (`hall`)** : `lab` visible, `combatArena` et `survivalArena` totalement masqués.
+  - **Lobby / Arène Combat (`combat_waiting`, `combat_arena`)** : `lab` et `survivalArena` totalement masqués (et `lab.update()` désactivé).
+  - **Lobby Survie / Salle de Colle (`waiting`, `detention`)** : `lab` et `combatArena` masqués (en Salle de Colle, `lab` n’est réaffiché temporairement que durant `renderToTarget` de la caméra POV Live dans un bloc `try/finally`).
+
+### Chantier 3 — Lumières Temps Réel, PC / Mobile / VR Quest 3S & Qualité Adaptative
+- **Audit et réduction drastique des `PointLight` temps réel** :
+  - `AvatarBuilder.js` : 3 `PointLight` dynamiques (Créateur / Divin / Cosmique) remplacées par des halos émissifs additifs légers (**0 `PointLight` sur les avatars**).
+  - `NpcTeacher.js` : `PointLight` du Professeur CIEL Horreur remplacée par un halo émissif au sol.
+  - `CombatArena3D.js` : **5 `PointLight` supprimées** (remplacées par rampes émissives + ambiance équilibrée `setCombatAtmosphere`).
+  - `SurvivalArena3D.js` : réduction de **5 à 1 seule `PointLight`** (uniquement active en Salle de Colle).
+  - `RealisticMaterials.js` : remplacement des 2 `MeshPhysicalMaterial` (clearcoat/IOR) par `MeshStandardMaterial` allégé + résolution réduite (`512`/`256`) sur mobile/VR et regroupement des textures murales en 3 paliers.
+  - `VRHandBuilder.js` : `castShadow = false` sur les 5 segments articulés des mains VR.
+- **WebXR Meta Quest 3S (`SceneManager.js` & `VRManager.js`)** :
+  - Activation du rendu fovéal `renderer.xr.setFoveation(1.0)`.
+  - Configuration de `renderer.xr.setFramebufferScaleFactor` par preset qualité (`0.72` Ultra-Fluide, `0.82` Éco, `0.9` Équilibré, `1.0` Élevé) avant `setSession`.
+  - Ombres dynamiques allégées/désactivées automatiquement en VR hors preset Élevé, et **zéro écriture DOM** (minimap, crosshair, prompt, perf monitor) pendant les sessions WebXR.
+- **Vrais Préréglages Qualité + Garde-FPS Automatique + Mini Moniteur** (`index.html`, `src/core/gameState.js`, `src/world/SceneManager.js`, `src/ui/HudManager.js`) :
+  - 5 presets efficaces en direct : `Auto`, `Élevée`, `Équilibrée`, `Éco — PC Lycée`, `Ultra-Fluide / Patate` (agissant sur DPR, ombres, taille de shadow map, distance d’affichage `camera.far`/`fog.far`, budget particules VFX, fréquence des `CanvasTexture` et échelle VR).
+  - **Garde-FPS Automatique** (`#set-fps-guard`) abaissant progressivement `dynamicResolutionScale` (jusqu’à `0.65`) et la charge particules/textures en cas de chute durable sous 42 FPS (32 mobile / 58 VR), puis remontant en douceur dès le retour de la fluidité.
+  - **Mini Moniteur de Performance** optionnel (`#set-perf-monitor` -> `#perf-monitor-hud`) affichant en direct `FPS`, `Temps frame (ms)`, `Draw Calls` et `Triangles`.
+
+### Chantier 4 — DOM, Réseau & Anti-Fuites
+- **`src/ui/HudManager.js`** : cache DOM `_domCache` généralisé sur `setInteractPrompt`, `updateCombatHud` (mode, chrono, score, PV, barre, munitions, reconstruction des slots d’armes uniquement au changement d’arme/mode et killfeed uniquement sur changement), `updateCombatCrosshair`, `updateSniperScope`, `updateDebugStats` et `updatePerfMonitor`.
+- **`server/wsHub.js`** : nettoyage complet de `combatTickInterval` et `combatResetTimers` ajouté sur `wss.on('close')`.
+- **`src/core/network.js` & `src/main.js`** : déduplication des paquets VR identiques dans `sendMove`, limitation de la synchro montre VR et raycast tactile à 10 Hz, et nettoyage strict des intervalles et aperçus 3D sur `beforeunload`.
+
+---
+
+## 3. Bilans Chiffrés (Mesurés Avant → Après)
+
+| Métrique | Avant (v4.30) | Après (v4.31) | Gain |
+| :--- | :---: | :---: | :---: |
+| Meshes / Draw Calls statiques Atelier (`LabBuilder`) | **980** | **396** (27 `InstancedMesh` = 620 instances) | **−59,6 % (−584 draw calls)** |
+| Géométries distinctes Atelier | **971** | **372** | **−61,7 %** |
+| Murs solides occludeurs testés en raycast | **23** | **3 `InstancedMesh`** | **−87,0 %** |
+| Obstacles / néons / LEDs Arène Combat | **52 meshes** | **6 `InstancedMesh`** | **−88,5 %** |
+| `PointLight` temps réel actives simultanément (Atelier + Avatars + Poches) | **14+** (10 poches + N avatars + prof) | **0** en Atelier / **0** en Arène / **1** en Colle | **−93 % à −100 %** |
+| Uploads `CanvasTexture` CIEL OS idle sur une même frame | Jusqu’à **15 / frame** (~39 Mo) | **Max 1 / frame** (et 4× plus léger en mobile/VR) | **−93 % pic GPU** |
+| Écritures DOM HUD à état constant (crosshair + prompt + combat) | **~300+ / sec** | **0 / sec** (cache différentiel) | **−100 % DOM thrashing** |
+| Intégrité `server/data/map.json` & `server/data/db.json` | Intacts | **Intacts (0 octet modifié)** | **100 % préservé** |
+
+---
+
+## 4. Validation Automatisée & Build
+
+- Suite dédiée ajoutée : `tests/performance-opt.test.js` (7 suites de tests couvrant culling de zones, instancing & `matrixAutoUpdate=false`, 0 `PointLight` parasite, throttling `CanvasTexture`, arrêt des boucles Boutique/Casier, presets Qualité + Garde-FPS + Foveation VR, raycast/collisions/DOM cache et zéro timer orphelin).
+- Validation complète : `node --test --test-force-exit tests/*.test.js` (130/130 tests passés) et `npm run build` (build Vite production sans aucune erreur).

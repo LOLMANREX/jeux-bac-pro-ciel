@@ -576,17 +576,27 @@ export class RemotePlayersManager {
   }
 
   getMiniMapPeers() {
-    const out = [];
-    for (const peer of this.peers.values()) {
-      out.push({
-        id: peer.id,
-        name: peer.name,
-        color: peer.color,
-        x: peer.group.position.x,
-        z: peer.group.position.z,
-        zoneLabel: peer.zoneLabel
-      });
+    if (!this._miniMapScratch) {
+      this._miniMapScratch = [];
     }
+    const out = this._miniMapScratch;
+    let idx = 0;
+    for (const peer of this.peers.values()) {
+      if (!peer.group.visible) continue;
+      let slot = out[idx];
+      if (!slot) {
+        slot = { id: '', name: '', color: '', x: 0, z: 0, zoneLabel: '' };
+        out[idx] = slot;
+      }
+      slot.id = peer.id;
+      slot.name = peer.name;
+      slot.color = peer.color;
+      slot.x = peer.group.position.x;
+      slot.z = peer.group.position.z;
+      slot.zoneLabel = peer.zoneLabel;
+      idx++;
+    }
+    out.length = idx;
     return out;
   }
 
@@ -733,6 +743,7 @@ export class RemotePlayersManager {
     const smoothXZ = 1 - Math.exp(-15 * dt);
     const smoothY = 1 - Math.exp(-18 * dt);
     const smoothYaw = 1 - Math.exp(-13 * dt);
+    const nowMs = Date.now();
 
     for (const peer of this.peers.values()) {
       const dx = peer.targetPos.x - peer.group.position.x;
@@ -749,6 +760,11 @@ export class RemotePlayersManager {
       while (diff < -Math.PI) diff += Math.PI * 2;
       peer.group.rotation.y += diff * smoothYaw;
 
+      if (!peer.group.visible) {
+        if (peer.petMesh?.group) peer.petMesh.group.visible = false;
+        continue;
+      }
+
       const instantSpeed = dt > 0 ? (horizDist * smoothXZ) / dt : 0;
       peer.horizSpeed = peer.horizSpeed * 0.6 + instantSpeed * 0.4;
 
@@ -761,7 +777,7 @@ export class RemotePlayersManager {
       });
       if (peer.combatWeaponId && peer.rightArm) {
         peer.rightArm.rotation.x =
-          peer.combatAttackUntil && Date.now() < peer.combatAttackUntil ? -1.18 : -0.62;
+          peer.combatAttackUntil && nowMs < peer.combatAttackUntil ? -1.18 : -0.62;
         if (peer.combatWeaponObj) {
           animateCombatWeaponMesh(peer.combatWeaponObj, { elapsed });
         }

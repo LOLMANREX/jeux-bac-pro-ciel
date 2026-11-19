@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify("v4.30 - Correctif Achat Boutique CIEL, Refonte du Menu Casier & Démineur Pro (Difficile, Sécurité Anti-Faux-Clic & Gains Boostés)"),
+    __APP_VERSION__: JSON.stringify("v4.31 - Optimisation Extrême FPS, Élimination Totale des Freezes & Fluidité Maximale PC / Mobile / VR"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

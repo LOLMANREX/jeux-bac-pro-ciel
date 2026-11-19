@@ -187,6 +187,54 @@ export function getSurvivalDoors(mapData = null) {
   return doors;
 }
 
+const COLLIDER_SPATIAL_CACHE = new WeakMap();
+const COLLIDER_CELL_SIZE = 4;
+
+function getSpatialColliderGrid(colliders) {
+  if (!Array.isArray(colliders) || colliders.length < 12) return null;
+  let cached = COLLIDER_SPATIAL_CACHE.get(colliders);
+  if (cached && cached.len === colliders.length) {
+    return cached.grid;
+  }
+  const grid = new Map();
+  for (let i = 0; i < colliders.length; i++) {
+    const c = colliders[i];
+    let minX;
+    let maxX;
+    let minZ;
+    let maxZ;
+    if (typeof c.cx === 'number') {
+      const ext = Math.hypot(c.hw || 0, c.hd || 0);
+      minX = c.cx - ext;
+      maxX = c.cx + ext;
+      minZ = c.cz - ext;
+      maxZ = c.cz + ext;
+    } else {
+      minX = c.minX;
+      maxX = c.maxX;
+      minZ = c.minZ;
+      maxZ = c.maxZ;
+    }
+    const x0 = Math.floor((minX - 0.65) / COLLIDER_CELL_SIZE);
+    const x1 = Math.floor((maxX + 0.65) / COLLIDER_CELL_SIZE);
+    const z0 = Math.floor((minZ - 0.65) / COLLIDER_CELL_SIZE);
+    const z1 = Math.floor((maxZ + 0.65) / COLLIDER_CELL_SIZE);
+    for (let gx = x0; gx <= x1; gx++) {
+      for (let gz = z0; gz <= z1; gz++) {
+        const key = gx * 4096 + gz;
+        let bucket = grid.get(key);
+        if (!bucket) {
+          bucket = [];
+          grid.set(key, bucket);
+        }
+        bucket.push(c);
+      }
+    }
+  }
+  COLLIDER_SPATIAL_CACHE.set(colliders, { len: colliders.length, grid });
+  return grid;
+}
+
 export function pointCollidesWithColliders(nx, nz, colliders = [], bounds = null, radius = 0.34) {
   if (bounds) {
     if (
@@ -198,7 +246,13 @@ export function pointCollidesWithColliders(nx, nz, colliders = [], bounds = null
       return true;
     }
   }
-  for (const c of colliders) {
+  const grid = getSpatialColliderGrid(colliders);
+  const list = grid
+    ? grid.get(Math.floor(nx / COLLIDER_CELL_SIZE) * 4096 + Math.floor(nz / COLLIDER_CELL_SIZE))
+    : colliders;
+  if (!list || list.length === 0) return false;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
     if (typeof c.cx === 'number') {
       const dx = nx - c.cx;
       const dz = nz - c.cz;

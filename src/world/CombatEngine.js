@@ -104,27 +104,53 @@ function raycastAabb3D(ox, oy, oz, dx, dy, dz, box, maxDist) {
   let tmin = 0;
   let tmax = maxDist;
 
-  const axes = [
-    [ox, dx, box.minX, box.maxX],
-    [oy, dy, box.minY ?? 0, box.maxY ?? box.height ?? 3],
-    [oz, dz, box.minZ, box.maxZ]
-  ];
-  for (const [o, d, bmin, bmax] of axes) {
-    if (Math.abs(d) < 1e-7) {
-      if (o < bmin || o > bmax) return null;
-    } else {
-      let t1 = (bmin - o) / d;
-      let t2 = (bmax - o) / d;
-      if (t1 > t2) {
-        const tmp = t1;
-        t1 = t2;
-        t2 = tmp;
-      }
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) return null;
+  if (Math.abs(dx) < 1e-7) {
+    if (ox < box.minX || ox > box.maxX) return null;
+  } else {
+    let t1 = (box.minX - ox) / dx;
+    let t2 = (box.maxX - ox) / dx;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
     }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return null;
   }
+
+  const minY = box.minY ?? 0;
+  const maxY = box.maxY ?? box.height ?? 3;
+  if (Math.abs(dy) < 1e-7) {
+    if (oy < minY || oy > maxY) return null;
+  } else {
+    let t1 = (minY - oy) / dy;
+    let t2 = (maxY - oy) / dy;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
+    }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return null;
+  }
+
+  if (Math.abs(dz) < 1e-7) {
+    if (oz < box.minZ || oz > box.maxZ) return null;
+  } else {
+    let t1 = (box.minZ - oz) / dz;
+    let t2 = (box.maxZ - oz) / dz;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
+    }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return null;
+  }
+
   return tmin >= 0 && tmin <= maxDist ? tmin : null;
 }
 

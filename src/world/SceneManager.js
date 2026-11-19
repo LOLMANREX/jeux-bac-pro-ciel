@@ -3,30 +3,148 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { detectDeviceProfile } from '../core/gameState.js';
 import { resolveAscensionSpecialty } from './AvatarBuilder.js';
 
+export const QUALITY_PRESETS = {
+  potato: {
+    id: 'potato',
+    label: 'Ultra-Fluide / Patate',
+    shadows: false,
+    shadowMapSize: 512,
+    drawDistance: 72,
+    fogScale: 0.72,
+    particleScale: 0.35,
+    textureThrottleMult: 3.0,
+    vrFoveation: 1.0,
+    vrFramebufferScale: 0.72
+  },
+  eco: {
+    id: 'eco',
+    label: 'Éco — PC Lycée',
+    shadows: false,
+    shadowMapSize: 512,
+    drawDistance: 96,
+    fogScale: 0.85,
+    particleScale: 0.55,
+    textureThrottleMult: 2.0,
+    vrFoveation: 1.0,
+    vrFramebufferScale: 0.82
+  },
+  balanced: {
+    id: 'balanced',
+    label: 'Équilibré',
+    shadows: true,
+    shadowMapSize: 512,
+    drawDistance: 132,
+    fogScale: 0.94,
+    particleScale: 0.8,
+    textureThrottleMult: 1.35,
+    vrFoveation: 1.0,
+    vrFramebufferScale: 0.9
+  },
+  high: {
+    id: 'high',
+    label: 'Élevé',
+    shadows: true,
+    shadowMapSize: 1024,
+    drawDistance: 180,
+    fogScale: 1.0,
+    particleScale: 1.0,
+    textureThrottleMult: 1.0,
+    vrFoveation: 1.0,
+    vrFramebufferScale: 1.0
+  }
+};
+
+export function resolveEffectiveQuality(quality = 'auto', deviceProfile = null, isVr = false) {
+  if (quality === 'auto') {
+    if (isVr || deviceProfile?.isMobile || deviceProfile?.isTablet) {
+      return 'balanced';
+    }
+    return 'high';
+  }
+  return QUALITY_PRESETS[quality] ? quality : 'balanced';
+}
+
+export function computeZoneVisibility(mode = 'hall') {
+  if (mode === 'combat_waiting') {
+    return {
+      labVisible: false,
+      combatVisible: true,
+      combatZone: 'waiting',
+      survivalVisible: false,
+      survivalZone: 'hidden'
+    };
+  }
+  if (mode === 'combat_arena') {
+    return {
+      labVisible: false,
+      combatVisible: true,
+      combatZone: 'arena',
+      survivalVisible: false,
+      survivalZone: 'hidden'
+    };
+  }
+  if (mode === 'waiting') {
+    return {
+      labVisible: false,
+      combatVisible: false,
+      combatZone: 'hidden',
+      survivalVisible: true,
+      survivalZone: 'waiting'
+    };
+  }
+  if (mode === 'detention') {
+    return {
+      labVisible: false,
+      combatVisible: false,
+      combatZone: 'hidden',
+      survivalVisible: true,
+      survivalZone: 'detention'
+    };
+  }
+  return {
+    labVisible: true,
+    combatVisible: false,
+    combatZone: 'hidden',
+    survivalVisible: false,
+    survivalZone: 'hidden'
+  };
+}
+
 export function computeAdaptivePixelRatio({
   devicePixelRatio = 1,
   quality = 'high',
   isMobile = false,
   isTablet = false,
-  isVr = false
+  isVr = false,
+  dynamicScale = 1
 } = {}) {
   const dpr = Math.max(0.75, Number(devicePixelRatio) || 1);
+  const eff = resolveEffectiveQuality(quality, { isMobile, isTablet }, isVr);
+  const scale = Math.max(0.65, Math.min(1.0, Number(dynamicScale) || 1));
+  let base;
   if (isVr) {
-    return Math.min(dpr, 1.5);
+    base = Math.min(dpr, eff === 'potato' ? 1.0 : eff === 'eco' ? 1.15 : 1.5);
+  } else if (isMobile) {
+    if (eff === 'potato') base = Math.min(dpr, 0.75);
+    else if (eff === 'eco') base = Math.min(dpr, 0.9);
+    else if (eff === 'balanced') base = Math.min(dpr, 1.0);
+    else base = Math.min(dpr, 1.15);
+  } else if (isTablet) {
+    if (eff === 'potato') base = Math.min(dpr, 0.8);
+    else if (eff === 'eco') base = Math.min(dpr, 1.0);
+    else if (eff === 'balanced') base = Math.min(dpr, 1.1);
+    else base = Math.min(dpr, 1.25);
+  } else if (eff === 'potato') {
+    base = Math.min(dpr, 0.85);
+  } else if (eff === 'eco') {
+    base = 1;
+  } else if (eff === 'balanced') {
+    base = Math.min(dpr, 1.25);
+  } else {
+    base = Math.min(dpr, 1.5);
   }
-  if (isMobile) {
-    if (quality === 'eco') return Math.min(dpr, 0.9);
-    if (quality === 'balanced') return Math.min(dpr, 1.0);
-    return Math.min(dpr, 1.15);
-  }
-  if (isTablet) {
-    if (quality === 'eco') return Math.min(dpr, 1.0);
-    if (quality === 'balanced') return Math.min(dpr, 1.1);
-    return Math.min(dpr, 1.25);
-  }
-  if (quality === 'eco') return 1;
-  if (quality === 'balanced') return Math.min(dpr, 1.25);
-  return Math.min(dpr, 1.5);
+  if (scale >= 0.999) return base;
+  return Math.max(0.6, Math.round(base * scale * 100) / 100);
 }
 
 export const INTRO_CINEMATIC_SHOTS = [
@@ -137,12 +255,12 @@ export function createWorldCelebrationRig(scene) {
 
   const rainItems = [];
   const goldCyanPalette = ['#fbbf24', '#fde047', '#22d3ee', '#67e8f9', '#f59e0b', '#38bdf8'];
+  const paletteMats = goldCyanPalette.map((col) => new THREE.MeshBasicMaterial({ color: col }));
   const octGeom = new THREE.OctahedronGeometry(0.055, 0);
   const confettiGeom = new THREE.BoxGeometry(0.075, 0.02, 0.045);
 
   for (let i = 0; i < 120; i++) {
-    const col = goldCyanPalette[i % goldCyanPalette.length];
-    const mat = new THREE.MeshBasicMaterial({ color: col });
+    const mat = paletteMats[i % paletteMats.length];
     const mesh = new THREE.Mesh(i % 2 === 0 ? octGeom : confettiGeom, mat);
     const rx = ((i * 37) % 240) / 10 - 12;
     const rz = ((i * 53) % 220) / 10 - 11;
@@ -186,10 +304,9 @@ export function createWorldCelebrationRig(scene) {
         Math.cos(phi),
         Math.sin(theta) * Math.sin(phi)
       ).normalize();
-      const col = goldCyanPalette[(bIdx + s) % goldCyanPalette.length];
       const sparkMesh = new THREE.Mesh(
         sparkGeom,
-        new THREE.MeshBasicMaterial({ color: col })
+        paletteMats[(bIdx + s) % paletteMats.length]
       );
       burstGroup.add(sparkMesh);
       sparks.push({
@@ -438,15 +555,25 @@ export function createWorldCelebrationRig(scene) {
   };
 }
 
+const _pickObjWorldPos = new THREE.Vector3();
+
 function collectNonSpriteMeshes(root) {
+  if (!root || typeof root.traverse !== 'function') return [];
+  const childCount = Array.isArray(root.children) ? root.children.length : 0;
+  if (root.userData && root.userData.__nonSpriteCount === childCount && Array.isArray(root.userData.__nonSpriteMeshes)) {
+    return root.userData.__nonSpriteMeshes;
+  }
   const targets = [];
-  if (!root || typeof root.traverse !== 'function') return targets;
   root.traverse((obj) => {
     if (obj.isSprite) return;
     if (obj.isMesh || obj.isLine || obj.isPoints) {
       targets.push(obj);
     }
   });
+  if (root.userData) {
+    root.userData.__nonSpriteCount = childCount;
+    root.userData.__nonSpriteMeshes = targets;
+  }
   return targets;
 }
 
@@ -455,13 +582,40 @@ export function pickLabInteractable(raycaster, interactables = [], occluders = [
     return null;
   }
   const canTestSprites = Boolean(raycaster.camera);
+  const rayOrigin = raycaster.ray?.origin;
   let bestHit = null;
-  for (const item of interactables) {
+  for (let i = 0; i < interactables.length; i++) {
+    const item = interactables[i];
     if (!item?.mesh || item.mesh.visible === false) continue;
+    if (rayOrigin) {
+      let ix;
+      let iy;
+      let iz;
+      if (item.position && Number.isFinite(item.position.x) && Number.isFinite(item.position.z)) {
+        ix = item.position.x;
+        iy = Number.isFinite(item.position.y) ? item.position.y + 1.0 : 1.0;
+        iz = item.position.z;
+      } else if (typeof item.mesh.getWorldPosition === 'function') {
+        item.mesh.getWorldPosition(_pickObjWorldPos);
+        ix = _pickObjWorldPos.x;
+        iy = _pickObjWorldPos.y;
+        iz = _pickObjWorldPos.z;
+      } else {
+        ix = item.mesh.position?.x || 0;
+        iy = item.mesh.position?.y || 0;
+        iz = item.mesh.position?.z || 0;
+      }
+      const dx = ix - rayOrigin.x;
+      const dy = iy - rayOrigin.y;
+      const dz = iz - rayOrigin.z;
+      const maxCheck = maxDist + (item.boundRadius || 3.8);
+      if (dx * dx + dy * dy + dz * dz > maxCheck * maxCheck) continue;
+    }
     const hits = canTestSprites
       ? raycaster.intersectObject(item.mesh, true)
       : raycaster.intersectObjects(collectNonSpriteMeshes(item.mesh), false);
-    for (const h of hits) {
+    for (let j = 0; j < hits.length; j++) {
+      const h = hits[j];
       if (!h || h.distance > maxDist) continue;
       let cur = h.object;
       let vis = true;
@@ -487,7 +641,10 @@ export function pickLabInteractable(raycaster, interactables = [], occluders = [
   }
   if (!bestHit) return null;
   if (Array.isArray(occluders) && occluders.length > 0) {
+    const prevFar = raycaster.far;
+    raycaster.far = bestHit.distance;
     const wallHits = raycaster.intersectObjects(occluders, false);
+    raycaster.far = prevFar;
     if (wallHits.length > 0 && wallHits[0].distance < bestHit.distance - 0.12) {
       return null;
     }
@@ -516,7 +673,18 @@ export class SceneManager {
     this.paused = false;
     this.vrPresenting = false;
     this.vrManager = null;
-    this.quality = 'high';
+    this.quality = 'auto';
+    this.effectiveQuality = 'high';
+    this.autoFpsGuard = true;
+    this.dynamicResolutionScale = 1.0;
+    this._lowFpsAccum = 0;
+    this._highFpsAccum = 0;
+    this.particleScale = 1.0;
+    this.textureThrottleMult = 1.0;
+    this.vrFoveation = 1.0;
+    this.vrFramebufferScale = 0.9;
+    this.shadersPrecompiled = false;
+    this.qualityListeners = [];
     this.deviceProfile = options.deviceProfile || detectDeviceProfile();
     this.updaters = [];
     this.alwaysUpdaters = [];
@@ -525,6 +693,21 @@ export class SceneManager {
     this.customStepFn = null;
     this.clock = new THREE.Clock();
     this.fps = 60;
+    this.frameTimeMs = 16.6;
+    this._perfMetricsScratch = {
+      fps: 60,
+      frameTimeMs: 16.6,
+      drawCalls: 0,
+      triangles: 0,
+      quality: 'auto',
+      effectiveQuality: 'high',
+      resolutionScale: 1.0,
+      shadowsEnabled: true,
+      foveation: 1.0,
+      vrFramebufferScale: 0.9,
+      particleScale: 1.0,
+      textureThrottleMult: 1.0
+    };
     this._loopErrorLogged = new Set();
 
     if (options.renderer) {
@@ -559,6 +742,7 @@ export class SceneManager {
     if (this.renderer.xr) {
       this.renderer.xr.enabled = true;
       this.renderer.xr.setReferenceSpaceType?.('local-floor');
+      this.renderer.xr.setFoveation?.(1.0);
     }
     this.renderer.autoClear = true;
     this.renderer.setClearColor?.('#cfe4f7', 1);
@@ -610,7 +794,7 @@ export class SceneManager {
     this.canvas?.addEventListener?.('webglcontextrestored', this._onContextRestored, false);
 
     this._setupLights();
-    this.setQuality('high');
+    this.setQuality(options.quality || 'auto');
     this._onResize = this._handleResize.bind(this);
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('resize', this._onResize);
@@ -803,19 +987,19 @@ export class SceneManager {
     }
     this.renderer?.setClearColor?.(bgHex, 1);
     if (this.ambient) {
-      this.ambient.color.set('#cbd5e1');
-      this.ambient.intensity = 0.45;
+      this.ambient.color.set('#dbeafe');
+      this.ambient.intensity = 0.68;
     }
     if (this.hemi) {
       this.hemi.color.set('#38bdf8');
-      this.hemi.intensity = 0.68;
+      this.hemi.intensity = 0.96;
     }
-    if (this.sun) this.sun.intensity = 0.72;
+    if (this.sun) this.sun.intensity = 0.92;
     if (this.fill) {
-      this.fill.color.set('#38bdf8');
-      this.fill.intensity = 0.36;
+      this.fill.color.set('#60a5fa');
+      this.fill.intensity = 0.56;
     }
-    this.scene.environmentIntensity = 0.55;
+    this.scene.environmentIntensity = 0.68;
     if (this.flashlight) {
       this.flashlight.visible = false;
       this.flashlight.intensity = 0;
@@ -888,20 +1072,33 @@ export class SceneManager {
   setVrPresentingState(presenting) {
     this.vrPresenting = Boolean(presenting);
     this.camera.near = this.vrPresenting ? 0.05 : 0.1;
-    this.camera.far = Math.max(180, Number(this.camera.far) || 180);
+    const preset = QUALITY_PRESETS[this.effectiveQuality] || QUALITY_PRESETS.balanced;
+    this.camera.far = Math.max(preset.drawDistance || 132, Number(this.camera.far) || 180);
     if (this.vrPresenting) {
       this.customRenderScene = null;
       this.customStepFn = null;
       this.renderer.autoClear = true;
       this.renderer.setClearColor?.('#cfe4f7', 1);
+      this.renderer.xr?.setFoveation?.(preset.vrFoveation ?? 1.0);
+      this.vrFoveation = preset.vrFoveation ?? 1.0;
     }
     if (!this.renderer.xr?.isPresenting) {
       this.camera.updateProjectionMatrix();
     }
+    this.setQuality(this.quality);
     if (!this.vrPresenting) {
-      this.setQuality(this.quality);
       this._handleResize();
     }
+  }
+
+  getVrOptimizationConfig() {
+    const eff = resolveEffectiveQuality(this.quality, this.deviceProfile, true);
+    const preset = QUALITY_PRESETS[eff] || QUALITY_PRESETS.balanced;
+    return {
+      effectiveQuality: eff,
+      foveation: preset.vrFoveation ?? 1.0,
+      framebufferScaleFactor: preset.vrFramebufferScale ?? 0.9
+    };
   }
 
   setDeviceProfile(profile) {
@@ -911,32 +1108,178 @@ export class SceneManager {
     }
   }
 
+  onQualityChange(fn) {
+    if (typeof fn === 'function') {
+      this.qualityListeners.push(fn);
+    }
+  }
+
+  setAutoFpsGuard(enabled) {
+    this.autoFpsGuard = Boolean(enabled);
+    if (!this.autoFpsGuard) {
+      this.dynamicResolutionScale = 1.0;
+      this._lowFpsAccum = 0;
+      this._highFpsAccum = 0;
+      this.setQuality(this.quality);
+    }
+  }
+
+  precompileShaders() {
+    if (!this.renderer || typeof this.renderer.compile !== 'function') {
+      return false;
+    }
+    try {
+      this.renderer.compile(this.scene, this.camera);
+      this.shadersPrecompiled = true;
+      return true;
+    } catch (err) {
+      this.recordXrError('precompile', err);
+      return false;
+    }
+  }
+
   setQuality(quality) {
-    this.quality = quality;
+    const normalized = ['auto', 'high', 'balanced', 'eco', 'potato'].includes(quality) ? quality : 'auto';
+    this.quality = normalized;
     const xrPresenting = Boolean(this.renderer.xr?.isPresenting || this.vrPresenting);
+    const isMobile = Boolean(this.deviceProfile?.isMobile);
+    const isTablet = Boolean(this.deviceProfile?.isTablet);
+    const eff = resolveEffectiveQuality(normalized, this.deviceProfile, xrPresenting);
+    this.effectiveQuality = eff;
+    const preset = QUALITY_PRESETS[eff] || QUALITY_PRESETS.balanced;
+
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     const targetPr = computeAdaptivePixelRatio({
       devicePixelRatio: dpr,
-      quality,
-      isMobile: Boolean(this.deviceProfile?.isMobile),
-      isTablet: Boolean(this.deviceProfile?.isTablet),
-      isVr: xrPresenting
+      quality: normalized,
+      isMobile,
+      isTablet,
+      isVr: xrPresenting,
+      dynamicScale: this.dynamicResolutionScale
     });
     if (!xrPresenting) {
       this.renderer.setPixelRatio?.(targetPr);
     }
-    if (quality === 'eco') {
-      if (this.renderer.shadowMap) this.renderer.shadowMap.enabled = false;
-      this.sun.castShadow = false;
-    } else if (quality === 'balanced') {
-      const shadowsAllowed = !this.deviceProfile?.isMobile;
-      if (this.renderer.shadowMap) this.renderer.shadowMap.enabled = shadowsAllowed;
-      this.sun.castShadow = shadowsAllowed;
-    } else {
-      if (this.renderer.shadowMap) this.renderer.shadowMap.enabled = true;
-      this.sun.castShadow = true;
+
+    this.vrFoveation = preset.vrFoveation ?? 1.0;
+    this.vrFramebufferScale = preset.vrFramebufferScale ?? 0.9;
+    this.renderer.xr?.setFoveation?.(this.vrFoveation);
+    if (!xrPresenting && this.renderer.xr && typeof this.renderer.xr.setFramebufferScaleFactor === 'function') {
+      try {
+        this.renderer.xr.setFramebufferScaleFactor(this.vrFramebufferScale);
+      } catch {}
     }
+
+    let shadowsAllowed = Boolean(preset.shadows);
+    if (isMobile && normalized !== 'high') {
+      shadowsAllowed = false;
+    }
+    if (isMobile && normalized === 'high') {
+      shadowsAllowed = false;
+    }
+    if (xrPresenting && eff !== 'high') {
+      shadowsAllowed = false;
+    }
+    if (this.renderer.shadowMap) {
+      this.renderer.shadowMap.enabled = shadowsAllowed;
+    }
+    if (this.sun) {
+      this.sun.castShadow = shadowsAllowed;
+      const targetMapSize = xrPresenting ? 512 : preset.shadowMapSize || 1024;
+      if (this.sun.shadow?.mapSize && this.sun.shadow.mapSize.x !== targetMapSize) {
+        this.sun.shadow.mapSize.set(targetMapSize, targetMapSize);
+        if (this.sun.shadow.map) {
+          this.sun.shadow.map.dispose();
+          this.sun.shadow.map = null;
+        }
+      }
+    }
+
+    const diag = Math.hypot(this._worldWidth || 26, this._worldDepth || 24.4);
+    const targetFar = Math.max(preset.drawDistance, diag * (eff === 'potato' ? 1.15 : eff === 'eco' ? 1.35 : 1.8));
+    if (this.camera && Math.abs(this.camera.far - targetFar) > 0.5) {
+      this.camera.far = targetFar;
+      if (!xrPresenting) {
+        this.camera.updateProjectionMatrix();
+      }
+    }
+    if (this.scene.fog && !this.horrorMode && !this.combatMode) {
+      const baseNear = Math.max(38, diag * 0.82);
+      const baseFar = Math.max(105, diag * 1.85);
+      this.scene.fog.near = Math.max(18, baseNear * preset.fogScale);
+      this.scene.fog.far = Math.max(54, baseFar * preset.fogScale);
+    }
+
+    const scalePenalty = this.dynamicResolutionScale < 0.88 ? 1.45 : this.dynamicResolutionScale < 0.96 ? 1.2 : 1.0;
+    this.particleScale = Math.max(0.25, Math.min(1.0, preset.particleScale * this.dynamicResolutionScale));
+    this.textureThrottleMult = preset.textureThrottleMult * scalePenalty * (isMobile || xrPresenting ? 1.35 : 1.0);
+
+    const payload = {
+      quality: this.quality,
+      effectiveQuality: this.effectiveQuality,
+      particleScale: this.particleScale,
+      textureThrottleMult: this.textureThrottleMult,
+      shadowsEnabled: shadowsAllowed,
+      isMobile,
+      isTablet,
+      isVr: xrPresenting,
+      resolutionScale: this.dynamicResolutionScale
+    };
+    for (let i = 0; i < this.qualityListeners.length; i++) {
+      try {
+        this.qualityListeners[i](payload);
+      } catch {}
+    }
+
     this._handleResize();
+  }
+
+  _stepAutoFpsGuard(dt, isXr) {
+    if (!this.autoFpsGuard || this.paused) return false;
+    const isMobile = Boolean(this.deviceProfile?.isMobile);
+    const lowThreshold = isXr ? 58 : isMobile ? 32 : 42;
+    const highThreshold = isXr ? 68 : isMobile ? 52 : 56;
+    if (this.fps < lowThreshold) {
+      this._lowFpsAccum += dt;
+      this._highFpsAccum = 0;
+      if (this._lowFpsAccum >= 2.2 && this.dynamicResolutionScale > 0.68) {
+        this._lowFpsAccum = 0;
+        this.dynamicResolutionScale = Math.max(0.65, Math.round((this.dynamicResolutionScale - 0.1) * 100) / 100);
+        this.setQuality(this.quality);
+        return true;
+      }
+    } else if (this.fps > highThreshold && this.dynamicResolutionScale < 1.0) {
+      this._highFpsAccum += dt;
+      this._lowFpsAccum = 0;
+      if (this._highFpsAccum >= 5.0) {
+        this._highFpsAccum = 0;
+        this.dynamicResolutionScale = Math.min(1.0, Math.round((this.dynamicResolutionScale + 0.05) * 100) / 100);
+        this.setQuality(this.quality);
+        return true;
+      }
+    } else {
+      this._lowFpsAccum = Math.max(0, this._lowFpsAccum - dt * 0.5);
+      this._highFpsAccum = Math.max(0, this._highFpsAccum - dt * 0.5);
+    }
+    return false;
+  }
+
+  getPerformanceMetrics() {
+    const info = this.renderer?.info?.render;
+    const m = this._perfMetricsScratch;
+    m.fps = Math.round(this.fps || 60);
+    m.frameTimeMs = Math.round((this.frameTimeMs || 16.6) * 10) / 10;
+    m.drawCalls = Number(info?.calls) || 0;
+    m.triangles = Number(info?.triangles) || 0;
+    m.quality = this.quality;
+    m.effectiveQuality = this.effectiveQuality;
+    m.resolutionScale = this.dynamicResolutionScale;
+    m.shadowsEnabled = Boolean(this.renderer?.shadowMap?.enabled);
+    m.foveation = this.vrFoveation;
+    m.vrFramebufferScale = this.vrFramebufferScale;
+    m.particleScale = this.particleScale;
+    m.textureThrottleMult = this.textureThrottleMult;
+    return m;
   }
 
   setPaused(paused) {
@@ -1146,10 +1489,12 @@ export class SceneManager {
       if (rawDt > 0.0005) {
         const instFps = Math.min(240, Math.max(1, 1 / rawDt));
         this.fps = this.fps * 0.88 + instFps * 0.12;
+        this.frameTimeMs = this.frameTimeMs * 0.88 + Math.min(250, rawDt * 1000) * 0.12;
       }
       const dt = Math.min(rawDt, 0.1);
       const elapsed = this.clock.elapsedTime;
       const isXr = Boolean(this.renderer.xr?.isPresenting || this.vrPresenting);
+      this._stepAutoFpsGuard(dt, isXr);
       try {
         this.celebrationRig?.update(dt, elapsed);
       } catch (err) {

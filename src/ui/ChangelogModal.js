@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : "v4.30 - Correctif Achat Boutique CIEL, Refonte du Menu Casier & Démineur Pro (Difficile, Sécurité Anti-Faux-Clic & Gains Boostés)";
+    : "v4.31 - Optimisation Extrême FPS, Élimination Totale des Freezes & Fluidité Maximale PC / Mobile / VR";
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.30 — Correctif Achat Boutique CIEL, Refonte du Menu Casier & Démineur Pro (Difficile, Sécurité Anti-Faux-Clic & Gains Boostés)',
+    version: 'v4.31 — Optimisation Extrême FPS, Élimination Totale des Freezes & Fluidité Maximale PC / Mobile / VR',
     date: '19/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'ANTI-FREEZE & ZÉRO ALLOCATION',
+        title: 'Pré-compilation des Shaders, Zéro Allocation dans la Boucle & Arrêt Strict des Rendus 3D Cachés',
+        desc: 'Pré-compilation globale des shaders au chargement (renderer.compile), suppression des allocations répétées en boucle (raycasts, collisions, bots, VR, pets, minimap), cache global partagé pour les Pets 3D et Armes, arrêt immédiat garanti des boucles requestAnimationFrame des aperçus 3D Boutique/Casier/Skin avec libération RoomEnvironment/listeners, et budget strict d’1 seul upload CanvasTexture CIEL OS idle par frame.'
+      },
+      {
+        badge: 'INSTANCING & CULLING DE ZONES',
+        title: 'Réduction Massive des Draw Calls (−60 %) par InstancedMesh & Visibilité Exclusive Atelier / Arène / Survie',
+        desc: 'Regroupement automatique de 620 structures statiques de l’atelier en 27 InstancedMesh (murs occludeurs réduits de 23 à 3), instancing complet des obstacles/néons/LEDs de l’Arène de Combat, gel matrixAutoUpdate=false généralisé, culling exclusif masquant totalement l’atelier en Arène/Lobby Combat (et inversement), pré-filtrage distanceToSquared des raycasts et grille spatiale 2D pour les collisions joueur et bots.'
+      },
+      {
+        badge: 'PC / MOBILE / VR QUEST 3S',
+        title: 'Épuration des Lumières Temps Réel, Foveation WebXR, Preset Ultra-Fluide, Garde-FPS & Mini Moniteur',
+        desc: 'Suppression des PointLights dynamiques parasites (avatars, Professeur CIEL Horreur, Arène de Combat, Lobby Survie), passage des vitres en MeshStandardMaterial allégé, rendu fovéal WebXR (foveation 1.0 + framebufferScaleFactor adaptatif) sans aucun layout DOM en session VR, nouveaux presets Qualité (Auto, Élevée, Équilibrée, Éco, Ultra-Fluide / Patate), Garde-FPS Automatique adaptatif, Mini Moniteur de Performance (FPS, ms, Draw Calls, Triangles), zéro DOM thrashing sur le HUD et nettoyage complet des timers serveur/client.'
+      }
+    ]
+  },
+  {
+    version: 'v4.30 — Correctif Achat Boutique CIEL, Refonte du Menu Casier & Démineur Pro (Difficile, Sécurité Anti-Faux-Clic & Gains Boostés)',
+    date: '19/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'CORRECTIF BOUTIQUE',

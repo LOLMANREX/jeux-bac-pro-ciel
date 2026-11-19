@@ -334,13 +334,19 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
   root.add(waitGroup);
   buildEnclosedRoom(waitGroup, waitCenter.x, waitCenter.z, waitW, waitD, waitH, '#111827', '#0f172a', '#e11d48');
 
-  const waitLight = new THREE.PointLight('#38bdf8', 2.4, 16);
-  waitLight.position.set(waitCenter.x, 3.3, waitCenter.z);
-  waitGroup.add(waitLight);
+  const waitCeilLight = new THREE.Mesh(
+    new THREE.BoxGeometry(3.2, 0.06, 0.36),
+    new THREE.MeshBasicMaterial({ color: '#38bdf8' })
+  );
+  waitCeilLight.position.set(waitCenter.x, waitH - 0.05, waitCenter.z);
+  waitGroup.add(waitCeilLight);
 
-  const waitAlertLight = new THREE.PointLight('#e11d48', 1.4, 12);
-  waitAlertLight.position.set(waitCenter.x, 2.8, waitCenter.z - 3.6);
-  waitGroup.add(waitAlertLight);
+  const waitAlertBar = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 0.06, 0.08),
+    new THREE.MeshBasicMaterial({ color: '#e11d48' })
+  );
+  waitAlertBar.position.set(waitCenter.x, waitH - 0.14, waitCenter.z - 4.7);
+  waitGroup.add(waitAlertBar);
 
   const lobbyScreen = makeRoomCanvasTexture(1024, 512, (ctx, w, h) => {
     ctx.fillStyle = '#07101f';
@@ -391,17 +397,16 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
   dadoLeft.position.set(detCenter.x - detW / 2 + 0.14, 0.525, detCenter.z);
   detGroup.add(dadoLeft);
 
-  const detLight = new THREE.PointLight('#fef3c7', 1.9, 16);
+  const detLight = new THREE.PointLight('#fef3c7', 2.1, 16);
   detLight.position.set(detCenter.x, 3.25, detCenter.z + 0.3);
   detGroup.add(detLight);
 
-  const detRedLight = new THREE.PointLight('#ef4444', 1.15, 12);
-  detRedLight.position.set(detCenter.x + 2.5, 2.9, detCenter.z - 3.4);
-  detGroup.add(detRedLight);
-
-  const deskLampLight = new THREE.PointLight('#fde68a', 1.45, 4.2);
-  deskLampLight.position.set(detCenter.x - 0.12, 1.42, detCenter.z + 0.45);
-  detGroup.add(deskLampLight);
+  const detRedBar = new THREE.Mesh(
+    new THREE.BoxGeometry(1.4, 0.06, 0.08),
+    new THREE.MeshBasicMaterial({ color: '#ef4444' })
+  );
+  detRedBar.position.set(detCenter.x + 2.5, detH - 0.16, detCenter.z - 4.4);
+  detGroup.add(detRedBar);
 
   const ceilingFixture = new THREE.Mesh(
     new THREE.BoxGeometry(2.2, 0.08, 0.45),
@@ -957,11 +962,18 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
     }
   }
 
+  let cachedWallSegsMap = null;
+  let cachedWallSegs = [];
+  let lastCamBarSig = '';
+
   function updateDetentionCameraBar(camInfo = {}, force = false) {
     lastCamInfo = { ...lastCamInfo, ...camInfo };
+    const sig = `${lastCamInfo.camIndex}|${lastCamInfo.camCount}|${lastCamInfo.label}|${lastCamInfo.status}|${lastCamInfo.completedTps}|${lastCamInfo.totalTps}|${lastCamInfo.aliveCount}|${hoveredBoardCamId}|${hoveredDeskCamId}`;
     const now = Date.now();
-    if (!force && now - lastCamBarDrawMs < 120) return;
+    if (!force && sig === lastCamBarSig) return;
+    if (!force && now - lastCamBarDrawMs < 160) return;
     lastCamBarDrawMs = now;
+    lastCamBarSig = sig;
     drawCamControls();
   }
 
@@ -1205,7 +1217,11 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
       ctx.fill();
     }
 
-    const wallSegs = subtractDoorsFromWalls(currentMap?.walls || []);
+    if (cachedWallSegsMap !== currentMap) {
+      cachedWallSegsMap = currentMap;
+      cachedWallSegs = subtractDoorsFromWalls(currentMap?.walls || []);
+    }
+    const wallSegs = cachedWallSegs;
     ctx.lineCap = 'round';
     for (const seg of wallSegs) {
       if (seg.kind === 'door_single' || seg.kind === 'door_double') continue;
@@ -1353,8 +1369,29 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
   updateDetentionMathSheet({}, true);
   drawDeskExitControls();
 
+  function setZoneVisibility(zone = 'hidden') {
+    if (zone === 'waiting') {
+      root.visible = true;
+      waitGroup.visible = true;
+      detGroup.visible = false;
+    } else if (zone === 'detention') {
+      root.visible = true;
+      waitGroup.visible = false;
+      detGroup.visible = true;
+    } else if (zone === 'all') {
+      root.visible = true;
+      waitGroup.visible = true;
+      detGroup.visible = true;
+    } else {
+      root.visible = false;
+      waitGroup.visible = false;
+      detGroup.visible = false;
+    }
+  }
+
   return {
     root,
+    waitGroup,
     detGroup,
     mathSheetMesh,
     deskCamMesh,
@@ -1363,6 +1400,7 @@ export function createSurvivalPocketRooms(scene, mapData = null) {
     survMonitor,
     povRenderTarget,
     povCamera,
+    setZoneVisibility,
     setMapData,
     setLivePovActive,
     updateWaitingBoard,

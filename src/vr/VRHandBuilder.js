@@ -309,7 +309,7 @@ function createFingerChain({ lengthA, lengthB, lengthC, radius, mats }) {
     mats.fingerMat
   );
   segA.position.set(0, 0, -lengthA * 0.5);
-  segA.castShadow = true;
+  segA.castShadow = false;
   basePivot.add(segA);
 
   const midPivot = new THREE.Group();
@@ -324,7 +324,7 @@ function createFingerChain({ lengthA, lengthB, lengthC, radius, mats }) {
     mats.fingerMat
   );
   segB.position.set(0, 0, -lengthB * 0.5);
-  segB.castShadow = true;
+  segB.castShadow = false;
   midPivot.add(segB);
 
   const distalPivot = new THREE.Group();
@@ -339,7 +339,7 @@ function createFingerChain({ lengthA, lengthB, lengthC, radius, mats }) {
     mats.fingerMat
   );
   segC.position.set(0, 0, -lengthC * 0.5);
-  segC.castShadow = true;
+  segC.castShadow = false;
   distalPivot.add(segC);
 
   const tip = new THREE.Mesh(
@@ -374,7 +374,7 @@ export function buildArticulatedVRHand({ handedness = 'right', skin = {} } = {})
 
   const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.036, 0.072), mats.cuffMat);
   cuff.position.set(0, -0.004, 0.04);
-  cuff.castShadow = true;
+  cuff.castShadow = false;
   modelGroup.add(cuff);
 
   const cuffTrim = new THREE.Mesh(new THREE.BoxGeometry(0.074, 0.042, 0.014), mats.trimMat);
@@ -387,7 +387,7 @@ export function buildArticulatedVRHand({ handedness = 'right', skin = {} } = {})
 
   const palm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.026, 0.084), mats.palmMat);
   palm.position.set(0, -0.004, -0.044);
-  palm.castShadow = true;
+  palm.castShadow = false;
   modelGroup.add(palm);
 
   const dorsalPlate = new THREE.Mesh(new THREE.BoxGeometry(0.064, 0.01, 0.064), mats.cuffMat);

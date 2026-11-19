@@ -10,15 +10,19 @@ import {
   getCombatArenaColliders
 } from './CombatEngine.js';
 
-function makeArenaCanvasTex(width, height, drawFn) {
+function makeArenaCanvasTex(width, height, drawFn, scale = 1) {
   if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
     return null;
   }
+  const s = Math.max(0.5, Math.min(1, Number(scale) || 1));
   const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = Math.max(128, Math.round(width * s));
+  canvas.height = Math.max(64, Math.round(height * s));
   const ctx = canvas.getContext?.('2d');
   if (!ctx) return null;
+  if (typeof ctx.setTransform === 'function') {
+    ctx.setTransform(s, 0, 0, s, 0, 0);
+  }
   if (typeof drawFn === 'function') {
     drawFn(ctx, width, height);
   }
@@ -26,7 +30,7 @@ function makeArenaCanvasTex(width, height, drawFn) {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  return { canvas, ctx, tex };
+  return { canvas, ctx, tex, scale: s, logicalWidth: width, logicalHeight: height };
 }
 
 function makeCyberFloorTexture(accent = '#06b6d4') {
@@ -79,7 +83,9 @@ function makeNameBadgeSprite(label, color = '#fb7185') {
   return sp;
 }
 
-export function createCombatPocketRooms(scene) {
+export function createCombatPocketRooms(scene, options = {}) {
+  const lowRes = Boolean(options?.lowRes);
+  const canvasScale = lowRes ? 0.5 : 1.0;
   const root = new THREE.Group();
   root.name = 'combat-pocket-rooms';
   scene.add(root);
@@ -87,6 +93,14 @@ export function createCombatPocketRooms(scene) {
   const staticGroup = new THREE.Group();
   staticGroup.name = 'combat-static-structure';
   root.add(staticGroup);
+
+  const waitingGroup = new THREE.Group();
+  waitingGroup.name = 'combat-waiting-structure';
+  staticGroup.add(waitingGroup);
+
+  const arenaStaticGroup = new THREE.Group();
+  arenaStaticGroup.name = 'combat-arena-structure';
+  staticGroup.add(arenaStaticGroup);
 
   const dynamicGroup = new THREE.Group();
   dynamicGroup.name = 'combat-dynamic-entities';
@@ -110,7 +124,7 @@ export function createCombatPocketRooms(scene) {
   waitFloor.rotation.x = -Math.PI / 2;
   waitFloor.position.set(wc.x, 0, wc.z);
   waitFloor.receiveShadow = true;
-  staticGroup.add(waitFloor);
+  waitingGroup.add(waitFloor);
 
   const waitCeil = new THREE.Mesh(
     new THREE.PlaneGeometry(waitW, waitD),
@@ -118,7 +132,7 @@ export function createCombatPocketRooms(scene) {
   );
   waitCeil.rotation.x = Math.PI / 2;
   waitCeil.position.set(wc.x, waitH, wc.z);
-  staticGroup.add(waitCeil);
+  waitingGroup.add(waitCeil);
 
   const wallMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.72, metalness: 0.22 });
   const thick = 0.26;
@@ -130,7 +144,7 @@ export function createCombatPocketRooms(scene) {
   ]) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), wallMat);
     m.position.set(wx, wy, wz);
-    staticGroup.add(m);
+    waitingGroup.add(m);
   }
 
   const waitNeon = new THREE.Mesh(
@@ -138,32 +152,37 @@ export function createCombatPocketRooms(scene) {
     new THREE.MeshBasicMaterial({ color: '#06b6d4' })
   );
   waitNeon.position.set(wc.x, waitH - 0.22, wc.z - waitD / 2 + 0.16);
-  staticGroup.add(waitNeon);
+  waitingGroup.add(waitNeon);
 
-  const waitLight = new THREE.PointLight('#38bdf8', 2.4, 18);
-  waitLight.position.set(wc.x, 3.6, wc.z);
-  staticGroup.add(waitLight);
+  const waitCeilStrip = new THREE.Mesh(
+    new THREE.BoxGeometry(4.2, 0.06, 0.36),
+    new THREE.MeshBasicMaterial({ color: '#38bdf8' })
+  );
+  waitCeilStrip.position.set(wc.x, waitH - 0.05, wc.z);
+  waitingGroup.add(waitCeilStrip);
 
   const lobbyScreen = makeArenaCanvasTex(1024, 512, (ctx, w, h) => {
     ctx.fillStyle = '#060c19';
     ctx.fillRect(0, 0, w, h);
-  });
+  }, canvasScale);
   const lobbyBoard = new THREE.Mesh(
     new THREE.PlaneGeometry(6.8, 3.0),
     new THREE.MeshBasicMaterial({ map: lobbyScreen?.tex || null })
   );
   lobbyBoard.position.set(wc.x, 2.25, wc.z - waitD / 2 + 0.18);
-  staticGroup.add(lobbyBoard);
+  waitingGroup.add(lobbyBoard);
 
   const consoleMat = new THREE.MeshStandardMaterial({ color: '#1e293b', metalness: 0.68, roughness: 0.3 });
+  const consoleBaseGeo = new THREE.BoxGeometry(1.0, 1.12, 0.72);
+  const consoleCapGeo = new THREE.BoxGeometry(0.84, 0.08, 0.54);
   const buildConsole = (x, z, topColor, id, type, label) => {
-    const base = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.12, 0.72), consoleMat);
+    const base = new THREE.Mesh(consoleBaseGeo, consoleMat);
     base.position.set(x, 0.56, z);
-    staticGroup.add(base);
+    waitingGroup.add(base);
     const capMat = new THREE.MeshBasicMaterial({ color: topColor });
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.08, 0.54), capMat);
+    const cap = new THREE.Mesh(consoleCapGeo, capMat);
     cap.position.set(x, 1.16, z);
-    staticGroup.add(cap);
+    waitingGroup.add(cap);
     return {
       id,
       type,
@@ -198,7 +217,7 @@ export function createCombatPocketRooms(scene) {
   arenaFloor.rotation.x = -Math.PI / 2;
   arenaFloor.position.set(ac.x, 0, ac.z);
   arenaFloor.receiveShadow = true;
-  staticGroup.add(arenaFloor);
+  arenaStaticGroup.add(arenaFloor);
 
   const arenaCeil = new THREE.Mesh(
     new THREE.PlaneGeometry(ab.width, ab.depth),
@@ -206,7 +225,7 @@ export function createCombatPocketRooms(scene) {
   );
   arenaCeil.rotation.x = Math.PI / 2;
   arenaCeil.position.set(ac.x, ab.height, ac.z);
-  staticGroup.add(arenaCeil);
+  arenaStaticGroup.add(arenaCeil);
 
   const arenaWallMat = new THREE.MeshStandardMaterial({ color: '#0e1729', roughness: 0.68, metalness: 0.28 });
   for (const [wx, wy, wz, bw, bh, bd] of [
@@ -218,83 +237,130 @@ export function createCombatPocketRooms(scene) {
     const wMesh = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), arenaWallMat);
     wMesh.position.set(wx, wy, wz);
     wMesh.receiveShadow = true;
-    staticGroup.add(wMesh);
+    arenaStaticGroup.add(wMesh);
   }
 
-  for (const [lx, lz, col] of [
+  const unitBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+  const barMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
+  const barSpecs = [
     [ac.x - 8, ac.z - 6, '#22d3ee'],
     [ac.x + 8, ac.z - 6, '#f59e0b'],
     [ac.x - 8, ac.z + 6, '#38bdf8'],
     [ac.x + 8, ac.z + 6, '#a855f7']
-  ]) {
-    const pt = new THREE.PointLight(col, 2.2, 24);
-    pt.position.set(lx, 4.9, lz);
-    staticGroup.add(pt);
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 0.24), new THREE.MeshBasicMaterial({ color: col }));
-    bar.position.set(lx, ab.height - 0.12, lz);
-    staticGroup.add(bar);
+  ];
+  const barInst = new THREE.InstancedMesh(unitBoxGeo, barMat, barSpecs.length);
+  const _mTmp = new THREE.Matrix4();
+  const _qId = new THREE.Quaternion();
+  const _pTmp = new THREE.Vector3();
+  const _sTmp = new THREE.Vector3();
+  const _cTmp = new THREE.Color();
+  for (let i = 0; i < barSpecs.length; i++) {
+    const [lx, lz, col] = barSpecs[i];
+    _pTmp.set(lx, ab.height - 0.12, lz);
+    _sTmp.set(3.2, 0.08, 0.24);
+    _mTmp.compose(_pTmp, _qId, _sTmp);
+    barInst.setMatrixAt(i, _mTmp);
+    barInst.setColorAt(i, _cTmp.set(col));
   }
+  barInst.instanceMatrix.needsUpdate = true;
+  if (barInst.instanceColor) barInst.instanceColor.needsUpdate = true;
+  arenaStaticGroup.add(barInst);
 
   const obsDarkMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4, metalness: 0.72 });
   const obsCrateMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.52, metalness: 0.42 });
   const obsPillarMat = new THREE.MeshStandardMaterial({ color: '#111827', roughness: 0.35, metalness: 0.8 });
 
+  const racksList = [];
+  const cratesList = [];
+  const pillarsList = [];
+  let rackLedTotal = 0;
   for (const obs of COMBAT_ARENA_OBSTACLES) {
-    const baseMat = obs.kind === 'crate' ? obsCrateMat : obs.kind === 'pillar' ? obsPillarMat : obsDarkMat;
-    const block = new THREE.Mesh(new THREE.BoxGeometry(obs.w, obs.height, obs.d), baseMat);
-    block.position.set(obs.x, obs.height / 2, obs.z);
-    block.castShadow = true;
-    block.receiveShadow = true;
-    staticGroup.add(block);
+    if (obs.kind === 'crate') cratesList.push(obs);
+    else if (obs.kind === 'pillar') pillarsList.push(obs);
+    else {
+      racksList.push(obs);
+      if (obs.kind === 'rack') rackLedTotal += 4;
+    }
+  }
 
-    const trim = new THREE.Mesh(
-      new THREE.BoxGeometry(obs.w + 0.03, 0.07, obs.d + 0.03),
-      new THREE.MeshBasicMaterial({ color: obs.color || '#22d3ee' })
-    );
-    trim.position.set(obs.x, obs.kind === 'pillar' ? 2.4 : obs.height - 0.08, obs.z);
-    staticGroup.add(trim);
+  const buildObsInstanced = (list, mat) => {
+    if (list.length === 0) return;
+    const inst = new THREE.InstancedMesh(unitBoxGeo, mat, list.length);
+    inst.castShadow = true;
+    inst.receiveShadow = true;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      _pTmp.set(o.x, o.height / 2, o.z);
+      _sTmp.set(o.w, o.height, o.d);
+      _mTmp.compose(_pTmp, _qId, _sTmp);
+      inst.setMatrixAt(i, _mTmp);
+    }
+    inst.instanceMatrix.needsUpdate = true;
+    arenaStaticGroup.add(inst);
+  };
+  buildObsInstanced(racksList, obsDarkMat);
+  buildObsInstanced(cratesList, obsCrateMat);
+  buildObsInstanced(pillarsList, obsPillarMat);
 
-    if (obs.kind === 'rack') {
+  const trimInst = new THREE.InstancedMesh(unitBoxGeo, barMat, COMBAT_ARENA_OBSTACLES.length);
+  for (let i = 0; i < COMBAT_ARENA_OBSTACLES.length; i++) {
+    const obs = COMBAT_ARENA_OBSTACLES[i];
+    _pTmp.set(obs.x, obs.kind === 'pillar' ? 2.4 : obs.height - 0.08, obs.z);
+    _sTmp.set(obs.w + 0.03, 0.07, obs.d + 0.03);
+    _mTmp.compose(_pTmp, _qId, _sTmp);
+    trimInst.setMatrixAt(i, _mTmp);
+    trimInst.setColorAt(i, _cTmp.set(obs.color || '#22d3ee'));
+  }
+  trimInst.instanceMatrix.needsUpdate = true;
+  if (trimInst.instanceColor) trimInst.instanceColor.needsUpdate = true;
+  arenaStaticGroup.add(trimInst);
+
+  if (rackLedTotal > 0) {
+    const ledInst = new THREE.InstancedMesh(unitBoxGeo, barMat, rackLedTotal);
+    let liIdx = 0;
+    for (const obs of racksList) {
+      if (obs.kind !== 'rack') continue;
       for (let li = 0; li < 4; li++) {
-        const led = new THREE.Mesh(
-          new THREE.BoxGeometry(obs.w * 0.55, 0.04, obs.d + 0.02),
-          new THREE.MeshBasicMaterial({ color: li % 2 === 0 ? '#22d3ee' : '#10b981' })
-        );
-        led.position.set(obs.x, 0.45 + li * 0.45, obs.z);
-        staticGroup.add(led);
+        _pTmp.set(obs.x, 0.45 + li * 0.45, obs.z);
+        _sTmp.set(obs.w * 0.55, 0.04, obs.d + 0.02);
+        _mTmp.compose(_pTmp, _qId, _sTmp);
+        ledInst.setMatrixAt(liIdx, _mTmp);
+        ledInst.setColorAt(liIdx, _cTmp.set(li % 2 === 0 ? '#22d3ee' : '#10b981'));
+        liIdx++;
       }
     }
+    ledInst.instanceMatrix.needsUpdate = true;
+    if (ledInst.instanceColor) ledInst.instanceColor.needsUpdate = true;
+    arenaStaticGroup.add(ledInst);
   }
 
   const arenaScreen = makeArenaCanvasTex(1024, 384, (ctx, w, h) => {
     ctx.fillStyle = '#060c19';
     ctx.fillRect(0, 0, w, h);
-  });
+  }, canvasScale);
   const arenaBoard = new THREE.Mesh(
     new THREE.PlaneGeometry(8.4, 2.8),
     new THREE.MeshBasicMaterial({ map: arenaScreen?.tex || null })
   );
   arenaBoard.position.set(ac.x, 3.6, ab.minZ + 0.22);
-  staticGroup.add(arenaBoard);
+  arenaStaticGroup.add(arenaBoard);
 
   const pickupVisuals = new Map();
+  const pickupPadGeo = new THREE.RingGeometry(0.42, 0.58, 20);
+  const pickupPadMat = new THREE.MeshBasicMaterial({ color: '#10b981', side: THREE.DoubleSide, transparent: true, opacity: 0.72 });
+  const pickupOrbGeo = new THREE.OctahedronGeometry(0.28, 0);
+  const pickupOrbMat = new THREE.MeshBasicMaterial({ color: '#34d399' });
   for (const spot of COMBAT_PICKUP_SPOTS) {
     const pGrp = new THREE.Group();
     pGrp.position.set(spot.x, 0, spot.z);
     dynamicGroup.add(pGrp);
 
-    const pad = new THREE.Mesh(
-      new THREE.RingGeometry(0.42, 0.58, 24),
-      new THREE.MeshBasicMaterial({ color: '#10b981', side: THREE.DoubleSide, transparent: true, opacity: 0.72 })
-    );
+    const pad = new THREE.Mesh(pickupPadGeo, pickupPadMat);
     pad.rotation.x = -Math.PI / 2;
     pad.position.y = 0.03;
     pGrp.add(pad);
 
-    const orb = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.28, 0),
-      new THREE.MeshBasicMaterial({ color: '#34d399' })
-    );
+    const orb = new THREE.Mesh(pickupOrbGeo, pickupOrbMat);
     orb.position.y = 0.85;
     pGrp.add(orb);
 
@@ -303,8 +369,13 @@ export function createCombatPocketRooms(scene) {
 
   const botAvatars = new Map();
   const _camWorldPos = new THREE.Vector3();
+  const _activeBotIds = new Set();
   let lastLobbyDrawMs = 0;
+  let lastLobbySig = '';
   let lastArenaBoardMs = 0;
+  let lastArenaSig = '';
+  let lobbyUploadCount = 0;
+  let arenaUploadCount = 0;
 
   function ensureBotVisual(fighter) {
     let entry = botAvatars.get(fighter.id);
@@ -382,12 +453,25 @@ export function createCombatPocketRooms(scene) {
     if (botsConsole) {
       botsConsole.label = botsEnabled ? '[E] 🤖 Bots IA : ACTIVÉS (Désactiver)' : '[E] 🤖 Bots IA : DÉSACTIVÉS (Activer)';
     }
-    if (!lobbyScreen?.ctx || !lobbyScreen?.tex) return;
+    if (!lobbyScreen?.ctx || !lobbyScreen?.tex) return false;
+    const modeId = snapshot?.mode === 'melee' ? 'melee' : 'guns';
+    const players = Array.isArray(snapshot?.lobbyPlayers) ? snapshot.lobbyPlayers : [];
+    let pSig = '';
+    for (let i = 0; i < Math.min(4, players.length); i++) {
+      const p = players[i];
+      pSig += `${p.id || p.name}:${p.ready ? 1 : 0}:${p.weaponId || ''}|`;
+    }
+    const sig = `${modeId}|${botsEnabled ? 1 : 0}|${pSig}`;
     const now = Date.now();
-    if (!force && now - lastLobbyDrawMs < 160) return;
+    if (!force && sig === lastLobbySig) return false;
+    if (!force && now - lastLobbyDrawMs < 200) return false;
     lastLobbyDrawMs = now;
+    lastLobbySig = sig;
 
     const { ctx } = lobbyScreen;
+    if (typeof ctx.setTransform === 'function') {
+      ctx.setTransform(lobbyScreen.scale || 1, 0, 0, lobbyScreen.scale || 1, 0, 0);
+    }
     const W = 1024;
     const H = 512;
     ctx.fillStyle = '#050b18';
@@ -396,7 +480,6 @@ export function createCombatPocketRooms(scene) {
     ctx.lineWidth = 6;
     ctx.strokeRect(10, 10, W - 20, H - 20);
 
-    const modeId = snapshot?.mode === 'melee' ? 'melee' : 'guns';
     const modeMeta = COMBAT_MODES[modeId];
 
     ctx.fillStyle = '#22d3ee';
@@ -434,7 +517,6 @@ export function createCombatPocketRooms(scene) {
       ctx.fillText(`Dégâts ${w.damage} • Portée ${w.range}m`, bx + 12, 254);
     });
 
-    const players = Array.isArray(snapshot?.lobbyPlayers) ? snapshot.lobbyPlayers : [];
     players.slice(0, 4).forEach((p, idx) => {
       const col = idx % 2;
       const row = Math.floor(idx / 2);
@@ -460,15 +542,31 @@ export function createCombatPocketRooms(scene) {
     });
 
     lobbyScreen.tex.needsUpdate = true;
+    lobbyUploadCount++;
+    return true;
   }
 
   function updateArenaBoard(snapshot, force = false) {
-    if (!arenaScreen?.ctx || !arenaScreen?.tex) return;
+    if (!arenaScreen?.ctx || !arenaScreen?.tex) return false;
+    const t = Math.max(0, Math.floor(Number(snapshot?.timeLeftSec) || 0));
+    const modeTag = snapshot?.mode === 'melee' ? 'melee' : 'guns';
+    const rows = Array.isArray(snapshot?.scoreboard) ? snapshot.scoreboard : [];
+    let rSig = '';
+    for (let i = 0; i < Math.min(5, rows.length); i++) {
+      const r = rows[i];
+      rSig += `${r.name || ''}:${r.kills || 0}:${r.deaths || 0}|`;
+    }
+    const sig = `${modeTag}|${t}|${rSig}`;
     const now = Date.now();
-    if (!force && now - lastArenaBoardMs < 240) return;
+    if (!force && sig === lastArenaSig) return false;
+    if (!force && now - lastArenaBoardMs < 250) return false;
     lastArenaBoardMs = now;
+    lastArenaSig = sig;
 
     const { ctx } = arenaScreen;
+    if (typeof ctx.setTransform === 'function') {
+      ctx.setTransform(arenaScreen.scale || 1, 0, 0, arenaScreen.scale || 1, 0, 0);
+    }
     const W = 1024;
     const H = 384;
     ctx.fillStyle = '#040914';
@@ -477,17 +575,16 @@ export function createCombatPocketRooms(scene) {
     ctx.lineWidth = 5;
     ctx.strokeRect(8, 8, W - 16, H - 16);
 
-    const t = Math.max(0, Number(snapshot?.timeLeftSec) || 0);
     const mm = String(Math.floor(t / 60)).padStart(2, '0');
     const ss = String(t % 60).padStart(2, '0');
-    const modeLabel = snapshot?.mode === 'melee' ? '⚔️ MODE MÊLÉE' : '🔫 MODE FUSILS';
+    const modeLabel = modeTag === 'melee' ? '⚔️ MODE MÊLÉE' : '🔫 MODE FUSILS';
 
     ctx.fillStyle = '#22d3ee';
     ctx.font = 'bold 34px system-ui, sans-serif';
     ctx.fillText(`ARÈNE CIEL • ${modeLabel} • ⏱️ ${mm}:${ss}`, 32, 56);
 
-    const rows = Array.isArray(snapshot?.scoreboard) ? snapshot.scoreboard.slice(0, 5) : [];
-    rows.forEach((row, idx) => {
+    for (let idx = 0; idx < Math.min(5, rows.length); idx++) {
+      const row = rows[idx];
       const y = 94 + idx * 52;
       ctx.fillStyle = idx === 0 ? 'rgba(14, 116, 144, 0.45)' : 'rgba(15, 23, 42, 0.85)';
       ctx.fillRect(32, y, W - 64, 44);
@@ -498,17 +595,20 @@ export function createCombatPocketRooms(scene) {
       ctx.fillStyle = '#34d399';
       ctx.fillText(`${row.kills} Élim. / ${row.deaths} Morts`, W - 52, y + 30);
       ctx.textAlign = 'left';
-    });
+    }
 
     arenaScreen.tex.needsUpdate = true;
+    arenaUploadCount++;
+    return true;
   }
 
   function updateArena(snapshot, dt = 0.016, elapsed = 0, camera = null) {
-    if (!snapshot) return;
+    if (!snapshot || !root.visible) return;
     updateArenaBoard(snapshot, false);
 
     const pkList = Array.isArray(snapshot.pickups) ? snapshot.pickups : [];
-    for (const pk of pkList) {
+    for (let i = 0; i < pkList.length; i++) {
+      const pk = pkList[i];
       const vis = pickupVisuals.get(pk.id);
       if (!vis) continue;
       vis.group.visible = Boolean(pk.active);
@@ -519,39 +619,51 @@ export function createCombatPocketRooms(scene) {
     }
 
     const fighters = Array.isArray(snapshot.fighters) ? snapshot.fighters : [];
-    const activeBotIds = new Set();
+    _activeBotIds.clear();
     const nowMs = Date.now();
     const smooth = Math.min(1, dt * 14);
+    let hasCamPos = false;
+    if (camera) {
+      if (typeof camera.getWorldPosition === 'function') {
+        camera.getWorldPosition(_camWorldPos);
+        hasCamPos = true;
+      } else if (camera.position) {
+        _camWorldPos.copy(camera.position);
+        hasCamPos = true;
+      }
+    }
 
-    for (const f of fighters) {
+    for (let i = 0; i < fighters.length; i++) {
+      const f = fighters[i];
       if (!f.isBot) continue;
-      activeBotIds.add(f.id);
+      _activeBotIds.add(f.id);
       const entry = ensureBotVisual(f);
       entry.avatar.group.visible = Boolean(f.alive);
       if (!f.alive) continue;
 
       const curPos = entry.avatar.group.position;
-      const moveDist = Math.hypot(f.x - curPos.x, f.z - curPos.z);
-      curPos.x += (f.x - curPos.x) * smooth;
-      curPos.z += (f.z - curPos.z) * smooth;
+      const ddx = f.x - curPos.x;
+      const ddz = f.z - curPos.z;
+      const moveDistSq = ddx * ddx + ddz * ddz;
+      curPos.x += ddx * smooth;
+      curPos.z += ddz * smooth;
       entry.avatar.group.rotation.y = (f.yaw || 0) + Math.PI;
 
       const ratio = Math.max(0.02, Math.min(1, (f.hp || 0) / Math.max(1, f.maxHp || 100)));
       entry.hpFill.scale.x = ratio;
       entry.hpFill.position.x = -0.43 * (1 - ratio);
-      entry.hpFillMat.color.set(ratio > 0.5 ? '#34d399' : ratio > 0.25 ? '#f59e0b' : '#ef4444');
+      const nextColor = ratio > 0.5 ? '#34d399' : ratio > 0.25 ? '#f59e0b' : '#ef4444';
+      if (entry._lastHpColor !== nextColor) {
+        entry._lastHpColor = nextColor;
+        entry.hpFillMat.color.set(nextColor);
+      }
 
-      if (camera) {
-        if (typeof camera.getWorldPosition === 'function') {
-          camera.getWorldPosition(_camWorldPos);
-          entry.hpGroup.lookAt(_camWorldPos);
-        } else {
-          entry.hpGroup.lookAt(camera.position);
-        }
+      if (hasCamPos) {
+        entry.hpGroup.lookAt(_camWorldPos);
       }
 
       animateAvatarLimbs(entry.avatar, dt, {
-        isMoving: moveDist > 0.012,
+        isMoving: moveDistSq > 0.000144,
         isGrounded: true,
         speedRatio: 1.15
       });
@@ -567,7 +679,7 @@ export function createCombatPocketRooms(scene) {
     }
 
     for (const [botId, entry] of botAvatars.entries()) {
-      if (!activeBotIds.has(botId)) {
+      if (!_activeBotIds.has(botId)) {
         entry.weaponObj?.dispose?.();
         entry.avatar.group.parent?.remove(entry.avatar.group);
         disposeObject3D(entry.avatar.group);
@@ -644,11 +756,39 @@ export function createCombatPocketRooms(scene) {
   updateWaitingBoard({ mode: 'guns', fillBots: true, lobbyPlayers: [], availableWeapons: [] }, true);
   updateArenaBoard({ mode: 'guns', timeLeftSec: 150, scoreboard: [] }, true);
 
+  function setZoneVisibility(zone = 'hidden') {
+    if (zone === 'waiting') {
+      root.visible = true;
+      waitingGroup.visible = true;
+      arenaStaticGroup.visible = false;
+      dynamicGroup.visible = false;
+    } else if (zone === 'arena') {
+      root.visible = true;
+      waitingGroup.visible = false;
+      arenaStaticGroup.visible = true;
+      dynamicGroup.visible = true;
+    } else if (zone === 'all') {
+      root.visible = true;
+      waitingGroup.visible = true;
+      arenaStaticGroup.visible = true;
+      dynamicGroup.visible = true;
+    } else {
+      root.visible = false;
+      waitingGroup.visible = false;
+      arenaStaticGroup.visible = false;
+      dynamicGroup.visible = false;
+    }
+  }
+
   return {
     root,
     staticGroup,
+    waitingGroup,
+    arenaStaticGroup,
     dynamicGroup,
     botAvatars,
+    setZoneVisibility,
+    getUploadCounts: () => ({ lobby: lobbyUploadCount, arena: arenaUploadCount }),
     updateWaitingBoard,
     updateArenaBoard,
     updateArena,

@@ -4,6 +4,36 @@ import { getShopPetById, SHOP_PETS } from './ShopCatalog.js';
 const _targetPos = new THREE.Vector3();
 const _deltaVec = new THREE.Vector3();
 
+const SHARED_PET_GEOM_CACHE = new Map();
+const SHARED_PET_MAT_CACHE = new Map();
+
+function sharedPetGeom(key, factory) {
+  let g = SHARED_PET_GEOM_CACHE.get(key);
+  if (!g) {
+    g = factory();
+    g.userData = { ...(g.userData || {}), __sharedPetAsset: true };
+    SHARED_PET_GEOM_CACHE.set(key, g);
+  }
+  return g;
+}
+
+function sharedPetMat(key, factory) {
+  let m = SHARED_PET_MAT_CACHE.get(key);
+  if (!m) {
+    m = factory();
+    m.userData = { ...(m.userData || {}), __sharedPetAsset: true };
+    SHARED_PET_MAT_CACHE.set(key, m);
+  }
+  return m;
+}
+
+export function getSharedPetAssetStats() {
+  return {
+    geometries: SHARED_PET_GEOM_CACHE.size,
+    materials: SHARED_PET_MAT_CACHE.size
+  };
+}
+
 function freezeStaticTree(root, dynamicSet = new Set()) {
   root.traverse((child) => {
     if (child === root || dynamicSet.has(child)) return;
@@ -24,11 +54,11 @@ export function disposePetObject(root) {
   const geometries = new Set();
   const materials = new Set();
   root.traverse((obj) => {
-    if (obj.geometry) geometries.add(obj.geometry);
+    if (obj.geometry && !obj.geometry.userData?.__sharedPetAsset) geometries.add(obj.geometry);
     if (obj.material) {
       if (Array.isArray(obj.material)) {
-        obj.material.forEach((m) => m && materials.add(m));
-      } else {
+        obj.material.forEach((m) => m && !m.userData?.__sharedPetAsset && materials.add(m));
+      } else if (!obj.material.userData?.__sharedPetAsset) {
         materials.add(obj.material);
       }
     }
@@ -51,41 +81,45 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
   bodyRoot.position.y = 0.55;
   group.add(bodyRoot);
 
-  const primaryMat = new THREE.MeshStandardMaterial({
-    color: spec.primaryColor || '#22d3ee',
+  const primaryCol = spec.primaryColor || '#22d3ee';
+  const accentCol = spec.accentColor || '#38bdf8';
+  const emissiveCol = spec.emissiveColor || accentCol;
+
+  const primaryMat = sharedPetMat(`primary:${primaryCol}`, () => new THREE.MeshStandardMaterial({
+    color: primaryCol,
     roughness: 0.28,
     metalness: 0.68
-  });
-  const darkMat = new THREE.MeshStandardMaterial({
+  }));
+  const darkMat = sharedPetMat('dark:#0f172a', () => new THREE.MeshStandardMaterial({
     color: '#0f172a',
     roughness: 0.4,
     metalness: 0.75
-  });
-  const glowMat = new THREE.MeshStandardMaterial({
-    color: spec.accentColor || '#38bdf8',
-    emissive: spec.emissiveColor || spec.accentColor || '#38bdf8',
+  }));
+  const glowMat = sharedPetMat(`glow:${accentCol}:${emissiveCol}`, () => new THREE.MeshStandardMaterial({
+    color: accentCol,
+    emissive: emissiveCol,
     emissiveIntensity: 0.85,
     roughness: 0.2,
     metalness: 0.3
-  });
-  const holoMat = new THREE.MeshStandardMaterial({
-    color: spec.primaryColor || '#22d3ee',
-    emissive: spec.emissiveColor || '#38bdf8',
+  }));
+  const holoMat = sharedPetMat(`holo:${primaryCol}:${emissiveCol}`, () => new THREE.MeshStandardMaterial({
+    color: primaryCol,
+    emissive: emissiveCol,
     emissiveIntensity: 0.65,
     transparent: true,
     opacity: 0.55,
     roughness: 0.15,
     metalness: 0.2
-  });
+  }));
 
   const groundRing = new THREE.Mesh(
-    new THREE.RingGeometry(0.16, 0.23, 24),
-    new THREE.MeshBasicMaterial({
-      color: spec.accentColor || '#22d3ee',
+    sharedPetGeom('ring:ground', () => new THREE.RingGeometry(0.16, 0.23, 24)),
+    sharedPetMat(`ringMat:${accentCol}`, () => new THREE.MeshBasicMaterial({
+      color: accentCol,
       transparent: true,
       opacity: 0.42,
       side: THREE.DoubleSide
-    })
+    }))
   );
   groundRing.rotation.x = -Math.PI / 2;
   groundRing.position.y = 0.02;
@@ -105,18 +139,18 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
   };
 
   if (spec.id === 'pet_cube_holo') {
-    const outerShell = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.32), holoMat);
+    const outerShell = new THREE.Mesh(sharedPetGeom('cube:shell', () => new THREE.BoxGeometry(0.32, 0.32, 0.32)), holoMat);
     bodyRoot.add(outerShell);
     animParts.outerShell = outerShell;
     dynamicNodes.add(outerShell);
 
-    const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), glowMat);
+    const core = new THREE.Mesh(sharedPetGeom('cube:core', () => new THREE.OctahedronGeometry(0.14, 0)), glowMat);
     bodyRoot.add(core);
     animParts.core = core;
     dynamicNodes.add(core);
 
     for (let i = 0; i < 2; i++) {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.26 + i * 0.05, 0.012, 8, 28), glowMat);
+      const ring = new THREE.Mesh(sharedPetGeom(`cube:ring:${i}`, () => new THREE.TorusGeometry(0.26 + i * 0.05, 0.012, 8, 24)), glowMat);
       ring.rotation.x = i === 0 ? Math.PI / 3 : -Math.PI / 4;
       bodyRoot.add(ring);
       animParts.rings.push(ring);
@@ -124,17 +158,19 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
     }
   } else if (spec.id === 'pet_router_wifi7') {
     bodyRoot.position.y = 0.28;
-    const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.11, 0.28), darkMat);
+    const chassis = new THREE.Mesh(sharedPetGeom('wifi:chassis', () => new THREE.BoxGeometry(0.38, 0.11, 0.28)), darkMat);
     bodyRoot.add(chassis);
 
-    const topPlate = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.02, 0.24), primaryMat);
+    const topPlate = new THREE.Mesh(sharedPetGeom('wifi:top', () => new THREE.BoxGeometry(0.34, 0.02, 0.24)), primaryMat);
     topPlate.position.y = 0.06;
     bodyRoot.add(topPlate);
 
-    const ledStrip = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.024, 0.02), glowMat);
+    const ledStrip = new THREE.Mesh(sharedPetGeom('wifi:led', () => new THREE.BoxGeometry(0.28, 0.024, 0.02)), glowMat);
     ledStrip.position.set(0, 0.01, 0.145);
     bodyRoot.add(ledStrip);
 
+    const antRodGeo = sharedPetGeom('wifi:antRod', () => new THREE.CylinderGeometry(0.012, 0.016, 0.2, 8));
+    const antTipGeo = sharedPetGeom('wifi:antTip', () => new THREE.SphereGeometry(0.022, 8, 8));
     const antPositions = [
       [-0.16, 0.14, -0.11],
       [0.16, 0.14, -0.11],
@@ -144,9 +180,9 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
     for (const [ax, ay, az] of antPositions) {
       const antPivot = new THREE.Group();
       antPivot.position.set(ax, 0.05, az);
-      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.2, 8), primaryMat);
+      const rod = new THREE.Mesh(antRodGeo, primaryMat);
       rod.position.y = 0.1;
-      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), glowMat);
+      const tip = new THREE.Mesh(antTipGeo, glowMat);
       tip.position.y = 0.21;
       antPivot.add(rod, tip);
       bodyRoot.add(antPivot);
@@ -154,6 +190,8 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
       dynamicNodes.add(antPivot);
     }
 
+    const wifiLegGeo = sharedPetGeom('wifi:leg', () => new THREE.BoxGeometry(0.04, 0.14, 0.04));
+    const wifiFootGeo = sharedPetGeom('wifi:foot', () => new THREE.BoxGeometry(0.055, 0.025, 0.065));
     const legCoords = [
       [-0.14, -0.05, 0.1],
       [0.14, -0.05, 0.1],
@@ -163,9 +201,9 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
     for (const [lx, ly, lz] of legCoords) {
       const legPivot = new THREE.Group();
       legPivot.position.set(lx, ly, lz);
-      const legMesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.14, 0.04), primaryMat);
+      const legMesh = new THREE.Mesh(wifiLegGeo, primaryMat);
       legMesh.position.y = -0.06;
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.025, 0.065), glowMat);
+      const foot = new THREE.Mesh(wifiFootGeo, glowMat);
       foot.position.set(0, -0.13, 0.01);
       legPivot.add(legMesh, foot);
       bodyRoot.add(legPivot);
@@ -174,25 +212,28 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
     }
   } else if (spec.id === 'pet_bot_rack1u') {
     bodyRoot.position.y = 0.34;
-    const rackBody = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.3), primaryMat);
+    const rackBody = new THREE.Mesh(sharedPetGeom('rack1u:body', () => new THREE.BoxGeometry(0.42, 0.16, 0.3)), primaryMat);
     bodyRoot.add(rackBody);
 
-    const faceplate = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.02), darkMat);
+    const faceplate = new THREE.Mesh(sharedPetGeom('rack1u:face', () => new THREE.BoxGeometry(0.38, 0.12, 0.02)), darkMat);
     faceplate.position.z = 0.155;
     bodyRoot.add(faceplate);
 
-    const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.022), glowMat);
+    const eyeGeo = sharedPetGeom('rack1u:eye', () => new THREE.BoxGeometry(0.06, 0.04, 0.022));
+    const eyeL = new THREE.Mesh(eyeGeo, glowMat);
     eyeL.position.set(-0.08, 0.01, 0.16);
-    const eyeR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.022), glowMat);
+    const eyeR = new THREE.Mesh(eyeGeo, glowMat);
     eyeR.position.set(0.08, 0.01, 0.16);
     bodyRoot.add(eyeL, eyeR);
 
+    const rLegGeo = sharedPetGeom('rack1u:leg', () => new THREE.BoxGeometry(0.06, 0.18, 0.06));
+    const rFootGeo = sharedPetGeom('rack1u:foot', () => new THREE.BoxGeometry(0.09, 0.035, 0.13));
     for (const lx of [-0.11, 0.11]) {
       const legPivot = new THREE.Group();
       legPivot.position.set(lx, -0.08, 0);
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.18, 0.06), darkMat);
+      const leg = new THREE.Mesh(rLegGeo, darkMat);
       leg.position.y = -0.08;
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.035, 0.13), glowMat);
+      const foot = new THREE.Mesh(rFootGeo, glowMat);
       foot.position.set(0, -0.17, 0.02);
       legPivot.add(leg, foot);
       bodyRoot.add(legPivot);
@@ -201,17 +242,21 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
     }
   } else if (spec.id === 'pet_drone_quadri') {
     bodyRoot.position.y = 0.72;
-    const pod = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.09, 0.28), primaryMat);
+    const pod = new THREE.Mesh(sharedPetGeom('drone:pod', () => new THREE.BoxGeometry(0.24, 0.09, 0.28)), primaryMat);
     bodyRoot.add(pod);
 
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 10), darkMat);
+    const dome = new THREE.Mesh(sharedPetGeom('drone:dome', () => new THREE.SphereGeometry(0.09, 10, 8)), darkMat);
     dome.position.set(0, 0.04, 0.02);
     bodyRoot.add(dome);
 
-    const camEye = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 10), glowMat);
+    const camEye = new THREE.Mesh(sharedPetGeom('drone:eye', () => new THREE.SphereGeometry(0.042, 8, 8)), glowMat);
     camEye.position.set(0, -0.03, 0.13);
     bodyRoot.add(camEye);
 
+    const armGeo = sharedPetGeom('drone:arm', () => new THREE.BoxGeometry(0.18, 0.022, 0.03));
+    const hubGeo = sharedPetGeom('drone:hub', () => new THREE.CylinderGeometry(0.03, 0.03, 0.04, 8));
+    const blade1Geo = sharedPetGeom('drone:b1', () => new THREE.BoxGeometry(0.18, 0.006, 0.024));
+    const blade2Geo = sharedPetGeom('drone:b2', () => new THREE.BoxGeometry(0.024, 0.006, 0.18));
     const armDirs = [
       [-0.18, 0, -0.18],
       [0.18, 0, -0.18],
@@ -219,19 +264,19 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
       [0.18, 0, 0.18]
     ];
     for (const [rx, ry, rz] of armDirs) {
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.022, 0.03), darkMat);
+      const arm = new THREE.Mesh(armGeo, darkMat);
       arm.position.set(rx * 0.55, ry, rz * 0.55);
       arm.rotation.y = Math.atan2(rx, rz);
       bodyRoot.add(arm);
 
-      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.04, 10), primaryMat);
+      const hub = new THREE.Mesh(hubGeo, primaryMat);
       hub.position.set(rx, 0.015, rz);
       bodyRoot.add(hub);
 
       const rotorPivot = new THREE.Group();
       rotorPivot.position.set(rx, 0.04, rz);
-      const blade1 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.006, 0.024), glowMat);
-      const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.006, 0.18), glowMat);
+      const blade1 = new THREE.Mesh(blade1Geo, glowMat);
+      const blade2 = new THREE.Mesh(blade2Geo, glowMat);
       rotorPivot.add(blade1, blade2);
       bodyRoot.add(rotorPivot);
       animParts.rotors.push(rotorPivot);
@@ -239,23 +284,24 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
     }
   } else if (spec.id === 'pet_cyber_k9') {
     bodyRoot.position.y = 0.34;
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, 0.42), primaryMat);
+    const torso = new THREE.Mesh(sharedPetGeom('k9:torso', () => new THREE.BoxGeometry(0.22, 0.16, 0.42)), primaryMat);
     bodyRoot.add(torso);
 
-    const spineStripe = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.38), glowMat);
+    const spineStripe = new THREE.Mesh(sharedPetGeom('k9:spine', () => new THREE.BoxGeometry(0.06, 0.02, 0.38)), glowMat);
     spineStripe.position.y = 0.085;
     bodyRoot.add(spineStripe);
 
     const headGroup = new THREE.Group();
     headGroup.position.set(0, 0.12, 0.22);
-    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.13, 0.18), darkMat);
-    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.12), primaryMat);
+    const skull = new THREE.Mesh(sharedPetGeom('k9:skull', () => new THREE.BoxGeometry(0.16, 0.13, 0.18)), darkMat);
+    const snout = new THREE.Mesh(sharedPetGeom('k9:snout', () => new THREE.BoxGeometry(0.1, 0.07, 0.12)), primaryMat);
     snout.position.set(0, -0.02, 0.11);
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, 0.04), glowMat);
+    const visor = new THREE.Mesh(sharedPetGeom('k9:visor', () => new THREE.BoxGeometry(0.14, 0.04, 0.04)), glowMat);
     visor.position.set(0, 0.02, 0.08);
-    const earL = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.08, 6), primaryMat);
+    const earGeo = sharedPetGeom('k9:ear', () => new THREE.ConeGeometry(0.032, 0.08, 6));
+    const earL = new THREE.Mesh(earGeo, primaryMat);
     earL.position.set(-0.055, 0.09, -0.02);
-    const earR = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.08, 6), primaryMat);
+    const earR = new THREE.Mesh(earGeo, primaryMat);
     earR.position.set(0.055, 0.09, -0.02);
     headGroup.add(skull, snout, visor, earL, earR);
     bodyRoot.add(headGroup);
@@ -264,7 +310,7 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
 
     const tailPivot = new THREE.Group();
     tailPivot.position.set(0, 0.06, -0.21);
-    const tailRod = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.022, 0.18, 8), glowMat);
+    const tailRod = new THREE.Mesh(sharedPetGeom('k9:tail', () => new THREE.CylinderGeometry(0.015, 0.022, 0.18, 8)), glowMat);
     tailRod.position.set(0, 0.06, -0.05);
     tailRod.rotation.x = -0.6;
     tailPivot.add(tailRod);
@@ -272,6 +318,8 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
     animParts.tail = tailPivot;
     dynamicNodes.add(tailPivot);
 
+    const k9LegGeo = sharedPetGeom('k9:leg', () => new THREE.BoxGeometry(0.048, 0.2, 0.048));
+    const k9PawGeo = sharedPetGeom('k9:paw', () => new THREE.BoxGeometry(0.056, 0.035, 0.075));
     const k9Legs = [
       [-0.09, -0.06, 0.14],
       [0.09, -0.06, 0.14],
@@ -281,9 +329,9 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
     for (const [lx, ly, lz] of k9Legs) {
       const legPivot = new THREE.Group();
       legPivot.position.set(lx, ly, lz);
-      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.2, 0.048), darkMat);
+      const upper = new THREE.Mesh(k9LegGeo, darkMat);
       upper.position.y = -0.09;
-      const paw = new THREE.Mesh(new THREE.BoxGeometry(0.056, 0.035, 0.075), glowMat);
+      const paw = new THREE.Mesh(k9PawGeo, glowMat);
       paw.position.set(0, -0.19, 0.015);
       legPivot.add(upper, paw);
       bodyRoot.add(legPivot);
@@ -292,21 +340,23 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
     }
   } else {
     bodyRoot.position.y = 0.78;
-    const body = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.38, 10), primaryMat);
+    const body = new THREE.Mesh(sharedPetGeom('falcon:body', () => new THREE.ConeGeometry(0.12, 0.38, 10)), primaryMat);
     body.rotation.x = Math.PI / 2;
     bodyRoot.add(body);
 
-    const head = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.16, 8), glowMat);
+    const head = new THREE.Mesh(sharedPetGeom('falcon:head', () => new THREE.ConeGeometry(0.08, 0.16, 8)), glowMat);
     head.rotation.x = Math.PI / 2;
     head.position.set(0, 0.04, 0.22);
     bodyRoot.add(head);
 
+    const innerWingGeo = sharedPetGeom('falcon:inWing', () => new THREE.BoxGeometry(0.32, 0.016, 0.16));
+    const outerWingGeo = sharedPetGeom('falcon:outWing', () => new THREE.BoxGeometry(0.24, 0.014, 0.1));
     for (const side of [-1, 1]) {
       const wingPivot = new THREE.Group();
       wingPivot.position.set(side * 0.08, 0.02, 0.02);
-      const innerWing = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.016, 0.16), primaryMat);
+      const innerWing = new THREE.Mesh(innerWingGeo, primaryMat);
       innerWing.position.x = side * 0.16;
-      const outerWing = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.014, 0.1), glowMat);
+      const outerWing = new THREE.Mesh(outerWingGeo, glowMat);
       outerWing.position.set(side * 0.34, 0.01, -0.02);
       wingPivot.add(innerWing, outerWing);
       bodyRoot.add(wingPivot);
@@ -314,7 +364,7 @@ export function buildPetMesh(petId = 'pet_cube_holo') {
       dynamicNodes.add(wingPivot);
     }
 
-    const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.012, 8, 24), glowMat);
+    const haloRing = new THREE.Mesh(sharedPetGeom('falcon:halo', () => new THREE.TorusGeometry(0.22, 0.012, 8, 20)), glowMat);
     haloRing.rotation.x = Math.PI / 2;
     haloRing.position.y = -0.06;
     bodyRoot.add(haloRing);

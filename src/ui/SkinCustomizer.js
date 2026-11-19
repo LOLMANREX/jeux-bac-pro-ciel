@@ -254,7 +254,8 @@ export class SkinPreview3D {
 
     try {
       this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      const dprCap = (typeof window !== 'undefined' && window.innerWidth < 768) ? 1.15 : 1.5;
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
       this.renderer.setSize(this.width, this.height, false);
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -286,24 +287,17 @@ export class SkinPreview3D {
         const rightColor = '#38bdf8';
         const baseGlowColor = '#f59e0b';
 
-        const leftRim = new THREE.PointLight(leftColor, 3.2, 8);
+        const leftRim = new THREE.DirectionalLight(leftColor, 1.35);
         leftRim.position.set(-2.1, 1.65, -1.1);
         this.scene.add(leftRim);
 
-        const rightRim = new THREE.PointLight(rightColor, 2.8, 8);
+        const rightRim = new THREE.DirectionalLight(rightColor, 1.2);
         rightRim.position.set(2.1, 1.45, -1.0);
         this.scene.add(rightRim);
 
         const underGlow = new THREE.PointLight(baseGlowColor, 2.3, 4.4);
         underGlow.position.set(0, 0.2, 0.2);
         this.scene.add(underGlow);
-
-        const studioTop = new THREE.SpotLight('#fef08a', 2.4, 10, Math.PI / 4, 0.55);
-        studioTop.position.set(0, 3.8, 1.4);
-        this.scene.add(studioTop);
-        const frontFill = new THREE.PointLight('#fde68a', 1.3, 6);
-        frontFill.position.set(0, 1.4, 2.5);
-        this.scene.add(frontFill);
 
         this.neonLights = [leftRim, rightRim, underGlow];
 
@@ -367,7 +361,9 @@ export class SkinPreview3D {
         this.podiumRings = [outerRing, innerRing, beam];
       } else {
         this._pmrem = new THREE.PMREMGenerator(this.renderer);
-        this._envRt = this._pmrem.fromScene(new RoomEnvironment(), 0.04);
+        const roomEnv = new RoomEnvironment();
+        this._envRt = this._pmrem.fromScene(roomEnv, 0.04);
+        roomEnv.dispose();
         this.scene.environment = this._envRt.texture;
         this.scene.environmentIntensity = 0.72;
 
@@ -438,7 +434,7 @@ export class SkinPreview3D {
         this.canvas.style.touchAction = 'none';
       }
       let activeDragPointerId = null;
-      this.canvas.addEventListener('pointerdown', (e) => {
+      this._onPointerDown = (e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         if (activeDragPointerId !== null) return;
         e.preventDefault?.();
@@ -447,8 +443,8 @@ export class SkinPreview3D {
         this.dragging = true;
         this.yawVelocity = 0;
         this.lastMouseX = e.clientX;
-      });
-      window.addEventListener('pointermove', (e) => {
+      };
+      this._onPointerMove = (e) => {
         if (!this.dragging || !this.active) return;
         if (activeDragPointerId !== null && (e.pointerId ?? 0) !== activeDragPointerId) return;
         const dx = e.clientX - this.lastMouseX;
@@ -456,8 +452,8 @@ export class SkinPreview3D {
         const delta = dx * 0.014;
         this.yaw += delta;
         this.yawVelocity = delta * 0.7;
-      });
-      const endPointerDrag = (e) => {
+      };
+      this._onEndDrag = (e) => {
         if (activeDragPointerId !== null && e.pointerId !== undefined && e.pointerId !== activeDragPointerId) return;
         if (activeDragPointerId !== null) {
           this.canvas.releasePointerCapture?.(activeDragPointerId);
@@ -465,8 +461,10 @@ export class SkinPreview3D {
         activeDragPointerId = null;
         this.dragging = false;
       };
-      window.addEventListener('pointerup', endPointerDrag);
-      window.addEventListener('pointercancel', endPointerDrag);
+      this.canvas.addEventListener('pointerdown', this._onPointerDown);
+      window.addEventListener('pointermove', this._onPointerMove);
+      window.addEventListener('pointerup', this._onEndDrag);
+      window.addEventListener('pointercancel', this._onEndDrag);
 
       this.rebuild();
 
@@ -476,6 +474,7 @@ export class SkinPreview3D {
           return;
         }
         this.animId = requestAnimationFrame(this._tick);
+        if (typeof document !== 'undefined' && document.hidden) return;
         const t = now * 0.001;
         if (!this.dragging) {
           if (Math.abs(this.yawVelocity) > 0.0005) {
@@ -522,6 +521,10 @@ export class SkinPreview3D {
     }
   }
 
+  isAnimating() {
+    return this.active && this.animId !== null;
+  }
+
   setActive(active) {
     this.active = Boolean(active);
     if (this.active) {
@@ -531,9 +534,31 @@ export class SkinPreview3D {
         this.animId = requestAnimationFrame(this._tick);
       }
     } else if (this.animId !== null) {
+      this.dragging = false;
       cancelAnimationFrame(this.animId);
       this.animId = null;
     }
+  }
+
+  dispose() {
+    this.setActive(false);
+    if (this._onPointerDown) this.canvas?.removeEventListener?.('pointerdown', this._onPointerDown);
+    if (this._onPointerMove) window.removeEventListener('pointermove', this._onPointerMove);
+    if (this._onEndDrag) {
+      window.removeEventListener('pointerup', this._onEndDrag);
+      window.removeEventListener('pointercancel', this._onEndDrag);
+    }
+    if (this.avatarGroup && this.scene) {
+      this.scene.remove(this.avatarGroup);
+      disposeObject3D(this.avatarGroup);
+      this.avatarGroup = null;
+    }
+    this._pedestalMats?.dispose?.();
+    this._envRt?.dispose?.();
+    this._pmrem?.dispose?.();
+    this.renderer?.dispose?.();
+    this.renderer = null;
+    this.initialized = false;
   }
 
   rebuild() {

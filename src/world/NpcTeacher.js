@@ -300,9 +300,27 @@ export function createHorrorTeacher(parent, opts = {}) {
     eyes.push(eye);
   });
 
-  const auraLight = new THREE.PointLight('#ef4444', 1.8, 9.5);
-  auraLight.position.set(0, 1.85, 0.3);
-  root.add(auraLight);
+  const auraHaloMat = new THREE.MeshBasicMaterial({
+    color: '#ef4444',
+    transparent: true,
+    opacity: 0.24,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  const auraHalo = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.82, 24), auraHaloMat);
+  auraHalo.rotation.x = -Math.PI / 2;
+  auraHalo.position.set(0, 0.04, 0);
+  root.add(auraHalo);
+  const auraLight = {
+    get intensity() {
+      return auraHaloMat.opacity * 10;
+    },
+    set intensity(v) {
+      auraHaloMat.opacity = Math.max(0.12, Math.min(0.45, (Number(v) || 0) * 0.12));
+    },
+    color: auraHaloMat.color
+  };
 
   const labelMat = new THREE.SpriteMaterial({
     map: makeHorrorLabelTexture('Professeur CIEL', 'PATROUILLE'),

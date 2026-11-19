@@ -1107,9 +1107,25 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
     });
   }
 
-  const auraLight = new THREE.PointLight('#fbbf24', 1.5, 4.8);
-  auraLight.position.set(0, 1.15, 0);
-  creatorAuraGroup.add(auraLight);
+  const creatorAuraLightMat = new THREE.MeshBasicMaterial({
+    color: '#fbbf24',
+    transparent: true,
+    opacity: 0.16,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  const creatorAuraLightMesh = new THREE.Mesh(new THREE.SphereGeometry(0.68, 12, 10), creatorAuraLightMat);
+  creatorAuraLightMesh.position.set(0, 1.15, 0);
+  creatorAuraGroup.add(creatorAuraLightMesh);
+  const auraLight = {
+    get intensity() {
+      return creatorAuraLightMat.opacity * 10;
+    },
+    set intensity(v) {
+      creatorAuraLightMat.opacity = Math.max(0.05, Math.min(0.32, (Number(v) || 0) * 0.1));
+    },
+    color: creatorAuraLightMat.color
+  };
 
   updaters.push((t) => {
     if (!creatorAuraGroup.visible) return;
@@ -1358,9 +1374,25 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
       });
     }
 
-    const divineLight = new THREE.PointLight(spec.primaryColor, 1.9, 5.5);
-    divineLight.position.set(0, 1.25, 0);
-    divineAuraGroup.add(divineLight);
+    const divineGlowMat = new THREE.MeshBasicMaterial({
+      color: spec.primaryColor,
+      transparent: true,
+      opacity: 0.16,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const divineGlowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.74, 12, 10), divineGlowMat);
+    divineGlowMesh.position.set(0, 1.25, 0);
+    divineAuraGroup.add(divineGlowMesh);
+    const divineLight = {
+      get intensity() {
+        return divineGlowMat.opacity * 10;
+      },
+      set intensity(v) {
+        divineGlowMat.opacity = Math.max(0.05, Math.min(0.34, (Number(v) || 0) * 0.095));
+      },
+      color: divineGlowMat.color
+    };
 
     const specialtyOrbiters = [];
 
@@ -1808,9 +1840,25 @@ export function buildStudentAvatarMesh(rawSkin = {}) {
       });
     }
 
-    const cosmicLight = new THREE.PointLight('#c084fc', 2.4, 7.0);
-    cosmicLight.position.set(0, 1.35, 0);
-    secretSkinGroup.add(cosmicLight);
+    const cosmicGlowMat = new THREE.MeshBasicMaterial({
+      color: '#c084fc',
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const cosmicGlowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.84, 12, 10), cosmicGlowMat);
+    cosmicGlowMesh.position.set(0, 1.35, 0);
+    secretSkinGroup.add(cosmicGlowMesh);
+    const cosmicLight = {
+      get intensity() {
+        return cosmicGlowMat.opacity * 10;
+      },
+      set intensity(v) {
+        cosmicGlowMat.opacity = Math.max(0.06, Math.min(0.36, (Number(v) || 0) * 0.09));
+      },
+      color: cosmicGlowMat.color
+    };
 
     secretDynamicState = {
       prismMatA,

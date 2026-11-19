@@ -7511,3 +7511,44 @@ body.combat-active #crosshair {
     padding: 8px 10px;
   }
 }
+
+.perf-monitor-hud {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  z-index: 48;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: rgba(5, 11, 24, 0.82);
+  border: 1px solid rgba(56, 189, 248, 0.42);
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.perf-monitor-hud.hidden {
+  display: none;
+}
+
+.perf-mon-cell {
+  white-space: nowrap;
+}
+
+.perf-mon-cell.perf-good {
+  color: #34d399;
+}
+
+.perf-mon-cell.perf-warn {
+  color: #fbbf24;
+}
+
+.perf-mon-cell.perf-low {
+  color: #f87171;
+}

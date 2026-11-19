@@ -482,8 +482,11 @@ function normalizeCustomColor(hex, fallbackHex) {
   return hex;
 }
 
-export function createRealisticMaterialPack(maxAnisotropy = 8) {
-  const anisotropy = Math.max(1, Math.min(16, Number(maxAnisotropy) || 8));
+export function createRealisticMaterialPack(maxAnisotropy = 8, options = {}) {
+  const lowRes = Boolean(options?.lowRes);
+  const anisotropy = Math.max(1, Math.min(lowRes ? 4 : 8, Number(maxAnisotropy) || 8));
+  const hiSize = lowRes ? 512 : 1024;
+  const medSize = lowRes ? 256 : 512;
   const textures = [];
   const materials = [];
   const wallMatCache = new Map();
@@ -495,7 +498,7 @@ export function createRealisticMaterialPack(maxAnisotropy = 8) {
     return mat;
   };
 
-  const floorCanvases = buildPbrCanvases(1024, 101, drawFloorCanvases);
+  const floorCanvases = buildPbrCanvases(hiSize, 101, drawFloorCanvases);
   const floorTex = canvasesToTextures(floorCanvases, anisotropy, 12, 12, textures);
   const floorMat = registerMat(
     new THREE.MeshStandardMaterial({
@@ -506,7 +509,7 @@ export function createRealisticMaterialPack(maxAnisotropy = 8) {
     })
   );
 
-  const ceilingCanvases = buildPbrCanvases(1024, 202, drawCeilingTileCanvases);
+  const ceilingCanvases = buildPbrCanvases(hiSize, 202, drawCeilingTileCanvases);
   const ceilingTex = canvasesToTextures(ceilingCanvases, anisotropy, 10, 10, textures);
   const ceilingMat = registerMat(
     new THREE.MeshStandardMaterial({
@@ -517,10 +520,10 @@ export function createRealisticMaterialPack(maxAnisotropy = 8) {
     })
   );
 
-  const plasterCanvases = buildPbrCanvases(512, 303, (c, r, b, w, h, rng) =>
+  const plasterCanvases = buildPbrCanvases(medSize, 303, (c, r, b, w, h, rng) =>
     drawPlasterCanvases(c, r, b, w, h, rng, '#f1f3f6', false)
   );
-  const dadoCanvases = buildPbrCanvases(512, 404, (c, r, b, w, h, rng) =>
+  const dadoCanvases = buildPbrCanvases(medSize, 404, (c, r, b, w, h, rng) =>
     drawPlasterCanvases(c, r, b, w, h, rng, '#e4e8ee', true)
   );
   const dadoTex = canvasesToTextures(dadoCanvases, anisotropy, 3, 1, textures);
@@ -743,41 +746,34 @@ export function createRealisticMaterialPack(maxAnisotropy = 8) {
   );
 
   const glassMat = registerMat(
-    new THREE.MeshPhysicalMaterial({
+    new THREE.MeshStandardMaterial({
       color: '#e6f3fa',
       transparent: true,
       opacity: 0.24,
-      roughness: 0.06,
-      metalness: 0.0,
-      ior: 1.5,
-      reflectivity: 0.85,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.05,
-      envMapIntensity: 1.35,
+      roughness: 0.08,
+      metalness: 0.08,
+      envMapIntensity: 1.2,
       depthWrite: false,
       side: THREE.DoubleSide
     })
   );
 
   const rackGlassMat = registerMat(
-    new THREE.MeshPhysicalMaterial({
+    new THREE.MeshStandardMaterial({
       color: '#cce2f0',
       transparent: true,
       opacity: 0.28,
-      roughness: 0.08,
-      metalness: 0.0,
-      ior: 1.5,
-      reflectivity: 0.8,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.06,
-      envMapIntensity: 1.25,
+      roughness: 0.1,
+      metalness: 0.08,
+      envMapIntensity: 1.15,
       depthWrite: false,
       side: THREE.DoubleSide
     })
   );
 
   const getWallMaterial = (lengthMeters = 4, colorHex = '') => {
-    const rx = Math.max(1, Math.min(10, Math.round((Number(lengthMeters) || 4) / 2.6)));
+    const rawRx = Math.max(1, Math.min(10, Math.round((Number(lengthMeters) || 4) / 2.6)));
+    const rx = rawRx <= 1 ? 1 : rawRx <= 3 ? 2 : 4;
     const tint = normalizeCustomColor(colorHex, '#ffffff');
     const key = `${rx}:${tint}`;
     if (wallMatCache.has(key)) return wallMatCache.get(key);

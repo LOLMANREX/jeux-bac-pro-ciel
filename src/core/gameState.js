@@ -315,7 +315,11 @@ export class GameState {
     this.room = 'plateau-u300';
     this.roomRoster = [];
     this.leaderboard = [];
-    this.quality = readStorage('ciel_quality') || 'high';
+    const savedQuality = readStorage('ciel_quality');
+    this.quality = ['auto', 'high', 'balanced', 'eco', 'potato'].includes(savedQuality) ? savedQuality : 'auto';
+    const savedFpsGuard = readStorage('ciel_fps_guard');
+    this.autoFpsGuard = savedFpsGuard === '0' ? false : true;
+    this.perfMonitor = readStorage('ciel_perf_monitor') === '1';
     this.cameraMode = readStorage('ciel_camera_mode') === 'third' ? 'third' : 'first';
     const savedTouch = readStorage('ciel_touch_mode');
     this.touchMode = savedTouch === '1' ? true : savedTouch === '0' ? false : detectTouchDevice();
@@ -1071,8 +1075,21 @@ export class GameState {
   }
 
   setQuality(q) {
-    this.quality = q;
-    writeStorage('ciel_quality', q);
+    const clean = ['auto', 'high', 'balanced', 'eco', 'potato'].includes(q) ? q : 'auto';
+    this.quality = clean;
+    writeStorage('ciel_quality', clean);
+    this.emit();
+  }
+
+  setAutoFpsGuard(enabled) {
+    this.autoFpsGuard = Boolean(enabled);
+    writeStorage('ciel_fps_guard', this.autoFpsGuard ? '1' : '0');
+    this.emit();
+  }
+
+  setPerfMonitor(enabled) {
+    this.perfMonitor = Boolean(enabled);
+    writeStorage('ciel_perf_monitor', this.perfMonitor ? '1' : '0');
     this.emit();
   }
 

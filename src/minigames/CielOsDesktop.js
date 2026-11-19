@@ -166,6 +166,8 @@ export class CielOsDesktop {
   constructor(options = {}) {
     this.width = Number(options.width) || 1024;
     this.height = Number(options.height) || 640;
+    this.renderScale = Math.max(0.5, Math.min(1.0, Number(options.renderScale) || 1.0));
+    this.idleThrottleMult = Math.max(0.5, Number(options.idleThrottleMult) || 1.0);
     this.stationId = options.stationId || 'pc-default';
     this.stationLabel = options.stationLabel || 'Poste PC CIEL';
     this.playerName = options.playerName || 'Eleve_CIEL';
@@ -176,20 +178,22 @@ export class CielOsDesktop {
     this.coins = Math.max(0, Math.floor(Number(options.coins) || 0));
     this.coinToast = null;
 
+    const backingW = Math.max(256, Math.round(this.width * this.renderScale));
+    const backingH = Math.max(160, Math.round(this.height * this.renderScale));
     this.canvas = null;
     this.ctx = null;
     if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
       const c = document.createElement('canvas');
       if (c && typeof c.getContext === 'function') {
-        c.width = this.width;
-        c.height = this.height;
+        c.width = backingW;
+        c.height = backingH;
         this.canvas = c;
         this.ctx = c.getContext('2d');
       }
     }
     if (!this.ctx) {
       this.ctx = createStubContext2D();
-      this.canvas = { width: this.width, height: this.height, getContext: () => this.ctx };
+      this.canvas = { width: backingW, height: backingH, getContext: () => this.ctx };
     }
 
     this.themeId = options.themeId || 'cyber_blue';
@@ -869,11 +873,27 @@ export class CielOsDesktop {
     this.isFocusedStation = Boolean(focused);
   }
 
+  setQualityProfile({ idleThrottleMult, renderScale } = {}) {
+    if (Number.isFinite(Number(idleThrottleMult))) {
+      this.idleThrottleMult = Math.max(0.5, Math.min(6.0, Number(idleThrottleMult)));
+    }
+    if (Number.isFinite(Number(renderScale))) {
+      const nextScale = Math.max(0.5, Math.min(1.0, Number(renderScale)));
+      if (Math.abs(nextScale - this.renderScale) > 0.02 && this.canvas) {
+        this.renderScale = nextScale;
+        this.canvas.width = Math.max(256, Math.round(this.width * nextScale));
+        this.canvas.height = Math.max(160, Math.round(this.height * nextScale));
+        this.dirty = true;
+      }
+    }
+  }
+
   updateIdle(elapsed = 0, opts = {}) {
     this.elapsed = elapsed;
     const inView = opts.inView !== undefined ? Boolean(opts.inView) : this.inView;
     const focused = opts.focused !== undefined ? Boolean(opts.focused) : this.isFocusedStation;
     const near = opts.near !== undefined ? Boolean(opts.near) : !this.sleepMode;
+    const allowIdleUpload = opts.allowIdleUpload !== false;
     this.inView = inView;
     this.isFocusedStation = focused;
     this.sleepMode = !focused && !near;
@@ -883,7 +903,8 @@ export class CielOsDesktop {
     }
 
     if (this.sleepMode) {
-      if (this.dirty || elapsed - this.lastIdleDrawAt >= 2.0) {
+      const interval = 2.0 * this.idleThrottleMult;
+      if ((this.dirty || elapsed - this.lastIdleDrawAt >= interval) && (allowIdleUpload || focused)) {
         this.lastIdleDrawAt = elapsed;
         this.redraw();
         return true;
@@ -892,7 +913,7 @@ export class CielOsDesktop {
     }
 
     if (this.hasRunningGame()) {
-      const minStep = focused ? 0.016 : 0.032;
+      const minStep = focused ? 0.016 : Math.max(0.032, 0.032 * this.idleThrottleMult);
       if (this.dirty || elapsed - this.lastActiveDrawAt >= minStep) {
         const dt =
           this.lastActiveDrawAt >= 0
@@ -904,7 +925,8 @@ export class CielOsDesktop {
       return false;
     }
 
-    if (this.dirty || elapsed - this.lastIdleDrawAt >= 1.0) {
+    const nearInterval = Math.max(1.0, 1.0 * this.idleThrottleMult);
+    if ((this.dirty || elapsed - this.lastIdleDrawAt >= nearInterval) && (allowIdleUpload || focused)) {
       this.lastIdleDrawAt = elapsed;
       this.redraw();
       return true;
@@ -1374,6 +1396,9 @@ export class CielOsDesktop {
     const theme = this.getTheme();
 
     if (ctx) {
+      if (typeof ctx.setTransform === 'function') {
+        ctx.setTransform(this.renderScale, 0, 0, this.renderScale, 0, 0);
+      }
       this._drawWallpaper(ctx, W, H, theme);
     }
 

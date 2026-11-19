@@ -16,7 +16,7 @@ import {
   TP_CATALOG
 } from './core/gameState.js';
 import { NetworkClient } from './core/network.js';
-import { SceneManager, computeAscensionGatheringLayout, pickLabInteractable } from './world/SceneManager.js';
+import { SceneManager, computeAscensionGatheringLayout, computeZoneVisibility, pickLabInteractable } from './world/SceneManager.js';
 import {
   createDefaultMap,
   getDynamicMapColliders,
@@ -114,15 +114,21 @@ const gameState = new GameState();
 const network = new NetworkClient();
 
 const canvas = document.getElementById('game-canvas');
-const sceneMgr = new SceneManager(canvas);
-sceneMgr.setDeviceProfile(detectDeviceProfile());
+const initialDeviceProfile = detectDeviceProfile();
+const lowResWorld = Boolean(initialDeviceProfile.isMobile || initialDeviceProfile.isVr);
+const sceneMgr = new SceneManager(canvas, { deviceProfile: initialDeviceProfile, quality: gameState.quality });
+sceneMgr.setDeviceProfile(initialDeviceProfile);
+sceneMgr.setAutoFpsGuard(gameState.autoFpsGuard !== false);
 sceneMgr.setQuality(gameState.quality);
 sceneMgr.setFov(gameState.fov);
 
 let currentMapData = createDefaultMap();
-const lab = buildLabWorld(sceneMgr.scene, currentMapData, { maxAnisotropy: sceneMgr.getMaxAnisotropy() });
+const lab = buildLabWorld(sceneMgr.scene, currentMapData, {
+  maxAnisotropy: sceneMgr.getMaxAnisotropy(),
+  lowRes: lowResWorld
+});
 const survivalArena = createSurvivalPocketRooms(sceneMgr.scene, currentMapData);
-const combatArena = createCombatPocketRooms(sceneMgr.scene);
+const combatArena = createCombatPocketRooms(sceneMgr.scene, { lowRes: lowResWorld });
 const combatVfx = createCombatVfxPool(sceneMgr.scene);
 const combatViewWeaponRoot = new THREE.Group();
 combatViewWeaponRoot.visible = false;
@@ -135,6 +141,26 @@ const _combatRayDir = new THREE.Vector3();
 const _combatMuzzleWorld = new THREE.Vector3();
 const horrorTeacher = createHorrorTeacher(sceneMgr.scene, { visible: false });
 sceneMgr.updateWorldBounds(currentMapData.bounds);
+
+let activeWorldMode = 'hall';
+function applyActiveZoneCulling(mode = 'hall') {
+  activeWorldMode = mode || 'hall';
+  const vis = computeZoneVisibility(activeWorldMode);
+  lab.setVisible?.(vis.labVisible);
+  combatArena.setZoneVisibility?.(vis.combatZone);
+  survivalArena.setZoneVisibility?.(vis.survivalZone);
+}
+
+sceneMgr.onQualityChange((q) => {
+  lab.setQualityProfile?.({
+    textureThrottleMult: q.textureThrottleMult,
+    lowResPc: q.isMobile || q.isVr || q.effectiveQuality === 'potato' || q.effectiveQuality === 'eco'
+  });
+  combatVfx.setParticleScale?.(q.particleScale);
+});
+sceneMgr.setQuality(gameState.quality);
+sceneMgr.precompileShaders();
+applyActiveZoneCulling('hall');
 
 const player = new PlayerController(sceneMgr.camera, canvas, lab.colliders, {
   onJump: () => sfx.jump()
@@ -950,6 +976,7 @@ function applyDetentionPcCamera() {
 }
 
 function teleportWithWorldMode(pos, lookAt, mode = 'hall') {
+  applyActiveZoneCulling(mode);
   if (mode === 'waiting') {
     player.setSeated?.(false);
     vrManager?.setSeatedMode?.(false);
@@ -1173,7 +1200,8 @@ function renderDetentionLivePov(_dt, elapsed) {
   if (!isDetentionSeatedActive()) return;
   if (!survivalArena?.povCamera) return;
   survivalArena.updateDetentionClock?.(elapsed);
-  if (elapsed - survivalState.lastPovRenderAt < 0.045) return;
+  const povStep = 0.045 * Math.min(2.5, Math.max(1, sceneMgr.textureThrottleMult || 1));
+  if (elapsed - survivalState.lastPovRenderAt < povStep) return;
   survivalState.lastPovRenderAt = elapsed;
 
   const snap = survivalState.snapshot;
@@ -1269,7 +1297,11 @@ function renderDetentionLivePov(_dt, elapsed) {
   povCam.getWorldDirection(_povDirTmp);
   _povLookTmp.copy(povCam.position).addScaledVector(_povDirTmp, 7);
 
+  const restoreLabHidden = activeWorldMode === 'detention' && lab.worldGroup && !lab.worldGroup.visible;
   try {
+    if (restoreLabHidden) {
+      lab.setVisible?.(true);
+    }
     sceneMgr.renderToTarget(survivalArena.povRenderTarget, povCam, {
       hiddenObjects,
       ambientBoost,
@@ -1282,6 +1314,9 @@ function renderDetentionLivePov(_dt, elapsed) {
       }
     });
   } finally {
+    if (restoreLabHidden) {
+      lab.setVisible?.(false);
+    }
     hiddenObjects.length = 0;
     if (povPeerHiddenId) {
       remotePlayers.setPeerPovHidden(povPeerHiddenId, false);
@@ -3772,6 +3807,8 @@ function teleportNearTarget(id) {
 
 hud = new HudManager(gameState, network, {
   onQualityChange: (q) => sceneMgr.setQuality(q),
+  onAutoFpsGuardChange: (enabled) => sceneMgr.setAutoFpsGuard(enabled),
+  onPerfMonitorChange: (enabled) => hud?.setPerfMonitorVisible?.(enabled),
   onFovChange: (fov) => sceneMgr.setFov(fov),
   onCameraModeChange: (mode) => {
     player.setCameraMode(mode);
@@ -5434,9 +5471,17 @@ canvas.addEventListener('touchcancel', endDetTouch);
 let lastZoneId = '';
 let lastMiniMapDrawAt = 0;
 let lastDebugStatsAt = 0;
+let lastPerfMonAt = 0;
+let lastVrWatchSyncAt = 0;
+let lastTouchRayAt = 0;
+let cachedTouchLookTarget = null;
+let lastCrosshairReady = false;
+let lastCanvasCursor = '';
 
 sceneMgr.addUpdater((dt, elapsed) => {
-  lab.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned, sceneMgr.camera);
+  if (activeWorldMode === 'hall' || (survivalState.inActiveMatch && !survivalState.detained)) {
+    lab.update(elapsed, joined ? player.position : null, gameState.profile.diplomaEarned, sceneMgr.camera);
+  }
   combatVfx.update(dt);
   if (activePcSession?.comfortMode && cielOsDom?.comfortCtx && activePcSession.pcStation?.canvas) {
     cielOsDom.comfortCtx.drawImage(activePcSession.pcStation.canvas, 0, 0);
@@ -5670,11 +5715,12 @@ sceneMgr.addUpdater((dt, elapsed) => {
     }
   }
 
-  if (vrOn) {
+  if (vrOn && elapsed - lastVrWatchSyncAt >= 0.1) {
+    lastVrWatchSyncAt = elapsed;
     syncVrWatchHud();
   }
 
-  if (elapsed - lastMiniMapDrawAt >= 0.05) {
+  if (!vrOn && elapsed - lastMiniMapDrawAt >= 0.05) {
     lastMiniMapDrawAt = elapsed;
     hud?.updateMiniMap?.({
       playerPos: player.position,
@@ -5684,7 +5730,12 @@ sceneMgr.addUpdater((dt, elapsed) => {
     });
   }
 
-  if (privateDebugMode && elapsed - lastDebugStatsAt >= 0.15) {
+  if (!vrOn && gameState.perfMonitor && elapsed - lastPerfMonAt >= 0.25) {
+    lastPerfMonAt = elapsed;
+    hud?.updatePerfMonitor?.(sceneMgr.getPerformanceMetrics());
+  }
+
+  if (!vrOn && privateDebugMode && elapsed - lastDebugStatsAt >= 0.15) {
     lastDebugStatsAt = elapsed;
     hud?.updateDebugStats?.({
       fps: sceneMgr.getFps(),
@@ -5706,28 +5757,37 @@ sceneMgr.addUpdater((dt, elapsed) => {
     );
 
     let bestPrimary = null;
-    let bestPrimaryDist = Infinity;
+    let bestPrimaryDistSq = Infinity;
     let bestProp = null;
-    let bestPropDist = Infinity;
-    for (const item of getActiveInteractables()) {
+    let bestPropDistSq = Infinity;
+    const activeInter = getActiveInteractables();
+    for (let i = 0; i < activeInter.length; i++) {
+      const item = activeInter[i];
       const dx = player.position.x - item.position.x;
       const dz = player.position.z - item.position.z;
-      const d = Math.hypot(dx, dz);
-      if (d > item.interactRadius) continue;
+      const dSq = dx * dx + dz * dz;
+      const rad = item.interactRadius;
+      if (dSq > rad * rad) continue;
       if (item.isProp) {
-        if (d < bestPropDist) {
+        if (dSq < bestPropDistSq) {
           bestProp = item;
-          bestPropDist = d;
+          bestPropDistSq = dSq;
         }
-      } else if (d < bestPrimaryDist) {
+      } else if (dSq < bestPrimaryDistSq) {
         bestPrimary = item;
-        bestPrimaryDist = d;
+        bestPrimaryDistSq = dSq;
       }
     }
     const best = bestPrimary || bestProp;
     let touchLookTarget = null;
     if (!vrOn && gameState.touchMode && !seatedDet && !activeCinematic && !survivalState.introActive && !best) {
-      touchLookTarget = getRayHitInteractable(null, null, { allowTouch: true, maxDist: 4.5 });
+      if (elapsed - lastTouchRayAt >= 0.1) {
+        lastTouchRayAt = elapsed;
+        cachedTouchLookTarget = getRayHitInteractable(null, null, { allowTouch: true, maxDist: 4.5 });
+      }
+      touchLookTarget = cachedTouchLookTarget;
+    } else {
+      cachedTouchLookTarget = null;
     }
     const activeTouchTarget = best || touchLookTarget;
     nearestTarget = gameState.touchMode ? activeTouchTarget : best;
@@ -5748,7 +5808,8 @@ sceneMgr.addUpdater((dt, elapsed) => {
       }
     } else if (vrOn || gameState.touchMode || seatedDet || survivalState.introActive) {
       hoveredInteractable = null;
-      if (!seatedDet) {
+      if (!seatedDet && lastCanvasCursor !== '') {
+        lastCanvasCursor = '';
         canvas.style.cursor = '';
       }
     }
@@ -5758,9 +5819,15 @@ sceneMgr.addUpdater((dt, elapsed) => {
       : (!vrOn && document.pointerLockElement === canvas && hoveredInteractable)
         ? hoveredInteractable
         : (gameState.touchMode ? activeTouchTarget : best);
-    hud?.setInteractPrompt?.(promptTarget);
-    crosshairEl?.classList.toggle('interact-ready', Boolean(!activeCinematic && !seatedDet && !survivalState.introActive && (hoveredInteractable || promptTarget)));
-    touchControls?.setInteractTarget?.(activeCinematic || seatedDet || survivalState.introActive ? null : activeTouchTarget);
+    if (!vrOn) {
+      hud?.setInteractPrompt?.(promptTarget);
+      const nextReady = Boolean(!activeCinematic && !seatedDet && !survivalState.introActive && (hoveredInteractable || promptTarget));
+      if (nextReady !== lastCrosshairReady) {
+        lastCrosshairReady = nextReady;
+        crosshairEl?.classList.toggle('interact-ready', nextReady);
+      }
+      touchControls?.setInteractTarget?.(activeCinematic || seatedDet || survivalState.introActive ? null : activeTouchTarget);
+    }
   }
 });
 
@@ -5768,17 +5835,33 @@ sceneMgr.start();
 fetchInitialMap();
 refreshWallLeaderboard();
 
-setInterval(() => {
+const leaderboardPollInterval = setInterval(() => {
   if (joined && !subModalActive) {
     refreshWallLeaderboard();
   }
 }, 12000);
 
-setInterval(() => {
+const voiceModalPollInterval = setInterval(() => {
   if (joined && subModalActive) {
     voiceChat.update(player.position, player.yaw, remotePlayers.peers);
   }
 }, 180);
+
+window.addEventListener('beforeunload', () => {
+  clearInterval(leaderboardPollInterval);
+  clearInterval(voiceModalPollInterval);
+  if (vrAscCountdownTimer) {
+    clearInterval(vrAscCountdownTimer);
+    vrAscCountdownTimer = null;
+  }
+  if (cielOsTouchRepeatTimer) {
+    clearInterval(cielOsTouchRepeatTimer);
+    cielOsTouchRepeatTimer = null;
+  }
+  shopModal?.preview?.dispose?.();
+  lockerModal?.preview?.dispose?.();
+  network.disconnect?.();
+});
 
 function startGameSession(
   { name, room, skin, privateDebug = false, forceIntro = false },

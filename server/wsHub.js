@@ -1299,10 +1299,18 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
       clearInterval(survivalTickInterval);
       survivalTickInterval = null;
     }
+    if (combatTickInterval) {
+      clearInterval(combatTickInterval);
+      combatTickInterval = null;
+    }
     for (const t of survivalResetTimers) {
       clearTimeout(t);
     }
     survivalResetTimers.clear();
+    for (const t of combatResetTimers) {
+      clearTimeout(t);
+    }
+    combatResetTimers.clear();
   });
 
   wss.on('connection', (ws) => {

@@ -495,7 +495,7 @@ export class NetworkClient {
     if (this.pendingJoin) {
       this.pendingJoin.spawn = next;
     }
-    if (!force && !isVrActive && this.lastSentMove) {
+    if (!force && this.lastSentMove) {
       const samePos =
         Math.abs(next.x - this.lastSentMove.x) < 0.002 &&
         Math.abs(next.y - this.lastSentMove.y) < 0.002 &&
@@ -503,6 +503,15 @@ export class NetworkClient {
         Math.abs(next.yaw - this.lastSentMove.yaw) < 0.004;
       const sameVr = !hasVrPayload && !this.lastVrActive;
       if (samePos && sameVr) return;
+      if (samePos && isVrActive && this.lastVrActive) {
+        const vrSig = JSON.stringify(vrData);
+        if (vrSig === this._lastVrSig) return;
+        this._lastVrSig = vrSig;
+      } else if (isVrActive) {
+        this._lastVrSig = JSON.stringify(vrData);
+      } else {
+        this._lastVrSig = '';
+      }
     }
 
     const packetNext = hasVrPayload ? { ...next, vrData } : next;

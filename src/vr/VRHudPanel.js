@@ -466,7 +466,7 @@ export function createWristHudPanel(options = {}) {
     if (forceVisible) {
       group.visible = true;
       screenMat.opacity = 0.98;
-      if (dirty && nowMs - lastDrawMs >= 75) {
+      if (dirty && nowMs - lastDrawMs >= 165) {
         lastDrawMs = nowMs;
         redraw();
       }
@@ -494,7 +494,7 @@ export function createWristHudPanel(options = {}) {
     if (shouldShow) {
       group.visible = true;
       screenMat.opacity += (0.98 - screenMat.opacity) * Math.min(1, dt * 12);
-      if (dirty && nowMs - lastDrawMs >= 75) {
+      if (dirty && nowMs - lastDrawMs >= 165) {
         lastDrawMs = nowMs;
         redraw();
       }
@@ -534,7 +534,14 @@ export function createWristHudPanel(options = {}) {
     redraw();
   };
 
+  let lastMiniMapSig = '';
   const updateMiniMap = (data = {}) => {
+    const px = data.playerPos ? Math.round((Number(data.playerPos.x) || 0) * 10) : null;
+    const pz = data.playerPos ? Math.round((Number(data.playerPos.z) || 0) * 10) : null;
+    const pyaw = typeof data.playerYaw === 'number' && Number.isFinite(data.playerYaw) ? Math.round(data.playerYaw * 15) : null;
+    const zid = data.currentZone?.id || data.currentZone?.badgeText || '';
+    const pCnt = Array.isArray(data.peers) ? data.peers.length : -1;
+    const sig = `${px}:${pz}:${pyaw}:${zid}:${pCnt}`;
     if (data.playerPos) {
       state.playerPos = {
         x: Number(data.playerPos.x) || 0,
@@ -556,29 +563,44 @@ export function createWristHudPanel(options = {}) {
     if (Array.isArray(data.peers)) {
       state.peers = data.peers;
     }
+    if (sig === lastMiniMapSig && pCnt <= 0) return;
+    lastMiniMapSig = sig;
     dirty = true;
     if (forceVisible) {
       const now = Date.now();
-      if (now - lastDrawMs >= 75) {
+      if (now - lastDrawMs >= 165) {
         lastDrawMs = now;
         redraw();
       }
     }
   };
 
+  const stateJsonCache = new Map();
   const updateState = (next = {}) => {
     let changed = false;
     for (const [k, v] of Object.entries(next)) {
       if (v === undefined) continue;
-      if (state[k] !== v) {
+      if (v && typeof v === 'object') {
+        const ser = JSON.stringify(v);
+        if (stateJsonCache.get(k) !== ser) {
+          stateJsonCache.set(k, ser);
+          state[k] = v;
+          changed = true;
+        }
+      } else if (state[k] !== v) {
         state[k] = v;
+        stateJsonCache.delete(k);
         changed = true;
       }
     }
     if (changed) {
       dirty = true;
       if (group.visible || forceVisible) {
-        redraw();
+        const now = Date.now();
+        if (now - lastDrawMs >= 165) {
+          lastDrawMs = now;
+          redraw();
+        }
       }
     }
   };

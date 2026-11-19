@@ -713,8 +713,16 @@ export function createCombatVfxPool(scene) {
     return oldest;
   }
 
+  let particleScale = 1.0;
+
+  function setParticleScale(scale = 1.0) {
+    const n = Number(scale);
+    particleScale = Number.isFinite(n) ? Math.max(0.25, Math.min(1.0, n)) : 1.0;
+  }
+
   function spawnImpactSparks(x, y, z, colorHex = '#fde047', count = 6) {
-    const n = Math.max(1, Math.min(12, count | 0));
+    const scaled = Math.round((Number(count) || 6) * particleScale);
+    const n = Math.max(1, Math.min(12, scaled | 0));
     for (let i = 0; i < n; i++) {
       const slot = acquireSlot(sparkPool);
       const ang = (i / n) * Math.PI * 2 + (i % 3) * 0.35;
@@ -903,6 +911,7 @@ export function createCombatVfxPool(scene) {
     spawnShot,
     spawnMeleeSlash,
     spawnImpactSparks,
+    setParticleScale,
     update,
     clear,
     getPoolStats: () => ({

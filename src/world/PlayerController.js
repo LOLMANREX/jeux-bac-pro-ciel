@@ -45,6 +45,12 @@ export class PlayerController {
     this.seatedPose = null;
     this.hidingInRack = false;
     this.hidingPose = null;
+    this._stepResultScratch = { isMoving: false, landed: false };
+    this._colliderCellSize = 4;
+    this._colliderGrid = null;
+    this._colliderGridSource = null;
+    this._colliderGridLen = -1;
+    this._rebuildColliderGrid();
 
     this.camera.rotation.order = 'YXZ';
     this._applyCamera();
@@ -264,6 +270,7 @@ export class PlayerController {
   }
 
   _bindEvents() {
+    if (typeof window === 'undefined' || !this.canvas) return;
     window.addEventListener('keydown', (e) => {
       if (!this.enabled) return;
       if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
@@ -427,6 +434,54 @@ export class PlayerController {
 
   setColliders(colliders) {
     this.colliders = Array.isArray(colliders) ? colliders : [];
+    this._rebuildColliderGrid();
+  }
+
+  _rebuildColliderGrid() {
+    const list = Array.isArray(this.colliders) ? this.colliders : [];
+    this._colliderGridSource = list;
+    this._colliderGridLen = list.length;
+    if (list.length < 12) {
+      this._colliderGrid = null;
+      return;
+    }
+    const cs = this._colliderCellSize;
+    const grid = new Map();
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      let minX;
+      let maxX;
+      let minZ;
+      let maxZ;
+      if (typeof c.cx === 'number') {
+        const ext = Math.hypot(c.hw || 0, c.hd || 0);
+        minX = c.cx - ext;
+        maxX = c.cx + ext;
+        minZ = c.cz - ext;
+        maxZ = c.cz + ext;
+      } else {
+        minX = c.minX;
+        maxX = c.maxX;
+        minZ = c.minZ;
+        maxZ = c.maxZ;
+      }
+      const x0 = Math.floor((minX - 0.6) / cs);
+      const x1 = Math.floor((maxX + 0.6) / cs);
+      const z0 = Math.floor((minZ - 0.6) / cs);
+      const z1 = Math.floor((maxZ + 0.6) / cs);
+      for (let gx = x0; gx <= x1; gx++) {
+        for (let gz = z0; gz <= z1; gz++) {
+          const key = gx * 4096 + gz;
+          let bucket = grid.get(key);
+          if (!bucket) {
+            bucket = [];
+            grid.set(key, bucket);
+          }
+          bucket.push(c);
+        }
+      }
+    }
+    this._colliderGrid = grid;
   }
 
   setBounds(bounds) {
@@ -524,25 +579,34 @@ export class PlayerController {
     ) {
       return true;
     }
-    for (const c of this.colliders) {
+    if (this._colliderGridSource !== this.colliders || this._colliderGridLen !== this.colliders.length) {
+      this._rebuildColliderGrid();
+    }
+    const candidates = this._colliderGrid
+      ? this._colliderGrid.get(Math.floor(nx / this._colliderCellSize) * 4096 + Math.floor(nz / this._colliderCellSize))
+      : this.colliders;
+    if (!candidates || candidates.length === 0) return false;
+    const r = this.radius;
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
       if (typeof c.cx === 'number') {
         const dx = nx - c.cx;
         const dz = nz - c.cz;
         const along = dx * c.ux + dz * c.uz;
         const perp = -dx * c.uz + dz * c.ux;
         if (
-          Math.abs(along) < c.hw + this.radius &&
-          Math.abs(perp) < c.hd + this.radius
+          Math.abs(along) < c.hw + r &&
+          Math.abs(perp) < c.hd + r
         ) {
           return true;
         }
         continue;
       }
       if (
-        nx + this.radius > c.minX &&
-        nx - this.radius < c.maxX &&
-        nz + this.radius > c.minZ &&
-        nz - this.radius < c.maxZ
+        nx + r > c.minX &&
+        nx - r < c.maxX &&
+        nz + r > c.minZ &&
+        nz - r < c.maxZ
       ) {
         return true;
       }
@@ -551,7 +615,10 @@ export class PlayerController {
   }
 
   update(dt) {
-    if (!this.enabled) return { isMoving: false, landed: false };
+    const res = this._stepResultScratch;
+    res.isMoving = false;
+    res.landed = false;
+    if (!this.enabled) return res;
 
     if (this.seated) {
       const lookSpeed = 1.9 * Math.max(0.6, this.sensitivity || 1);
@@ -570,7 +637,7 @@ export class PlayerController {
         speedRatio: 1
       });
       this._applyCamera();
-      return { isMoving: false, landed: false };
+      return res;
     }
 
     if (this.hidingInRack) {
@@ -591,7 +658,7 @@ export class PlayerController {
         speedRatio: 1
       });
       this._applyCamera();
-      return { isMoving: false, landed: false };
+      return res;
     }
 
     let forward = this.virtualMove.forward;
@@ -657,7 +724,9 @@ export class PlayerController {
     });
 
     this._applyCamera();
-    return { isMoving, landed };
+    res.isMoving = isMoving;
+    res.landed = landed;
+    return res;
   }
 
   _applyCamera() {

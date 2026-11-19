@@ -186,6 +186,23 @@ export class HudManager {
     this.dbgPingEl = document.getElementById('dbg-val-ping');
     this.dbgXyzEl = document.getElementById('dbg-val-xyz');
     this.dbgSocketEl = document.getElementById('dbg-val-socket');
+    this.perfMonitorEl = document.getElementById('perf-monitor-hud');
+    this.perfMonFpsEl = document.getElementById('perf-mon-fps');
+    this.perfMonMsEl = document.getElementById('perf-mon-ms');
+    this.perfMonCallsEl = document.getElementById('perf-mon-calls');
+    this.perfMonTrisEl = document.getElementById('perf-mon-tris');
+    this._domCache = Object.create(null);
+    this.domWriteCount = 0;
+    this._combatCrosshairState = {
+      active: false,
+      weaponId: 'fiber_rifle',
+      mode: 'guns',
+      adsActive: false,
+      hiddenForAds: false,
+      inMeleeRange: false,
+      guarding: false,
+      spreadPx: 6
+    };
     this.dbgCelebrateBtn = document.getElementById('btn-debug-celebrate');
     this.dbgValidateAllBtn = document.getElementById('btn-debug-validate-all');
     this.dbgResetBtn = document.getElementById('btn-debug-reset-progress');
@@ -392,6 +409,8 @@ export class HudManager {
     const cameraSelect = document.getElementById('set-camera-mode');
     const viewModeBtn = document.getElementById('btn-view-mode');
     const qualitySelect = document.getElementById('set-quality');
+    const fpsGuardCheck = document.getElementById('set-fps-guard');
+    const perfMonitorCheck = document.getElementById('set-perf-monitor');
     const sensSlider = document.getElementById('set-sens');
     const sensVal = document.getElementById('set-sens-val');
     const touchSensSlider = document.getElementById('set-touch-sens');
@@ -410,6 +429,9 @@ export class HudManager {
           this.gameState.cameraMode === 'third' ? '🎥 Vue: 3ème' : '🎥 Vue: 1ère';
       }
       if (qualitySelect) qualitySelect.value = this.gameState.quality;
+      if (fpsGuardCheck) fpsGuardCheck.checked = this.gameState.autoFpsGuard !== false;
+      if (perfMonitorCheck) perfMonitorCheck.checked = Boolean(this.gameState.perfMonitor);
+      this.setPerfMonitorVisible(Boolean(this.gameState.perfMonitor));
       if (sensSlider) sensSlider.value = String(this.gameState.mouseSens);
       if (sensVal) sensVal.textContent = `${this.gameState.mouseSens.toFixed(1)}×`;
       if (touchSensSlider) touchSensSlider.value = String(this.gameState.touchSens ?? 1.0);
@@ -711,6 +733,22 @@ export class HudManager {
       this.toast(`Qualité 3D : ${qualitySelect.options[qualitySelect.selectedIndex].text}`);
     });
 
+    fpsGuardCheck?.addEventListener('change', () => {
+      sfx.click();
+      const enabled = Boolean(fpsGuardCheck.checked);
+      this.gameState.setAutoFpsGuard?.(enabled);
+      this.handlers.onAutoFpsGuardChange?.(enabled);
+      this.toast(enabled ? '🛡️ Garde-FPS Automatique activé' : '🛡️ Garde-FPS Automatique désactivé');
+    });
+
+    perfMonitorCheck?.addEventListener('change', () => {
+      sfx.click();
+      const enabled = Boolean(perfMonitorCheck.checked);
+      this.gameState.setPerfMonitor?.(enabled);
+      this.setPerfMonitorVisible(enabled);
+      this.handlers.onPerfMonitorChange?.(enabled);
+    });
+
     sensSlider?.addEventListener('input', () => {
       const s = Number(sensSlider.value);
       this.gameState.setMouseSens(s);
@@ -834,7 +872,9 @@ export class HudManager {
       sfx.click();
       this.gameState.setFov(70);
       this.gameState.setCameraMode('first');
-      this.gameState.setQuality('high');
+      this.gameState.setQuality('auto');
+      this.gameState.setAutoFpsGuard?.(true);
+      this.gameState.setPerfMonitor?.(false);
       this.gameState.setMouseSens(1.0);
       this.gameState.setTouchSens?.(1.0);
       this.gameState.setVoiceMode('open');
@@ -843,7 +883,9 @@ export class HudManager {
       sfx.setMuted(false);
       this.handlers.onFovChange?.(70);
       this.handlers.onCameraModeChange?.('first');
-      this.handlers.onQualityChange?.('high');
+      this.handlers.onQualityChange?.('auto');
+      this.handlers.onAutoFpsGuardChange?.(true);
+      this.handlers.onPerfMonitorChange?.(false);
       this.handlers.onSensitivityChange?.(1.0);
       this.handlers.onTouchSensitivityChange?.(1.0);
       this.handlers.onVoiceModeChange?.('open');
@@ -1564,25 +1606,75 @@ export class HudManager {
     }
   }
 
+  _setCachedText(el, key, value) {
+    if (!el) return false;
+    const str = String(value);
+    if (this._domCache[key] === str) return false;
+    this._domCache[key] = str;
+    el.textContent = str;
+    this.domWriteCount++;
+    return true;
+  }
+
+  _setCachedHidden(el, key, hidden) {
+    if (!el?.classList) return false;
+    const h = Boolean(hidden);
+    if (this._domCache[key] === h) return false;
+    this._domCache[key] = h;
+    el.classList.toggle('hidden', h);
+    this.domWriteCount++;
+    return true;
+  }
+
+  setPerfMonitorVisible(visible) {
+    const show = Boolean(visible) && !this.detentionHudHidden;
+    this._setCachedHidden(this.perfMonitorEl, 'perfMonHidden', !show);
+  }
+
+  updatePerfMonitor(metrics = null) {
+    if (!this.perfMonitorEl || !metrics) return;
+    if (this.perfMonitorEl.classList?.contains('hidden')) return;
+    const fps = Math.max(0, Math.round(Number(metrics.fps) || 0));
+    const ms = Number.isFinite(Number(metrics.frameTimeMs)) ? Number(metrics.frameTimeMs).toFixed(1) : '16.6';
+    const dc = Math.max(0, Math.round(Number(metrics.drawCalls) || 0));
+    const trisRaw = Math.max(0, Math.round(Number(metrics.triangles) || 0));
+    const trisLabel = trisRaw >= 1000 ? `${(trisRaw / 1000).toFixed(1)}k` : String(trisRaw);
+    const scaleTag = metrics.resolutionScale && metrics.resolutionScale < 0.99 ? ` (${Math.round(metrics.resolutionScale * 100)}%)` : '';
+
+    this._setCachedText(this.perfMonFpsEl, 'pmFps', `${fps} FPS${scaleTag}`);
+    this._setCachedText(this.perfMonMsEl, 'pmMs', `${ms} ms`);
+    this._setCachedText(this.perfMonCallsEl, 'pmDc', `DC: ${dc}`);
+    this._setCachedText(this.perfMonTrisEl, 'pmTri', `Tri: ${trisLabel}`);
+
+    if (this.perfMonFpsEl?.classList) {
+      const tier = fps >= 50 ? 'perf-good' : fps >= 30 ? 'perf-warn' : 'perf-low';
+      if (this._domCache.pmTier !== tier) {
+        this._domCache.pmTier = tier;
+        this.perfMonFpsEl.classList.remove('perf-good', 'perf-warn', 'perf-low');
+        this.perfMonFpsEl.classList.add(tier);
+        this.domWriteCount++;
+      }
+    }
+  }
+
   updateDebugStats({ fps = 60, pingMs = null, pos = null, socketState = null } = {}) {
     if (!this.privateDebugActive) return;
-    if (this.dbgFpsEl) {
-      this.dbgFpsEl.textContent = `${Math.round(Number(fps) || 60)}`;
-    }
-    if (this.dbgPingEl) {
-      this.dbgPingEl.textContent =
-        typeof pingMs === 'number' && Number.isFinite(pingMs) ? `${Math.round(pingMs)} ms` : '1 ms';
-    }
+    this._setCachedText(this.dbgFpsEl, 'dbgFps', `${Math.round(Number(fps) || 60)}`);
+    this._setCachedText(
+      this.dbgPingEl,
+      'dbgPing',
+      typeof pingMs === 'number' && Number.isFinite(pingMs) ? `${Math.round(pingMs)} ms` : '1 ms'
+    );
     if (this.dbgXyzEl && pos) {
       const x = Number(pos.x || 0).toFixed(2);
       const y = Number(pos.y || 0).toFixed(2);
       const z = Number(pos.z || 0).toFixed(2);
-      this.dbgXyzEl.textContent = `X: ${x} | Y: ${y} | Z: ${z}`;
+      this._setCachedText(this.dbgXyzEl, 'dbgXyz', `X: ${x} | Y: ${y} | Z: ${z}`);
     }
     if (this.dbgSocketEl && socketState) {
       const st = socketState.stateLabel || (socketState.connected ? 'OPEN' : 'SOLO');
       const rm = socketState.room || this.gameState.room || 'priv-debug';
-      this.dbgSocketEl.textContent = `${st} • ${rm} (id: ${socketState.clientId || '--'})`;
+      this._setCachedText(this.dbgSocketEl, 'dbgSock', `${st} • ${rm} (id: ${socketState.clientId || '--'})`);
     }
   }
 
@@ -1710,11 +1802,11 @@ export class HudManager {
 
   setInteractPrompt(target) {
     if (!target || this.detentionHudHidden) {
-      this.interactPromptEl.classList.add('hidden');
+      this._setCachedHidden(this.interactPromptEl, 'interactHidden', true);
       return;
     }
-    this.interactPromptEl.classList.remove('hidden');
-    this.interactLabelEl.textContent = target.label;
+    this._setCachedHidden(this.interactPromptEl, 'interactHidden', false);
+    this._setCachedText(this.interactLabelEl, 'interactLabel', target.label);
   }
 
   clearChat() {
@@ -2546,93 +2638,114 @@ export class HudManager {
 
   updateCombatHud(snapshot = {}, localId = null) {
     if (!this.combatHudEl) return;
-    this.combatHudEl.classList.remove('hidden');
+    this._setCachedHidden(this.combatHudEl, 'combatHudHidden', false);
     const fighters = Array.isArray(snapshot?.fighters) ? snapshot.fighters : [];
     const me = fighters.find((f) => f.id === localId) || fighters[0] || null;
     const mode = snapshot?.mode === 'melee' ? 'melee' : 'guns';
-    const timeSec = Math.max(0, Number(snapshot?.timeLeftSec) || 0);
+    const timeSec = Math.max(0, Math.floor(Number(snapshot?.timeLeftSec) || 0));
     const mm = String(Math.floor(timeSec / 60)).padStart(2, '0');
     const ss = String(timeSec % 60).padStart(2, '0');
 
-    if (this.combatHudModeEl) {
-      this.combatHudModeEl.textContent = mode === 'melee' ? '⚔️ MODE MÊLÉE' : '🔫 MODE FUSILS';
-    }
-    if (this.combatHudTimerEl) {
-      this.combatHudTimerEl.textContent = `⏱️ ${mm}:${ss}`;
-    }
-    if (this.combatHudScoreEl && me) {
-      this.combatHudScoreEl.textContent = `⚔️ ${me.kills || 0} / ${snapshot?.killLimit || 10} • 💀 ${me.deaths || 0} • 🔥 Série ${me.streak || 0}`;
-    }
-
+    this._setCachedText(this.combatHudModeEl, 'cMode', mode === 'melee' ? '⚔️ MODE MÊLÉE' : '🔫 MODE FUSILS');
+    this._setCachedText(this.combatHudTimerEl, 'cTimer', `⏱️ ${mm}:${ss}`);
     if (me) {
+      this._setCachedText(
+        this.combatHudScoreEl,
+        'cScore',
+        `⚔️ ${me.kills || 0} / ${snapshot?.killLimit || 10} • 💀 ${me.deaths || 0} • 🔥 Série ${me.streak || 0}`
+      );
+
       const hp = Math.max(0, Math.round(Number(me.hp) || 0));
       const maxHp = Math.max(1, Math.round(Number(me.maxHp) || 100));
       const pct = Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100)));
-      if (this.combatHpTextEl) this.combatHpTextEl.textContent = `${hp} / ${maxHp}`;
+      this._setCachedText(this.combatHpTextEl, 'cHpTxt', `${hp} / ${maxHp}`);
       if (this.combatHpFillEl) {
-        this.combatHpFillEl.style.width = `${pct}%`;
-        this.combatHpFillEl.style.background =
+        const wStr = `${pct}%`;
+        if (this._domCache.cHpW !== wStr) {
+          this._domCache.cHpW = wStr;
+          this.combatHpFillEl.style.width = wStr;
+          this.domWriteCount++;
+        }
+        const bgStr =
           pct > 50
             ? 'linear-gradient(90deg, #10b981, #34d399)'
             : pct > 25
               ? 'linear-gradient(90deg, #d97706, #fbbf24)'
               : 'linear-gradient(90deg, #dc2626, #f87171)';
+        if (this._domCache.cHpBg !== bgStr) {
+          this._domCache.cHpBg = bgStr;
+          this.combatHpFillEl.style.background = bgStr;
+          this.domWriteCount++;
+        }
       }
 
       if (this.combatRespawnBannerEl) {
         if (!me.alive) {
           const sec = Math.max(1, Math.ceil((me.respawnRemainingMs || 3000) / 1000));
-          this.combatRespawnBannerEl.textContent = `💥 Éliminé ! Réapparition dans ${sec}s...`;
-          this.combatRespawnBannerEl.classList.remove('hidden');
+          this._setCachedText(this.combatRespawnBannerEl, 'cRespTxt', `💥 Éliminé ! Réapparition dans ${sec}s...`);
+          this._setCachedHidden(this.combatRespawnBannerEl, 'cRespHidden', false);
         } else {
-          this.combatRespawnBannerEl.classList.add('hidden');
+          this._setCachedHidden(this.combatRespawnBannerEl, 'cRespHidden', true);
         }
       }
 
       const wSpec = getCombatWeaponById(me.weaponId) || getWeaponsByMode(mode)[0];
-      if (this.combatWeaponNameEl && wSpec) {
-        this.combatWeaponNameEl.textContent = `${wSpec.icon} ${wSpec.name}`;
-      }
-      if (this.combatWeaponAmmoEl && wSpec) {
-        if (mode === 'melee') {
-          this.combatWeaponAmmoEl.textContent = '∞ Corps-à-corps';
-        } else if (me.reloading) {
-          this.combatWeaponAmmoEl.textContent = '🔄 Rechargement...';
-        } else {
-          this.combatWeaponAmmoEl.textContent = `${me.ammo ?? wSpec.magSize} / ${wSpec.magSize}`;
-        }
+      if (wSpec) {
+        this._setCachedText(this.combatWeaponNameEl, 'cWepName', `${wSpec.icon} ${wSpec.name}`);
+        const ammoStr =
+          mode === 'melee'
+            ? '∞ Corps-à-corps'
+            : me.reloading
+              ? '🔄 Rechargement...'
+              : `${me.ammo ?? wSpec.magSize} / ${wSpec.magSize}`;
+        this._setCachedText(this.combatWeaponAmmoEl, 'cWepAmmo', ammoStr);
       }
 
       if (this.combatWeaponSlotsEl) {
-        const modeWeapons = getWeaponsByMode(mode);
-        this.combatWeaponSlotsEl.innerHTML = modeWeapons
-          .map(
-            (w) => `
+        const slotsSig = `${mode}|${me.weaponId || ''}`;
+        if (this._domCache.cSlotsSig !== slotsSig) {
+          this._domCache.cSlotsSig = slotsSig;
+          const modeWeapons = getWeaponsByMode(mode);
+          this.combatWeaponSlotsEl.innerHTML = modeWeapons
+            .map(
+              (w) => `
             <button type="button" class="combat-slot-pill ${w.id === me.weaponId ? 'active' : ''}" data-slot-weapon="${escapeHtmlSafe(w.id)}">
               [${w.slot}] ${escapeHtmlSafe(w.shortName)}
             </button>`
-          )
-          .join('');
-        this.combatWeaponSlotsEl.querySelectorAll('[data-slot-weapon]').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            const wid = btn.getAttribute('data-slot-weapon');
-            if (wid) this.combatCallbacks?.onSelectWeapon?.(wid);
+            )
+            .join('');
+          this.combatWeaponSlotsEl.querySelectorAll('[data-slot-weapon]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              const wid = btn.getAttribute('data-slot-weapon');
+              if (wid) this.combatCallbacks?.onSelectWeapon?.(wid);
+            });
           });
-        });
+          this.domWriteCount++;
+        }
       }
     }
 
     if (this.combatKillfeedEl) {
       const feed = Array.isArray(snapshot?.killfeed) ? snapshot.killfeed : [];
-      this.combatKillfeedEl.innerHTML = feed
-        .slice(0, 4)
-        .map(
-          (kf) => `
+      let kfSig = '';
+      const len = Math.min(4, feed.length);
+      for (let i = 0; i < len; i++) {
+        const kf = feed[i];
+        kfSig += `${kf.killerName}|${kf.icon || ''}|${kf.victimName}|${kf.headshot ? 1 : 0};`;
+      }
+      if (this._domCache.cKfSig !== kfSig) {
+        this._domCache.cKfSig = kfSig;
+        this.combatKillfeedEl.innerHTML = feed
+          .slice(0, 4)
+          .map(
+            (kf) => `
           <div class="combat-kf-item">
             ${escapeHtmlSafe(kf.killerName)} ${escapeHtmlSafe(kf.icon || '⚔️')} ${escapeHtmlSafe(kf.victimName)}${kf.headshot ? ' 🎯' : ''}
           </div>`
-        )
-        .join('');
+          )
+          .join('');
+        this.domWriteCount++;
+      }
     }
   }
 
@@ -2649,59 +2762,83 @@ export class HudManager {
     const cleanWeapon = weaponId || (cleanMode === 'melee' ? 'solder_iron_blade' : 'fiber_rifle');
     const hideForAds = Boolean(adsActive && cleanMode === 'guns');
     const clampedGap = Math.max(2, Math.min(44, Math.round(Number(spreadPx) || 6)));
-    this._combatCrosshairState = {
-      active: Boolean(active),
-      weaponId: cleanWeapon,
-      mode: cleanMode,
-      adsActive: Boolean(adsActive),
-      hiddenForAds: hideForAds,
-      inMeleeRange: Boolean(inMeleeRange),
-      guarding: Boolean(guarding),
-      spreadPx: clampedGap
-    };
+    const st = this._combatCrosshairState;
+    st.active = Boolean(active);
+    st.weaponId = cleanWeapon;
+    st.mode = cleanMode;
+    st.adsActive = Boolean(adsActive);
+    st.hiddenForAds = hideForAds;
+    st.inMeleeRange = Boolean(inMeleeRange);
+    st.guarding = Boolean(guarding);
+    st.spreadPx = clampedGap;
+
     if (typeof document !== 'undefined' && document.body?.classList) {
-      document.body.classList.toggle('combat-active', Boolean(active));
+      if (this._domCache.bodyCombat !== st.active) {
+        this._domCache.bodyCombat = st.active;
+        document.body.classList.toggle('combat-active', st.active);
+        this.domWriteCount++;
+      }
     }
-    if (!this.combatCrosshairEl) return this._combatCrosshairState;
-    this.combatCrosshairEl.classList.toggle('hidden', !active);
-    this.combatCrosshairEl.classList.toggle('ads-hidden', hideForAds);
-    this.combatCrosshairEl.classList.toggle('in-range', Boolean(inMeleeRange && cleanMode === 'melee'));
-    this.combatCrosshairEl.classList.toggle('guarding', Boolean(guarding && cleanMode === 'melee'));
-    for (const cls of [
-      'weapon-fiber_rifle',
-      'weapon-udp_shotgun',
-      'weapon-ping_sniper',
-      'weapon-plasma_solder_pistol',
-      'weapon-melee'
-    ]) {
-      this.combatCrosshairEl.classList.remove(cls);
+    if (!this.combatCrosshairEl) return st;
+
+    this._setCachedHidden(this.combatCrosshairEl, 'chHidden', !st.active);
+    if (this._domCache.chAdsHidden !== hideForAds) {
+      this._domCache.chAdsHidden = hideForAds;
+      this.combatCrosshairEl.classList.toggle('ads-hidden', hideForAds);
+      this.domWriteCount++;
     }
-    if (cleanMode === 'melee') {
-      this.combatCrosshairEl.classList.add('weapon-melee');
-    } else {
-      this.combatCrosshairEl.classList.add(`weapon-${cleanWeapon}`);
+    const inRangeFlag = Boolean(inMeleeRange && cleanMode === 'melee');
+    if (this._domCache.chInRange !== inRangeFlag) {
+      this._domCache.chInRange = inRangeFlag;
+      this.combatCrosshairEl.classList.toggle('in-range', inRangeFlag);
+      this.domWriteCount++;
     }
-    if (this.combatCrosshairEl.style) {
+    const guardFlag = Boolean(guarding && cleanMode === 'melee');
+    if (this._domCache.chGuard !== guardFlag) {
+      this._domCache.chGuard = guardFlag;
+      this.combatCrosshairEl.classList.toggle('guarding', guardFlag);
+      this.domWriteCount++;
+    }
+    const nextWepCls = cleanMode === 'melee' ? 'weapon-melee' : `weapon-${cleanWeapon}`;
+    if (this._domCache.chWepCls !== nextWepCls) {
+      if (this._domCache.chWepCls) {
+        this.combatCrosshairEl.classList.remove(this._domCache.chWepCls);
+      } else {
+        this.combatCrosshairEl.classList.remove(
+          'weapon-fiber_rifle',
+          'weapon-udp_shotgun',
+          'weapon-ping_sniper',
+          'weapon-plasma_solder_pistol',
+          'weapon-melee'
+        );
+      }
+      this.combatCrosshairEl.classList.add(nextWepCls);
+      this._domCache.chWepCls = nextWepCls;
+      this.domWriteCount++;
+    }
+    if (this.combatCrosshairEl.style && this._domCache.chGap !== clampedGap) {
+      this._domCache.chGap = clampedGap;
       if (typeof this.combatCrosshairEl.style.setProperty === 'function') {
         this.combatCrosshairEl.style.setProperty('--ch-gap', `${clampedGap}px`);
       } else {
         this.combatCrosshairEl.style['--ch-gap'] = `${clampedGap}px`;
       }
+      this.domWriteCount++;
     }
-    return this._combatCrosshairState;
+    return st;
   }
 
   updateSniperScope({ active = false, elapsed = 0, targetDistance = null } = {}) {
     if (!this.combatSniperScopeEl) return Boolean(active);
-    this.combatSniperScopeEl.classList.toggle('hidden', !active);
+    this._setCachedHidden(this.combatSniperScopeEl, 'scopeHidden', !active);
     if (!active) return false;
     if (this.combatScopeDistEl) {
       const distNum = Number(targetDistance);
-      this.combatScopeDistEl.textContent =
-        Number.isFinite(distNum) && distNum > 0 ? `${distNum.toFixed(1)} m` : '--.- m';
+      const distStr = Number.isFinite(distNum) && distNum > 0 ? `${distNum.toFixed(1)} m` : '--.- m';
+      this._setCachedText(this.combatScopeDistEl, 'scopeDist', distStr);
     }
     const now = performance.now ? performance.now() : Date.now();
-    if (this.combatScopeWaveCtx && now - this._combatScopeLastDrawMs >= 42) {
+    if (this.combatScopeWaveCtx && now - this._combatScopeLastDrawMs >= 50) {
       this._combatScopeLastDrawMs = now;
       const ctx = this.combatScopeWaveCtx;
       const w = this.combatScopeWaveCanvas?.width || 220;
@@ -2728,14 +2865,15 @@ export class HudManager {
   }
 
   hideCombatHud() {
-    this.combatHudEl?.classList.add('hidden');
-    this.combatCrosshairEl?.classList.add('hidden');
-    this.combatSniperScopeEl?.classList.add('hidden');
+    this._setCachedHidden(this.combatHudEl, 'combatHudHidden', true);
+    this._setCachedHidden(this.combatCrosshairEl, 'chHidden', true);
+    this._setCachedHidden(this.combatSniperScopeEl, 'scopeHidden', true);
     if (typeof document !== 'undefined' && document.body?.classList) {
+      this._domCache.bodyCombat = false;
       document.body.classList.remove('combat-active');
     }
     this.combatHitmarkerEl?.classList.add('hidden');
-    this.combatRespawnBannerEl?.classList.add('hidden');
+    this._setCachedHidden(this.combatRespawnBannerEl, 'cRespHidden', true);
     this.combatDamageFlashEl?.classList.remove('active');
     this.combatScoreboardEl?.classList.add('hidden');
     if (this._combatHitmarkerTimer) {

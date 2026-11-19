@@ -392,7 +392,8 @@ export class LockerPreview3D {
     this.initialized = true;
     try {
       this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      const dprCap = (typeof window !== 'undefined' && window.innerWidth < 768) ? 1.15 : 1.5;
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
       this.renderer.setSize(this.width, this.height, false);
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -404,7 +405,9 @@ export class LockerPreview3D {
       this.camera.lookAt(0, 0.92, 0);
 
       this._pmrem = new THREE.PMREMGenerator(this.renderer);
-      this._envRt = this._pmrem.fromScene(new RoomEnvironment(), 0.04);
+      const roomEnv = new RoomEnvironment();
+      this._envRt = this._pmrem.fromScene(roomEnv, 0.04);
+      roomEnv.dispose();
       this.scene.environment = this._envRt.texture;
       this.scene.environmentIntensity = 0.82;
 
@@ -445,24 +448,26 @@ export class LockerPreview3D {
       this.scene.add(this.stageGroup);
 
       this.canvas.style.touchAction = 'none';
-      this.canvas.addEventListener('pointerdown', (e) => {
+      this._onPointerDown = (e) => {
         this.dragging = true;
         this.lastPointerX = e.clientX;
         this.canvas.setPointerCapture?.(e.pointerId);
-      });
-      this.canvas.addEventListener('pointermove', (e) => {
-        if (!this.dragging) return;
+      };
+      this._onPointerMove = (e) => {
+        if (!this.dragging || !this.active) return;
         const dx = e.clientX - this.lastPointerX;
         this.lastPointerX = e.clientX;
         this.yaw += dx * 0.015;
         this.yawVelocity = dx * 0.045;
-      });
-      const stopDrag = () => {
+      };
+      this._onStopDrag = () => {
         this.dragging = false;
       };
-      this.canvas.addEventListener('pointerup', stopDrag);
-      this.canvas.addEventListener('pointercancel', stopDrag);
-      window.addEventListener('pointerup', stopDrag);
+      this.canvas.addEventListener('pointerdown', this._onPointerDown);
+      this.canvas.addEventListener('pointermove', this._onPointerMove);
+      this.canvas.addEventListener('pointerup', this._onStopDrag);
+      this.canvas.addEventListener('pointercancel', this._onStopDrag);
+      window.addEventListener('pointerup', this._onStopDrag);
     } catch {
       this.renderer = null;
     }
@@ -546,9 +551,14 @@ export class LockerPreview3D {
     }
   }
 
+  isAnimating() {
+    return this.active && this.animId !== null;
+  }
+
   setActive(active) {
     this.active = Boolean(active);
     if (!this.active) {
+      this.dragging = false;
       if (this.animId !== null && typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(this.animId);
         this.animId = null;
@@ -561,6 +571,10 @@ export class LockerPreview3D {
     const tick = (now) => {
       if (!this.active) {
         this.animId = null;
+        return;
+      }
+      if (typeof document !== 'undefined' && document.hidden) {
+        this.animId = requestAnimationFrame(tick);
         return;
       }
       const dt = Math.min(0.05, Math.max(0.004, (now - lastMs) / 1000));
@@ -587,10 +601,19 @@ export class LockerPreview3D {
 
   dispose() {
     this.setActive(false);
+    if (this._onPointerDown) this.canvas?.removeEventListener?.('pointerdown', this._onPointerDown);
+    if (this._onPointerMove) this.canvas?.removeEventListener?.('pointermove', this._onPointerMove);
+    if (this._onStopDrag) {
+      this.canvas?.removeEventListener?.('pointerup', this._onStopDrag);
+      this.canvas?.removeEventListener?.('pointercancel', this._onStopDrag);
+      window.removeEventListener('pointerup', this._onStopDrag);
+    }
     this._clearStage();
     this._envRt?.dispose?.();
     this._pmrem?.dispose?.();
     this.renderer?.dispose?.();
+    this.renderer = null;
+    this.initialized = false;
   }
 }
 
@@ -712,10 +735,10 @@ export class LockerModal {
   }
 
   close() {
+    this.preview?.setActive(false);
     if (!this.backdropEl || this.backdropEl.classList.contains('hidden')) return false;
     this.busy = false;
     this.backdropEl.classList.add('hidden');
-    this.preview?.setActive(false);
     this.onClose?.();
     return true;
   }
