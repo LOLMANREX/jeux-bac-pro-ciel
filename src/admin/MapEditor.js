@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildLabWorld } from '../world/LabBuilder.js';
+import { MODEL_ACCEPT, buildModelEntryFromFiles } from '../world/ModelImporter.js';
 import {
   CAMPUS_SIZE_PRESETS,
   DEFAULT_CAMPUS_SIZE,
@@ -7,6 +8,8 @@ import {
   MAP_ITEM_CATEGORIES,
   MAP_ITEM_CATALOG,
   MAX_FLOOR,
+  MAX_IMPORTED_MODELS,
+  MAX_MODELS_TOTAL_CHARS,
   MAX_MAP_SIZE,
   MIN_FLOOR,
   WALL_MOUNT_SNAP_RADIUS,
@@ -23,8 +26,11 @@ import {
   formatFloorShortLabel,
   getCatalogItem,
   getFloorBaseY,
+  getFloorContentCount,
+  getFloorEntityRefs,
   getZonePolygonPoints,
   isPointInPolygon,
+  moveFloorContents,
   normalizeMapData
 } from '../world/mapSchema.js';
 
@@ -36,6 +42,12 @@ export function isBoxInViewport2D(minX, maxX, minZ, maxZ, viewMinX, viewMaxX, vi
 }
 
 function cloneMap(data) {
+  if (data && Array.isArray(data.models)) {
+    const { models, ...rest } = data;
+    const copy = JSON.parse(JSON.stringify(rest));
+    copy.models = models;
+    return copy;
+  }
   return JSON.parse(JSON.stringify(data));
 }
 
@@ -88,6 +100,7 @@ export class MapEditor {
     this.activeCategory = 'arch';
     this.toolMode = 'select';
     this.activeCatalogType = null;
+    this.activeModelId = null;
     this.snap = 0.5;
     this.selected = null;
     this.multiSelected = [];
@@ -247,6 +260,11 @@ export class MapEditor {
           </label>
           <button type="button" id="me-btn-onion" class="me-btn active" title="Calque Fantôme (Onion Skinning) pour aligner murs et escaliers">👻 Fantôme : Dessous</button>
           <button type="button" id="me-btn-dup-floor" class="me-btn" title="Copier les murs porteurs et zones vers l'étage supérieur">📋 Dupliquer structure → +1</button>
+          <span class="me-floor-bar-label">Étage entier :</span>
+          <button type="button" id="me-btn-sel-floor" class="me-btn" title="Sélectionner tout le contenu de l'étage actif (murs, zones, objets) puis glisser pour le déplacer en bloc">🎯 Sélectionner l'étage</button>
+          <select id="me-floor-move-target" class="me-select me-select-compact" title="Étage de destination"></select>
+          <button type="button" id="me-btn-move-floor" class="me-btn" title="Déplacer tout le contenu de l'étage actif vers l'étage de destination (fusion si la destination contient déjà des éléments)">➡️ Déplacer l'étage</button>
+          <button type="button" id="me-btn-swap-floor" class="me-btn" title="Échanger le contenu de l'étage actif avec celui de l'étage de destination">🔁 Échanger</button>
           <select id="me-3d-floor-mode" class="me-select me-select-compact" title="Filtre d'affichage des étages dans l'aperçu 3D">
             <option value="upTo" selected>3D : Jusqu'à l'étage</option>
             <option value="only">3D : Étage actif seul</option>
@@ -357,6 +375,10 @@ export class MapEditor {
       chkFullSlab: this.container.querySelector('#me-chk-full-slab'),
       btnOnion: this.container.querySelector('#me-btn-onion'),
       btnDupFloor: this.container.querySelector('#me-btn-dup-floor'),
+      btnSelFloor: this.container.querySelector('#me-btn-sel-floor'),
+      floorMoveTarget: this.container.querySelector('#me-floor-move-target'),
+      btnMoveFloor: this.container.querySelector('#me-btn-move-floor'),
+      btnSwapFloor: this.container.querySelector('#me-btn-swap-floor'),
       mode3dFloor: this.container.querySelector('#me-3d-floor-mode'),
       bookmarkPills: this.container.querySelector('#me-bookmark-pills'),
       bmNameInput: this.container.querySelector('#me-bm-name'),
@@ -516,6 +538,9 @@ export class MapEditor {
 
     this.els.btnOnion.addEventListener('click', () => this._cycleOnionSkin());
     this.els.btnDupFloor.addEventListener('click', () => this._duplicateActiveFloor());
+    this.els.btnSelFloor.addEventListener('click', () => this._selectActiveFloorContents());
+    this.els.btnMoveFloor.addEventListener('click', () => this._moveActiveFloor('move'));
+    this.els.btnSwapFloor.addEventListener('click', () => this._moveActiveFloor('swap'));
     this.els.mode3dFloor.addEventListener('change', () => {
       this.floor3dMode = this.els.mode3dFloor.value || 'upTo';
       this._apply3DFloorCutoff();
@@ -1014,6 +1039,7 @@ export class MapEditor {
       if (!btn) return;
       this._setActiveFloor(Number(btn.dataset.floor));
     };
+    this._renderFloorMoveTargets();
     const activeMeta = floors.find((f) => f.index === this.activeFloor);
     if (this.els.chkFullSlab) {
       this.els.chkFullSlab.checked = activeMeta ? activeMeta.hasFullSlab !== false : true;
@@ -1028,6 +1054,198 @@ export class MapEditor {
       this.els.btnOnion.textContent = labels[this.onionSkinMode] || labels.below;
       this.els.btnOnion.classList.toggle('active', this.onionSkinMode !== 'off');
     }
+  }
+
+  _renderFloorMoveTargets() {
+    const sel = this.els.floorMoveTarget;
+    if (!sel) return;
+    const prev = Number(sel.value);
+    const fallback = this.activeFloor < MAX_FLOOR ? this.activeFloor + 1 : this.activeFloor - 1;
+    let html = '';
+    const candidates = [];
+    for (let fl = MIN_FLOOR; fl <= MAX_FLOOR; fl++) {
+      if (fl !== this.activeFloor) candidates.push(fl);
+    }
+    const wanted = candidates.includes(prev) && sel.dataset.touched === '1' ? prev : fallback;
+    for (const fl of candidates) {
+      const count = getFloorContentCount(this.mapData, fl);
+      html += `<option value="${fl}" ${fl === wanted ? 'selected' : ''}>→ ${escapeHtml(formatFloorShortLabel(fl))}${count > 0 ? ` (${count})` : ''}</option>`;
+    }
+    sel.innerHTML = html;
+    sel.onchange = () => {
+      sel.dataset.touched = '1';
+    };
+  }
+
+  _selectActiveFloorContents() {
+    const refs = getFloorEntityRefs(this.mapData, this.activeFloor);
+    if (refs.length === 0) {
+      this.showToast(`${formatFloorShortLabel(this.activeFloor)} est vide`, 'info');
+      return;
+    }
+    this.setTool('select', null);
+    if (refs.length === 1) {
+      this.selected = refs[0];
+      this.multiSelected = [];
+    } else {
+      this.selected = null;
+      this.multiSelected = refs;
+    }
+    this._renderInspector();
+    this.draw2D();
+    this.showToast(`🎯 ${refs.length} élément(s) de ${formatFloorShortLabel(this.activeFloor)} sélectionné(s) — glissez-en un pour tout déplacer`, 'info');
+  }
+
+  _moveActiveFloor(mode) {
+    const src = this.activeFloor;
+    const dst = clampFloor(Number(this.els.floorMoveTarget?.value));
+    if (dst === src) {
+      this.showToast('Choisissez un étage de destination différent', 'info');
+      return;
+    }
+    const srcCount = getFloorContentCount(this.mapData, src);
+    const dstCount = getFloorContentCount(this.mapData, dst);
+    if (srcCount === 0 && !(mode === 'swap' && dstCount > 0)) {
+      this.showToast(`${formatFloorShortLabel(src)} est vide, rien à déplacer`, 'info');
+      return;
+    }
+    const btn = mode === 'swap' ? this.els.btnSwapFloor : this.els.btnMoveFloor;
+    const resetLabel = mode === 'swap' ? '🔁 Échanger' : "➡️ Déplacer l'étage";
+    const key = `floor-${mode}-${src}-${dst}`;
+    if (mode === 'move' && dstCount > 0 && this._pendingConfirm !== key) {
+      this._armConfirm(key, btn, `⚠️ ${formatFloorShortLabel(dst)} contient ${dstCount} élément(s) : fusionner ? (re-cliquer)`, resetLabel);
+      return;
+    }
+    this._pendingConfirm = null;
+    btn.textContent = resetLabel;
+    this._pushUndo();
+    const res = moveFloorContents(this.mapData, src, dst, mode);
+    this.mapData = res.mapData;
+    this._ensureFloorExists(dst);
+    this._markDirty();
+    this.selected = null;
+    this.multiSelected = [];
+    if (mode === 'move') {
+      this._setActiveFloor(dst);
+    } else {
+      this._renderFloorBar();
+      this._renderInspector();
+      this.draw2D();
+    }
+    this._schedule3DRebuild(true);
+    this.showToast(
+      mode === 'swap'
+        ? `🔁 ${formatFloorShortLabel(src)} ⇄ ${formatFloorShortLabel(dst)} échangés (${res.moved} élément(s))`
+        : `➡️ ${res.moved} élément(s) déplacé(s) de ${formatFloorShortLabel(src)} vers ${formatFloorShortLabel(dst)}`,
+      'success'
+    );
+  }
+
+  async _importModelFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    if ((this.mapData.models || []).length >= MAX_IMPORTED_MODELS) {
+      this.showToast(`Maximum ${MAX_IMPORTED_MODELS} modèles importés par carte`, 'error');
+      return;
+    }
+    this.showToast('Import du modèle 3D en cours...', 'info');
+    try {
+      const entry = await buildModelEntryFromFiles(files);
+      const used = (this.mapData.models || []).reduce(
+        (acc, m) => acc + Object.values(m.files || {}).reduce((a, d) => a + d.length, 0),
+        0
+      );
+      const added = Object.values(entry.files).reduce((a, d) => a + d.length, 0);
+      if (used + added > MAX_MODELS_TOTAL_CHARS) {
+        this.showToast('Volume total de modèles importés trop élevé pour cette carte', 'error');
+        return;
+      }
+      this._pushUndo();
+      this.mapData.models = [...(this.mapData.models || []), entry];
+      this._markDirty();
+      this.activeCategory = 'models';
+      this.activeModelId = entry.id;
+      this._renderCatalog();
+      this.setTool('place', 'custom_model');
+      this.showToast(`🧊 « ${entry.name} » importé — cliquez sur la carte pour le placer sur ${formatFloorShortLabel(this.activeFloor)}`, 'success');
+    } catch (err) {
+      this.showToast(`Import impossible : ${err?.message || err}`, 'error');
+    }
+  }
+
+  _deleteImportedModel(modelId, btn) {
+    const key = `del-model-${modelId}`;
+    if (this._pendingConfirm !== key) {
+      this._armConfirm(key, btn, '⚠️ Confirmer ?', '🗑️');
+      return;
+    }
+    this._pendingConfirm = null;
+    this._pushUndo();
+    this.mapData.models = (this.mapData.models || []).filter((m) => m.id !== modelId);
+    this.mapData.objects = this.mapData.objects.filter((o) => o.modelId !== modelId);
+    if (this.activeModelId === modelId) {
+      this.activeModelId = null;
+      this.setTool('select', null);
+    }
+    this.selected = null;
+    this.multiSelected = [];
+    this._markDirty();
+    this._renderCatalog();
+    this._renderInspector();
+    this.draw2D();
+    this._schedule3DRebuild(true);
+  }
+
+  _renderModelsPanel() {
+    const models = this.mapData.models || [];
+    let html = `
+      <div class="me-cat-subgroup">Importer</div>
+      <label class="me-btn me-file-btn" style="display:block;text-align:center;margin-bottom:6px;" title="Importer un modèle 3D depuis votre ordinateur">
+        📥 Importer un modèle 3D
+        <input type="file" id="me-model-file" accept="${MODEL_ACCEPT}" multiple class="hidden" />
+      </label>
+      <div class="me-shortcuts-box">
+        Formats : <strong>.glb .gltf .obj .fbx .json</strong>.<br />
+        Sélectionnez en même temps les fichiers associés (.mtl, .bin, textures .png/.jpg) pour conserver matériaux et textures.
+      </div>
+      <div class="me-cat-subgroup">Modèles de la carte (${models.length})</div>`;
+    if (models.length === 0) {
+      html += '<div class="me-insp-empty"><p>Aucun modèle importé pour le moment.</p></div>';
+    }
+    for (const m of models) {
+      const isActive = this.toolMode === 'place' && this.activeCatalogType === 'custom_model' && this.activeModelId === m.id;
+      html += `
+        <div style="display:flex;gap:6px;margin-bottom:6px;">
+          <button type="button" class="me-cat-item ${isActive ? 'active' : ''}" data-type="custom_model" data-model-id="${escapeHtml(m.id)}" style="flex:1;" title="Placer ${escapeHtml(m.name)} sur ${escapeHtml(formatFloorShortLabel(this.activeFloor))}">
+            <span class="me-cat-icon">🧊</span>
+            <span class="me-cat-name">${escapeHtml(m.name)} (.${escapeHtml(m.format)})</span>
+          </button>
+          <button type="button" class="me-btn me-btn-danger" data-del-model="${escapeHtml(m.id)}" title="Supprimer ce modèle et ses instances">🗑️</button>
+        </div>`;
+    }
+    this.els.catalogList.innerHTML = html;
+    this.els.catalogList.querySelector('#me-model-file').onchange = (e) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      this._importModelFiles(files);
+    };
+    this.els.catalogList.onclick = (e) => {
+      const del = e.target.closest('button[data-del-model]');
+      if (del) {
+        this._deleteImportedModel(del.dataset.delModel, del);
+        return;
+      }
+      const btn = e.target.closest('button[data-model-id]');
+      if (!btn) return;
+      const id = btn.dataset.modelId;
+      if (this.toolMode === 'place' && this.activeCatalogType === 'custom_model' && this.activeModelId === id) {
+        this.setTool('select', null);
+      } else {
+        this.activeModelId = id;
+        this.setTool('place', 'custom_model');
+      }
+      this._renderCatalog();
+    };
   }
 
   _setActiveFloor(fl) {
@@ -1181,7 +1399,12 @@ export class MapEditor {
     this.els.toolRoom?.classList.toggle('active', isRoomTool);
     this.els.roomOptsWrap?.classList.toggle('hidden', !isRoomTool);
     for (const card of this.els.catalogList.querySelectorAll('.me-cat-item')) {
-      card.classList.toggle('active', mode === 'place' && card.dataset.type === catalogType);
+      card.classList.toggle(
+        'active',
+        mode === 'place' &&
+          card.dataset.type === catalogType &&
+          (!card.dataset.modelId || card.dataset.modelId === this.activeModelId)
+      );
     }
     if (mode === 'place' && catalogType) {
       const cat = getCatalogItem(catalogType);
@@ -1220,6 +1443,11 @@ export class MapEditor {
       this.activeCategory = btn.dataset.cat;
       this._renderCatalog();
     };
+
+    if (this.activeCategory === 'models') {
+      this._renderModelsPanel();
+      return;
+    }
 
     const items = MAP_ITEM_CATALOG.filter((item) => item.category === this.activeCategory);
     const groups = new Map();
@@ -2287,6 +2515,13 @@ export class MapEditor {
   _placeObjectAt(type, x, z, rotation = 0) {
     const cat = getCatalogItem(type);
     if (!cat) return;
+    const modelEntry = cat.isCustomModel
+      ? (this.mapData.models || []).find((m) => m.id === this.activeModelId)
+      : null;
+    if (cat.isCustomModel && !modelEntry) {
+      this.showToast('Choisissez d’abord un modèle dans l’onglet Modèles 3D', 'info');
+      return;
+    }
     this._pushUndo();
 
     if (type === 'spawn_point') {
@@ -2327,6 +2562,17 @@ export class MapEditor {
         label: cat.shortLabel,
         dialogue: ''
       };
+      if (cat.isCustomModel) {
+        const nat = modelEntry.size || [1, 1, 1];
+        const maxDim = Math.max(nat[0], nat[1], nat[2]);
+        const s0 = maxDim > 10 || maxDim < 0.2 ? 2 / maxDim : 1;
+        obj.modelId = modelEntry.id;
+        obj.w = Number(Math.max(0.2, nat[0] * s0).toFixed(3));
+        obj.d = Number(Math.max(0.2, nat[2] * s0).toFixed(3));
+        obj.scaleY = Number((s0).toFixed(4));
+        obj.elevation = 0;
+        obj.label = String(modelEntry.name).slice(0, 48);
+      }
       if (cat.isStair) {
         const targetFl = this.activeFloor < MAX_FLOOR ? this.activeFloor + 1 : this.activeFloor - 1;
         obj.targetFloor = targetFl;
@@ -2757,6 +3003,9 @@ export class MapEditor {
       const isSurvivalDoor = ent.type === 'survival_door';
       const isHidingRack = ent.type === 'hiding_rack';
       const isStair = Boolean(cat?.isStair);
+      const isModel = Boolean(cat?.isCustomModel);
+      const modelEntry = isModel ? (this.mapData.models || []).find((m) => m.id === ent.modelId) : null;
+      const modelNat = modelEntry?.size || [1, 1, 1];
       const b = this.mapData.bounds;
       const maxDim = Math.max(120, b.width, b.depth);
       const objFloor = clampFloor(ent.floor ?? 0);
@@ -2802,6 +3051,17 @@ export class MapEditor {
             </label>
           </div>
           <label class="me-check-pill"><input type="checkbox" id="me-st-rail" ${ent.hasRailings !== false ? 'checked' : ''} /> Rampes & garde-corps latéraux</label>`
+            : ''
+        }
+        ${
+          isModel
+            ? `<div class="me-shortcuts-box">🧊 <strong>${escapeHtml(modelEntry?.name || 'Modèle introuvable')}</strong>${modelEntry ? ` (.${escapeHtml(modelEntry.format)})` : ' : supprimé de la carte'}</div>
+        <label class="me-field"><span>Étage</span><select id="me-cm-floor" class="me-select">${this._floorOptionsHtml(objFloor)}</select></label>
+        <div class="me-grid-2">
+          <label class="me-field"><span>Échelle (%)</span><input type="number" step="5" min="1" max="100000" id="me-cm-scale" class="me-input" value="${Math.round((ent.w / Math.max(0.001, modelNat[0])) * 100)}" /></label>
+          <label class="me-field"><span>Hauteur (×)</span><input type="number" step="0.1" min="0.001" id="me-cm-sy" class="me-input" value="${ent.scaleY ?? 1}" /></label>
+          <label class="me-field"><span>Élévation (m)</span><input type="number" step="0.1" id="me-cm-elev" class="me-input" value="${ent.elevation ?? 0}" /></label>
+        </div>`
             : ''
         }
         <div class="me-grid-2">
@@ -2918,6 +3178,48 @@ export class MapEditor {
       bindNum('#me-f-z', 'z', b.minZ, b.maxZ);
       bindNum('#me-f-w', 'w', 0.2, maxDim);
       bindNum('#me-f-d', 'd', 0.2, maxDim);
+
+      if (isModel) {
+        const applyModel = (fn, full = false) => {
+          this._pushUndo();
+          fn();
+          this._markDirty();
+          if (full) this._renderInspector();
+          this.draw2D();
+          this._schedule3DRebuild(true);
+        };
+        this.els.inspBody.querySelector('#me-cm-scale').onchange = (e) => {
+          const pct = Math.max(1, Number(e.target.value) || 100);
+          applyModel(() => {
+            const k = pct / 100;
+            ent.w = Number(Math.max(0.2, modelNat[0] * k).toFixed(3));
+            ent.d = Number(Math.max(0.2, modelNat[2] * k).toFixed(3));
+            ent.scaleY = Number(k.toFixed(4));
+          }, true);
+        };
+        this.els.inspBody.querySelector('#me-cm-sy').onchange = (e) => {
+          applyModel(() => {
+            ent.scaleY = Math.max(0.001, Number(e.target.value) || 1);
+          });
+        };
+        this.els.inspBody.querySelector('#me-cm-elev').onchange = (e) => {
+          applyModel(() => {
+            ent.elevation = Math.max(-50, Math.min(500, Number(e.target.value) || 0));
+          });
+        };
+        this.els.inspBody.querySelector('#me-cm-floor').onchange = (e) => {
+          const nextFl = clampFloor(Number(e.target.value));
+          this._pushUndo();
+          ent.floor = nextFl;
+          this._markDirty();
+          const ref = { kind: 'object', id: ent.id };
+          this._setActiveFloor(nextFl);
+          this.selected = ref;
+          this._renderInspector();
+          this.draw2D();
+          this._schedule3DRebuild(true);
+        };
+      }
 
       const rotRange = this.els.inspBody.querySelector('#me-f-rot');
       const rotLabel = this.els.inspBody.querySelector('#me-f-rot-val');

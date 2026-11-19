@@ -28,7 +28,7 @@ import {
 test('Catalogue éditeur de carte contient les 4 catégories et tous les équipements CIEL requis', () => {
   assert.deepEqual(
     MAP_ITEM_CATEGORIES.map((c) => c.id),
-    ['arch', 'stations', 'furniture', 'tech']
+    ['arch', 'stations', 'furniture', 'tech', 'models']
   );
 
   const requiredTypes = [

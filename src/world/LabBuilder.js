@@ -3,6 +3,7 @@ import { TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
 import { CielOsDesktop } from '../minigames/CielOsDesktop.js';
 import { createNpcTeacher } from './NpcTeacher.js';
 import { createRealisticMaterialPack } from './RealisticMaterials.js';
+import { attachImportedModel } from './ModelImporter.js';
 import { SpatialCullingEngine, SpatialHash } from './SpatialCulling.js';
 import { computeRackExitPosition, computeRackInteriorPosition } from './SurvivalEngine.js';
 import {
@@ -2063,6 +2064,15 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
       if (obj.type === 'survival_door' || obj.type === 'combat_door') {
         buildSpecialModeDoor(obj, w, d, rotRad, cat, objBaseY, objFloor);
+        continue;
+      }
+
+      if (cat.isCustomModel) {
+        const modelGrp = new THREE.Group();
+        modelGrp.position.set(obj.x, objBaseY + (Number(obj.elevation) || 0), obj.z);
+        modelGrp.rotation.y = rotRad;
+        spatialCulling.addNode(modelGrp, obj.x, obj.z, objFloor, 'detail');
+        attachImportedModel(modelGrp, mapData.models, obj);
         continue;
       }
 

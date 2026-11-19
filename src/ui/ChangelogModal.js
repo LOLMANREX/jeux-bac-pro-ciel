@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : "v4.33 - Map Campus Immense jusqu'à 2000m × 2000m, Éditeur Virtualisé & Chunks Sparse";
+    : "v4.34 - Éditeur : Déplacement d'Étages Entiers & Import de Modèles 3D";
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.33 — Map Campus Immense jusqu’à 2000m × 2000m, Éditeur Virtualisé & Chunks Dynamiques Sparse',
+    version: 'v4.34 — Éditeur : Déplacement d’Étages Entiers & Import de Modèles 3D',
     date: '19/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'ÉTAGES ENTIERS',
+        title: 'Sélection, Déplacement, Fusion et Échange d’Étages Complets',
+        desc: 'Nouvelle barre « Étage entier » : sélection de tout le contenu de l’étage actif en un clic, déplacement du RDC (ou de tout autre niveau) vers n’importe quel étage de -2 à +8 avec positions relatives conservées, fusion confirmée si la destination est occupée, échange de deux étages sans perte, et prise en charge des murs, zones, objets, décors, trémies et escaliers sans toucher aux autres niveaux (annulable via Ctrl+Z).'
+      },
+      {
+        badge: 'MODÈLES 3D',
+        title: 'Import .glb, .gltf, .obj, .fbx et .json avec Textures & Matériaux',
+        desc: 'Nouvel onglet « Modèles 3D importés » dans l’éditeur : import depuis l’ordinateur (avec .mtl, .bin et textures associés), aperçu direct dans la vue 3D, placement libre sur l’étage de votre choix, déplacement, rotation, échelle, hauteur et élévation réglables, et sauvegarde des modèles dans la carte avec rechargement automatique.'
+      }
+    ]
+  },
+  {
+    version: 'v4.33 — Map Campus Immense jusqu’à 2000m × 2000m, Éditeur Virtualisé & Chunks Dynamiques Sparse',
+    date: '19/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'CAMPUS 1000M — 2000M',

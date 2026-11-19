@@ -51,8 +51,14 @@ export const MAP_ITEM_CATEGORIES = [
   { id: 'arch', label: 'A. Architecture & Salles' },
   { id: 'stations', label: 'B. Bornes TP & PNJ' },
   { id: 'furniture', label: 'C. Mobilier Scolaire' },
-  { id: 'tech', label: 'D. Matériel CIEL & Déco' }
+  { id: 'tech', label: 'D. Matériel CIEL & Déco' },
+  { id: 'models', label: 'E. Modèles 3D importés' }
 ];
+
+export const MODEL_MAIN_FORMATS = ['glb', 'gltf', 'obj', 'fbx', 'json'];
+export const MODEL_RESOURCE_FORMATS = ['mtl', 'bin', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tga'];
+export const MAX_IMPORTED_MODELS = 64;
+export const MAX_MODELS_TOTAL_CHARS = 36000000;
 
 export const MAP_ITEM_CATALOG = [
   {
@@ -997,6 +1003,21 @@ export const MAP_ITEM_CATALOG = [
   }
 ];
 
+MAP_ITEM_CATALOG.push({
+  type: 'custom_model',
+  category: 'models',
+  subGroup: 'Modèles importés',
+  label: 'Modèle 3D importé',
+  shortLabel: 'Modèle 3D',
+  icon: '🧊',
+  defaultW: 1,
+  defaultD: 1,
+  defaultH: 1,
+  defaultColor: '#a78bfa',
+  collides: false,
+  isCustomModel: true
+});
+
 export const CATALOG_BY_TYPE = new Map(MAP_ITEM_CATALOG.map((item) => [item.type, item]));
 
 export function getCatalogItem(type) {
@@ -1705,6 +1726,39 @@ export function normalizeMapData(raw) {
     });
   }
 
+  const models = [];
+  const modelIdSet = new Set();
+  let modelChars = 0;
+  const rawModels = Array.isArray(src.models) ? src.models : [];
+  for (let i = 0; i < rawModels.length && models.length < MAX_IMPORTED_MODELS; i++) {
+    const m = rawModels[i];
+    if (!m || typeof m !== 'object' || !m.files || typeof m.files !== 'object') continue;
+    const id = cleanText(m.id, 36, `model-${i + 1}`);
+    if (modelIdSet.has(id)) continue;
+    const files = {};
+    let chars = 0;
+    for (const [fname, data] of Object.entries(m.files)) {
+      if (typeof data !== 'string' || !data.startsWith('data:')) continue;
+      files[cleanText(fname, 120, 'file')] = data;
+      chars += data.length;
+    }
+    const main = cleanText(m.main, 120, '');
+    if (!files[main] || modelChars + chars > MAX_MODELS_TOTAL_CHARS) continue;
+    const format = String(main.split('.').pop() || '').toLowerCase();
+    if (!MODEL_MAIN_FORMATS.includes(format)) continue;
+    const rawSize = Array.isArray(m.size) ? m.size : [1, 1, 1];
+    modelChars += chars;
+    modelIdSet.add(id);
+    models.push({
+      id,
+      name: cleanText(m.name, 64, main),
+      format,
+      main,
+      files,
+      size: [0, 1, 2].map((k) => Number(clampNum(rawSize[k], 0.001, 100000, 1).toFixed(4)))
+    });
+  }
+
   const objects = [];
   let spawnFromObjects = null;
   const maxObjW = Math.max(120, width);
@@ -1741,6 +1795,11 @@ export function normalizeMapData(raw) {
       normObj.hasRailings = o.hasRailings !== false;
       normObj.turnDir = Number(o.turnDir) === -1 ? -1 : 1;
       normObj.autoOpening = o.autoOpening !== false;
+    }
+    if (cat.isCustomModel) {
+      normObj.modelId = cleanText(o.modelId, 36, '');
+      normObj.scaleY = Number(clampNum(o.scaleY, 0.001, 10000, 1).toFixed(4));
+      normObj.elevation = Number(clampNum(o.elevation, -50, 500, 0).toFixed(3));
     }
     if (cat.type === 'spawn_point') {
       spawnFromObjects = normObj;
@@ -1855,6 +1914,9 @@ export function normalizeMapData(raw) {
   }
   if (bookmarks.length > 0) {
     out.bookmarks = bookmarks;
+  }
+  if (models.length > 0) {
+    out.models = models;
   }
   return out;
 }
@@ -3242,4 +3304,88 @@ export function getStationTeleportInMap(mapData, targetId) {
     lookAt: { x: targetObj.x, y: baseY + 1.2, z: targetObj.z },
     label: targetObj.label || targetId
   };
+}
+
+export function getFloorContentCount(mapData, floor) {
+  const fl = clampFloor(floor);
+  const on = (e) => clampFloor(e?.floor ?? 0) === fl;
+  return (
+    (mapData?.walls || []).filter(on).length +
+    (mapData?.zones || []).filter(on).length +
+    (mapData?.objects || []).filter(on).length +
+    (mapData?.openings || []).filter(on).length
+  );
+}
+
+export function getFloorEntityRefs(mapData, floor) {
+  const fl = clampFloor(floor);
+  const on = (e) => clampFloor(e?.floor ?? 0) === fl;
+  return [
+    ...(mapData?.walls || []).filter(on).map((e) => ({ kind: 'wall', id: e.id })),
+    ...(mapData?.zones || []).filter(on).map((e) => ({ kind: 'zone', id: e.id })),
+    ...(mapData?.objects || []).filter(on).map((e) => ({ kind: 'object', id: e.id }))
+  ];
+}
+
+export function moveFloorContents(mapData, sourceFloor, targetFloor, mode = 'move') {
+  const srcFl = clampFloor(sourceFloor);
+  const dstFl = clampFloor(targetFloor);
+  if (srcFl === dstFl) return { mapData, moved: 0 };
+  const swap = mode === 'swap';
+  const srcCount = getFloorContentCount(mapData, srcFl);
+  const dstCount = getFloorContentCount(mapData, dstFl);
+  if (srcCount === 0 && !(swap && dstCount > 0)) return { mapData, moved: 0 };
+
+  const { models, ...rest } = mapData;
+  const clone = JSON.parse(JSON.stringify(rest));
+  if (models) clone.models = models;
+
+  const remap = (list, isObjects) => {
+    let moved = 0;
+    for (const item of list || []) {
+      const cur = clampFloor(item.floor ?? 0);
+      let next = cur;
+      if (cur === srcFl) next = dstFl;
+      else if (swap && cur === dstFl) next = srcFl;
+      if (next === cur) continue;
+      item.floor = next;
+      moved++;
+      if (isObjects && item.targetFloor !== undefined) {
+        item.targetFloor = clampFloor(Number(item.targetFloor) + (next - cur));
+      }
+    }
+    return moved;
+  };
+
+  const moved =
+    remap(clone.walls, false) +
+    remap(clone.zones, false) +
+    remap(clone.objects, true) +
+    remap(clone.openings, false);
+
+  const floors = Array.isArray(clone.floors) ? clone.floors : [];
+  const metaOf = (idx) => {
+    let m = floors.find((f) => clampFloor(typeof f === 'object' ? f.index : f) === idx);
+    if (!m || typeof m !== 'object') {
+      m = { index: idx, label: formatFloorLabel(idx), hasFullSlab: true, hasCeiling: true };
+      floors.push(m);
+    }
+    return m;
+  };
+  const srcMeta = metaOf(srcFl);
+  const dstMeta = metaOf(dstFl);
+  if (swap) {
+    const keys = ['hasFullSlab', 'hasCeiling'];
+    for (const k of keys) {
+      const tmp = srcMeta[k];
+      srcMeta[k] = dstMeta[k];
+      dstMeta[k] = tmp;
+    }
+  } else if (dstCount === 0) {
+    dstMeta.hasFullSlab = srcMeta.hasFullSlab;
+    dstMeta.hasCeiling = srcMeta.hasCeiling;
+  }
+  clone.floors = floors;
+
+  return { mapData: normalizeMapData(clone), moved };
 }
