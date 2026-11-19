@@ -186,6 +186,7 @@ player.setTouchSensitivity(gameState.touchSens);
 player.setCameraMode(gameState.cameraMode);
 player.setTouchMode(gameState.touchMode);
 
+let joined = false;
 let localAvatar = null;
 let localPet = null;
 let localPetId = null;
@@ -890,7 +891,6 @@ document.getElementById('menu-version-badge')?.addEventListener('click', () => {
   changelogModal?.open?.();
 });
 
-let joined = false;
 let modalOpen = false;
 let subModalActive = false;
 let nearestTarget = null;
