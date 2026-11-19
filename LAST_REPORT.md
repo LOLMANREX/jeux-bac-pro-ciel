@@ -1,64 +1,72 @@
-# Rapport Technique — v4.28 : Baies de Brassage Perforées Immersives & Mini-Jeu Arène de Combat CIEL (Modes Fusils & Mêlée)
+# Rapport Technique — Atelier CIEL 3D v4.29
 
-## 1. Immersion Totale à l’Intérieur des Baies de Brassage (`hiding_rack`)
-- **Modélisation 3D Intérieure & Porte Perforée Transparente (`src/world/LabBuilder.js`)** :
-  - Génération de `makePerforatedRackDoorTexture()` avec véritables fentes d’aération et perforations carrées transparentes (`destination-out`) combinée à un matériau `transparent: true`, `alphaTest: 0.45`, `side: THREE.DoubleSide`, `castShadow: false` et `userData.isPerforatedDoor = true`.
-  - Intérieur 3D complet de chaque baie : parois métalliques sombres, rails de rack, fond et 8 LEDs internes (`interiorLeds`) clignotant discrètement via `lab.update()`.
-- **Positionnement Caméra, Rotation Limitée & Visibilité (`src/world/SurvivalEngine.js`, `src/world/PlayerController.js`, `src/main.js`)** :
-  - Ajout de `computeRackInteriorPosition(rack)` (`y = 1.52`, regard orienté vers l’extérieur à travers la porte perforée).
-  - Ajout de `PlayerController.setHidingInRack(active, pose)` et `_clampHidingAngles()` : verrouillage des déplacements ZQSD/joystick, masquage de l’avatar local dans la baie, et rotation limitée de la tête/caméra à **±45° horizontal** (`±Math.PI / 4`) et **±20° vertical** (souris, flèches directionnelles et glisser tactile).
-  - Remplacement du voile noir opaque par un léger vignettage périphérique (`radial-gradient` avec `pointer-events: none` dans `src/styles/main.css` et classe `.threat-near` à l’approche du Professeur CIEL) tout en conservant `style.display` et `opacity` dans `HudManager.js`.
-- **Audio & WebXR (`src/core/audio.js`, `src/vr/VRManager.js`, `src/vr/VRHudPanel.js`)** :
-  - Ajout de `startRackServerHum()` / `stopRackServerHum()` pour l’ambiance ventilation serveur + battement de cœur à l’approche du Professeur CIEL.
-  - En VR (`VRManager.enterHidingRackVr`, `exitHidingRackVr`), verrouillage de la locomotion, rotation simulée bornée ±45°/±20°, libre mouvement naturel 6DoF en casque WebXR, et panneau `survival_hidden` sans cadre opaque (`frame.visible = false`, tiers supérieur transparent).
-- **Sortie Anti-Blocage v4.23 Strictement Préservée** :
-  - `computeRackExitPosition` conserve le repositionnement à `1.15 m` devant la porte, sans collision, sans `NaN` ni écran noir sur PC, Mobile et VR.
+**Version :** `v4.29 - Correctif Désactivation Bots, Réticules Dynamiques, Visée ADS & Refonte 3D des 8 Armes CIEL`  
+**Date :** 19/11/2026  
 
-## 2. Porte 3D Dédiée, Lobby Cyber & Arène de Combat CIEL (`src/world/CombatArena3D.js`, `src/world/LabBuilder.js`, `src/world/mapSchema.js`)
-- **Porte 3D Dédiée (`combat_door`)** :
-  - Ajout dans `MAP_ITEM_CATALOG`, `createDefaultMap()` (`obj-combat-door` à `x: -1.3, z: -1.85`) et `LabBuilder.buildSpecialModeDoor()` avec enseigne lumineuse **"⚔️ ARÈNE DE COMBAT CIEL"** et repli automatique si absente de la carte, sans aucune modification de `server/data/map.json`, `server/data/db.json`, `server/data/accounts.json` ni `src/world/plateauLayout.js`.
-- **Salle d’Attente 3D & Arène Data Center Optimisée (`src/world/CombatArena3D.js`)** :
-  - Salle d’attente cyber (`x: 56, z: 24`) équipée de 3 consoles interactives (`combat_lobby_mode`, `combat_lobby_ready`, `combat_lobby_exit`) et d’un écran dynamique d’état.
-  - Arène Data Center (`x: 56, z: 68`, limites `40..72` × `54..82`) avec caisses de couverture, baies tactiques, néons, orbes de soin (`+35 PV`), tableau des scores live en 3D et avatars de bots avec barre de vie orientable et arme 3D.
-  - Application systématique de `node.matrixAutoUpdate = false` sur toute la géométrie statique de l’arène et du lobby.
+---
 
-## 3. Arsenal Bac Pro CIEL, Bots IA, Zéro-Allocation & Économie (`src/world/CombatWeapons.js`, `src/world/CombatEngine.js`, `server/wsHub.js`, `server/store.js`, `server/index.js`, `src/world/ShopCatalog.js`)
-- **Mode Fusils (4 Armes 3D à distance)** :
-  1. `fiber_rifle` — Fusil d’Assaut Fibre Optique (cadence rapide, faisceaux cyan, chargeur 24).
-  2. `udp_shotgun` — Fusil à Pompe Paquets UDP Broadcast (salve de 6 paquets IP en cône).
-  3. `ping_sniper` — Sniper Ping 0ms Oscillo-Railgun (haute puissance longue portée avec traînée d’onde sinusoïdale et bonus critique tête).
-  4. `plasma_solder_pistol` — Pistolet à Souder Plasma (léger, précis, recharge rapide).
-- **Mode Mêlée (4 Armes 3D de corps-à-corps)** :
-  1. `solder_iron_blade` — Fer à Souder Incandescent (frappes rapides avec étincelles).
-  2. `rj45_crimper_heavy` — Pince à Sertir RJ45 Géante (coup lourd avec repoussement physique / knockback).
-  3. `ddr5_katana` — Katana Barrette RAM DDR5 (frappe fluide avec dash vers l’avant).
-  4. `switch24_hammer` — Marteau Switch 24 Ports (coup de zone AoE large portée).
-- **Moteur Autoritaire & Bots IA (`CombatMatchController`)** :
-  - Jouable en PvP multijoueur comme en **Solo complété par au moins 3 bots IA autonomes** (patrouille, prise de couvert/strafe, soin sur packs, visée et tir ou charge en mêlée).
-  - Raycasts avec occlusion AABB sur les obstacles, hitbox cylindrique avec bonus tête, munitions et rechargement, élimination / killfeed / série / respawn automatique (3 s + protection 1,4 s), victoire à 10 éliminations ou fin du chrono (`2 min 30`).
-- **Pool VFX Sans Allocation Mémoire (`createCombatVfxPool`)** :
-  - Pré-allocation de 36 faisceaux, 4 traînées sinusoïdales, 48 étincelles et 8 arcs de mêlée + vecteurs scratch réutilisés à chaque frame (client et VR).
-- **CIEL Coins Sécurisés (`ShopCatalog.js`, `server/store.js`, `server/index.js`, `server/wsHub.js`)** :
-  - Calcul `computeCombatCoinReward` : `120 CC` pour une victoire, `40 CC` de participation + `+10 CC` par élimination (plafonné à `240 CC` par manche).
-  - Persistance atomique côté serveur via `wsHub` en fin de manche et endpoint `POST /api/economy/combat` avec limitation anti-triche et déduplication par `matchId`.
-- **Contrôles Multi-Plateformes (`index.html`, `src/styles/main.css`, `src/ui/HudManager.js`, `src/ui/TouchControls.js`, `src/vr/VRManager.js`, `src/vr/VRHudPanel.js`, `src/world/RemotePlayers.js`, `src/main.js`)** :
-  - **PC** : clic gauche tirer/frapper, `R` recharger, `1–4` changer d’arme, `Tab` tableau des scores, modèle d’arme FPS en 1ère personne + recul/swing.
-  - **Mobile / Tablette** : pavé tactile dédié `#touch-combat-pad` (`#touch-btn-fire`, `#touch-btn-reload`, `#touch-btn-weapon-next`).
-  - **VR WebXR** : arme tenue dans la main droite dominante, gâchette pour tirer/frapper, **détection réelle de vitesse du coup de bras/poignet** (`handSpeed >= 1.75 m/s` en mêlée -> `isVrSwing: true`), rechargement bouton `A`, changement d’arme Grip / `X`, panneaux spatiaux `combat_lobby` / `combat_end` et HUD temps réel `combatStatus` sur la montre VR.
+## 1. Correction Définitive de la Désactivation des Bots IA
 
-## 4. Versionning, Audits & Validation Finale
-- **Versionning (`vite.config.js`, `src/ui/ChangelogModal.js`)** : passage à `v4.28` et ajout de l’entrée datée `19/11/2026` tout en haut de `CHANGELOG_RELEASES` (`v4.27` passée au tag `'HISTORIQUE'`).
-- **Tests ajoutés & mis à jour** :
-  - `tests/combat-arena.test.js` : porte `combat_door`, 8 armes et VFX pool, `CombatArena3D` (`matrixAutoUpdate = false`), `CombatMatchController` (bots IA, occlusion, shotgun 6 paquets, mêlée knockback/dash, respawn, pickups, récompenses), serveur HTTP/WS live + `/api/economy/combat`, DOM/HUD/`TouchControls`/Audio.
-  - `tests/survival-horror.test.js` : intérieur 3D perforé, rotation ±45°/±20°, vignette transparente, audio ventilation, sortie dégagée à `1.15 m`.
-  - `tests/vr.test.js` : immersion baie perforée VR sans cadre opaque et Arène de Combat VR (lobby spatial, gâchette, swing réel du bras, montre HUD, fin de manche).
-  - `tests/celebration-debug.test.js` & `tests/mobile-tp.test.js` : assertions de version mises à jour pour `v4.28`.
-- **Contrôles des Règles Strictes** :
-  - Fichiers protégés (`server/data/accounts.json`, `src/world/plateauLayout.js`, absence de `server/data/map.json` et `server/data/db.json`) : **100 % intacts**.
-  - Scan syntaxe `node --check` sur 27 fichiers `.js` modifiés/créés : **OK**.
-  - Audit zéro commentaire (`//`, `/* */`, `<!-- -->`) sur les 29 fichiers modifiés/créés : **0 commentaire trouvé**.
-  - Audit lore CIEL sur l’ensemble du dépôt : **0 occurrence interdite**.
-- **Suites de tests & Build** :
-  - `node --test --test-force-exit tests/*.test.js` : **120 / 120 réussis** (`0` échec, `0` ignoré).
-  - `npm test` (sans `--test-force-exit`, sortie propre sans timer ni socket ouvert) : **120 / 120 réussis** en `22.75 s`.
-  - `npm run build` : **64 modules transformés**, build terminé sans erreur en `13.90 s` (`dist/index.html`, `dist/admin.html`, `dist/assets/main-DcQ_un65.js`).
+### Cause racine identifiée
+Dans `src/world/CombatEngine.js` (`startMatch`), le calcul `const targetBots = this.fillBots || humanCount === 1 ? ...` puis `const neededBots = humanCount === 1 ? Math.max(3, targetBots) : targetBots;` forçait systématiquement l'apparition d'au moins 3 bots IA dès qu'un joueur lançait en solo, même lorsque `fillBots` / `botsEnabled` était désactivé.
+
+### Corrections apportées
+- **`src/world/CombatEngine.js`** :
+  - Introduction de l'état canonique `botsEnabled: boolean` (synchronisé avec `fillBots` pour la rétrocompatibilité) et de `setBotsEnabled(enabled)`.
+  - Dans `startMatch()`, lorsque `botsEnabled === false`, `neededBots` vaut **strictement `0`**, en solo comme en multijoueur.
+  - Exposition de `botsEnabled` et `fillBots` dans `getPublicSnapshot()`.
+- **`server/wsHub.js` & `src/core/network.js`** :
+  - Gestion unifiée des messages `combat_fill_bots` / `combat_bots_toggle` avec lecture prioritaire de `botsEnabled` (fallback `fillBots`), diffusion immédiate `combat_state` à toute la salle et conservation du réglage lors de `combat_restart`.
+- **`src/world/CombatArena3D.js`, `src/ui/HudManager.js`, `src/vr/VRHudPanel.js`, `src/ui/TouchControls.js` & `src/main.js`** :
+  - Ajout d'une 4e borne interactive 3D dédiée (`combat_lobby_bots`) dans la salle d'attente avec voyant dynamique vert (`ACTIVÉS`) / rouge (`DÉSACTIVÉS`) et libellé synchronisé avec l'état serveur.
+  - Mise à jour temps réel du panneau mural 3D, de la modale PC/Mobile (`🤖 Bots IA : ACTIVÉS / DÉSACTIVÉS`) et du panneau spatial VR (`vr_cbt_bots`).
+
+---
+
+## 2. Réticule Dynamique (Crosshair) & Hitmarker
+
+- **`index.html`, `src/styles/main.css` & `src/ui/HudManager.js`** :
+  - Ajout de `#combat-crosshair` centré avec variables CSS dynamiques (`--ch-gap`) réagissant en temps réel au mouvement et au recul, et masquage automatique du crosshair standard (`body.combat-active #crosshair`).
+  - Formes dédiées par arme :
+    - **Fusil d'Assaut Fibre Optique** : croix tactique cyan avec point central et écartement dynamique en rafale.
+    - **Fusil à Pompe Paquets UDP** : parenthèses/cercle de dispersion jaune/orange représentant le cône de 6 paquets.
+    - **Sniper Ping 0ms (Oscillo-Railgun)** : croix fine longue précision cyan.
+    - **Pistolet à Souder Plasma** : petit réticule compact nerveux orange plasma.
+    - **Armes de Mêlée** : point central + arc directionnel qui passe au vert lumineux (`in-range`) lorsqu'un adversaire est à portée de frappe, ou bleu (`guarding`) en garde.
+  - Masquage automatique du réticule standard (`ads-hidden`) lors de la visée ADS sur arme à feu et hitmarker 4 branches net (blanc/cyan sur touche, rouge agrandi sur élimination).
+
+---
+
+## 3. Système de Visée (ADS), Viseurs Spécifiques & Garde Mêlée
+
+- **Commandes multi-plateformes** :
+  - **PC** (`src/main.js`) : Clic Droit maintenu pour viser (`ADS`) avec blocage du menu contextuel (`contextmenu` -> `preventDefault()`), Clic Gauche conservé pour tirer/frapper.
+  - **Mobile / Tablette** (`index.html`, `src/ui/TouchControls.js`) : nouveau bouton tactile `🎯 Viser` (ou `🛡️ Garde` en mêlée) en bascule on/off à côté des boutons Tirer/Recharger.
+  - **VR WebXR** (`src/vr/VRManager.js`) : alignement naturel du viseur 3D devant le regard (ou grip gauche), réticule 3D adapté à l'arme, assistance optique Sniper (`combatScopeZoomActive`) et garde mêlée VR (`onGuardChange`).
+- **Sensations et précision** (`src/main.js`, `src/world/PlayerController.js`, `src/world/CombatEngine.js`) :
+  - Interpolation douce de la position/rotation du modèle 3D vers le centre, transition fluide du FOV caméra par arme (`48°` Fibre Optique, `56°` Pompe UDP, `20°` Sniper, `54°` Plasma, `64°` Mêlée), réduction progressive de la sensibilité (`setAdsSensitivityMultiplier`) et réduction de la dispersion serveur (`ads: true`).
+  - **Lunette Oscilloscope Sniper (`#combat-sniper-scope`)** : masque circulaire sombre, grille graduée `ms/div`, axes millimétrés cyan, onde sinusoïdale animée sur canvas 2D et télémètre temps réel.
+  - **Posture Garde / Parade Mêlée** : lève l'arme devant le joueur et réduit de 50 % les dégâts reçus de face côté serveur (`combat_guard` -> `setPlayerGuard`).
+
+---
+
+## 4. Refonte Complète des 8 Modèles 3D d'Armes CIEL
+
+Reconstruction multi-pièces complète dans `src/world/CombatWeapons.js` avec **cache partagé de géométries et matériaux** (`SHARED_GEOM_CACHE`, `SHARED_MAT_CACHE`) et zéro allocation dans les boucles d'animation (`animateCombatWeaponMesh` appelée en FPS, sur les bots et sur les joueurs distants) :
+1. **Fusil d'Assaut Fibre Optique** : châssis noir mat, rail supérieur, viseur holographique réflexe 3D à vitre cyan translucide + chevron, canon ajouré à 3 brins fibre optique pulsants, chargeur incliné à jauge cyan et crosse squelette.
+2. **Fusil à Pompe Paquets UDP** : double canon dissipateur à ailettes, garde-main à pompe animé au tir, 4 cartouches/connecteurs de données latéraux lumineux et viseur anneau néon vert/jaune.
+3. **Sniper Ping 0ms (Oscillo-Railgun)** : double rail électromagnétique avec 6 bobines cuivre/violet animées, écran miniature d'oscilloscope sur le flanc, bipied replié et lunette optique multi-lentilles.
+4. **Pistolet à Souder Plasma** : glissière tactique à 4 fentes de ventilation plasma orange, buse chauffante conique incandescente, cellule batterie en crosse et mire mécanique 3 points phosphorescents.
+5. **Fer à Souder Incandescent** : manche isolé bleu/noir avec manchon câble, canon inox à 5 ailettes de refroidissement et panne conique rouge-orange incandescente.
+6. **Pince à Sertir RJ45 Géante** : mâchoires crantées en acier brossé avec empreinte RJ45, pivot et ressort central, poignées isolantes jaune/noir et arc électrique bleu scintillant.
+7. **Katana Barrette RAM DDR5** : garde dorée façon connecteur DIMM/PCIe, lame PCB noire à 6 puces SMD en relief, dissipateur RGB néon le long du dos et poignée tressée.
+8. **Marteau Switch 24 Ports** : manche renforcé acier/caoutchouc et tête Switch rackable 1U 24 ports avec oreilles de rack, double rangée de ports RJ45 et LEDs vertes/oranges clignotantes.
+
+---
+
+## 5. Validation & Conformité
+
+- **Versionnage & Changelog** : `vite.config.js` (`__APP_VERSION__`) et `src/ui/ChangelogModal.js` (`APP_VERSION` + entrée `v4.29` `DERNIÈRE MÀJ`, `v4.28` passée à `HISTORIQUE`).
+- **Tests automatisés** : `node --test --test-force-exit tests/*.test.js` (100 % verts, incluant tous les nouveaux tests unitaires, WebSocket, DOM/HUD, TouchControls et VR WebXR v4.29).
+- **Build production** : `npm run build` réussi sans erreur.
+- **Règles du dépôt** : `server/data/map.json` et `server/data/db.json` intacts, zéro commentaire dans le code généré/modifié, lore 100 % `Professeur CIEL`.

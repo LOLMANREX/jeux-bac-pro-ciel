@@ -709,8 +709,13 @@ export class NetworkClient {
     return this.send({ type: 'combat_mode', mode: mode === 'melee' ? 'melee' : 'guns' });
   }
 
-  sendCombatFillBots(fillBots = true) {
-    return this.send({ type: 'combat_fill_bots', fillBots: Boolean(fillBots) });
+  sendCombatFillBots(botsEnabled = true) {
+    const enabled = Boolean(botsEnabled);
+    return this.send({ type: 'combat_fill_bots', botsEnabled: enabled, fillBots: enabled });
+  }
+
+  sendCombatGuard(guarding = false) {
+    return this.send({ type: 'combat_guard', guarding: Boolean(guarding) });
   }
 
   sendCombatWeapon(weaponId) {
@@ -721,13 +726,14 @@ export class NetworkClient {
     return this.send({ type: 'combat_ready', ready: Boolean(ready) });
   }
 
-  sendCombatAttack({ weaponId, origin, dir, isVrSwing = false } = {}) {
+  sendCombatAttack({ weaponId, origin, dir, isVrSwing = false, ads = false } = {}) {
     return this.send({
       type: 'combat_attack',
       weaponId,
       origin,
       dir,
-      isVrSwing: Boolean(isVrSwing)
+      isVrSwing: Boolean(isVrSwing),
+      ads: Boolean(ads)
     });
   }
 

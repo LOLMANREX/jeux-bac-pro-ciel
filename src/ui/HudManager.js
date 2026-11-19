@@ -307,8 +307,23 @@ export class HudManager {
     this.combatHudScoreboardBtn = document.getElementById('combat-hud-scoreboard-btn');
     this.combatHudLeaveBtn = document.getElementById('combat-hud-leave-btn');
     this.combatKillfeedEl = document.getElementById('combat-killfeed');
+    this.combatCrosshairEl = document.getElementById('combat-crosshair');
+    this.combatSniperScopeEl = document.getElementById('combat-sniper-scope');
+    this.combatScopeWaveCanvas = document.getElementById('combat-scope-wave');
+    this.combatScopeWaveCtx = this.combatScopeWaveCanvas?.getContext?.('2d') || null;
+    this.combatScopeDistEl = document.getElementById('combat-scope-dist');
     this.combatHitmarkerEl = document.getElementById('combat-hitmarker');
     this.combatRespawnBannerEl = document.getElementById('combat-respawn-banner');
+    this._combatScopeLastDrawMs = 0;
+    this._combatCrosshairState = {
+      active: false,
+      weaponId: null,
+      mode: 'guns',
+      adsActive: false,
+      inMeleeRange: false,
+      guarding: false,
+      spreadPx: 6
+    };
     this.combatHpTextEl = document.getElementById('combat-hp-text');
     this.combatHpFillEl = document.getElementById('combat-hp-fill');
     this.combatWeaponNameEl = document.getElementById('combat-weapon-name');
@@ -2448,7 +2463,7 @@ export class HudManager {
     if (!this.combatLobbyModalEl) return;
     this.combatLobbyModalEl.classList.remove('hidden');
     const mode = snapshot?.mode === 'melee' ? 'melee' : 'guns';
-    const fillBots = snapshot?.fillBots !== false;
+    const botsEnabled = snapshot?.botsEnabled !== undefined ? Boolean(snapshot.botsEnabled) : snapshot?.fillBots !== false;
     const players = Array.isArray(snapshot?.lobbyPlayers) ? snapshot.lobbyPlayers : [];
     const localPlayer = players.find((p) => p.id === localId);
     const localReady = Boolean(localPlayer?.ready);
@@ -2458,8 +2473,9 @@ export class HudManager {
     this.combatModeGunsBtn?.classList.toggle('active', mode === 'guns');
     this.combatModeMeleeBtn?.classList.toggle('active', mode === 'melee');
     if (this.combatBotsToggleBtn) {
-      this.combatBotsToggleBtn.classList.toggle('active', fillBots);
-      this.combatBotsToggleBtn.textContent = fillBots ? '🤖 Bots IA CIEL : ON' : '🤖 Bots IA CIEL : OFF';
+      this.combatBotsToggleBtn.classList.toggle('active', botsEnabled);
+      this.combatBotsToggleBtn.classList.toggle('off', !botsEnabled);
+      this.combatBotsToggleBtn.textContent = botsEnabled ? '🤖 Bots IA : ACTIVÉS' : '🤖 Bots IA : DÉSACTIVÉS';
     }
 
     if (this.combatLobbyWeaponsEl) {
@@ -2484,7 +2500,7 @@ export class HudManager {
     if (this.combatLobbyStatusEl) {
       const readyCount = players.filter((p) => p.ready).length;
       this.combatLobbyStatusEl.textContent =
-        `Mode ${mode === 'melee' ? 'Mêlée ⚔️' : 'Fusils 🔫'} • ${readyCount}/${Math.max(1, players.length)} prêt(s) • ${fillBots ? 'Complété par 3+ Bots IA CIEL' : 'PvP uniquement'}`;
+        `Mode ${mode === 'melee' ? 'Mêlée ⚔️' : 'Fusils 🔫'} • ${readyCount}/${Math.max(1, players.length)} prêt(s) • ${botsEnabled ? 'Bots IA : ACTIVÉS (3+ bots)' : 'Bots IA : DÉSACTIVÉS (0 bot — Solo / PvP Pur)'}`;
     }
 
     if (this.combatLobbyPlayersEl) {
@@ -2601,8 +2617,104 @@ export class HudManager {
     }
   }
 
+  updateCombatCrosshair({
+    active = false,
+    weaponId = 'fiber_rifle',
+    mode = 'guns',
+    spreadPx = 6,
+    adsActive = false,
+    inMeleeRange = false,
+    guarding = false
+  } = {}) {
+    const cleanMode = mode === 'melee' ? 'melee' : 'guns';
+    const cleanWeapon = weaponId || (cleanMode === 'melee' ? 'solder_iron_blade' : 'fiber_rifle');
+    const hideForAds = Boolean(adsActive && cleanMode === 'guns');
+    const clampedGap = Math.max(2, Math.min(44, Math.round(Number(spreadPx) || 6)));
+    this._combatCrosshairState = {
+      active: Boolean(active),
+      weaponId: cleanWeapon,
+      mode: cleanMode,
+      adsActive: Boolean(adsActive),
+      hiddenForAds: hideForAds,
+      inMeleeRange: Boolean(inMeleeRange),
+      guarding: Boolean(guarding),
+      spreadPx: clampedGap
+    };
+    if (typeof document !== 'undefined' && document.body?.classList) {
+      document.body.classList.toggle('combat-active', Boolean(active));
+    }
+    if (!this.combatCrosshairEl) return this._combatCrosshairState;
+    this.combatCrosshairEl.classList.toggle('hidden', !active);
+    this.combatCrosshairEl.classList.toggle('ads-hidden', hideForAds);
+    this.combatCrosshairEl.classList.toggle('in-range', Boolean(inMeleeRange && cleanMode === 'melee'));
+    this.combatCrosshairEl.classList.toggle('guarding', Boolean(guarding && cleanMode === 'melee'));
+    for (const cls of [
+      'weapon-fiber_rifle',
+      'weapon-udp_shotgun',
+      'weapon-ping_sniper',
+      'weapon-plasma_solder_pistol',
+      'weapon-melee'
+    ]) {
+      this.combatCrosshairEl.classList.remove(cls);
+    }
+    if (cleanMode === 'melee') {
+      this.combatCrosshairEl.classList.add('weapon-melee');
+    } else {
+      this.combatCrosshairEl.classList.add(`weapon-${cleanWeapon}`);
+    }
+    if (this.combatCrosshairEl.style) {
+      if (typeof this.combatCrosshairEl.style.setProperty === 'function') {
+        this.combatCrosshairEl.style.setProperty('--ch-gap', `${clampedGap}px`);
+      } else {
+        this.combatCrosshairEl.style['--ch-gap'] = `${clampedGap}px`;
+      }
+    }
+    return this._combatCrosshairState;
+  }
+
+  updateSniperScope({ active = false, elapsed = 0, targetDistance = null } = {}) {
+    if (!this.combatSniperScopeEl) return Boolean(active);
+    this.combatSniperScopeEl.classList.toggle('hidden', !active);
+    if (!active) return false;
+    if (this.combatScopeDistEl) {
+      const distNum = Number(targetDistance);
+      this.combatScopeDistEl.textContent =
+        Number.isFinite(distNum) && distNum > 0 ? `${distNum.toFixed(1)} m` : '--.- m';
+    }
+    const now = performance.now ? performance.now() : Date.now();
+    if (this.combatScopeWaveCtx && now - this._combatScopeLastDrawMs >= 42) {
+      this._combatScopeLastDrawMs = now;
+      const ctx = this.combatScopeWaveCtx;
+      const w = this.combatScopeWaveCanvas?.width || 220;
+      const h = this.combatScopeWaveCanvas?.height || 54;
+      ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(34, 211, 238, 0.24)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, h / 2);
+      ctx.lineTo(w, h / 2);
+      ctx.stroke();
+      ctx.strokeStyle = '#22d3ee';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 4) {
+        const t = x / w;
+        const y = h / 2 + Math.sin(t * Math.PI * 6 + elapsed * 7.5) * (h * 0.32) * (0.65 + 0.35 * Math.sin(t * Math.PI));
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    return true;
+  }
+
   hideCombatHud() {
     this.combatHudEl?.classList.add('hidden');
+    this.combatCrosshairEl?.classList.add('hidden');
+    this.combatSniperScopeEl?.classList.add('hidden');
+    if (typeof document !== 'undefined' && document.body?.classList) {
+      document.body.classList.remove('combat-active');
+    }
     this.combatHitmarkerEl?.classList.add('hidden');
     this.combatRespawnBannerEl?.classList.add('hidden');
     this.combatDamageFlashEl?.classList.remove('active');

@@ -6795,16 +6795,53 @@ body {
   position: fixed;
   top: 50%;
   left: 50%;
-  width: 26px;
-  height: 26px;
-  transform: translate(-50%, -50%) rotate(45deg);
-  border: 3px solid #f8fafc;
+  width: 30px;
+  height: 30px;
+  transform: translate(-50%, -50%);
   pointer-events: none;
+  z-index: 48;
+}
+
+.combat-hitmarker .hm-tick {
+  position: absolute;
+  width: 9px;
+  height: 2.5px;
+  background: #f8fafc;
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.9);
+  border-radius: 2px;
+}
+
+.combat-hitmarker .hm-tl {
+  top: 5px;
+  left: 2px;
+  transform: rotate(45deg);
+}
+
+.combat-hitmarker .hm-tr {
+  top: 5px;
+  right: 2px;
+  transform: rotate(-45deg);
+}
+
+.combat-hitmarker .hm-bl {
+  bottom: 5px;
+  left: 2px;
+  transform: rotate(-45deg);
+}
+
+.combat-hitmarker .hm-br {
+  bottom: 5px;
+  right: 2px;
+  transform: rotate(45deg);
 }
 
 .combat-hitmarker.kill {
-  border-color: #ef4444;
-  transform: translate(-50%, -50%) rotate(45deg) scale(1.25);
+  transform: translate(-50%, -50%) scale(1.25);
+}
+
+.combat-hitmarker.kill .hm-tick {
+  background: #ef4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.95);
 }
 
 .combat-respawn-banner {
@@ -6972,6 +7009,297 @@ body {
 .touch-combat-btn {
   min-width: 62px;
   min-height: 48px;
+}
+
+.touch-btn-aim.active {
+  border-color: #22d3ee;
+  background: rgba(8, 145, 178, 0.85);
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.65);
+  color: #ffffff;
+}
+
+.combat-bots-btn.off {
+  border-color: rgba(248, 113, 113, 0.72);
+  background: rgba(127, 29, 29, 0.55);
+  color: #fecaca;
+}
+
+body.combat-active #crosshair {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.combat-crosshair {
+  --ch-gap: 7px;
+  --ch-color: #22d3ee;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 47;
+  transition: opacity 0.1s ease;
+}
+
+.combat-crosshair.ads-hidden {
+  opacity: 0;
+}
+
+.combat-crosshair .ch-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--ch-color);
+  box-shadow: 0 0 6px var(--ch-color);
+}
+
+.combat-crosshair .ch-arm {
+  position: absolute;
+  background: var(--ch-color);
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.85), 0 0 6px var(--ch-color);
+  border-radius: 1px;
+  transition: transform 0.04s linear;
+}
+
+.combat-crosshair .ch-arm-top {
+  width: 2px;
+  height: 11px;
+  left: -1px;
+  bottom: var(--ch-gap);
+}
+
+.combat-crosshair .ch-arm-bottom {
+  width: 2px;
+  height: 11px;
+  left: -1px;
+  top: var(--ch-gap);
+}
+
+.combat-crosshair .ch-arm-left {
+  height: 2px;
+  width: 11px;
+  top: -1px;
+  right: var(--ch-gap);
+}
+
+.combat-crosshair .ch-arm-right {
+  height: 2px;
+  width: 11px;
+  top: -1px;
+  left: var(--ch-gap);
+}
+
+.combat-crosshair .ch-arc,
+.combat-crosshair .ch-melee-arc {
+  display: none;
+  position: absolute;
+  pointer-events: none;
+}
+
+.combat-crosshair.weapon-fiber_rifle {
+  --ch-color: #22d3ee;
+}
+
+.combat-crosshair.weapon-udp_shotgun {
+  --ch-color: #fbbf24;
+}
+
+.combat-crosshair.weapon-udp_shotgun .ch-arm {
+  display: none;
+}
+
+.combat-crosshair.weapon-udp_shotgun .ch-arc {
+  display: block;
+  top: 50%;
+  width: calc(24px + var(--ch-gap) * 1.4);
+  height: calc(34px + var(--ch-gap) * 1.4);
+  transform: translate(-50%, -50%);
+  border: 2.5px solid transparent;
+  border-radius: 50%;
+  filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.85));
+}
+
+.combat-crosshair.weapon-udp_shotgun .ch-arc-left {
+  border-left-color: #fbbf24;
+}
+
+.combat-crosshair.weapon-udp_shotgun .ch-arc-right {
+  border-right-color: #fbbf24;
+}
+
+.combat-crosshair.weapon-ping_sniper {
+  --ch-color: #67e8f9;
+}
+
+.combat-crosshair.weapon-ping_sniper .ch-arm-top,
+.combat-crosshair.weapon-ping_sniper .ch-arm-bottom {
+  width: 1.5px;
+  height: 18px;
+}
+
+.combat-crosshair.weapon-ping_sniper .ch-arm-left,
+.combat-crosshair.weapon-ping_sniper .ch-arm-right {
+  height: 1.5px;
+  width: 18px;
+}
+
+.combat-crosshair.weapon-plasma_solder_pistol {
+  --ch-color: #fb923c;
+}
+
+.combat-crosshair.weapon-plasma_solder_pistol .ch-arm-top,
+.combat-crosshair.weapon-plasma_solder_pistol .ch-arm-bottom {
+  width: 2px;
+  height: 7px;
+}
+
+.combat-crosshair.weapon-plasma_solder_pistol .ch-arm-left,
+.combat-crosshair.weapon-plasma_solder_pistol .ch-arm-right {
+  height: 2px;
+  width: 7px;
+}
+
+.combat-crosshair.weapon-melee {
+  --ch-color: #cbd5e1;
+}
+
+.combat-crosshair.weapon-melee .ch-arm {
+  display: none;
+}
+
+.combat-crosshair.weapon-melee .ch-melee-arc {
+  display: block;
+  width: 30px;
+  height: 30px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 2.5px solid transparent;
+  border-bottom-color: var(--ch-color);
+  opacity: 0.85;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.combat-crosshair.weapon-melee.in-range {
+  --ch-color: #34d399;
+}
+
+.combat-crosshair.weapon-melee.in-range .ch-melee-arc {
+  transform: translate(-50%, -50%) scale(1.18);
+  border-bottom-color: #34d399;
+  filter: drop-shadow(0 0 8px rgba(52, 211, 153, 0.95));
+}
+
+.combat-crosshair.weapon-melee.guarding {
+  --ch-color: #38bdf8;
+}
+
+.combat-crosshair.weapon-melee.guarding .ch-melee-arc {
+  border-top-color: #38bdf8;
+  border-bottom-color: #38bdf8;
+}
+
+.combat-sniper-scope {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(2, 12, 24, 0.04) 0%, rgba(2, 12, 24, 0.14) 36%, rgba(2, 6, 15, 0.98) 43%, #02050c 100%);
+}
+
+.combat-scope-lens {
+  position: relative;
+  width: min(76vmin, 660px);
+  height: min(76vmin, 660px);
+  border-radius: 50%;
+  border: 3px solid rgba(34, 211, 238, 0.72);
+  box-shadow: inset 0 0 42px rgba(6, 182, 212, 0.28), 0 0 0 100vmax rgba(2, 5, 12, 0.94);
+  overflow: hidden;
+}
+
+.combat-scope-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(34, 211, 238, 0.14) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(34, 211, 238, 0.14) 1px, transparent 1px);
+  background-size: 10% 10%;
+}
+
+.combat-scope-axis-h {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1.5px;
+  background: linear-gradient(90deg, rgba(34, 211, 238, 0.25), rgba(34, 211, 238, 0.95), rgba(34, 211, 238, 0.25));
+}
+
+.combat-scope-axis-v {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1.5px;
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.25), rgba(34, 211, 238, 0.95), rgba(34, 211, 238, 0.25));
+}
+
+.combat-scope-center-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #f43f5e;
+  box-shadow: 0 0 10px #f43f5e;
+}
+
+.combat-scope-wave {
+  position: absolute;
+  left: 50%;
+  bottom: 14%;
+  transform: translateX(-50%);
+  width: 220px;
+  height: 54px;
+  opacity: 0.9;
+}
+
+.combat-scope-meta {
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #67e8f9;
+  text-shadow: 0 0 8px rgba(34, 211, 238, 0.75);
+  white-space: nowrap;
+}
+
+.combat-scope-dist {
+  position: absolute;
+  right: 14%;
+  top: 53%;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(6, 13, 28, 0.78);
+  border: 1px solid rgba(34, 211, 238, 0.55);
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #fde047;
 }
 
 @media (max-width: 760px) {

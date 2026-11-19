@@ -35,6 +35,7 @@ import {
 } from './world/SurvivalEngine.js';
 import { createCombatPocketRooms } from './world/CombatArena3D.js';
 import {
+  animateCombatWeaponMesh,
   buildCombatWeaponMesh,
   createCombatVfxPool,
   getCombatWeaponById,
@@ -2023,11 +2024,48 @@ const combatState = {
   lastFireClientAt: 0,
   recoilAmount: 0,
   swingAnim: 0,
+  pumpAnim: 0,
+  adsHeld: false,
+  adsTouchToggle: false,
+  adsProgress: 0,
+  lastGuardSent: false,
+  lastFovApplied: null,
   localAlive: true,
   lastLocalHp: 100,
   endData: null,
   scoreboardOpen: false
 };
+
+function getCombatBotsEnabledFromSnap(snap = combatState.snapshot) {
+  if (!snap) return true;
+  if (snap.botsEnabled !== undefined) return Boolean(snap.botsEnabled);
+  return snap.fillBots !== false;
+}
+
+function toggleCombatBots() {
+  sfx.click();
+  const cur = getCombatBotsEnabledFromSnap(combatState.snapshot);
+  network.sendCombatFillBots(!cur);
+}
+
+function resetCombatAdsState() {
+  combatState.adsHeld = false;
+  combatState.adsTouchToggle = false;
+  combatState.adsProgress = 0;
+  combatState.pumpAnim = 0;
+  if (combatState.lastGuardSent) {
+    combatState.lastGuardSent = false;
+    network.sendCombatGuard?.(false);
+  }
+  player.setAdsSensitivityMultiplier?.(1.0);
+  if (combatState.lastFovApplied !== null) {
+    combatState.lastFovApplied = null;
+    sceneMgr.setFov?.(gameState.fov);
+  }
+  touchControls?.setCombatAdsActive?.(false);
+  hud?.updateSniperScope?.({ active: false });
+  hud?.updateCombatCrosshair?.({ active: false });
+}
 
 function getLocalCombatFighter(snap = combatState.snapshot) {
   if (!snap || !network.clientId) return null;
@@ -2042,7 +2080,8 @@ function getCombatVrCallbacks() {
       sfx.playCombatReload?.();
       network.sendCombatReload?.();
     },
-    onCycleWeapon: () => cycleCombatWeapon(1)
+    onCycleWeapon: () => cycleCombatWeapon(1),
+    onGuardChange: (guarding) => network.sendCombatGuard?.(Boolean(guarding))
   };
 }
 
@@ -2071,9 +2110,11 @@ function buildVrCombatLobbyState(snap = combatState.snapshot) {
   const players = Array.isArray(snap?.lobbyPlayers) ? snap.lobbyPlayers : [];
   const me = players.find((p) => p.id === network.clientId);
   const weapons = getWeaponsByMode(mode);
+  const botsEnabled = getCombatBotsEnabledFromSnap(snap);
   return {
     mode,
-    fillBots: snap?.fillBots !== false,
+    botsEnabled,
+    fillBots: botsEnabled,
     players,
     weapons,
     selectedWeaponId: me?.weaponId || combatState.selectedWeaponId || weapons[0]?.id,
@@ -2082,11 +2123,7 @@ function buildVrCombatLobbyState(snap = combatState.snapshot) {
       sfx.click();
       network.sendCombatMode(nextMode);
     },
-    onToggleBots: () => {
-      sfx.click();
-      const cur = combatState.snapshot?.fillBots !== false;
-      network.sendCombatFillBots(!cur);
-    },
+    onToggleBots: () => toggleCombatBots(),
     onSelectWeapon: (wid) => {
       sfx.click();
       selectCombatWeapon(wid);
@@ -2217,6 +2254,9 @@ function triggerLocalCombatAttack(customPayload = null) {
     combatState.swingAnim = 1;
   } else {
     combatState.recoilAmount = 1;
+    if (spec.id === 'udp_shotgun') {
+      combatState.pumpAnim = 1;
+    }
   }
 
   let origin = customPayload?.origin;
@@ -2228,11 +2268,13 @@ function triggerLocalCombatAttack(customPayload = null) {
     dir = { x: _combatRayDir.x, y: _combatRayDir.y, z: _combatRayDir.z };
   }
 
+  const adsActive = customPayload?.ads !== undefined ? Boolean(customPayload.ads) : combatState.adsProgress > 0.35;
   network.sendCombatAttack({
     weaponId: spec.id,
     origin,
     dir,
-    isVrSwing: Boolean(customPayload?.isVrSwing)
+    isVrSwing: Boolean(customPayload?.isVrSwing),
+    ads: adsActive
   });
 }
 
@@ -2251,6 +2293,7 @@ function startCombatMatchClient(snapshot) {
   combatState.inActiveMatch = true;
   combatState.endData = null;
   combatState.fireHeld = false;
+  resetCombatAdsState();
   combatState.localAlive = true;
   combatState.lastLocalHp = me?.hp ?? 100;
   combatState.selectedWeaponId = me?.weaponId || getDefaultWeaponForMode(combatState.mode).id;
@@ -2306,6 +2349,7 @@ function endCombatMatchClient(ended, snapshot) {
   combatState.inWaitingRoom = false;
   combatState.lobbyModalOpen = false;
   combatState.fireHeld = false;
+  resetCombatAdsState();
   combatState.phase = 'ended';
   combatViewWeaponRoot.visible = false;
   syncCombatViewWeapon(null);
@@ -2348,6 +2392,7 @@ function resetCombatClientFull() {
   combatState.lobbyModalOpen = false;
   combatState.snapshot = null;
   combatState.fireHeld = false;
+  resetCombatAdsState();
   combatState.localAlive = true;
   combatState.endData = null;
   combatState.scoreboardOpen = false;
@@ -3877,11 +3922,7 @@ hud?.bindCombatHandlers?.({
     sfx.click();
     network.sendCombatMode(mode);
   },
-  onToggleBots: () => {
-    sfx.click();
-    const cur = combatState.snapshot?.fillBots !== false;
-    network.sendCombatFillBots(!cur);
-  },
+  onToggleBots: () => toggleCombatBots(),
   onSelectWeapon: (wid) => {
     sfx.click();
     selectCombatWeapon(wid);
@@ -3942,6 +3983,10 @@ try {
     onCombatCycleWeapon: () => {
       if (!joined || !combatState.inActiveMatch) return;
       cycleCombatWeapon(1);
+    },
+    onCombatToggleAds: (active) => {
+      if (!joined || !combatState.inActiveMatch) return;
+      combatState.adsTouchToggle = Boolean(active);
     },
     getVoiceMode: () => gameState.voiceMode,
     onVoiceToggle: () => {
@@ -4667,6 +4712,8 @@ function interactWith(target) {
     sfx.click();
     const nextMode = combatState.mode === 'melee' ? 'guns' : 'melee';
     network.sendCombatMode(nextMode);
+  } else if (target.type === 'combat_lobby_bots') {
+    toggleCombatBots();
   } else if (target.type === 'combat_lobby_ready') toggleCombatReady();
   else if (target.type === 'combat_lobby_exit') leaveCombatArena();
   else if (target.type === 'survival_detention_terminal') openDetentionTerminal();
@@ -4996,14 +5043,18 @@ canvas.addEventListener('mousedown', (e) => {
     !modalOpen &&
     !gameState.touchMode &&
     !vrManager?.isVrActive?.() &&
-    !isDetentionSeatedActive() &&
-    e.button === 0
+    !isDetentionSeatedActive()
   ) {
-    if (document.pointerLockElement !== canvas) {
-      player.requestPointerLock?.();
+    if (e.button === 0) {
+      if (document.pointerLockElement !== canvas) {
+        player.requestPointerLock?.();
+      }
+      combatState.fireHeld = true;
+      triggerLocalCombatAttack();
+    } else if (e.button === 2) {
+      e.preventDefault();
+      combatState.adsHeld = true;
     }
-    combatState.fireHeld = true;
-    triggerLocalCombatAttack();
   }
 });
 canvas.addEventListener('mousemove', (e) => {
@@ -5044,10 +5095,12 @@ canvas.addEventListener('mouseleave', () => {
 });
 window.addEventListener('blur', () => {
   lastCursorPos = null;
+  combatState.fireHeld = false;
+  combatState.adsHeld = false;
   setDesktopHoveredInteractable(null);
 });
 canvas.addEventListener('contextmenu', (e) => {
-  if ((vrManager?.isVrActive?.() && vrManager.simMode) || isDetentionSeatedActive() || activePcSession) {
+  if ((vrManager?.isVrActive?.() && vrManager.simMode) || isDetentionSeatedActive() || activePcSession || combatState.inActiveMatch) {
     e.preventDefault();
   }
 });
@@ -5060,6 +5113,9 @@ window.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseup', (e) => {
   if (e.button === 0) {
     combatState.fireHeld = false;
+  }
+  if (e.button === 2) {
+    combatState.adsHeld = false;
   }
   if (vrManager?.simMode && e.button === 0) {
     vrManager.setSimInput({ mouseTrigger: false });
@@ -5251,36 +5307,151 @@ sceneMgr.addUpdater((dt, elapsed) => {
     combatArena.updateArena(combatState.snapshot, dt, elapsed, sceneMgr.camera);
     combatState.recoilAmount = Math.max(0, combatState.recoilAmount - dt * 5.2);
     combatState.swingAnim = Math.max(0, combatState.swingAnim - dt * 4.5);
+    combatState.pumpAnim = Math.max(0, combatState.pumpAnim - dt * 3.1);
+
+    const me = getLocalCombatFighter();
+    const activeWId = me?.weaponId || combatState.selectedWeaponId || getDefaultWeaponForMode(combatState.mode).id;
+    const wSpec = getCombatWeaponById(activeWId) || getDefaultWeaponForMode(combatState.mode);
+    const adsSpec = wSpec?.ads || {
+      fov: 54,
+      sensitivityMult: 0.72,
+      sightType: 'holo',
+      hipPos: [0.24, -0.21, -0.44],
+      adsPos: [0, -0.11, -0.34],
+      adsRot: [0, 0, 0]
+    };
+
+    const canAds = Boolean(combatState.localAlive && !modalOpen && !vrOn && gameState.cameraMode !== 'third' && !me?.reloading);
+    const adsWanted = Boolean((combatState.adsHeld || combatState.adsTouchToggle) && canAds);
+    const adsTarget = adsWanted ? 1 : 0;
+    combatState.adsProgress += (adsTarget - combatState.adsProgress) * Math.min(1, dt * 13);
+    if (combatState.adsProgress < 0.004 && adsTarget === 0) combatState.adsProgress = 0;
+    if (combatState.adsProgress > 0.996 && adsTarget === 1) combatState.adsProgress = 1;
+
+    if (!vrOn) {
+      const baseFov = Number(gameState.fov) || 68;
+      const targetFov = baseFov + (adsSpec.fov - baseFov) * combatState.adsProgress;
+      if (combatState.lastFovApplied === null || Math.abs(targetFov - combatState.lastFovApplied) > 0.04) {
+        combatState.lastFovApplied = targetFov;
+        sceneMgr.camera.fov = targetFov;
+        sceneMgr.camera.updateProjectionMatrix();
+      }
+      const sensMult = 1 + ((adsSpec.sensitivityMult || 0.7) - 1) * combatState.adsProgress;
+      player.setAdsSensitivityMultiplier?.(sensMult);
+    }
+
+    const guardingNow = Boolean(combatState.mode === 'melee' && combatState.adsProgress > 0.45 && combatState.localAlive);
+    if (guardingNow !== combatState.lastGuardSent) {
+      combatState.lastGuardSent = guardingNow;
+      network.sendCombatGuard?.(guardingNow);
+    }
+
+    let inMeleeRange = false;
+    let scopeTargetDist = null;
+    const fighters = Array.isArray(combatState.snapshot?.fighters) ? combatState.snapshot.fighters : [];
+    if (combatState.localAlive && fighters.length > 0) {
+      sceneMgr.camera.getWorldPosition(_combatRayOrigin);
+      sceneMgr.camera.getWorldDirection(_combatRayDir);
+      if (combatState.mode === 'melee') {
+        const rangeLimit = (wSpec?.range || 2.5) + 0.25;
+        for (let i = 0; i < fighters.length; i++) {
+          const f = fighters[i];
+          if (!f.alive || f.id === network.clientId) continue;
+          const dx = f.x - player.position.x;
+          const dz = f.z - player.position.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist <= rangeLimit) {
+            const dot = dist > 0.05 ? (dx * _combatRayDir.x + dz * _combatRayDir.z) / dist : 1;
+            if (dot >= (wSpec?.arcCos ?? 0.2)) {
+              inMeleeRange = true;
+              break;
+            }
+          }
+        }
+      } else if (wSpec?.id === 'ping_sniper' && combatState.adsProgress > 0.5) {
+        let bestDist = Infinity;
+        for (let i = 0; i < fighters.length; i++) {
+          const f = fighters[i];
+          if (!f.alive || f.id === network.clientId) continue;
+          const vx = f.x - _combatRayOrigin.x;
+          const vy = 1.25 - _combatRayOrigin.y;
+          const vz = f.z - _combatRayOrigin.z;
+          const proj = vx * _combatRayDir.x + vy * _combatRayDir.y + vz * _combatRayDir.z;
+          if (proj <= 0.5 || proj > 60) continue;
+          const px = vx - _combatRayDir.x * proj;
+          const py = vy - _combatRayDir.y * proj;
+          const pz = vz - _combatRayDir.z * proj;
+          if (px * px + py * py + pz * pz <= 1.25 && proj < bestDist) {
+            bestDist = proj;
+          }
+        }
+        if (Number.isFinite(bestDist)) scopeTargetDist = bestDist;
+      }
+    }
+
+    const sniperScopeVisible = Boolean(!vrOn && combatState.localAlive && wSpec?.id === 'ping_sniper' && combatState.adsProgress > 0.72);
+    if (!vrOn) {
+      const moveSpread = step?.moving ? 5 : 0;
+      const recoilSpread = combatState.recoilAmount * (wSpec?.id === 'udp_shotgun' ? 14 : 10);
+      const baseGap = wSpec?.id === 'udp_shotgun' ? 14 : wSpec?.id === 'ping_sniper' ? 5 : wSpec?.id === 'plasma_solder_pistol' ? 4 : 7;
+      hud?.updateCombatCrosshair?.({
+        active: Boolean(combatState.localAlive && !modalOpen),
+        weaponId: wSpec?.id,
+        mode: combatState.mode,
+        spreadPx: baseGap + moveSpread + recoilSpread,
+        adsActive: combatState.adsProgress > 0.45,
+        inMeleeRange,
+        guarding: guardingNow
+      });
+      hud?.updateSniperScope?.({
+        active: sniperScopeVisible,
+        elapsed,
+        targetDistance: scopeTargetDist
+      });
+    }
+
     if (combatState.fireHeld && combatState.localAlive && !modalOpen && !vrOn) {
-      const spec = getCombatWeaponById(combatState.selectedWeaponId);
-      if (spec?.auto || combatState.mode === 'melee') {
+      if (wSpec?.auto || combatState.mode === 'melee') {
         triggerLocalCombatAttack();
       }
     }
-    const showFpsWeapon = Boolean(!vrOn && combatState.localAlive && combatState.viewWeaponObj && gameState.cameraMode !== 'third');
+    const showFpsWeapon = Boolean(!vrOn && combatState.localAlive && combatState.viewWeaponObj && gameState.cameraMode !== 'third' && !sniperScopeVisible);
     combatViewWeaponRoot.visible = showFpsWeapon;
     if (showFpsWeapon) {
       combatViewWeaponRoot.position.copy(sceneMgr.camera.position);
       combatViewWeaponRoot.quaternion.copy(sceneMgr.camera.quaternion);
-      const me = getLocalCombatFighter();
-      const speedBob = step?.moving ? Math.sin(elapsed * 11) * 0.012 : Math.sin(elapsed * 2.1) * 0.003;
+      const adsT = combatState.adsProgress;
+      const bobMult = 1 - adsT * 0.82;
+      const speedBob = (step?.moving ? Math.sin(elapsed * 11) * 0.012 : Math.sin(elapsed * 2.1) * 0.003) * bobMult;
       const reloadDip = me?.reloading ? -0.14 : 0;
       const swingRotX = combatState.swingAnim > 0 ? -Math.sin(combatState.swingAnim * Math.PI) * 1.15 : 0;
       const swingRotZ = combatState.swingAnim > 0 ? Math.sin(combatState.swingAnim * Math.PI) * 0.42 : 0;
+      const hip = adsSpec.hipPos || [0.24, -0.21, -0.44];
+      const aim = adsSpec.adsPos || [0, -0.11, -0.34];
+      const aimRot = adsSpec.adsRot || [0, 0, 0];
+      const recoilKick = combatState.recoilAmount * (1 - adsT * 0.45);
       combatViewWeaponHolder.position.set(
-        0.24 - combatState.swingAnim * 0.08,
-        -0.21 + speedBob + reloadDip,
-        -0.44 + combatState.recoilAmount * 0.065 - combatState.swingAnim * 0.14
+        hip[0] + (aim[0] - hip[0]) * adsT - combatState.swingAnim * 0.08,
+        hip[1] + (aim[1] - hip[1]) * adsT + speedBob + reloadDip,
+        hip[2] + (aim[2] - hip[2]) * adsT + recoilKick * 0.065 - combatState.swingAnim * 0.14
       );
       combatViewWeaponHolder.rotation.set(
-        combatState.recoilAmount * 0.14 + swingRotX,
-        0,
-        swingRotZ
+        aimRot[0] * adsT + recoilKick * 0.14 + swingRotX,
+        aimRot[1] * adsT,
+        aimRot[2] * adsT + swingRotZ
       );
+      animateCombatWeaponMesh(combatState.viewWeaponObj, {
+        elapsed,
+        recoil: combatState.recoilAmount,
+        pumpPhase: combatState.pumpAnim
+      });
       combatViewWeaponRoot.updateMatrixWorld(true);
     }
   } else {
     combatViewWeaponRoot.visible = false;
+    if (combatState.lastFovApplied !== null || combatState.adsProgress > 0) {
+      resetCombatAdsState();
+    }
   }
   if (activeCinematic && !vrOn) {
     if (activeCinematic.phase === 'intro') {

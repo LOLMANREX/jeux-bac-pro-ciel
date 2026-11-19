@@ -26,10 +26,12 @@ import {
 import {
   COMBAT_MODES,
   COMBAT_WEAPONS,
+  animateCombatWeaponMesh,
   buildCombatWeaponMesh,
   createCombatVfxPool,
   getCombatWeaponById,
   getDefaultWeaponForMode,
+  getSharedWeaponAssetStats,
   getWeaponsByMode
 } from '../src/world/CombatWeapons.js';
 import { buildLabWorld } from '../src/world/LabBuilder.js';
@@ -299,7 +301,8 @@ test('CombatWeapons & CombatArena3D : 8 armes CIEL, pool VFX sans fuite et struc
     assert.ok(staticMeshCount >= 20);
 
     const waitCfg = arena.getWaitingRoomConfig();
-    assert.equal(waitCfg.interactables.length, 3);
+    assert.equal(waitCfg.interactables.length, 4);
+    assert.ok(waitCfg.interactables.some((it) => it.type === 'combat_lobby_bots'));
     assert.ok(Math.abs(waitCfg.spawn.x - COMBAT_WAITING_CENTER.x) < 12);
 
     const arenaCfg = arena.getArenaConfig();
@@ -742,6 +745,190 @@ test('DOM index.html, HudManager, TouchControls & Audio Combat sont complets et 
     assert.equal(typeof sfx.playCombatReload, 'function');
     assert.equal(typeof sfx.playCombatPickup, 'function');
     assert.equal(typeof sfx.playCombatHurt, 'function');
+  } finally {
+    if (prevDoc === undefined) delete globalThis.document;
+    else globalThis.document = prevDoc;
+    if (prevWin === undefined) delete globalThis.window;
+    else globalThis.window = prevWin;
+  }
+});
+
+test('v4.29 : Désactivation Bots IA (0 bot solo & multi), Réticules Dynamiques, Visée ADS, Lunette Oscilloscope & 8 Modèles 3D Refondus', async () => {
+  const soloCtrl = new CombatMatchController({ roomId: 'combat-solo-nobots', botCount: 3 });
+  soloCtrl.joinLobby({ id: 'solo1', name: 'SoloTrain', color: '#22d3ee' });
+  soloCtrl.setBotsEnabled(false);
+  const preSnap = soloCtrl.getPublicSnapshot();
+  assert.equal(preSnap.botsEnabled, false);
+  assert.equal(preSnap.fillBots, false);
+  const soloStart = soloCtrl.setReady('solo1', true, 10000);
+  assert.equal(soloStart.autoStarted, true);
+  const soloBots = [...soloCtrl.fighters.values()].filter((f) => f.isBot);
+  assert.equal(soloBots.length, 0);
+  assert.equal(soloCtrl.fighters.size, 1);
+
+  const duoCtrl = new CombatMatchController({ roomId: 'combat-duo-nobots', botCount: 4 });
+  duoCtrl.joinLobby({ id: 'a', name: 'EleveA' });
+  duoCtrl.joinLobby({ id: 'b', name: 'EleveB' });
+  duoCtrl.setMode('melee');
+  duoCtrl.setBotsEnabled(false);
+  duoCtrl.setReady('a', true, 12000);
+  const duoStart = duoCtrl.setReady('b', true, 12100);
+  assert.equal(duoStart.autoStarted, true);
+  assert.equal([...duoCtrl.fighters.values()].filter((f) => f.isBot).length, 0);
+  assert.equal(duoCtrl.fighters.size, 2);
+
+  const fa = duoCtrl.fighters.get('a');
+  const fb = duoCtrl.fighters.get('b');
+  fa.x = COMBAT_ARENA_CENTER.x;
+  fa.z = COMBAT_ARENA_CENTER.z + 1.4;
+  fa.yaw = 0;
+  fa.spawnProtectUntil = 0;
+  fb.x = COMBAT_ARENA_CENTER.x;
+  fb.z = COMBAT_ARENA_CENTER.z;
+  fb.yaw = Math.PI;
+  fb.spawnProtectUntil = 0;
+  duoCtrl.setPlayerGuard('b', true);
+  const guardedHit = duoCtrl.handleAttack('a', {
+    weaponId: 'solder_iron_blade',
+    origin: { x: fa.x, y: 1.5, z: fa.z },
+    dir: { x: 0, y: 0, z: -1 }
+  }, 13000);
+  assert.equal(guardedHit.ok, true);
+  assert.equal(guardedHit.hits[0].guarded, true);
+  assert.equal(guardedHit.hits[0].damage, 13);
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atelier-combat-v429-'));
+  const { server, wsHub } = createGameServer({
+    port: 0,
+    dbPath: null,
+    accountsPath: path.join(tmpDir, 'accounts.json'),
+    mapPath: path.join(tmpDir, 'map.json'),
+    enableAccessLog: false,
+    combatOptions: { botCount: 3, matchDurationSec: 45, killLimit: 5 }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const ws = await openWs(`ws://127.0.0.1:${port}/ws`);
+  try {
+    const joinedP = waitForMessage(ws, (m) => m.type === 'welcome');
+    ws.send(JSON.stringify({ type: 'join', name: 'TestNoBots', room: 'plateau-u300' }));
+    await joinedP;
+
+    const joinStateP = waitForMessage(ws, (m) => m.type === 'combat_state');
+    ws.send(JSON.stringify({ type: 'combat_join' }));
+    const joinState = await joinStateP;
+    assert.equal(joinState.state.botsEnabled, true);
+
+    const toggleOffP = waitForMessage(ws, (m) => m.type === 'combat_state' && m.state?.botsEnabled === false);
+    ws.send(JSON.stringify({ type: 'combat_fill_bots', botsEnabled: false, fillBots: false }));
+    const toggledOff = await toggleOffP;
+    assert.equal(toggledOff.state.botsEnabled, false);
+    assert.equal(toggledOff.state.fillBots, false);
+
+    const startedP = waitForMessage(ws, (m) => m.type === 'combat_started');
+    ws.send(JSON.stringify({ type: 'combat_ready', ready: true }));
+    const started = await startedP;
+    assert.equal(started.state.botsEnabled, false);
+    assert.equal(started.state.fighters.filter((f) => f.isBot).length, 0);
+  } finally {
+    ws.close();
+    wsHub.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  for (const spec of COMBAT_WEAPONS) {
+    assert.ok(spec.ads);
+    assert.ok(spec.ads.fov > 0 && spec.ads.fov <= 70);
+    assert.ok(spec.ads.sensitivityMult > 0 && spec.ads.sensitivityMult <= 1);
+    const w1 = buildCombatWeaponMesh(spec.id, { viewModel: true });
+    assert.ok(w1.group.children.length >= 6);
+    animateCombatWeaponMesh(w1, { elapsed: 1.25, recoil: 0.5, pumpPhase: 0.4 });
+    w1.dispose();
+  }
+  const statsAfterPass1 = getSharedWeaponAssetStats();
+  for (const spec of COMBAT_WEAPONS) {
+    const w2 = buildCombatWeaponMesh(spec.id, { viewModel: false });
+    w2.dispose();
+  }
+  const statsAfterPass2 = getSharedWeaponAssetStats();
+  assert.deepEqual(statsAfterPass2, statsAfterPass1);
+
+  const arena = createCombatPocketRooms(new THREE.Scene());
+  try {
+    arena.updateWaitingBoard({ mode: 'guns', botsEnabled: false, lobbyPlayers: [] }, true);
+    const botsConsole = arena.getWaitingRoomConfig().interactables.find((it) => it.type === 'combat_lobby_bots');
+    assert.ok(botsConsole);
+    assert.match(botsConsole.label, /DÉSACTIVÉS/);
+    arena.updateWaitingBoard({ mode: 'guns', botsEnabled: true, lobbyPlayers: [] }, true);
+    assert.match(botsConsole.label, /ACTIVÉS/);
+  } finally {
+    arena.dispose();
+  }
+
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  const elements = new Map();
+  const getEl = (id) => {
+    if (!elements.has(id)) elements.set(id, makeFakeElement(id.includes('canvas') || id.includes('wave') ? 'canvas' : 'div'));
+    return elements.get(id);
+  };
+  globalThis.document = {
+    body: makeFakeElement('body'),
+    getElementById: (id) => getEl(id),
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    createElement: (tag) => makeFakeElement(tag),
+    addEventListener() {},
+    removeEventListener() {}
+  };
+  globalThis.window = {
+    innerWidth: 1280,
+    innerHeight: 720,
+    addEventListener() {},
+    removeEventListener() {}
+  };
+  try {
+    const hud = new HudManager(new GameState(), { wsUrl: '/ws', fetchLeaderboard: async () => [] }, {});
+    for (const spec of COMBAT_WEAPONS) {
+      const ch = hud.updateCombatCrosshair({
+        active: true,
+        weaponId: spec.id,
+        mode: spec.mode,
+        spreadPx: 12,
+        adsActive: false,
+        inMeleeRange: spec.mode === 'melee'
+      });
+      assert.equal(ch.active, true);
+      assert.equal(ch.hiddenForAds, false);
+    }
+    const chAds = hud.updateCombatCrosshair({
+      active: true,
+      weaponId: 'ping_sniper',
+      mode: 'guns',
+      spreadPx: 6,
+      adsActive: true
+    });
+    assert.equal(chAds.hiddenForAds, true);
+    assert.equal(getEl('combat-crosshair').classList.contains('ads-hidden'), true);
+
+    hud.updateSniperScope({ active: true, elapsed: 1.5, targetDistance: 24.6 });
+    assert.equal(getEl('combat-sniper-scope').classList.contains('hidden'), false);
+    assert.equal(getEl('combat-scope-dist').textContent, '24.6 m');
+    hud.updateSniperScope({ active: false });
+    assert.equal(getEl('combat-sniper-scope').classList.contains('hidden'), true);
+
+    let adsToggled = null;
+    const tc = new TouchControls(
+      { setMoveVector() {}, setMovementInput() {}, setSprinting() {}, addLookDelta() {}, triggerJump() {} },
+      { onCombatToggleAds: (v) => { adsToggled = v; } }
+    );
+    tc.setVisible(true);
+    tc.setCombatMode(true, { mode: 'guns', weaponShortName: 'Sniper' });
+    getEl('touch-btn-aim').dispatchEvent({ type: 'click', preventDefault() {}, stopPropagation() {} });
+    assert.equal(adsToggled, true);
+    getEl('touch-btn-aim').dispatchEvent({ type: 'click', preventDefault() {}, stopPropagation() {} });
+    assert.equal(adsToggled, false);
   } finally {
     if (prevDoc === undefined) delete globalThis.document;
     else globalThis.document = prevDoc;

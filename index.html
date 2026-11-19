@@ -668,6 +668,10 @@
               <span class="tb-ico">🔄</span>
               <span class="tb-lbl">Arme</span>
             </button>
+            <button type="button" id="touch-btn-aim" class="touch-btn touch-combat-btn touch-btn-aim">
+              <span class="tb-ico">🎯</span>
+              <span class="tb-lbl">Viser</span>
+            </button>
             <button type="button" id="touch-btn-reload" class="touch-btn touch-combat-btn">
               <span class="tb-ico">🔋</span>
               <span class="tb-lbl">Recharger</span>
@@ -1428,7 +1432,7 @@
           <div class="combat-mode-switch">
             <button type="button" id="combat-mode-guns-btn" class="combat-mode-btn active">🔫 Mode Fusils (Distance)</button>
             <button type="button" id="combat-mode-melee-btn" class="combat-mode-btn">⚔️ Mode Mêlée (Corps-à-corps)</button>
-            <button type="button" id="combat-bots-toggle-btn" class="combat-bots-btn active">🤖 Bots IA CIEL : ON</button>
+            <button type="button" id="combat-bots-toggle-btn" class="combat-bots-btn active">🤖 Bots IA : ACTIVÉS</button>
           </div>
           <div id="combat-lobby-weapons" class="combat-lobby-weapons"></div>
           <div id="combat-lobby-status" class="combat-lobby-status">
@@ -1452,7 +1456,33 @@
           <button type="button" id="combat-hud-leave-btn" class="btn-danger btn-sm">🚪 Quitter</button>
         </div>
         <div id="combat-killfeed" class="combat-killfeed"></div>
-        <div id="combat-hitmarker" class="combat-hitmarker hidden"></div>
+        <div id="combat-crosshair" class="combat-crosshair hidden" aria-hidden="true">
+          <span class="ch-arm ch-arm-top"></span>
+          <span class="ch-arm ch-arm-bottom"></span>
+          <span class="ch-arm ch-arm-left"></span>
+          <span class="ch-arm ch-arm-right"></span>
+          <span class="ch-arc ch-arc-left"></span>
+          <span class="ch-arc ch-arc-right"></span>
+          <span class="ch-melee-arc"></span>
+          <span class="ch-dot"></span>
+        </div>
+        <div id="combat-sniper-scope" class="combat-sniper-scope hidden" aria-hidden="true">
+          <div class="combat-scope-lens">
+            <div class="combat-scope-grid"></div>
+            <div class="combat-scope-axis-h"></div>
+            <div class="combat-scope-axis-v"></div>
+            <div class="combat-scope-center-dot"></div>
+            <canvas id="combat-scope-wave" class="combat-scope-wave" width="220" height="54"></canvas>
+            <div class="combat-scope-meta">OSCILLO-RAILGUN • 0.0 ms/div • ZOOM 3.6×</div>
+            <div id="combat-scope-dist" class="combat-scope-dist">--.- m</div>
+          </div>
+        </div>
+        <div id="combat-hitmarker" class="combat-hitmarker hidden">
+          <span class="hm-tick hm-tl"></span>
+          <span class="hm-tick hm-tr"></span>
+          <span class="hm-tick hm-bl"></span>
+          <span class="hm-tick hm-br"></span>
+        </div>
         <div id="combat-respawn-banner" class="combat-respawn-banner hidden"></div>
         <div class="combat-hud-bottom">
           <div class="combat-hp-card">

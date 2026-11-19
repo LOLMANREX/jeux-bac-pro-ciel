@@ -14,7 +14,7 @@ import {
   ULTIMATE_SECRET_SKIN_ID,
   updateVoiceIndicatorSprite
 } from './AvatarBuilder.js';
-import { buildCombatWeaponMesh } from './CombatWeapons.js';
+import { animateCombatWeaponMesh, buildCombatWeaponMesh } from './CombatWeapons.js';
 import { buildPetMesh } from './PetBuilder.js';
 import { isShopPetId } from './ShopCatalog.js';
 
@@ -762,6 +762,9 @@ export class RemotePlayersManager {
       if (peer.combatWeaponId && peer.rightArm) {
         peer.rightArm.rotation.x =
           peer.combatAttackUntil && Date.now() < peer.combatAttackUntil ? -1.18 : -0.62;
+        if (peer.combatWeaponObj) {
+          animateCombatWeaponMesh(peer.combatWeaponObj, { elapsed });
+        }
       }
 
       peer.updateEffects?.(elapsed);

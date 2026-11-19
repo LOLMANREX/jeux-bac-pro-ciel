@@ -33,6 +33,7 @@ export class PlayerController {
     this.hasPointerLock = false;
     this.sensitivity = 1.0;
     this.touchSensitivity = 1.0;
+    this.adsSensitivityMultiplier = 1.0;
     this._activePointerId = null;
     this._pointerActive = false;
     this.cameraMode = 'first';
@@ -89,6 +90,11 @@ export class PlayerController {
     this.touchSensitivity = Math.max(0.4, Math.min(2.4, Number(val) || 1.0));
   }
 
+  setAdsSensitivityMultiplier(mult = 1.0) {
+    const n = Number(mult);
+    this.adsSensitivityMultiplier = Number.isFinite(n) ? Math.max(0.18, Math.min(1.0, n)) : 1.0;
+  }
+
   clearKeys() {
     this.keys.clear();
     this.virtualMove.right = 0;
@@ -122,7 +128,7 @@ export class PlayerController {
   lookDelta(dx, dy) {
     if (!this.enabled) return;
     const maxPitch = this.seated ? 1.15 : 1.1;
-    const sens = this.touchMode ? this.touchSensitivity : this.sensitivity;
+    const sens = (this.touchMode ? this.touchSensitivity : this.sensitivity) * this.adsSensitivityMultiplier;
     this.yaw -= dx * 0.0052 * sens;
     this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.0052 * sens));
     if (this.hidingInRack) {
@@ -292,7 +298,7 @@ export class PlayerController {
       const dx = e.clientX - this.lastMouse.x;
       const dy = e.clientY - this.lastMouse.y;
       this.lastMouse = { x: e.clientX, y: e.clientY };
-      const sens = e.pointerType === 'touch' ? this.touchSensitivity : this.sensitivity;
+      const sens = (e.pointerType === 'touch' ? this.touchSensitivity : this.sensitivity) * this.adsSensitivityMultiplier;
       this.yaw -= dx * 0.004 * sens;
       this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.004 * sens));
       if (this.hidingInRack) {
@@ -326,14 +332,16 @@ export class PlayerController {
       if (!this.enabled) return;
       const maxPitch = this.seated ? 1.15 : 1.1;
       if (document.pointerLockElement === this.canvas) {
-        this.yaw -= e.movementX * 0.0023 * this.sensitivity;
-        this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - e.movementY * 0.0023 * this.sensitivity));
+        const effSens = this.sensitivity * this.adsSensitivityMultiplier;
+        this.yaw -= e.movementX * 0.0023 * effSens;
+        this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - e.movementY * 0.0023 * effSens));
       } else if (this.dragging && !this._pointerActive) {
         const dx = e.clientX - this.lastMouse.x;
         const dy = e.clientY - this.lastMouse.y;
         this.lastMouse = { x: e.clientX, y: e.clientY };
-        this.yaw -= dx * 0.004 * this.sensitivity;
-        this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.004 * this.sensitivity));
+        const effSens = this.sensitivity * this.adsSensitivityMultiplier;
+        this.yaw -= dx * 0.004 * effSens;
+        this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch - dy * 0.004 * effSens));
       }
       if (this.hidingInRack) {
         this._clampHidingAngles();

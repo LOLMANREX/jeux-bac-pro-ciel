@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : "v4.28 - Baies de Brassage Perforées Immersives & Mini-Jeu Arène de Combat CIEL (Fusils & Mêlée)";
+    : "v4.29 - Correctif Désactivation Bots, Réticules Dynamiques, Visée ADS & Refonte 3D des 8 Armes CIEL";
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.28 — Baies de Brassage Perforées Immersives & Nouveau Mini-Jeu Arène de Combat CIEL (Fusils & Mêlée)',
+    version: 'v4.29 — Correctif Désactivation Bots, Réticules Dynamiques, Visée ADS avec Viseurs Dédiés & Refonte 3D des 8 Armes CIEL',
     date: '19/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'CORRECTIF BOTS IA',
+        title: 'Désactivation Réelle des Bots IA (0 Bot Garanti en Solo & Multijoueur) + Synchronisation Lobby 3D / VR',
+        desc: 'Correction définitive du verrou solo dans CombatEngine et synchronisation temps réel de botsEnabled côté serveur (wsHub) et clients (PC, Mobile, borne 3D dédiée dans le lobby et panneau spatial VR). Lorsque Bots IA est désactivé, strictement 0 bot IA apparaît dans l’arène pour s’entraîner librement en solo ou jouer en PvP pur entre amis.'
+      },
+      {
+        badge: 'CROSSHAIR & VISÉE ADS',
+        title: 'Réticules Dynamiques par Arme, Visée ADS (Clic Droit / Bouton Tactile / VR), Lunette Oscilloscope & Garde Mêlée',
+        desc: 'Réticule dynamique centré adapté à chaque arme (croix tactique cyan Fibre Optique, parenthèses de dispersion Pompe UDP, croix fine Sniper, réticule nerveux orange Plasma, arc de portée mêlée) avec masquage automatique en ADS et hitmarker net. Visée ADS fluide (zoom FOV, transition centrale du modèle, réduction de dispersion et de sensibilité) avec viseurs dédiés : viseur holographique réflexe 3D, viseur anneau néon, lunette d’oscilloscope plein écran graduée ms/div avec onde sinusoïdale animée et télémètre, mire 3 points phosphorescents et posture de Garde/Parade frontale en mêlée.'
+      },
+      {
+        badge: 'REFONTE 3D ARSENAL CIEL',
+        title: 'Reconstruction Détaillée des 8 Modèles 3D d’Armes avec Géométries & Matériaux Partagés',
+        desc: 'Refonte multi-pièces des 8 armes CIEL (FPS, 3e personne, bots et VR) : Fusil Fibre Optique à brins pulsants et viseur holo, Pompe Paquets UDP à garde-main animé et cartouches RJ45, Sniper Oscillo-Railgun à double rail cuivre/cyan et écran latéral, Pistolet Plasma à buse incandescente et mire 3 points, Fer à Souder ventilé, Pince RJ45 Géante à arc électrique, Katana RAM DDR5 à puces SMD et dissipateur RGB, et Marteau Switch 1U 24 Ports à LEDs clignotantes.'
+      }
+    ]
+  },
+  {
+    version: 'v4.28 — Baies de Brassage Perforées Immersives & Nouveau Mini-Jeu Arène de Combat CIEL (Fusils & Mêlée)',
+    date: '19/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'BAIES DE BRASSAGE 3D',

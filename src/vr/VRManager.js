@@ -5,7 +5,7 @@ import {
   DEFAULT_SKIN,
   disposeObject3D
 } from '../world/AvatarBuilder.js';
-import { buildCombatWeaponMesh, getCombatWeaponById } from '../world/CombatWeapons.js';
+import { animateCombatWeaponMesh, buildCombatWeaponMesh, getCombatWeaponById } from '../world/CombatWeapons.js';
 import { buildPetMesh } from '../world/PetBuilder.js';
 import { pickLabInteractable } from '../world/SceneManager.js';
 import { hasFullMapLineOfSight, pointCollidesWithColliders } from '../world/SurvivalEngine.js';
@@ -140,16 +140,26 @@ export class VRManager {
     this.combatCallbacks = null;
     this.combatWeaponObj = null;
     this.combatWeaponId = null;
+    this.combatAdsActive = false;
+    this.combatScopeZoomActive = false;
+    this.combatGuardActive = false;
+    this.combatReticleGroup = null;
+    this.combatReticleRing = null;
+    this.combatReticleDot = null;
+    this.combatReticleMat = null;
     this._combatLastAttackAt = 0;
     this._combatPrevRightTrigger = false;
     this._combatPrevRightGrip = false;
     this._combatPrevRightAction = false;
     this._combatPrevLeftAction = false;
+    this._combatPrevGuard = false;
     this._hasPrevRightHandPos = false;
     this._prevRightHandWorldPos = new THREE.Vector3();
     this._curRightHandWorldPos = new THREE.Vector3();
     this._combatAimOrigin = new THREE.Vector3();
     this._combatAimDir = new THREE.Vector3();
+    this._combatHeadPos = new THREE.Vector3();
+    this._combatHeadDir = new THREE.Vector3();
 
     this.raycaster = new THREE.Raycaster();
     this.tempMatrix = new THREE.Matrix4();
@@ -1019,9 +1029,59 @@ export class VRManager {
     return false;
   }
 
+  _ensureCombatReticle() {
+    if (this.combatReticleGroup) return this.combatReticleGroup;
+    const grp = new THREE.Group();
+    grp.name = 'vr-combat-reticle';
+    grp.position.set(0, 0, -2.4);
+    grp.visible = false;
+    const mat = new THREE.MeshBasicMaterial({
+      color: '#22d3ee',
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.88,
+      depthTest: false
+    });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.022, 0.032, 20), mat);
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.008, 12), mat);
+    grp.add(ring);
+    grp.add(dot);
+    this.slots.right.rayParent.add(grp);
+    this.combatReticleGroup = grp;
+    this.combatReticleRing = ring;
+    this.combatReticleDot = dot;
+    this.combatReticleMat = mat;
+    return grp;
+  }
+
+  _syncCombatReticleStyle(weaponId) {
+    const grp = this._ensureCombatReticle();
+    const spec = getCombatWeaponById(weaponId);
+    if (!spec || !this.combatActive) {
+      grp.visible = false;
+      return;
+    }
+    this.combatReticleMat.color.set(spec.beamColor || '#22d3ee');
+    if (spec.id === 'udp_shotgun') {
+      this.combatReticleRing.scale.setScalar(2.15);
+      this.combatReticleRing.visible = true;
+    } else if (spec.id === 'ping_sniper') {
+      this.combatReticleRing.scale.setScalar(0.85);
+      this.combatReticleRing.visible = true;
+    } else if (spec.mode === 'melee') {
+      this.combatReticleRing.scale.setScalar(1.3);
+      this.combatReticleRing.visible = true;
+    } else {
+      this.combatReticleRing.scale.setScalar(1.1);
+      this.combatReticleRing.visible = true;
+    }
+    grp.visible = true;
+  }
+
   setCombatWeaponModel(weaponId = null) {
     const cleanId = weaponId ? String(weaponId) : null;
     if (this.combatWeaponId === cleanId && Boolean(this.combatWeaponObj) === Boolean(cleanId)) {
+      this._syncCombatReticleStyle(cleanId);
       return this.combatWeaponObj;
     }
     if (this.combatWeaponObj) {
@@ -1030,11 +1090,15 @@ export class VRManager {
       this.combatWeaponObj = null;
     }
     this.combatWeaponId = cleanId;
-    if (!cleanId) return null;
+    if (!cleanId) {
+      if (this.combatReticleGroup) this.combatReticleGroup.visible = false;
+      return null;
+    }
     const obj = buildCombatWeaponMesh(cleanId, { viewModel: true });
     obj.group.position.set(0.01, -0.02, -0.08);
     this.slots.right.visualParent.add(obj.group);
     this.combatWeaponObj = obj;
+    this._syncCombatReticleStyle(cleanId);
     return obj;
   }
 
@@ -1046,10 +1110,15 @@ export class VRManager {
     this._combatPrevRightGrip = false;
     this._combatPrevRightAction = false;
     this._combatPrevLeftAction = false;
+    this._combatPrevGuard = false;
+    this.combatAdsActive = false;
+    this.combatScopeZoomActive = false;
+    this.combatGuardActive = false;
     if (!this.combatActive) {
       this.combatMode = 'guns';
       this.combatCallbacks = null;
       this.setCombatWeaponModel(null);
+      if (this.combatReticleGroup) this.combatReticleGroup.visible = false;
       this.wristPanel?.updateState?.({ combatStatus: null });
       return false;
     }
@@ -1061,13 +1130,20 @@ export class VRManager {
     return true;
   }
 
-  _updateCombatVr(dt, nowMs, leftState, rightState) {
+  _updateCombatVr(dt, nowMs, leftState, rightState, elapsed = 0) {
     if (!this.combatActive || !this.active || this.worldPanel || this.tpContext) {
       this._hasPrevRightHandPos = false;
+      this.combatAdsActive = false;
+      this.combatScopeZoomActive = false;
+      this.combatGuardActive = false;
+      if (this.combatReticleGroup) this.combatReticleGroup.visible = false;
       return;
     }
 
     const spec = getCombatWeaponById(this.combatWeaponId);
+    if (this.combatWeaponObj) {
+      animateCombatWeaponMesh(this.combatWeaponObj, { elapsed });
+    }
     const visualParent = this.slots.right.visualParent;
     visualParent.updateWorldMatrix?.(true, false);
     visualParent.getWorldPosition(this._curRightHandWorldPos);
@@ -1084,6 +1160,38 @@ export class VRManager {
     rayParent.getWorldPosition(this._combatAimOrigin);
     this.tempMatrix.extractRotation(rayParent.matrixWorld);
     this._combatAimDir.set(0, 0, -1).applyMatrix4(this.tempMatrix).normalize();
+
+    this.camera?.getWorldPosition?.(this._combatHeadPos);
+    this.camera?.getWorldDirection?.(this._combatHeadDir);
+    const handToHeadDist = this._curRightHandWorldPos.distanceTo(this._combatHeadPos);
+    const aimHeadDot = this._combatAimDir.dot(this._combatHeadDir);
+    const leftGripHeld = (leftState?.gripVal || 0) > 0.65;
+    const naturalSightAligned = handToHeadDist < 0.44 && aimHeadDot > 0.68;
+
+    if (this.combatMode === 'guns') {
+      this.combatAdsActive = Boolean(naturalSightAligned || leftGripHeld);
+      this.combatScopeZoomActive = Boolean(this.combatAdsActive && spec?.id === 'ping_sniper');
+      this.combatGuardActive = false;
+    } else {
+      this.combatAdsActive = false;
+      this.combatScopeZoomActive = false;
+      this.combatGuardActive = Boolean(leftGripHeld || (handToHeadDist < 0.46 && this._curRightHandWorldPos.y > this._combatHeadPos.y - 0.35));
+    }
+
+    if (this.combatGuardActive !== this._combatPrevGuard) {
+      this._combatPrevGuard = this.combatGuardActive;
+      this.combatCallbacks?.onGuardChange?.(this.combatGuardActive);
+    }
+
+    if (this.combatReticleGroup) {
+      this.combatReticleGroup.visible = !this.combatAdsActive || this.combatScopeZoomActive;
+      if (this.combatScopeZoomActive) {
+        this.combatReticleGroup.position.set(0, 0, -0.55);
+        this.combatReticleRing.scale.setScalar(1.65);
+      } else {
+        this.combatReticleGroup.position.set(0, 0, this.combatMode === 'melee' ? -1.4 : -2.4);
+      }
+    }
 
     const triggerNow = Boolean(rightState?.triggerPressed);
     const triggerJust = triggerNow && !this._combatPrevRightTrigger;
@@ -1142,7 +1250,8 @@ export class VRManager {
           y: this._combatAimDir.y,
           z: this._combatAimDir.z
         },
-        isVrSwing
+        isVrSwing,
+        ads: this.combatAdsActive
       });
     }
   }
@@ -2541,7 +2650,7 @@ export class VRManager {
     }
     this._updateSlotRayAndInteract(this.slots.left, leftState, dt, elapsed);
     this._updateSlotRayAndInteract(this.slots.right, rightState, dt, elapsed);
-    this._updateCombatVr(dt, nowMs, leftState, rightState);
+    this._updateCombatVr(dt, nowMs, leftState, rightState, elapsed);
     if (typeof this.options.getWorldInteractiveSurfaces === 'function') {
       const surfaces = this.options.getWorldInteractiveSurfaces() || [];
       for (const surf of surfaces) {

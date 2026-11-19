@@ -45,6 +45,13 @@ export function formatInteractAction(target) {
       fullLabel: lbl || 'Changer Mode (Fusils / Mêlée)'
     };
   }
+  if (target.type === 'combat_lobby_bots') {
+    return {
+      icon: '🤖',
+      shortLabel: 'Bots IA',
+      fullLabel: lbl || 'Activer / Désactiver les Bots IA'
+    };
+  }
   if (target.type === 'combat_lobby_ready') {
     return {
       icon: '⚔️',
@@ -87,10 +94,12 @@ export class TouchControls {
     this.btnMic = document.getElementById('touch-btn-mic');
     this.combatPadEl = document.getElementById('touch-combat-pad');
     this.btnCombatFire = document.getElementById('touch-btn-fire');
+    this.btnCombatAim = document.getElementById('touch-btn-aim');
     this.btnCombatReload = document.getElementById('touch-btn-reload');
     this.btnCombatWeaponNext = document.getElementById('touch-btn-weapon-next');
     this.combatModeActive = false;
     this.combatModeKind = 'guns';
+    this.combatAdsActive = false;
 
     this.visible = false;
     this.joyPointerId = null;
@@ -129,9 +138,14 @@ export class TouchControls {
     this.setInteractTarget(this.currentTarget);
   }
 
-  setCombatMode(active, { mode = 'guns', weaponShortName = '' } = {}) {
+  setCombatMode(active, { mode = 'guns', weaponShortName = '', adsActive = null } = {}) {
     this.combatModeActive = Boolean(active);
     this.combatModeKind = mode === 'melee' ? 'melee' : 'guns';
+    if (!this.combatModeActive) {
+      this.combatAdsActive = false;
+    } else if (typeof adsActive === 'boolean') {
+      this.combatAdsActive = adsActive;
+    }
     if (this.combatPadEl) {
       this.combatPadEl.classList.toggle('hidden', !(this.visible && this.combatModeActive));
     }
@@ -141,6 +155,13 @@ export class TouchControls {
       if (ico) ico.textContent = this.combatModeKind === 'melee' ? '⚔️' : '🔫';
       if (lbl) lbl.textContent = this.combatModeKind === 'melee' ? 'FRAPPER' : 'TIRER';
     }
+    if (this.btnCombatAim) {
+      const ico = this.btnCombatAim.querySelector('.tb-ico');
+      const lbl = this.btnCombatAim.querySelector('.tb-lbl');
+      if (ico) ico.textContent = this.combatModeKind === 'melee' ? '🛡️' : '🎯';
+      if (lbl) lbl.textContent = this.combatModeKind === 'melee' ? 'Garde' : 'Viser';
+      this.btnCombatAim.classList.toggle('active', this.combatAdsActive);
+    }
     if (this.btnCombatReload) {
       this.btnCombatReload.classList.toggle('hidden', this.combatModeKind === 'melee');
     }
@@ -148,6 +169,11 @@ export class TouchControls {
       const lbl = this.btnCombatWeaponNext.querySelector('.tb-lbl');
       if (lbl) lbl.textContent = weaponShortName ? String(weaponShortName).slice(0, 10) : 'Arme';
     }
+  }
+
+  setCombatAdsActive(active) {
+    this.combatAdsActive = Boolean(active);
+    this.btnCombatAim?.classList.toggle('active', this.combatAdsActive);
   }
 
   resetInputs() {
@@ -459,6 +485,12 @@ export class TouchControls {
 
     this._bindPressAction(this.btnCamera, () => {
       this.handlers.onToggleCamera?.();
+    });
+
+    this._bindPressAction(this.btnCombatAim, () => {
+      this.combatAdsActive = !this.combatAdsActive;
+      this.btnCombatAim?.classList.toggle('active', this.combatAdsActive);
+      this.handlers.onCombatToggleAds?.(this.combatAdsActive);
     });
 
     this._bindPressAction(this.btnCombatReload, () => {

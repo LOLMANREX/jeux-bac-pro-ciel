@@ -184,7 +184,13 @@ export class CombatMatchController {
 
     this.phase = 'idle';
     this.mode = 'guns';
-    this.fillBots = true;
+    const initialBots = options.botsEnabled !== undefined
+      ? Boolean(options.botsEnabled)
+      : options.fillBots !== undefined
+        ? Boolean(options.fillBots)
+        : true;
+    this.botsEnabled = initialBots;
+    this.fillBots = initialBots;
     this.matchId = 0;
     this.startedAt = 0;
     this.endsAt = 0;
@@ -245,9 +251,23 @@ export class CombatMatchController {
     return true;
   }
 
-  setFillBots(enabled = true) {
+  setBotsEnabled(enabled = true) {
     if (this.phase === 'active') return false;
-    this.fillBots = Boolean(enabled);
+    const next = Boolean(enabled);
+    this.botsEnabled = next;
+    this.fillBots = next;
+    return true;
+  }
+
+  setFillBots(enabled = true) {
+    return this.setBotsEnabled(enabled);
+  }
+
+  setPlayerGuard(playerId, guarding = false) {
+    if (this.phase !== 'active' || this.mode !== 'melee') return false;
+    const f = this.fighters.get(playerId);
+    if (!f || !f.alive) return false;
+    f.guarding = Boolean(guarding);
     return true;
   }
 
@@ -383,13 +403,16 @@ export class CombatMatchController {
         deaths: 0,
         streak: 0,
         bestStreak: 0,
-        damageDealt: 0
+        damageDealt: 0,
+        guarding: false
       });
     }
 
     const humanCount = this.fighters.size;
-    const targetBots = this.fillBots || humanCount === 1 ? Math.max(humanCount === 1 ? 3 : 0, this.botCount) : 0;
-    const neededBots = humanCount === 1 ? Math.max(3, targetBots) : targetBots;
+    const botsActive = Boolean(this.botsEnabled && this.fillBots);
+    const neededBots = botsActive
+      ? (humanCount === 1 ? Math.max(COMBAT_MIN_SOLO_BOTS, this.botCount) : this.botCount)
+      : 0;
     for (let b = 0; b < neededBots; b++) {
       const botId = `bot-${this.matchId}-${b + 1}`;
       const wSpec = modeWeapons[b % modeWeapons.length] || modeWeapons[0];
@@ -485,13 +508,30 @@ export class CombatMatchController {
 
   _applyDamage(attacker, victim, rawDamage, weaponSpec, headshot = false, now = Date.now()) {
     if (!victim.alive || now < victim.spawnProtectUntil) return null;
-    const dmg = Math.max(1, Math.round(rawDamage));
+    let finalRaw = rawDamage;
+    let guarded = false;
+    if (this.mode === 'melee' && victim.guarding) {
+      const toAtkX = attacker.x - victim.x;
+      const toAtkZ = attacker.z - victim.z;
+      const toLen = Math.hypot(toAtkX, toAtkZ);
+      if (toLen > 0.05) {
+        const vfX = -Math.sin(victim.yaw || 0);
+        const vfZ = -Math.cos(victim.yaw || 0);
+        const frontDot = (vfX * toAtkX + vfZ * toAtkZ) / toLen;
+        if (frontDot >= 0.2) {
+          finalRaw *= 0.5;
+          guarded = true;
+        }
+      }
+    }
+    const dmg = Math.max(1, Math.round(finalRaw));
     victim.hp = Math.max(0, victim.hp - dmg);
     attacker.damageDealt += dmg;
     const killed = victim.hp <= 0;
     if (killed) {
       victim.alive = false;
       victim.hp = 0;
+      victim.guarding = false;
       victim.respawnAt = now + this.respawnDelayMs;
       victim.deaths += 1;
       victim.streak = 0;
@@ -508,7 +548,8 @@ export class CombatMatchController {
       damage: dmg,
       remainingHp: victim.hp,
       killed,
-      headshot
+      headshot,
+      guarded
     };
   }
 
@@ -602,7 +643,8 @@ export class CombatMatchController {
 
     if (this.mode === 'guns') {
       const pellets = Math.max(1, spec.pellets || 1);
-      const spread = Number(spec.spread) || 0;
+      const adsMult = payload.ads ? (spec.ads?.spreadMult ?? 0.35) : 1;
+      const spread = (Number(spec.spread) || 0) * adsMult;
       const rightX = -dz;
       const rightZ = dx;
       const rLen = Math.hypot(rightX, rightZ) || 1;
@@ -938,7 +980,8 @@ export class CombatMatchController {
       reloading: Boolean(f.reloadingUntil > now),
       kills: f.kills,
       deaths: f.deaths,
-      streak: f.streak
+      streak: f.streak,
+      guarding: Boolean(f.guarding)
     }));
 
     const timeLeftSec =
@@ -951,7 +994,8 @@ export class CombatMatchController {
       phase: this.phase,
       mode: this.mode,
       modeMeta: COMBAT_MODES[this.mode] || COMBAT_MODES.guns,
-      fillBots: this.fillBots,
+      botsEnabled: Boolean(this.botsEnabled),
+      fillBots: Boolean(this.botsEnabled),
       matchId: this.matchId,
       minPlayers: this.minPlayers,
       killLimit: this.killLimit,

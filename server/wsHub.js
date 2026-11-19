@@ -1894,15 +1894,29 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           break;
         }
 
-        case 'combat_fill_bots': {
+        case 'combat_fill_bots':
+        case 'combat_bots_toggle': {
           if (!state.name) return;
           const ctrl = getCombatController(state.room);
-          if (ctrl.setFillBots(Boolean(msg.fillBots))) {
+          const nextBots =
+            msg.botsEnabled !== undefined
+              ? Boolean(msg.botsEnabled)
+              : msg.fillBots !== undefined
+                ? Boolean(msg.fillBots)
+                : !ctrl.botsEnabled;
+          if (ctrl.setBotsEnabled(nextBots)) {
             broadcastToRoom(state.room, {
               type: 'combat_state',
               state: ctrl.getPublicSnapshot()
             });
           }
+          break;
+        }
+
+        case 'combat_guard': {
+          if (!state.name) return;
+          const ctrl = getCombatController(state.room);
+          ctrl.setPlayerGuard(state.id, Boolean(msg.guarding));
           break;
         }
 
@@ -1943,10 +1957,10 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           if (!state.name) return;
           const ctrl = getCombatController(state.room);
           const prevMode = ctrl.mode;
-          const prevBots = ctrl.fillBots;
+          const prevBots = ctrl.botsEnabled;
           ctrl.resetToIdle();
           ctrl.setMode(prevMode);
-          ctrl.setFillBots(prevBots);
+          ctrl.setBotsEnabled(prevBots);
           ctrl.joinLobby({
             id: state.id,
             name: state.name,

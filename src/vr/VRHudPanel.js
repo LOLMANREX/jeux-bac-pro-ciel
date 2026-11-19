@@ -2130,7 +2130,7 @@ export function createTpSpatialPanel() {
     if (mode === 'combat_lobby' && state.combatLobby) {
       const cl = state.combatLobby;
       const combatMode = cl.mode === 'melee' ? 'melee' : 'guns';
-      const fillBots = cl.fillBots !== false;
+      const botsEnabled = cl.botsEnabled !== undefined ? Boolean(cl.botsEnabled) : cl.fillBots !== false;
       const weapons = Array.isArray(cl.weapons) ? cl.weapons : [];
       const players = Array.isArray(cl.players) ? cl.players : [];
 
@@ -2144,9 +2144,10 @@ export function createTpSpatialPanel() {
         fontSize: 23,
         onClick: () => cl.onSelectMode?.('melee')
       });
-      addBtn('vr_cbt_bots', 848, 78, 396, 74, fillBots ? '🤖 Bots IA : ON' : '🤖 Bots IA : OFF', {
-        active: fillBots,
-        fontSize: 22,
+      addBtn('vr_cbt_bots', 848, 78, 396, 74, botsEnabled ? '🤖 Bots IA : ACTIVÉS' : '🤖 Bots IA : DÉSACTIVÉS', {
+        active: botsEnabled,
+        danger: !botsEnabled,
+        fontSize: 21,
         onClick: () => cl.onToggleBots?.()
       });
 
@@ -2176,10 +2177,10 @@ export function createTpSpatialPanel() {
         ctx.strokeStyle = '#22d3ee';
         ctx.stroke();
 
-        ctx.fillStyle = '#bae6fd';
+        ctx.fillStyle = botsEnabled ? '#6ee7b7' : '#fca5a5';
         ctx.font = 'bold 22px system-ui, sans-serif';
         ctx.fillText(
-          `Mode ${combatMode === 'melee' ? 'Mêlée ⚔️' : 'Fusils 🔫'} • ${fillBots ? 'Solo + Bots IA CIEL ou PvP' : 'PvP Multijoueur'}`,
+          `Mode ${combatMode === 'melee' ? 'Mêlée ⚔️' : 'Fusils 🔫'} • ${botsEnabled ? 'Bots IA : ACTIVÉS (3+ bots)' : 'Bots IA : DÉSACTIVÉS (0 bot — Solo / PvP Pur)'}`,
           62,
           368
         );

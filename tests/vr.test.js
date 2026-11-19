@@ -1976,6 +1976,29 @@ test('VR WebXR v4.28 : Baie de brassage perforée sans voile opaque & Arène de 
     assert.ok(endHits.has('vr_cbt_replay'));
     assert.ok(endHits.has('vr_cbt_exit'));
 
+    vr.closeWorldSpatialPanel();
+    vr.setCombatMode(true, {
+      mode: 'guns',
+      weaponId: 'ping_sniper',
+      callbacks: {
+        onAttack: (payload) => attacks.push(payload),
+        onReload: () => {
+          reloads += 1;
+        },
+        onCycleWeapon: () => {
+          cycles += 1;
+        }
+      }
+    });
+    assert.ok(vr.combatReticleGroup);
+    vr.simRightPivot.position.set(0, -0.04, -0.22);
+    vr.simRightPivot.rotation.set(0, 0, 0);
+    vr.simRightPivot.updateMatrixWorld?.(true);
+    vr.update(0.05, 0.45, 3100);
+    assert.equal(vr.combatWeaponId, 'ping_sniper');
+    assert.equal(vr.combatAdsActive, true);
+    assert.equal(vr.combatScopeZoomActive, true);
+
     vr.setCombatMode(false);
     assert.equal(vr.combatWeaponObj, null);
     assert.equal(vr.wristPanel.getState().combatStatus, null);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { animateAvatarLimbs, buildStudentAvatarMesh, disposeObject3D } from './AvatarBuilder.js';
-import { buildCombatWeaponMesh, COMBAT_MODES, getCombatWeaponById } from './CombatWeapons.js';
+import { animateCombatWeaponMesh, buildCombatWeaponMesh, COMBAT_MODES, getCombatWeaponById } from './CombatWeapons.js';
 import {
   COMBAT_ARENA_BOUNDS,
   COMBAT_ARENA_CENTER,
@@ -160,7 +160,8 @@ export function createCombatPocketRooms(scene) {
     const base = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.12, 0.72), consoleMat);
     base.position.set(x, 0.56, z);
     staticGroup.add(base);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.08, 0.54), new THREE.MeshBasicMaterial({ color: topColor }));
+    const capMat = new THREE.MeshBasicMaterial({ color: topColor });
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.08, 0.54), capMat);
     cap.position.set(x, 1.16, z);
     staticGroup.add(cap);
     return {
@@ -169,14 +170,17 @@ export function createCombatPocketRooms(scene) {
       label,
       position: new THREE.Vector3(x, 0, z),
       interactRadius: 2.5,
-      mesh: base
+      mesh: base,
+      capMat
     };
   };
 
+  const botsConsole = buildConsole(wc.x - 1.1, wc.z - 2.8, '#10b981', 'combat-lobby-bots', 'combat_lobby_bots', '[E] 🤖 Bots IA : ACTIVÉS');
   const waitingInteractables = [
-    buildConsole(wc.x - 2.6, wc.z - 2.8, '#06b6d4', 'combat-lobby-mode', 'combat_lobby_mode', '[E] 🔄 Changer Mode (Fusils / Mêlée)'),
-    buildConsole(wc.x, wc.z - 2.8, '#10b981', 'combat-lobby-ready', 'combat_lobby_ready', '[E] ⚔️ Prêt / Lancer l’Arène'),
-    buildConsole(wc.x + 2.6, wc.z - 2.8, '#f43f5e', 'combat-lobby-exit', 'combat_lobby_exit', '[E] 🚪 Quitter le Lobby Combat')
+    buildConsole(wc.x - 3.3, wc.z - 2.8, '#06b6d4', 'combat-lobby-mode', 'combat_lobby_mode', '[E] 🔄 Changer Mode (Fusils / Mêlée)'),
+    botsConsole,
+    buildConsole(wc.x + 1.1, wc.z - 2.8, '#10b981', 'combat-lobby-ready', 'combat_lobby_ready', '[E] ⚔️ Prêt / Lancer l’Arène'),
+    buildConsole(wc.x + 3.3, wc.z - 2.8, '#f43f5e', 'combat-lobby-exit', 'combat_lobby_exit', '[E] 🚪 Quitter le Lobby Combat')
   ];
 
   const ac = COMBAT_ARENA_CENTER;
@@ -371,6 +375,13 @@ export function createCombatPocketRooms(scene) {
   }
 
   function updateWaitingBoard(snapshot, force = false) {
+    const botsEnabled = snapshot?.botsEnabled !== undefined ? Boolean(snapshot.botsEnabled) : snapshot?.fillBots !== false;
+    if (botsConsole?.capMat) {
+      botsConsole.capMat.color.set(botsEnabled ? '#10b981' : '#ef4444');
+    }
+    if (botsConsole) {
+      botsConsole.label = botsEnabled ? '[E] 🤖 Bots IA : ACTIVÉS (Désactiver)' : '[E] 🤖 Bots IA : DÉSACTIVÉS (Activer)';
+    }
     if (!lobbyScreen?.ctx || !lobbyScreen?.tex) return;
     const now = Date.now();
     if (!force && now - lastLobbyDrawMs < 160) return;
@@ -396,11 +407,10 @@ export function createCombatPocketRooms(scene) {
     ctx.font = 'bold 26px system-ui, sans-serif';
     ctx.fillText(`Mode Actif : ${modeMeta.icon} ${modeMeta.label}`, 36, 106);
 
-    const fillBots = snapshot?.fillBots !== false;
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '20px system-ui, sans-serif';
+    ctx.fillStyle = botsEnabled ? '#6ee7b7' : '#fca5a5';
+    ctx.font = 'bold 20px system-ui, sans-serif';
     ctx.fillText(
-      `Objectif : 10 éliminations ou 2m30 • ${fillBots ? 'Bots IA CIEL activés en renfort' : 'PvP Pur sans bots'}`,
+      `Objectif : 10 éliminations ou 2m30 • ${botsEnabled ? 'Bots IA : ACTIVÉS (3+ bots)' : 'Bots IA : DÉSACTIVÉS (0 bot — Solo / PvP Pur)'}`,
       36,
       142
     );
@@ -551,6 +561,9 @@ export function createCombatPocketRooms(scene) {
       } else {
         entry.avatar.rightArm.rotation.x = -0.58;
       }
+      if (entry.weaponObj) {
+        animateCombatWeaponMesh(entry.weaponObj, { elapsed });
+      }
     }
 
     for (const [botId, entry] of botAvatars.entries()) {
@@ -586,9 +599,10 @@ export function createCombatPocketRooms(scene) {
         height: waitH
       },
       colliders: [
-        { minX: wc.x - 3.15, maxX: wc.x - 2.05, minZ: wc.z - 3.2, maxZ: wc.z - 2.4 },
-        { minX: wc.x - 0.55, maxX: wc.x + 0.55, minZ: wc.z - 3.2, maxZ: wc.z - 2.4 },
-        { minX: wc.x + 2.05, maxX: wc.x + 3.15, minZ: wc.z - 3.2, maxZ: wc.z - 2.4 }
+        { minX: wc.x - 3.85, maxX: wc.x - 2.75, minZ: wc.z - 3.2, maxZ: wc.z - 2.4 },
+        { minX: wc.x - 1.65, maxX: wc.x - 0.55, minZ: wc.z - 3.2, maxZ: wc.z - 2.4 },
+        { minX: wc.x + 0.55, maxX: wc.x + 1.65, minZ: wc.z - 3.2, maxZ: wc.z - 2.4 },
+        { minX: wc.x + 2.75, maxX: wc.x + 3.85, minZ: wc.z - 3.2, maxZ: wc.z - 2.4 }
       ],
       interactables: waitingInteractables
     };

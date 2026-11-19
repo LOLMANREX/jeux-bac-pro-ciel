@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify("v4.28 - Baies de Brassage Perforées Immersives & Mini-Jeu Arène de Combat CIEL (Fusils & Mêlée)"),
+    __APP_VERSION__: JSON.stringify("v4.29 - Correctif Désactivation Bots, Réticules Dynamiques, Visée ADS & Refonte 3D des 8 Armes CIEL"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {
