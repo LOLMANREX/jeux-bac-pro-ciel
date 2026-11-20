@@ -1,5 +1,6 @@
 import './styles/main.css';
 import './styles/minigames.css';
+import './styles/tablet.css';
 
 import * as THREE from 'three';
 import { sfx } from './core/audio.js';
@@ -80,6 +81,7 @@ import { FaqModal } from './ui/FaqModal.js';
 import { BattlePassModal } from './ui/BattlePassModal.js';
 import { buildShopViewModel, ShopModal } from './ui/ShopModal.js';
 import { buildLockerViewModel, LockerModal } from './ui/LockerModal.js';
+import { TabletOS, shouldHandleTabShortcut } from './ui/TabletOS.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
 import { getCielOsTouchLayout } from './minigames/TouchTpHelpers.js';
 import { VariationTableSession } from './minigames/VariationTableGame.js';
@@ -268,6 +270,9 @@ let faqModal = null;
 let battlePassModal = null;
 let shopModal = null;
 let lockerModal = null;
+let tabletOS = null;
+let activeCampusWaypoint = null;
+let lastTabletMapSyncAt = 0;
 let vrShopCategory = 'skins';
 let vrShopSelectedId = null;
 let vrShopFeedback = null;
@@ -293,6 +298,8 @@ function handleCoinReward({
   hud?.refresh?.();
   shopModal?.refresh?.();
   lockerModal?.refresh?.();
+  tabletOS?.refresh?.();
+  refreshVrTabletSpatialPanel?.();
   mainMenu?.syncPlayerBadge?.();
   if (n <= 0) {
     syncVrWatchHud();
@@ -489,6 +496,7 @@ function buildVrLockerPanelPayload() {
 function openShopUi(initialCategory = 'skins', initialItemId = null) {
   hud?.closeSettings?.();
   lockerModal?.close?.();
+  tabletOS?.close?.({ restoreControls: false });
   if (typeof document !== 'undefined' && document.pointerLockElement) {
     document.exitPointerLock?.();
   }
@@ -510,6 +518,7 @@ function openShopUi(initialCategory = 'skins', initialItemId = null) {
 function openLockerUi(initialCategory = 'skins') {
   hud?.closeSettings?.();
   shopModal?.close?.();
+  tabletOS?.close?.({ restoreControls: false });
   if (typeof document !== 'undefined' && document.pointerLockElement) {
     document.exitPointerLock?.();
   }
@@ -581,6 +590,7 @@ vrManager = new VRManager(sceneMgr, player, {
   onToggleMic: () => voiceChat.toggleMicrophone(),
   onOpenShop: () => openShopUi('skins'),
   onOpenLocker: () => openLockerUi('skins'),
+  onOpenTablet: () => openTabletUi(),
   onOpenChangelog: () => changelogModal?.open?.(),
   onEnterVr: () => {
     activeCameraTweenId++;
@@ -593,6 +603,7 @@ vrManager = new VRManager(sceneMgr, player, {
     battlePassModal?.close?.();
     shopModal?.close?.();
     lockerModal?.close?.();
+    tabletOS?.close?.({ restoreControls: false });
     dialogueModal?.close?.();
     hud?.hideIntroCinematic?.();
     hud?.hideAscensionDialogue?.();
@@ -610,6 +621,7 @@ vrManager = new VRManager(sceneMgr, player, {
     if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
       miniGameModal.close();
     }
+    vrManager.closeTabletSpatialPanel?.();
     closeCielOsPc({ restoreCamera: false });
     if (typeof document !== 'undefined' && document.body?.classList) {
       document.body.classList.add('vr-presenting');
@@ -667,6 +679,7 @@ vrManager = new VRManager(sceneMgr, player, {
     if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
       miniGameModal.close();
     }
+    vrManager.closeTabletSpatialPanel?.();
     closeCielOsPc({ restoreCamera: false });
     player.setVrMode?.(false);
     localAvatar?.setFirstPersonVrHidden?.(false);
@@ -861,6 +874,170 @@ try {
   });
 } catch (err) {
   console.warn('Modale Casier:', err);
+}
+
+function isOtherModalBlockingTablet() {
+  return Boolean(
+    activeCinematic ||
+      survivalState.introActive ||
+      survivalState.inWaitingRoom ||
+      combatState.inWaitingRoom ||
+      hud?.isSettingsOpen?.() ||
+      hud?.isSkinOpen?.() ||
+      hud?.isLeaderboardOpen?.() ||
+      shopModal?.isOpen?.() ||
+      lockerModal?.isOpen?.() ||
+      battlePassModal?.isOpen?.() ||
+      changelogModal?.isOpen?.() ||
+      faqModal?.isOpen?.() ||
+      platformModal?.isOpen?.() ||
+      (dialogueModal?.backdrop && !dialogueModal.backdrop.classList.contains('hidden')) ||
+      (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden'))
+  );
+}
+
+function buildVrTabletPanelPayload(extra = {}) {
+  const curFloor = player.getCurrentFloor();
+  return {
+    title: '📱 TABLETTE INTERACTIVE CIEL',
+    playerName: gameState.account?.username || gameState.profile?.name || 'Eleve_CIEL',
+    connectionState: hud?.lastConnectionState || (network.connected ? 'connected' : 'solo'),
+    onlineCount: hud?.lastOnlineCount || 1,
+    pingMs: network.lastPingMs,
+    coins: Math.max(0, Math.floor(Number(gameState.coins ?? gameState.profile?.coins) || 0)),
+    batteryPct: tabletOS?.batteryPct ?? 96,
+    formativeProgress: gameState.formativeProgress || {},
+    formativeRewardedTps: gameState.formativeRewardedTps || [],
+    grades: gameState.profile?.grades || {},
+    gameState,
+    mapData: currentMapData,
+    playerPos: { x: player.position.x, y: player.getFeetY(), z: player.position.z },
+    playerYaw: player.yaw,
+    playerFloor: curFloor,
+    peers: remotePlayers.getMiniMapPeers(),
+    teacherPos: getTeacherPosFromMap(currentMapData),
+    waypoint: activeCampusWaypoint,
+    onWaypointChange: (wp) => {
+      activeCampusWaypoint = wp || null;
+      tabletOS?.setWaypoint?.(activeCampusWaypoint);
+      syncVrWatchHud();
+    },
+    onSubmitFormativeAnswer: async (tpId, _qId, _val, nextAnswers) => {
+      const playerName = gameState.account?.username || gameState.profile?.name || 'Eleve_CIEL';
+      const res = await network.submitFormativeProgress(tpId, nextAnswers, playerName);
+      if (res?.ok) {
+        if (res.profile) {
+          gameState.setProfile(res.profile);
+        }
+        if (res.coinsEarned > 0 || res.xpEarned > 0) {
+          handleCoinReward({
+            coinsEarned: res.coinsEarned,
+            source: 'formative',
+            label: res.tpTitle || 'TP CIEL Formative',
+            profile: res.profile
+          });
+          hud?.toast?.(`🎉 TP Formative validé ! +${res.coinsEarned} 🪙 CC • +${res.xpEarned} XP`, 'success');
+        }
+        refreshVrTabletSpatialPanel();
+      }
+    },
+    onClose: () => {
+      vrManager?.closeTabletSpatialPanel?.();
+    },
+    ...extra
+  };
+}
+
+function refreshVrTabletSpatialPanel() {
+  if (!vrManager?.isVrActive?.() || !vrManager?.isTabletSpatialPanelOpen?.()) return;
+  vrManager.updateTabletSpatialPanel(buildVrTabletPanelPayload());
+}
+
+function openTabletUi(appId = null) {
+  if (!joined) return false;
+  hud?.closeSettings?.();
+  shopModal?.close?.();
+  lockerModal?.close?.();
+  if (typeof document !== 'undefined' && document.pointerLockElement) {
+    document.exitPointerLock?.();
+  }
+  if (vrManager?.isVrActive?.()) {
+    vrManager.openTabletSpatialPanel(buildVrTabletPanelPayload(appId ? { app: appId } : {}));
+    return true;
+  }
+  if (!tabletOS) return false;
+  tabletOS.open(appId);
+  return true;
+}
+
+function toggleTabletUi() {
+  if (!joined) return false;
+  if (vrManager?.isVrActive?.()) {
+    if (vrManager.isTabletSpatialPanelOpen?.()) {
+      vrManager.closeTabletSpatialPanel();
+      return false;
+    }
+    return openTabletUi();
+  }
+  if (!tabletOS) return false;
+  if (tabletOS.isOpen()) {
+    tabletOS.close();
+    return false;
+  }
+  return openTabletUi();
+}
+
+try {
+  tabletOS = new TabletOS({
+    gameState,
+    network,
+    mapData: currentMapData,
+    onOpen: () => {
+      hud?.closeSettings?.();
+      shopModal?.close?.();
+      lockerModal?.close?.();
+      combatState.fireHeld = false;
+      player.clearKeys?.();
+      if (typeof document !== 'undefined' && document.pointerLockElement) {
+        document.exitPointerLock?.();
+      }
+      if (joined) {
+        setModalActive(true, false, false);
+      }
+    },
+    onClose: ({ restoreControls = true } = {}) => {
+      if (restoreControls && joined && !isOtherModalBlockingTablet()) {
+        setModalActive(false, false, false);
+      }
+    },
+    onFormativeReward: (res) => {
+      handleCoinReward({
+        coinsEarned: res?.coinsEarned || 0,
+        source: 'formative',
+        label: res?.tpTitle || 'TP CIEL Formative',
+        profile: res?.profile || null
+      });
+      if (res?.coinsEarned > 0 || res?.xpEarned > 0) {
+        hud?.toast?.(
+          `🎉 TP Formative validé ! +${res.coinsEarned || 0} 🪙 CC • +${res.xpEarned || 0} XP`,
+          'success'
+        );
+      }
+    },
+    onWaypointChange: (wp) => {
+      activeCampusWaypoint = wp || null;
+      syncVrWatchHud();
+    },
+    onSelectTpStation: (tpId) => {
+      if (tpId) {
+        tabletOS?.close?.();
+        teleportNearTarget(tpId);
+      }
+    },
+    onToast: (msg, type) => hud?.toast?.(msg, type)
+  });
+} catch (err) {
+  console.warn('Tablette CIEL indisponible:', err);
 }
 
 lab.setArcadeGameEndHandler?.(async ({ gameId, score, difficulty, won, elapsedSec, desktop }) => {
@@ -2789,6 +2966,8 @@ function syncVrWatchHud(extra = {}) {
     connectionState: hud?.lastConnectionState || (network.connected ? 'connected' : 'solo'),
     onlineCount: hud?.lastOnlineCount || 1,
     pingMs: network.lastPingMs,
+    floor: player.getCurrentFloor(),
+    waypoint: activeCampusWaypoint,
     ...survExtra,
     ...combatExtra,
     ...extra
@@ -3308,6 +3487,7 @@ function applyMapData(rawMap, liveUpdate = false) {
   }
   hud?.miniMap?.setMapData?.(currentMapData);
   hud?.setMapData?.(currentMapData);
+  tabletOS?.setMapData?.(currentMapData);
   syncWallLeaderboard();
 
   if (liveUpdate && joined) {
@@ -3955,6 +4135,8 @@ hud = new HudManager(gameState, network, {
   },
   onOpenShop: () => openShopUi('skins'),
   onOpenLocker: () => openLockerUi('skins'),
+  onOpenTablet: () => openTabletUi(),
+  onCloseTablet: (opts) => tabletOS?.close?.(opts) || false,
   onCloseLocker: () => lockerModal?.close?.() || false,
   onRefreshLocker: () => lockerModal?.refresh?.(),
   onOpenChangelog: () => changelogModal?.open?.(),
@@ -4288,6 +4470,9 @@ try {
     onToggleCamera: () => {
       if (joined && !modalOpen) toggleCameraMode();
     },
+    onToggleTablet: () => {
+      if (joined && !subModalActive && !isDetentionSeatedActive()) toggleTabletUi();
+    },
     onTapLookZone: (x, y) => {
       if (joined && !modalOpen) tryRaycastInteract(x, y);
     },
@@ -4334,6 +4519,8 @@ try {
 function returnToMainMenu(isLogout = false) {
   activeCameraTweenId++;
   tpOpenSeqId++;
+  tabletOS?.close?.({ restoreControls: false });
+  activeCampusWaypoint = null;
   closeCielOsPc({ restoreCamera: false });
   if (vrManager?.isVrActive?.()) {
     vrManager.exitVr();
@@ -4383,6 +4570,12 @@ let notifiedNetError = false;
 
 network.on('status', (status) => {
   hud.setNetworkStatus(status);
+  tabletOS?.setConnectionStatus?.({
+    state: status?.state || (status?.connected ? 'connected' : 'solo'),
+    connected: Boolean(status?.connected),
+    room: gameState.room,
+    pingMs: network.lastPingMs
+  });
   if (status.state === 'reconnecting' && !notifiedNetError) {
     notifiedNetError = true;
     hud.toast(
@@ -4395,6 +4588,12 @@ network.on('status', (status) => {
 network.on('pong', ({ onlineCount }) => {
   if (typeof onlineCount === 'number') {
     hud.setNetworkStatus({ state: 'connected', connected: true }, onlineCount);
+    tabletOS?.setConnectionStatus?.({
+      state: 'connected',
+      connected: true,
+      onlineCount,
+      pingMs: network.lastPingMs
+    });
   }
 });
 
@@ -4410,6 +4609,8 @@ network.on('welcome', (msg) => {
   battlePassModal?.refresh?.();
   shopModal?.refresh?.();
   lockerModal?.refresh?.();
+  tabletOS?.refresh?.();
+  refreshVrTabletSpatialPanel?.();
   lab.setLocalCoins?.(gameState.coins);
   mainMenu?.syncAuthUi?.();
   mainMenu?.renderSkinUi?.();
@@ -4422,6 +4623,14 @@ network.on('welcome', (msg) => {
   remotePlayers.syncLeaderboardRanks(msg.leaderboard || []);
   syncWallLeaderboard(msg.leaderboard || []);
   hud.setNetworkStatus({ state: 'connected', connected: true }, msg.onlineCount);
+  tabletOS?.setConnectionStatus?.({
+    state: 'connected',
+    connected: true,
+    onlineCount: msg.onlineCount,
+    room: gameState.room,
+    pingMs: network.lastPingMs
+  });
+  tabletOS?.refresh?.();
   hud.clearChat();
   (msg.chatHistory || []).forEach((m) => hud.appendChatMessage(m, false));
   voiceChat.onRoomJoined(msg.peers || []);
@@ -4471,6 +4680,14 @@ network.on('room_switched', (msg) => {
   remotePlayers.syncLeaderboardRanks(gameState.leaderboard || []);
   gameState.setRoomRoster(msg.roomRoster || []);
   hud.setNetworkStatus({ state: 'connected', connected: true }, msg.onlineCount);
+  tabletOS?.setConnectionStatus?.({
+    state: 'connected',
+    connected: true,
+    onlineCount: msg.onlineCount,
+    room: gameState.room,
+    pingMs: network.lastPingMs
+  });
+  tabletOS?.refresh?.();
   hud.clearChat();
   (msg.chatHistory || []).forEach((m) => hud.appendChatMessage(m, false));
   voiceChat.onRoomJoined(msg.peers || []);
@@ -4502,6 +4719,8 @@ network.on('profile_updated', ({ profile }) => {
   battlePassModal?.refresh?.();
   shopModal?.refresh?.();
   lockerModal?.refresh?.();
+  tabletOS?.refresh?.();
+  refreshVrTabletSpatialPanel?.();
   lab.setLocalCoins?.(gameState.coins);
   mainMenu?.syncAuthUi?.();
   mainMenu?.renderSkinUi?.();
@@ -4517,6 +4736,7 @@ network.on('coins_earned', (msg) => {
     survival: msg?.outcome === 'victory' ? 'Victoire Survie' : 'Survie Horreur',
     detention: 'Tableau de variation',
     combat: msg?.won ? 'Victoire Arène Combat' : 'Arène Combat CIEL',
+    formative: 'TP CIEL Formative',
     arcade: msg?.isNewRecord ? 'Nouveau Record !' : msg?.gameLabel || 'Mini-Jeu PC',
     debug: 'Debug'
   };
@@ -4545,6 +4765,8 @@ network.on('profile_reset', ({ profile, message }) => {
   battlePassModal?.refresh?.();
   shopModal?.refresh?.();
   lockerModal?.refresh?.();
+  tabletOS?.refresh?.();
+  refreshVrTabletSpatialPanel?.();
   lab.setLocalCoins?.(gameState.coins);
   mainMenu?.syncAuthUi?.();
   mainMenu?.renderSkinUi?.();
@@ -5129,6 +5351,7 @@ window.addEventListener('keydown', (e) => {
 
   if (e.code === 'Escape' && !subModalActive) {
     if (
+      tabletOS?.close?.() ||
       battlePassModal?.closeTrollModal?.() ||
       battlePassModal?.close?.() ||
       shopModal?.close?.() ||
@@ -5159,17 +5382,21 @@ window.addEventListener('keydown', (e) => {
       return;
     }
     if (
-      !hud.isSettingsOpen() &&
-      !hud.isSkinOpen() &&
-      !shopModal?.isOpen?.() &&
-      !battlePassModal?.isOpen?.() &&
-      !changelogModal?.isOpen?.() &&
-      !faqModal?.isOpen?.() &&
-      !platformModal?.isOpen?.()
+      shouldHandleTabShortcut({
+        joined,
+        isTyping,
+        subModalActive,
+        isDetentionSeated: isDetentionSeatedActive(),
+        isOtherModalOpen: isOtherModalBlockingTablet(),
+        inCombatMatch: combatState.inActiveMatch,
+        tabletOpen: Boolean(tabletOS?.isOpen?.())
+      })
     ) {
       e.preventDefault();
-      sfx.click();
-      hud.toggleLeaderboard();
+      if (!e.repeat) {
+        sfx.click();
+        toggleTabletUi();
+      }
       return;
     }
   }
@@ -5891,8 +6118,36 @@ sceneMgr.addUpdater((dt, elapsed) => {
       playerYaw: player.yaw,
       currentZone,
       peers: remotePlayers.getMiniMapPeers(),
-      floor: curFloor
+      floor: curFloor,
+      waypoint: activeCampusWaypoint
     });
+  }
+
+  if (
+    (tabletOS?.isOpen?.() || (vrOn && vrManager?.isTabletSpatialPanelOpen?.())) &&
+    elapsed - lastTabletMapSyncAt >= 0.1
+  ) {
+    lastTabletMapSyncAt = elapsed;
+    const livePayload = {
+      playerPos: { x: player.position.x, y: feetY, z: player.position.z },
+      playerYaw: player.yaw,
+      playerFloor: curFloor,
+      currentZone,
+      peers: remotePlayers.getMiniMapPeers(),
+      teacherPos: getTeacherPosFromMap(currentMapData)
+    };
+    if (tabletOS?.isOpen?.()) {
+      tabletOS.updateLiveMap(livePayload);
+    }
+    if (vrOn && vrManager?.isTabletSpatialPanelOpen?.()) {
+      vrManager.updateTabletSpatialPanel({
+        ...livePayload,
+        coins: Math.max(0, Math.floor(Number(gameState.coins ?? gameState.profile?.coins) || 0)),
+        connectionState: hud?.lastConnectionState || (network.connected ? 'connected' : 'solo'),
+        onlineCount: hud?.lastOnlineCount || 1,
+        pingMs: network.lastPingMs
+      });
+    }
   }
 
   if (!vrOn && gameState.perfMonitor && elapsed - lastPerfMonAt >= 0.25) {
@@ -6037,6 +6292,7 @@ window.addEventListener('beforeunload', () => {
   }
   shopModal?.preview?.dispose?.();
   lockerModal?.preview?.dispose?.();
+  tabletOS?.destroy?.();
   network.disconnect?.();
 });
 

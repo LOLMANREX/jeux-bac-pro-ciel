@@ -10,8 +10,13 @@ import {
   ALL_TP_IDS,
   TP_IDS,
   TP_LABELS,
-  hasAllTpsAt20InScores
+  hasAllTpsAt20InScores,
+  sanitizeName
 } from './store.js';
+import {
+  FORMATIVE_POLES,
+  FORMATIVE_TP_CATALOG
+} from '../src/core/formativeCatalog.js';
 import {
   SHOP_CATALOG,
   SHOP_CATEGORIES,
@@ -246,9 +251,9 @@ export function createGameServer(options = {}) {
     });
   });
 
-  const resolveAuthorizedEconomyTarget = (req) => {
+  const resolveAuthorizedEconomyTarget = (req, rawCandidateName = req.body?.name) => {
     const tokenUser = resolveStudentFromRequest(req);
-    const bodyName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const bodyName = typeof rawCandidateName === 'string' ? rawCandidateName.trim() : '';
     if (tokenUser) {
       const lowerBody = bodyName.toLowerCase();
       const isDefaultPlaceholder = !lowerBody || lowerBody === 'eleve_ciel';
@@ -374,6 +379,62 @@ export function createGameServer(options = {}) {
         won: result.won,
         kills: result.kills
       });
+    }
+    return res.json(result);
+  });
+
+  app.get('/api/formative/catalog', (_req, res) => {
+    res.json({
+      ok: true,
+      poles: FORMATIVE_POLES,
+      tps: FORMATIVE_TP_CATALOG
+    });
+  });
+
+  app.get('/api/formative/progress', (req, res) => {
+    const auth = resolveAuthorizedEconomyTarget(req, req.query?.name);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ ok: false, error: auth.error });
+    }
+    const account = store.getPublicAccount(auth.target);
+    const lookupName = account?.username || sanitizeName(auth.target);
+    const profile = store.getPublicProfile(lookupName.toLowerCase());
+    const source = profile || account || {};
+    return res.json({
+      ok: true,
+      formativeProgress: source.formativeProgress || {},
+      formativeRewardedTps: Array.isArray(source.formativeRewardedTps)
+        ? source.formativeRewardedTps
+        : [],
+      coins: Number(source.coins) || 0,
+      xp: Number(source.xp) || 0
+    });
+  });
+
+  app.post('/api/formative/submit', (req, res) => {
+    const auth = resolveAuthorizedEconomyTarget(req);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ ok: false, error: auth.error });
+    }
+    const result = store.recordFormativeProgress(auth.target, {
+      tpId: req.body?.tpId,
+      answers: req.body?.answers
+    });
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ ok: false, error: result.error });
+    }
+    if (result.profile) {
+      if (result.coinsEarned > 0) {
+        wsHub.notifyCoinsEarned?.(result.profile, {
+          coinsEarned: result.coinsEarned,
+          xpEarned: result.xpEarned,
+          source: 'formative',
+          tpId: result.tpId,
+          tpTitle: result.tpTitle
+        });
+      } else {
+        wsHub.notifyProfileUpdated?.(result.profile);
+      }
     }
     return res.json(result);
   });

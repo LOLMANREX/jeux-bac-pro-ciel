@@ -143,7 +143,7 @@ export class PlateauMiniMap {
     this.baseCanvas = off;
   }
 
-  render({ playerPos, playerYaw = 0, currentZone = null, peers = [], floor = undefined } = {}) {
+  render({ playerPos, playerYaw = 0, currentZone = null, peers = [], floor = undefined, waypoint = null } = {}) {
     if (floor !== undefined && floor !== null) {
       this.setCurrentFloor(floor);
     }
@@ -201,6 +201,45 @@ export class PlateauMiniMap {
     ctx.textBaseline = 'middle';
     ctx.fillText(formatFloorShortLabel(this.currentFloor), this.w - 24, 14);
     ctx.restore();
+
+    if (waypoint && Number.isFinite(Number(waypoint.x)) && Number.isFinite(Number(waypoint.z))) {
+      const [wx, wy] = this._toCanvas(Number(waypoint.x), Number(waypoint.z));
+      const wpFloor = clampFloor(waypoint.floor ?? this.currentFloor);
+      const sameFloor = wpFloor === this.currentFloor;
+      if (playerPos) {
+        const [ux, uy] = this._toCanvas(playerPos.x, playerPos.z);
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = sameFloor ? '#f472b6' : 'rgba(244, 114, 182, 0.58)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(ux, uy);
+        ctx.lineTo(wx, wy);
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.save();
+      ctx.globalAlpha = sameFloor ? 1 : 0.65;
+      ctx.fillStyle = 'rgba(236, 72, 153, 0.28)';
+      ctx.beginPath();
+      ctx.arc(wx, wy, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ec4899';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(wx, wy, 4.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (!sameFloor) {
+        ctx.fillStyle = '#fbcfe8';
+        ctx.font = 'bold 8px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(formatFloorShortLabel(wpFloor), wx + 6, wy - 4);
+      }
+      ctx.restore();
+    }
 
     if (playerPos) {
       const [ux, uy] = this._toCanvas(playerPos.x, playerPos.z);

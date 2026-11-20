@@ -1,14 +1,19 @@
 import {
-  applyBattlePassSkin,
+  DEFAULT_SKIN,
+  normalizeSkin,
   applySessionDivineSkin,
+  applyBattlePassSkin,
   applyShopSkin,
   ASCENSION_SPECIALTIES,
-  DEFAULT_SKIN,
-  isUltimateSecretSkinId,
-  normalizeSkin,
   resolveAscensionSpecialty,
-  ULTIMATE_SECRET_SKIN_ID
+  ULTIMATE_SECRET_SKIN_ID,
+  isUltimateSecretSkinId
 } from '../world/AvatarBuilder.js';
+import {
+  FORMATIVE_TP_CATALOG,
+  evaluateFormativeTp,
+  sanitizeFormativeAnswers
+} from './formativeCatalog.js';
 import {
   getShopAccessoryById,
   getShopItemById,
@@ -283,6 +288,8 @@ export class GameState {
       equippedPet: null,
       equippedTrail: null,
       validatedTps: [],
+      formativeProgress: {},
+      formativeRewardedTps: [],
       arcadeHighScores: {},
       selectedSkin: 'standard',
       xp: 0,
@@ -310,6 +317,8 @@ export class GameState {
     this.equippedPet = null;
     this.equippedTrail = null;
     this.validatedTps = [];
+    this.formativeProgress = {};
+    this.formativeRewardedTps = [];
     this.arcadeHighScores = {};
     this.selectedSkin = 'standard';
     this.room = 'plateau-u300';
@@ -350,6 +359,33 @@ export class GameState {
       this.skin = loaded;
     } catch {
       this.skin = { ...DEFAULT_SKIN };
+    }
+    try {
+      const rawFmt = JSON.parse(readStorage('ciel_formative_progress') || 'null');
+      if (rawFmt && typeof rawFmt === 'object') {
+        const cleanMap = {};
+        for (const tp of FORMATIVE_TP_CATALOG) {
+          const entry = rawFmt[tp.id];
+          if (entry && typeof entry === 'object') {
+            const ans = sanitizeFormativeAnswers(tp.id, entry.answers || {});
+            const evalRes = evaluateFormativeTp(tp.id, ans);
+            cleanMap[tp.id] = {
+              tpId: tp.id,
+              answers: ans,
+              completionPct: evalRes.completionPct,
+              scoreOutOf20: evalRes.scoreOutOf20,
+              status: evalRes.status,
+              validated: evalRes.validated,
+              rewarded: Boolean(entry.rewarded),
+              updatedAt: entry.updatedAt || null
+            };
+          }
+        }
+        this.formativeProgress = cleanMap;
+        this.profile.formativeProgress = { ...cleanMap };
+      }
+    } catch {
+      this.formativeProgress = {};
     }
     this.listeners = new Set();
   }
@@ -423,6 +459,15 @@ export class GameState {
       : Array.isArray(profile?.validatedTps)
         ? [...profile.validatedTps]
         : [];
+    this.formativeRewardedTps = Array.isArray(account.formativeRewardedTps)
+      ? account.formativeRewardedTps.filter((id, idx, arr) => arr.indexOf(id) === idx)
+      : Array.isArray(profile?.formativeRewardedTps)
+        ? profile.formativeRewardedTps.filter((id, idx, arr) => arr.indexOf(id) === idx)
+        : [];
+    this.formativeProgress = {
+      ...(profile?.formativeProgress || {}),
+      ...(account.formativeProgress || {})
+    };
     this.arcadeHighScores = {
       ...(profile?.arcadeHighScores || {}),
       ...(account.arcadeHighScores || {})
@@ -520,6 +565,8 @@ export class GameState {
       equippedPet: this.equippedPet,
       equippedTrail: this.equippedTrail,
       validatedTps: [...this.validatedTps],
+      formativeProgress: { ...this.formativeProgress },
+      formativeRewardedTps: [...this.formativeRewardedTps],
       arcadeHighScores: { ...this.arcadeHighScores },
       selectedSkin: this.selectedSkin,
       grades: nextGrades,
@@ -546,12 +593,15 @@ export class GameState {
     this.equippedPet = null;
     this.equippedTrail = null;
     this.validatedTps = [];
+    this.formativeProgress = {};
+    this.formativeRewardedTps = [];
     this.arcadeHighScores = {};
     this.selectedSkin = 'standard';
     this.skin = { ...DEFAULT_SKIN };
     removeStorage('ciel_auth_token');
     removeStorage('ciel_player_name');
     removeStorage('ciel_skin');
+    removeStorage('ciel_formative_progress');
     this.profile = {
       name: 'Eleve_CIEL',
       color: '#22d3ee',
@@ -568,6 +618,8 @@ export class GameState {
       equippedPet: null,
       equippedTrail: null,
       validatedTps: [],
+      formativeProgress: {},
+      formativeRewardedTps: [],
       arcadeHighScores: {},
       selectedSkin: 'standard',
       xp: 0,
@@ -775,6 +827,15 @@ export class GameState {
     if (Array.isArray(profile.validatedTps)) {
       this.validatedTps = [...profile.validatedTps];
     }
+    if (Array.isArray(profile.formativeRewardedTps)) {
+      this.formativeRewardedTps = profile.formativeRewardedTps.filter(
+        (id, idx, arr) => arr.indexOf(id) === idx
+      );
+    }
+    if (profile.formativeProgress && typeof profile.formativeProgress === 'object') {
+      this.formativeProgress = { ...profile.formativeProgress };
+      writeStorage('ciel_formative_progress', JSON.stringify(this.formativeProgress));
+    }
     if (profile.arcadeHighScores && typeof profile.arcadeHighScores === 'object') {
       this.arcadeHighScores = { ...profile.arcadeHighScores };
     }
@@ -922,6 +983,8 @@ export class GameState {
       equippedPet: this.equippedPet,
       equippedTrail: this.equippedTrail,
       validatedTps: [...this.validatedTps],
+      formativeProgress: { ...this.formativeProgress },
+      formativeRewardedTps: [...this.formativeRewardedTps],
       arcadeHighScores: { ...this.arcadeHighScores },
       unlockedDivineSkins: [...this.unlockedDivineSkins],
       secretSkinUnlocked: this.secretSkinUnlocked,
@@ -941,6 +1004,8 @@ export class GameState {
         equippedPet: this.equippedPet,
         equippedTrail: this.equippedTrail,
         validatedTps: [...this.validatedTps],
+        formativeProgress: { ...this.formativeProgress },
+        formativeRewardedTps: [...this.formativeRewardedTps],
         arcadeHighScores: { ...this.arcadeHighScores },
         unlockedDivineSkins: [...this.unlockedDivineSkins],
         secretSkinUnlocked: this.secretSkinUnlocked,
@@ -1162,6 +1227,51 @@ export class GameState {
       writeStorage('ciel_audio_output_id', this.audioOutputId);
     } else {
       removeStorage('ciel_audio_output_id');
+    }
+    this.emit();
+  }
+
+  getFormativeEntry(tpId) {
+    if (!tpId) return null;
+    return this.formativeProgress?.[tpId] || null;
+  }
+
+  setFormativeProgress(tpId, entry = {}, { rewarded = false } = {}) {
+    if (!tpId || typeof entry !== 'object') return;
+    const cleanAnswers = sanitizeFormativeAnswers(tpId, entry.answers || {});
+    const evalRes = evaluateFormativeTp(tpId, cleanAnswers);
+    const isRewarded =
+      Boolean(rewarded) ||
+      Boolean(entry.rewarded) ||
+      this.formativeRewardedTps.includes(tpId);
+    if (isRewarded && !this.formativeRewardedTps.includes(tpId)) {
+      this.formativeRewardedTps = [...this.formativeRewardedTps, tpId];
+    }
+    this.formativeProgress = {
+      ...this.formativeProgress,
+      [tpId]: {
+        tpId,
+        answers: cleanAnswers,
+        completionPct: evalRes.completionPct,
+        scoreOutOf20: evalRes.scoreOutOf20,
+        status: evalRes.status,
+        validated: evalRes.validated,
+        rewarded: isRewarded,
+        updatedAt: entry.updatedAt || new Date().toISOString()
+      }
+    };
+    writeStorage('ciel_formative_progress', JSON.stringify(this.formativeProgress));
+    this.profile = {
+      ...this.profile,
+      formativeProgress: { ...this.formativeProgress },
+      formativeRewardedTps: [...this.formativeRewardedTps]
+    };
+    if (this.account) {
+      this.account = {
+        ...this.account,
+        formativeProgress: { ...this.formativeProgress },
+        formativeRewardedTps: [...this.formativeRewardedTps]
+      };
     }
     this.emit();
   }

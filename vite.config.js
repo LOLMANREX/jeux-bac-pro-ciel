@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.35 - Refonte Combat VR : Ergonomie Quest 3S, Prise à 2 Mains Dynamique, Visée Muzzle & Dégâts'),
+    __APP_VERSION__: JSON.stringify('v4.36 - Tablette Interactive CIEL (Tab) : CIEL Formative, Campus Map Multi-Étages, Notes & Outils CIEL'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

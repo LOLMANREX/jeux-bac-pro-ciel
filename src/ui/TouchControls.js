@@ -92,6 +92,7 @@ export class TouchControls {
     this.btnSprint = document.getElementById('touch-btn-sprint');
     this.btnCamera = document.getElementById('touch-btn-camera');
     this.btnMic = document.getElementById('touch-btn-mic');
+    this.btnTablet = document.getElementById('touch-btn-tablet');
     this.combatPadEl = document.getElementById('touch-combat-pad');
     this.btnCombatFire = document.getElementById('touch-btn-fire');
     this.btnCombatAim = document.getElementById('touch-btn-aim');
@@ -355,7 +356,7 @@ export class TouchControls {
       target &&
       typeof target.closest === 'function' &&
       target.closest(
-        '.hud-top, .hud-brand, .hud-actions, button, a, input, select, textarea, .quest-panel, .chat-drawer, .modal-backdrop, .dialogue-overlay, .touch-context-interact'
+        '.hud-top, .hud-brand, .hud-actions, button, a, input, select, textarea, .quest-panel, .chat-drawer, .modal-backdrop, .dialogue-overlay, .touch-context-interact, .tablet-os-overlay, .tablet-chassis'
       )
     ) {
       return true;
@@ -485,6 +486,10 @@ export class TouchControls {
 
     this._bindPressAction(this.btnCamera, () => {
       this.handlers.onToggleCamera?.();
+    });
+
+    this._bindPressAction(this.btnTablet, () => {
+      this.handlers.onToggleTablet?.();
     });
 
     this._bindPressAction(this.btnCombatAim, () => {

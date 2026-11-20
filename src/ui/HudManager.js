@@ -964,6 +964,12 @@ export class HudManager {
       this.closeLeaderboard();
     });
 
+    document.getElementById('btn-tablet-settings')?.addEventListener('click', () => {
+      sfx.click();
+      this.closeSettings();
+      this.handlers.onOpenTablet?.();
+    });
+
     document.getElementById('btn-leaderboard-settings')?.addEventListener('click', () => {
       sfx.click();
       this.closeSettings();
@@ -1110,6 +1116,7 @@ export class HudManager {
   }
 
   closeAllModals() {
+    this.handlers.onCloseTablet?.({ restoreControls: false });
     this.closeLeaderboard();
     this.closeSkinModal();
     this.closeSettings();

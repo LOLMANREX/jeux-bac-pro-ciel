@@ -1551,6 +1551,40 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
           break;
         }
 
+        case 'formative_submit': {
+          if (!state.name) {
+            ws.send(
+              JSON.stringify({
+                type: 'formative_submit_result',
+                ok: false,
+                status: 401,
+                error: 'Non connecté au serveur.'
+              })
+            );
+            return;
+          }
+          const res = store.recordFormativeProgress(state.name, {
+            tpId: msg.tpId,
+            answers: msg.answers
+          });
+          ws.send(JSON.stringify({ type: 'formative_submit_result', ...res }));
+          if (res.ok && res.profile) {
+            if (res.coinsEarned > 0) {
+              sendCoinsEarnedToPlayer(state.name, res.profile, {
+                coinsEarned: res.coinsEarned,
+                xpEarned: res.xpEarned,
+                source: 'formative',
+                tpId: res.tpId,
+                tpTitle: res.tpTitle
+              });
+              broadcastLeaderboard();
+            } else {
+              ws.send(JSON.stringify({ type: 'profile_updated', profile: res.profile }));
+            }
+          }
+          break;
+        }
+
         case 'activity': {
           if (!state.name) return;
           state.activity = String(msg.activity || 'Dans l’atelier').slice(0, 36);

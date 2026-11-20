@@ -29,6 +29,12 @@ import {
   normalizeMinesweeperDifficulty,
   SHOP_CATALOG
 } from '../src/world/ShopCatalog.js';
+import {
+  FORMATIVE_TP_CATALOG,
+  evaluateFormativeTp,
+  getFormativeTpById,
+  sanitizeFormativeAnswers
+} from '../src/core/formativeCatalog.js';
 
 export const TP_IDS = ['oscilloscope', 'soldering', 'electronics', 'antivirus', 'vmvlan'];
 
@@ -311,6 +317,59 @@ export function normalizeDivineSkinList(rawList) {
   return out;
 }
 
+export function normalizeFormativeProgress(rawProgress = {}, rawRewardedIds = []) {
+  const validIds = new Set(FORMATIVE_TP_CATALOG.map((tp) => tp.id));
+  const formativeRewardedTps = [];
+  if (Array.isArray(rawRewardedIds)) {
+    for (const id of rawRewardedIds) {
+      const clean = String(id || '').trim();
+      if (clean && validIds.has(clean) && !formativeRewardedTps.includes(clean)) {
+        formativeRewardedTps.push(clean);
+      }
+    }
+  }
+  const srcProgress =
+    rawProgress && typeof rawProgress === 'object' && !Array.isArray(rawProgress)
+      ? rawProgress
+      : {};
+  for (const tp of FORMATIVE_TP_CATALOG) {
+    const rawEntry = srcProgress[tp.id];
+    if (
+      rawEntry &&
+      typeof rawEntry === 'object' &&
+      !Array.isArray(rawEntry) &&
+      rawEntry.rewarded === true &&
+      !formativeRewardedTps.includes(tp.id)
+    ) {
+      formativeRewardedTps.push(tp.id);
+    }
+  }
+  const rewardedSet = new Set(formativeRewardedTps);
+  const formativeProgress = {};
+  for (const tp of FORMATIVE_TP_CATALOG) {
+    const rawEntry = srcProgress[tp.id];
+    if (!rawEntry || typeof rawEntry !== 'object' || Array.isArray(rawEntry)) continue;
+    const answers = sanitizeFormativeAnswers(tp.id, rawEntry.answers);
+    const evaluation = evaluateFormativeTp(tp.id, answers);
+    const rewarded = rewardedSet.has(tp.id) || rawEntry.rewarded === true;
+    const updatedAt =
+      typeof rawEntry.updatedAt === 'string' && rawEntry.updatedAt.trim()
+        ? rawEntry.updatedAt.trim()
+        : null;
+    formativeProgress[tp.id] = {
+      tpId: tp.id,
+      answers,
+      completionPct: evaluation.completionPct,
+      scoreOutOf20: evaluation.scoreOutOf20,
+      status: evaluation.status,
+      validated: evaluation.validated,
+      rewarded,
+      updatedAt
+    };
+  }
+  return { formativeProgress, formativeRewardedTps };
+}
+
 export function computeAverage(grades = {}) {
   const values = TP_IDS.map((id) => grades[id])
     .filter((v) => typeof v === 'number' && Number.isFinite(v))
@@ -440,6 +499,10 @@ export class GameStore {
     const ownedItems = normalizeOwnedItems(base.ownedItems);
     const validatedTps = normalizeValidatedTps(base.validatedTps, tpScores);
     const arcadeHighScores = normalizeArcadeHighScores(base.arcadeHighScores);
+    const { formativeProgress, formativeRewardedTps } = normalizeFormativeProgress(
+      base.formativeProgress,
+      base.formativeRewardedTps
+    );
 
     const rawEqSkin = base.equippedSkin || avatarCustomization.shopSkinId || null;
     const equippedSkin =
@@ -597,6 +660,8 @@ export class GameStore {
       equippedTrail,
       validatedTps,
       arcadeHighScores,
+      formativeProgress,
+      formativeRewardedTps,
       selectedSkin,
       avatarCustomization,
       xp,
@@ -631,6 +696,8 @@ export class GameStore {
       equippedTrail: norm.equippedTrail,
       validatedTps: [...norm.validatedTps],
       arcadeHighScores: { ...norm.arcadeHighScores },
+      formativeProgress: norm.formativeProgress,
+      formativeRewardedTps: [...norm.formativeRewardedTps],
       selectedSkin: norm.selectedSkin,
       avatarCustomization: { ...norm.avatarCustomization },
       xp: norm.xp,
@@ -666,6 +733,8 @@ export class GameStore {
         equippedTrail: norm.equippedTrail,
         validatedTps: norm.validatedTps,
         arcadeHighScores: norm.arcadeHighScores,
+        formativeProgress: norm.formativeProgress,
+        formativeRewardedTps: norm.formativeRewardedTps,
         selectedSkin: norm.selectedSkin,
         avatarCustomization: norm.avatarCustomization,
         xp: norm.xp,
@@ -788,6 +857,12 @@ export class GameStore {
     existing.equippedTrail = equippedTrail;
     existing.validatedTps = normalizeValidatedTps(normPlayer.validatedTps, normPlayer.grades);
     existing.arcadeHighScores = normalizeArcadeHighScores(normPlayer.arcadeHighScores);
+    const syncedFormative = normalizeFormativeProgress(
+      { ...(existing.formativeProgress || {}), ...(normPlayer.formativeProgress || {}) },
+      [...(existing.formativeRewardedTps || []), ...(normPlayer.formativeRewardedTps || [])]
+    );
+    existing.formativeProgress = syncedFormative.formativeProgress;
+    existing.formativeRewardedTps = syncedFormative.formativeRewardedTps;
     existing.selectedSkin = selectedSkin;
     existing.avatarCustomization = nextAvatarCustom;
     existing.xp = normPlayer.xp;
@@ -826,6 +901,10 @@ export class GameStore {
     const ownedItems = normalizeOwnedItems(base.ownedItems);
     const validatedTps = normalizeValidatedTps(base.validatedTps, grades);
     const arcadeHighScores = normalizeArcadeHighScores(base.arcadeHighScores);
+    const { formativeProgress, formativeRewardedTps } = normalizeFormativeProgress(
+      base.formativeProgress,
+      base.formativeRewardedTps
+    );
 
     const rawEqSkin = base.equippedSkin || skin.shopSkinId || null;
     const equippedSkin =
@@ -964,6 +1043,8 @@ export class GameStore {
       equippedTrail,
       validatedTps,
       arcadeHighScores,
+      formativeProgress,
+      formativeRewardedTps,
       selectedSkin,
       avatarCustomization: { ...skin },
       tpScores: { ...grades },
@@ -1169,6 +1250,8 @@ export class GameStore {
       equippedTrail: norm.equippedTrail,
       validatedTps: [...norm.validatedTps],
       arcadeHighScores: { ...norm.arcadeHighScores },
+      formativeProgress: norm.formativeProgress,
+      formativeRewardedTps: [...norm.formativeRewardedTps],
       unlockedDivineSkins: [...norm.unlockedDivineSkins],
       secretSkinUnlocked: norm.secretSkinUnlocked,
       unlockedBattlePassTiers: [...norm.unlockedBattlePassTiers],
@@ -2317,6 +2400,110 @@ export class GameStore {
     };
   }
 
+  recordFormativeProgress(target, { tpId, answers } = {}) {
+    const cleanTpId = typeof tpId === 'string' ? tpId.trim() : '';
+    const tp = getFormativeTpById(cleanTpId);
+    if (!tp) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'TP Formative inconnu.'
+      };
+    }
+
+    const cleanAnswers = sanitizeFormativeAnswers(tp.id, answers);
+    const evaluation = evaluateFormativeTp(tp.id, cleanAnswers);
+
+    const accKey = this._findAccountKey(target);
+    const existingAcc = accKey ? this.accounts.get(accKey) : null;
+    const name = existingAcc ? existingAcc.username : sanitizeName(target);
+    const key = name.toLowerCase();
+
+    this.getOrCreatePlayer(name);
+    const player = this._normalizePlayer(this.data.players[key], name);
+    if (existingAcc) {
+      if (Number(existingAcc.coins) > Number(player.coins || 0)) {
+        player.coins = Math.floor(Number(existingAcc.coins));
+      }
+      if (Number(existingAcc.xp) > Number(player.xp || 0)) {
+        player.xp = Math.round(Number(existingAcc.xp));
+      }
+    }
+
+    const rewardedList = Array.isArray(player.formativeRewardedTps)
+      ? [...player.formativeRewardedTps]
+      : [];
+    if (Array.isArray(existingAcc?.formativeRewardedTps)) {
+      for (const id of existingAcc.formativeRewardedTps) {
+        if (getFormativeTpById(id) && !rewardedList.includes(id)) {
+          rewardedList.push(id);
+        }
+      }
+    }
+    const alreadyRewarded =
+      rewardedList.includes(tp.id) ||
+      player.formativeProgress?.[tp.id]?.rewarded === true ||
+      existingAcc?.formativeProgress?.[tp.id]?.rewarded === true;
+    if (alreadyRewarded && !rewardedList.includes(tp.id)) {
+      rewardedList.push(tp.id);
+    }
+
+    let coinsEarned = 0;
+    let xpEarned = 0;
+    let rewardGranted = false;
+    if (evaluation.validated === true && !alreadyRewarded) {
+      coinsEarned = Number(tp.rewardCoins) || 0;
+      xpEarned = Number(tp.rewardXp) || 0;
+      player.coins = Math.max(0, (player.coins || 0) + coinsEarned);
+      player.xp = Math.max(0, (player.xp || 0) + xpEarned);
+      if (!rewardedList.includes(tp.id)) {
+        rewardedList.push(tp.id);
+      }
+      rewardGranted = true;
+    }
+
+    const nowIso = new Date().toISOString();
+    player.formativeRewardedTps = rewardedList;
+    player.formativeProgress = {
+      ...(player.formativeProgress || {}),
+      [tp.id]: {
+        tpId: tp.id,
+        answers: cleanAnswers,
+        completionPct: evaluation.completionPct,
+        scoreOutOf20: evaluation.scoreOutOf20,
+        status: evaluation.status,
+        validated: evaluation.validated,
+        rewarded: alreadyRewarded || rewardGranted,
+        updatedAt: nowIso
+      }
+    };
+    player.updatedAt = nowIso;
+    this.data.players[key] = player;
+    this._syncAccountFromPlayer(player);
+    this._save();
+
+    const profile = this.getPublicProfile(key);
+    const account = this.getPublicAccount(key);
+    return {
+      ok: true,
+      status: 200,
+      tpId: tp.id,
+      tpTitle: tp.title,
+      evaluation,
+      progress: profile.formativeProgress[tp.id],
+      formativeProgress: profile.formativeProgress,
+      formativeRewardedTps: profile.formativeRewardedTps,
+      rewardGranted,
+      alreadyRewarded,
+      coinsEarned,
+      xpEarned,
+      coins: profile.coins,
+      xp: profile.xp,
+      profile,
+      account
+    };
+  }
+
   buyShopItem(target, itemId) {
     const item = getShopItemById(itemId);
     if (!item) {
@@ -2557,6 +2744,8 @@ export class GameStore {
         equippedTrail: null,
         validatedTps: [],
         arcadeHighScores: {},
+        formativeProgress: {},
+        formativeRewardedTps: [],
         selectedSkin: yanSpec ? yanSpec.id : 'standard',
         xp: 0,
         questAccepted: false,
@@ -2588,6 +2777,8 @@ export class GameStore {
       existingAcc.equippedTrail = null;
       existingAcc.validatedTps = [];
       existingAcc.arcadeHighScores = {};
+      existingAcc.formativeProgress = {};
+      existingAcc.formativeRewardedTps = [];
       existingAcc.selectedSkin = yanSpec ? yanSpec.id : 'standard';
       existingAcc.avatarCustomization = sanitizeSkin(cleanSkin);
       existingAcc.xp = 0;
@@ -2741,6 +2932,8 @@ export class GameStore {
       equippedTrail: norm.equippedTrail,
       validatedTps: [...norm.validatedTps],
       arcadeHighScores: { ...norm.arcadeHighScores },
+      formativeProgress: norm.formativeProgress,
+      formativeRewardedTps: [...norm.formativeRewardedTps],
       selectedSkin: norm.selectedSkin,
       avatarCustomization: { ...norm.skin },
       tpScores: { ...norm.grades },

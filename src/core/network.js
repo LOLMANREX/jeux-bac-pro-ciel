@@ -1062,6 +1062,97 @@ export class NetworkClient {
     return this.send({ type: 'arcade_score', gameId, score });
   }
 
+  async submitFormativeProgress(tpId, answers = {}, playerName = '', timeoutMs = 4500) {
+    const cleanName = String(playerName || this.pendingJoin?.name || '').trim();
+    const fallbackViaWs = async () => {
+      if (!this.connected) return null;
+      const wsRes = await this._requestViaWs(
+        'formative_submit',
+        'formative_submit_result',
+        { tpId, answers },
+        timeoutMs
+      );
+      if (wsRes?.ok && wsRes.profile) {
+        this.emit('profile_updated', { profile: wsRes.profile });
+      }
+      return wsRes;
+    };
+    try {
+      const res = await this._fetchWithTimeout(
+        '/api/formative/submit',
+        {
+          method: 'POST',
+          headers: this._buildAuthHeaders(),
+          body: JSON.stringify({
+            tpId,
+            answers,
+            name: cleanName
+          })
+        },
+        timeoutMs
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        if (data.profile) {
+          this.emit('profile_updated', { profile: data.profile });
+        }
+        return data;
+      }
+      if (res.status === 401 || res.status === 403 || res.status >= 500) {
+        const wsRes = await fallbackViaWs();
+        if (wsRes) return wsRes;
+      }
+      return {
+        ok: false,
+        status: res.status,
+        error: data.error || 'Enregistrement Formative impossible.'
+      };
+    } catch (err) {
+      const wsRes = await fallbackViaWs();
+      if (wsRes) return wsRes;
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Serveur inaccessible pour la progression Formative.'
+      };
+    }
+  }
+
+  async fetchFormativeProgress(playerName = '', timeoutMs = 3500) {
+    const cleanName = String(playerName || this.pendingJoin?.name || '').trim();
+    const qs = cleanName ? `?name=${encodeURIComponent(cleanName)}` : '';
+    try {
+      const res = await this._fetchWithTimeout(
+        `/api/formative/progress${qs}`,
+        {
+          method: 'GET',
+          cache: 'no-store',
+          headers: this._buildAuthHeaders()
+        },
+        timeoutMs
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          error: data.error || 'Impossible de charger la progression Formative.',
+          formativeProgress: {},
+          formativeRewardedTps: []
+        };
+      }
+      return data;
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Serveur inaccessible pour la progression Formative.',
+        formativeProgress: {},
+        formativeRewardedTps: []
+      };
+    }
+  }
+
   async fetchMap(timeoutMs = 3500) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;

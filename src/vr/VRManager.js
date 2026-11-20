@@ -1058,6 +1058,66 @@ export class VRManager {
     return false;
   }
 
+  openTabletSpatialPanel(tabletState = {}, options = {}) {
+    const safeState = tabletState && typeof tabletState === 'object' ? tabletState : {};
+    const mergedTablet = {
+      ...safeState,
+      onClose: (uv) => {
+        if (typeof safeState.onClose === 'function') {
+          safeState.onClose(uv);
+        }
+        this.closeTabletSpatialPanel();
+      }
+    };
+    const panel = this.openWorldSpatialPanel(
+      'tablet',
+      {
+        title: safeState.title || '📱 TABLETTE INTERACTIVE CIEL',
+        tablet: mergedTablet
+      },
+      {
+        dist: options.dist ?? 1.18,
+        yOffset: options.yOffset ?? 0.02
+      }
+    );
+    return panel;
+  }
+
+  updateTabletSpatialPanel(tabletState = {}) {
+    if (!this.worldPanel || this.worldPanel.getState?.()?.mode !== 'tablet') return false;
+    const safeState = tabletState && typeof tabletState === 'object' ? tabletState : {};
+    const prevTablet = this.worldPanel.getState?.()?.tablet || {};
+    const mergedTablet = {
+      ...prevTablet,
+      ...safeState
+    };
+    if (typeof safeState.onClose === 'function') {
+      mergedTablet.onClose = (uv) => {
+        safeState.onClose(uv);
+        this.closeTabletSpatialPanel();
+      };
+    } else if (prevTablet.onClose) {
+      mergedTablet.onClose = prevTablet.onClose;
+    }
+    this.worldPanel.updateState({
+      mode: 'tablet',
+      tablet: mergedTablet
+    });
+    return true;
+  }
+
+  closeTabletSpatialPanel() {
+    if (this.worldPanel?.getState?.()?.mode === 'tablet') {
+      this.closeWorldSpatialPanel();
+      return true;
+    }
+    return false;
+  }
+
+  isTabletSpatialPanelOpen() {
+    return Boolean(this.worldPanel && this.worldPanel.getState?.()?.mode === 'tablet');
+  }
+
   pulseBothHands(intensity = 0.9, durationMs = 280) {
     this._pulseHaptic(this.slots.left, intensity, durationMs);
     this._pulseHaptic(this.slots.right, intensity, durationMs);
@@ -2068,6 +2128,7 @@ export class VRManager {
             if (btn.id === 'btn_mic') this.options.onToggleMic?.();
             if (btn.id === 'btn_shop') this.options.onOpenShop?.();
             if (btn.id === 'btn_locker') this.options.onOpenLocker?.();
+            if (btn.id === 'btn_tablet') this.options.onOpenTablet?.();
             if (btn.id === 'btn_vr_exit') this.exitVr();
           };
         }
@@ -2785,6 +2846,7 @@ export class VRManager {
           if (btn.id === 'btn_mic') this.options.onToggleMic?.();
           if (btn.id === 'btn_shop') this.options.onOpenShop?.();
           if (btn.id === 'btn_locker') this.options.onOpenLocker?.();
+          if (btn.id === 'btn_tablet') this.options.onOpenTablet?.();
           if (btn.id === 'btn_vr_exit') this.exitVr();
         } else if (this.tempVecC.z > 0.024) {
           this.wristTouchPressed = false;

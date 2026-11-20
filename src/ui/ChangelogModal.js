@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.35 - Refonte Combat VR : Ergonomie Quest 3S, Prise à 2 Mains Dynamique, Visée Muzzle & Dégâts';
+    : 'v4.36 - Tablette Interactive CIEL (Tab) : CIEL Formative, Campus Map Multi-Étages, Notes & Outils CIEL';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
+    version: 'v4.36 — Tablette Interactive CIEL (Tab) : CIEL Formative, Campus Map Multi-Étages, Notes & Outils CIEL',
+    date: '20/11/2026',
+    tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'TABLETTE OS (TAB / MOBILE / VR)',
+        title: 'Ouverture Fluide via Tab, Bouton Tactile dédié & Raccourci Montre VR',
+        desc: 'Nouvel OS tablette modulaire (TabletOS) avec châssis réaliste, barre d’état temps réel (heure, connexion serveur, solde CIEL Coins 🪙, batterie), écran d’accueil multi-applications et barre de navigation. Libère automatiquement le curseur souris et verrouille les déplacements/tirs sans interrompre le rendu 3D ni le WebSocket, avec prise en charge complète PC, Mobile/Tablette et panneau spatial WebXR.'
+      },
+      {
+        badge: 'CIEL FORMATIVE',
+        title: '8 TP Interactifs Bac Pro CIEL avec Correction en Direct & Récompenses Anti-Doublon',
+        desc: 'Nouvelle application inspirée de Formative couvrant les 4 pôles CIEL (Réseaux & Adressage IP/VLAN, Électronique/Arduino/DMX512, Cybersécurité & Linux Debian, Fibre optique & Câblage RJ45 T568B) : QCM simple/multiple, saisie technique normalisée, ordonnancement d’étapes et associations, barre segmentée et feedback immédiat vert/rouge avec indices, sauvegarde serveur et crédit unique de CIEL Coins et XP.'
+      },
+      {
+        badge: 'CAMPUS MAP & OUTILS CIEL',
+        title: 'Carte Interactive Multi-Étages (2000m×2000m), Waypoints, Notes & Boîte à Outils',
+        desc: 'Exploration 2D temps réel avec sélecteur d’étages (Sous-sol -2 à Étage 8), zoom/pan fluide et viewport culling haute performance jusqu’à 2000m × 2000m, marqueurs dynamiques (joueur, Professeur CIEL, postes TP, camarades) et pose de repères (waypoints) visibles sur le HUD et la montre VR. Complétée par les apps Notes & Suivi (moyenne /20, badges) et Outils CIEL (calculateur IPv4/CIDR, décodeur résistances 4 anneaux, mémo Linux/Cisco).'
+      }
+    ]
+  },
+  {
     version: 'v4.35 — Refonte Combat VR : Ergonomie Quest 3S, Prise à 2 Mains Dynamique, Visée Muzzle & Dégâts',
     date: '19/11/2026',
-    tag: 'DERNIÈRE MÀJ',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'ERGONOMIE VR 1 MAIN',
