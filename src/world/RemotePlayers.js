@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { computeTumble } from '../core/metalPipe.js';
+import { buildMetalPipeBatMesh } from './MetalPipeBat.js';
 import { getBattlePassTierSpec } from '../core/battlePassSkins.js';
 import {
   animateAvatarLimbs,
@@ -488,6 +490,8 @@ export class RemotePlayersManager {
     peer.setSecretSkin = meshData.setSecretSkin;
     peer.hasSecretSkin = meshData.hasSecretSkin;
     peer.hasDivineSkin = meshData.hasDivineSkin;
+    peer.pipeObj = null;
+    if (peer.metalPipeEnabled) this._attachMetalPipe(peer);
     peer.vrTracker = attachRemoteVrVisuals(peer, nextSkin);
     peer._walkPhase = 0;
 
@@ -702,6 +706,36 @@ export class RemotePlayersManager {
     peer.combatWeaponObj = obj;
   }
 
+  _attachMetalPipe(peer) {
+    if (peer.pipeObj) {
+      peer.pipeObj.parent?.remove(peer.pipeObj);
+      peer.pipeObj = null;
+    }
+    if (!peer.metalPipeEnabled || !peer.rightArm) return;
+    const bat = buildMetalPipeBatMesh();
+    bat.position.set(0, -0.3, -0.08);
+    peer.rightArm.add(bat);
+    peer.pipeObj = bat;
+  }
+
+  setMetalPipe(id, enabled) {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    peer.metalPipeEnabled = Boolean(enabled);
+    this._attachMetalPipe(peer);
+  }
+
+  triggerMetalPipeSwing(id, durationMs = 320) {
+    const peer = this.peers.get(id);
+    if (peer) peer.pipeSwingUntil = Date.now() + durationMs;
+  }
+
+  startTumble(id, durationMs, seed) {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    peer.tumble = { start: Date.now(), duration: durationMs, seed };
+  }
+
   triggerPeerAttackAnim(id) {
     const peer = this.peers.get(id);
     if (peer) {
@@ -771,6 +805,16 @@ export class RemotePlayersManager {
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       peer.group.rotation.y += diff * smoothYaw;
+      if (peer.tumble) {
+        const tum = computeTumble(nowMs - peer.tumble.start, peer.tumble.duration, peer.tumble.seed);
+        peer.group.rotation.x = tum.x;
+        peer.group.rotation.z = tum.z;
+        if (tum.done) {
+          peer.group.rotation.x = 0;
+          peer.group.rotation.z = 0;
+          peer.tumble = null;
+        }
+      }
 
       if (!peer.group.visible) {
         if (peer.petMesh?.group) peer.petMesh.group.visible = false;
@@ -787,6 +831,10 @@ export class RemotePlayersManager {
         isGrounded,
         speedRatio: Math.max(0.8, Math.min(1.5, peer.horizSpeed / 5.2))
       });
+      if (peer.pipeObj && peer.rightArm) {
+        const swinging = peer.pipeSwingUntil && nowMs < peer.pipeSwingUntil;
+        peer.rightArm.rotation.x = swinging ? -2.1 + Math.sin(nowMs * 0.03) * 0.25 : -0.62;
+      }
       if (peer.combatWeaponId && peer.rightArm) {
         peer.rightArm.rotation.x =
           peer.combatAttackUntil && nowMs < peer.combatAttackUntil ? -1.18 : -0.62;

@@ -45,6 +45,8 @@ import {
   getWeaponsByMode
 } from './world/CombatWeapons.js';
 import { PlayerController } from './world/PlayerController.js';
+import { METAL_PIPE, computeLaunchVelocity, computeTumble } from './core/metalPipe.js';
+import { MetalPipeImpactFx, buildMetalPipeBatMesh } from './world/MetalPipeBat.js';
 import { buildPetMesh } from './world/PetBuilder.js';
 import { isShopPetId } from './world/ShopCatalog.js';
 import {
@@ -190,6 +192,21 @@ player.setTouchMode(gameState.touchMode);
 
 let joined = false;
 let localAvatar = null;
+const metalPipe = {
+  equipped: false,
+  localObj: null,
+  viewRoot: new THREE.Group(),
+  viewHolder: new THREE.Group(),
+  viewObj: null,
+  swingUntil: 0,
+  launch: null,
+  lastSeed: null,
+  lastAttackAt: 0
+};
+metalPipe.viewRoot.visible = false;
+metalPipe.viewRoot.add(metalPipe.viewHolder);
+sceneMgr.scene.add(metalPipe.viewRoot);
+const metalPipeFx = new MetalPipeImpactFx(sceneMgr.scene);
 let localPet = null;
 let localPetId = null;
 const localBubble = createSpeechBubble(2.94);
@@ -251,6 +268,8 @@ function rebuildLocalAvatar(skin) {
   localAvatar.setFirstPersonVrHidden?.(Boolean(vrManager?.isVrActive?.()));
   sceneMgr.scene.add(localAvatar.group);
   player.setAvatar(localAvatar);
+  metalPipe.localObj = null;
+  refreshMetalPipeLocal();
   vrManager?.setSkin?.(effectiveSkin);
   syncLocalPet(effectiveSkin?.equippedPet || gameState.equippedPet || null);
 }
@@ -4618,6 +4637,12 @@ network.on('welcome', (msg) => {
   lab.updateStationBadges(msg.profile.grades);
   remotePlayers.setInstanceFilter(null);
   remotePlayers.setPeers(msg.peers);
+  for (const mp of msg.peers || []) {
+    if (mp?.metalPipe) remotePlayers.setMetalPipe(mp.id, true);
+  }
+  metalPipe.equipped = false;
+  refreshMetalPipeLocal();
+  syncMetalPipeEquip();
   gameState.setRoomRoster(msg.roomRoster || []);
   gameState.setLeaderboard(msg.leaderboard || []);
   remotePlayers.syncLeaderboardRanks(msg.leaderboard || []);
@@ -4810,6 +4835,7 @@ network.on('score_recorded', (res) => {
 
 network.on('player_joined', ({ player: p, onlineCount, roomRoster }) => {
   remotePlayers.upsertPeer(p);
+  if (p?.metalPipe) remotePlayers.setMetalPipe(p.id, true);
   voiceChat.onPeerJoined(p);
   if (roomRoster) gameState.setRoomRoster(roomRoster);
   hud.setNetworkStatus(true, onlineCount);
@@ -4834,6 +4860,204 @@ network.on('player_skin_updated', ({ id, skin, equippedSkin, equippedPet, equipp
   }
   remotePlayers.setSkin(id, merged);
 });
+
+function readMetalPipeStorage() {
+  try {
+    return {
+      pass: localStorage.getItem(METAL_PIPE.passStorageKey) || '',
+      equipped: localStorage.getItem(METAL_PIPE.equipStorageKey) === '1'
+    };
+  } catch {
+    return { pass: '', equipped: false };
+  }
+}
+
+function refreshMetalPipeLocal() {
+  if (metalPipe.localObj) {
+    metalPipe.localObj.parent?.remove(metalPipe.localObj);
+    disposeObject3D(metalPipe.localObj);
+    metalPipe.localObj = null;
+  }
+  if (metalPipe.viewObj) {
+    metalPipe.viewHolder.remove(metalPipe.viewObj);
+    disposeObject3D(metalPipe.viewObj);
+    metalPipe.viewObj = null;
+  }
+  if (!metalPipe.equipped) return;
+  if (localAvatar?.rightArm) {
+    const bat = buildMetalPipeBatMesh();
+    bat.position.set(0, -0.3, -0.08);
+    localAvatar.rightArm.add(bat);
+    metalPipe.localObj = bat;
+  }
+  const view = buildMetalPipeBatMesh();
+  view.rotation.x = -0.5;
+  view.scale.setScalar(1.1);
+  metalPipe.viewHolder.add(view);
+  metalPipe.viewObj = view;
+}
+
+function syncMetalPipeEquip() {
+  const stored = readMetalPipeStorage();
+  const wants = Boolean(stored.pass && stored.equipped);
+  if (wants) {
+    network.sendMetalPipeEquip(true, stored.pass);
+  } else if (metalPipe.equipped) {
+    network.sendMetalPipeEquip(false);
+  }
+}
+
+function findMetalPipeTarget() {
+  const fx = -Math.sin(player.yaw);
+  const fz = -Math.cos(player.yaw);
+  let best = null;
+  let bestDist = Infinity;
+  for (const peer of remotePlayers.peers.values()) {
+    if (!peer.group?.visible || peer.tumble) continue;
+    const dx = peer.group.position.x - player.position.x;
+    const dz = peer.group.position.z - player.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > METAL_PIPE.hitRange || dist < 0.001) continue;
+    if (dist > 1.1 && (dx * fx + dz * fz) / dist < 0.35) continue;
+    if (Math.abs(peer.group.position.y - player.getFeetY()) > 2.4) continue;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = peer;
+    }
+  }
+  return best;
+}
+
+function tryMetalPipeAttack() {
+  if (!joined || !metalPipe.equipped || modalOpen || metalPipe.launch) return false;
+  if (vrManager?.isVrActive?.() || combatState.inActiveMatch || combatState.inWaitingRoom) return false;
+  if (document.pointerLockElement !== canvas) return false;
+  const nowMs = Date.now();
+  if (nowMs - metalPipe.lastAttackAt < METAL_PIPE.cooldownMs) return true;
+  metalPipe.lastAttackAt = nowMs;
+  metalPipe.swingUntil = nowMs + METAL_PIPE.swingMs;
+  const target = findMetalPipeTarget();
+  if (target) network.sendMetalPipeHit(target.id);
+  return true;
+}
+
+function startLocalMetalPipeLaunch(msg) {
+  if (!joined || metalPipe.launch) return;
+  if (player.seated || player.hidingInRack || vrManager?.isVrActive?.()) return;
+  metalPipe.launch = {
+    start: performance.now(),
+    duration: Number(msg.durationMs) || METAL_PIPE.durationMs,
+    seed: Number(msg.seed) || 0.5,
+    wasLocked: player.movementLocked
+  };
+  player.setMovementLocked(true);
+  player.velocityY = computeLaunchVelocity(msg.height);
+  player.isGrounded = false;
+}
+
+function finishLocalMetalPipeLaunch() {
+  const launch = metalPipe.launch;
+  metalPipe.launch = null;
+  if (localAvatar?.group) {
+    localAvatar.group.rotation.x = 0;
+    localAvatar.group.rotation.z = 0;
+  }
+  sceneMgr.camera.rotation.z = 0;
+  if (launch) player.setMovementLocked(launch.wasLocked);
+}
+
+function updateMetalPipeLocal(dt) {
+  metalPipeFx.update(dt);
+  const nowMs = Date.now();
+  const launch = metalPipe.launch;
+  if (launch) {
+    const elapsed = performance.now() - launch.start;
+    const tum = computeTumble(elapsed, launch.duration, launch.seed);
+    if (localAvatar?.group) {
+      localAvatar.group.rotation.x = tum.x;
+      localAvatar.group.rotation.z = tum.z;
+      localAvatar.group.rotation.y += tum.y;
+    }
+    sceneMgr.camera.rotation.z = Math.sin(elapsed * 0.025) * 0.14 * (1 - Math.min(1, elapsed / launch.duration));
+    const landed = elapsed > 450 && player.isGrounded;
+    if (landed || elapsed >= METAL_PIPE.hardCapMs || !joined) {
+      finishLocalMetalPipeLaunch();
+    }
+  }
+  const swinging = nowMs < metalPipe.swingUntil;
+  if (metalPipe.equipped && metalPipe.localObj && localAvatar?.rightArm && !launch) {
+    localAvatar.rightArm.rotation.x = swinging ? -2.1 : -0.62;
+  }
+  const showView =
+    joined &&
+    metalPipe.equipped &&
+    Boolean(metalPipe.viewObj) &&
+    gameState.cameraMode !== 'third' &&
+    !vrManager?.isVrActive?.() &&
+    !combatState.inActiveMatch &&
+    !modalOpen;
+  metalPipe.viewRoot.visible = showView;
+  if (showView) {
+    metalPipe.viewRoot.position.copy(sceneMgr.camera.position);
+    metalPipe.viewRoot.quaternion.copy(sceneMgr.camera.quaternion);
+    const progress = swinging ? 1 - (metalPipe.swingUntil - nowMs) / METAL_PIPE.swingMs : 0;
+    const arc = Math.sin(progress * Math.PI);
+    metalPipe.viewHolder.position.set(0.3 - arc * 0.2, -0.32 + arc * 0.08, -0.5 - arc * 0.1);
+    metalPipe.viewHolder.rotation.set(-arc * 1.35, 0, arc * 0.55);
+  }
+}
+
+function handleMetalPipeLaunch(msg) {
+  if (!msg || msg.seed === metalPipe.lastSeed) return;
+  metalPipe.lastSeed = msg.seed;
+  const targetIsLocal = msg.targetId === network.clientId;
+  const targetPeer = remotePlayers.peers.get(msg.targetId);
+  const impactPos = new THREE.Vector3(
+    targetIsLocal ? player.position.x : targetPeer?.group?.position.x ?? msg.x,
+    (targetIsLocal ? player.getFeetY() : targetPeer?.group?.position.y ?? msg.y) + 1.1,
+    targetIsLocal ? player.position.z : targetPeer?.group?.position.z ?? msg.z
+  );
+  metalPipeFx.spawn(impactPos);
+  const dist = impactPos.distanceTo(sceneMgr.camera.position);
+  sfx.playMetalPipeImpact(Math.max(0.3, Math.min(1, 1 - dist / 45)));
+  if (msg.attackerId !== network.clientId) {
+    remotePlayers.triggerMetalPipeSwing(msg.attackerId, METAL_PIPE.swingMs);
+  }
+  if (targetIsLocal) {
+    startLocalMetalPipeLaunch(msg);
+    showSpeechBubble(localBubble, '💥 CLANG !', { isEmote: true, color: '#facc15' });
+  } else {
+    remotePlayers.startTumble(msg.targetId, Number(msg.durationMs) || METAL_PIPE.durationMs, Number(msg.seed) || 0.5);
+    remotePlayers.showBubble(msg.targetId, '💥 CLANG !', { isEmote: true, color: '#facc15' });
+  }
+}
+
+window.addEventListener('storage', (e) => {
+  if (e.key === METAL_PIPE.passStorageKey || e.key === METAL_PIPE.equipStorageKey) {
+    syncMetalPipeEquip();
+  }
+});
+
+network.on('metal_pipe_equipped', ({ id, enabled }) => {
+  if (id === network.clientId) {
+    metalPipe.equipped = Boolean(enabled);
+    refreshMetalPipeLocal();
+    if (enabled) hud?.toast?.('🔩 Metal Pipe Bat équipé (clic gauche pour frapper)', 'success');
+  } else {
+    remotePlayers.setMetalPipe(id, enabled);
+  }
+});
+
+network.on('metal_pipe_denied', () => {
+  metalPipe.equipped = false;
+  refreshMetalPipeLocal();
+  try {
+    localStorage.removeItem(METAL_PIPE.equipStorageKey);
+  } catch {}
+  hud?.toast?.('🔒 Metal Pipe Bat réservé aux administrateurs', 'error');
+});
+
+network.on('metal_pipe_launch', handleMetalPipeLaunch);
 
 network.on('creator_aura_updated', ({ id, enabled }) => {
   if (id === network.clientId) {
@@ -5616,6 +5840,9 @@ canvas.addEventListener('mousedown', (e) => {
       return;
     }
   }
+  if (e.button === 0 && tryMetalPipeAttack()) {
+    return;
+  }
   if (
     joined &&
     combatState.inActiveMatch &&
@@ -5895,6 +6122,7 @@ sceneMgr.addUpdater((dt, elapsed) => {
   }
   const seatedDet = isDetentionSeatedActive();
   const step = vrOn || activeCinematic || survivalState.introActive ? null : player.update(dt);
+  updateMetalPipeLocal(dt);
 
   if (combatState.inWaitingRoom && combatState.snapshot) {
     combatArena.updateWaitingBoard(combatState.snapshot, false);

@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.36 - Tablette Interactive CIEL (Tab) : CIEL Formative, Campus Map Multi-Étages, Notes & Outils CIEL';
+    : 'v4.37 - Metal Pipe Bat : Bâton Admin, Projection Ragdoll & Clang Métallique';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
+    version: 'v4.37 — Metal Pipe Bat : Bâton Admin, Projection Ragdoll & Clang Métallique',
+    date: '21/11/2026',
+    tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'DASHBOARD ADMIN',
+        title: 'Nouvelle section Metal Pipe Bat : récupérer, équiper et déséquiper',
+        desc: 'Un onglet dédié du dashboard administrateur permet de récupérer le bâton spécial (objet doré identifiable), de l’équiper ou le déséquiper en un clic et de le rendre. Le bâton est lié à une autorisation délivrée uniquement après authentification administrateur.'
+      },
+      {
+        badge: 'COMBAT HUMORISTIQUE',
+        title: 'Projection à 3 mètres avec rotation chaotique, sans aucun dégât',
+        desc: 'Un administrateur équipé qui frappe un joueur proche (clic gauche) le projette à environ 3 mètres dans les airs avec une rotation désordonnée, un effet visuel d’impact et un son métallique de tuyau joué une seule fois par coup. Le joueur retombe normalement et retrouve le contrôle, avec des garde-fous anti-blocage et un temps de recharge.'
+      },
+      {
+        badge: 'SÉCURITÉ SERVEUR',
+        title: 'Permissions vérifiées côté serveur et synchronisation multijoueur',
+        desc: 'Équipement, portée, recharge et cible sont validés par le serveur : les joueurs normaux ne peuvent ni équiper ni utiliser le bâton. L’impact est diffusé à tous les joueurs de la salle pour une animation et un son synchronisés.'
+      }
+    ]
+  },
+  {
     version: 'v4.36 — Tablette Interactive CIEL (Tab) : CIEL Formative, Campus Map Multi-Étages, Notes & Outils CIEL',
     date: '20/11/2026',
-    tag: 'DERNIÈRE MÀJ',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'TABLETTE OS (TAB / MOBILE / VR)',

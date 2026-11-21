@@ -70,6 +70,17 @@ export function createGameServer(options = {}) {
     process.env.STUDENT_TOKEN_SECRET ||
     `ciel-v49-secret-${adminPassword}`;
   const adminTokens = new Map();
+  const metalPipePasses = new Map();
+  const validateMetalPipePass = (pass) => {
+    const key = String(pass || '');
+    const expiresAt = key ? metalPipePasses.get(key) : null;
+    if (!expiresAt) return false;
+    if (expiresAt <= Date.now()) {
+      metalPipePasses.delete(key);
+      return false;
+    }
+    return true;
+  };
   const studentTokens = new Map();
 
   const createStudentSessionToken = (account) => {
@@ -172,7 +183,8 @@ export function createGameServer(options = {}) {
     store,
     mapStore,
     options.survivalOptions || {},
-    options.combatOptions || {}
+    options.combatOptions || {},
+    validateMetalPipePass
   );
 
   app.get('/api/health', (_req, res) => {
@@ -615,6 +627,18 @@ export function createGameServer(options = {}) {
     const token = crypto.randomBytes(32).toString('hex');
     adminTokens.set(token, Date.now() + ADMIN_SESSION_TTL_MS);
     return res.json({ ok: true, token, expiresInMs: ADMIN_SESSION_TTL_MS });
+  });
+
+  app.post('/api/admin/metal-pipe/pass', requireAdmin, (_req, res) => {
+    const pass = crypto.randomBytes(24).toString('hex');
+    metalPipePasses.set(pass, Date.now() + ADMIN_SESSION_TTL_MS);
+    return res.json({ ok: true, pass, expiresInMs: ADMIN_SESSION_TTL_MS });
+  });
+
+  app.delete('/api/admin/metal-pipe/pass', requireAdmin, (req, res) => {
+    const pass = String(req.body?.pass || req.query?.pass || '');
+    if (pass) metalPipePasses.delete(pass);
+    return res.json({ ok: true });
   });
 
   app.post('/api/admin/debug-session', requireAdmin, (req, res) => {

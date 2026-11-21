@@ -8,6 +8,7 @@ import {
 import { renderSkinPreviewSvg, resolveAscensionSpecialty } from '../world/AvatarBuilder.js';
 import { TP_CATALOG } from '../core/gameState.js';
 import { MapEditor } from './MapEditor.js';
+import { METAL_PIPE } from '../core/metalPipe.js';
 import { PRIVATE_DEBUG_STORAGE_KEY, requestPrivateDebugSession } from '../admin.js';
 
 const TOKEN_STORAGE_KEY = 'ciel_admin_token';
@@ -30,6 +31,12 @@ const tabUsersBtn = document.getElementById('admin-tab-users');
 const tabPostsBtn = document.getElementById('admin-tab-posts');
 const tabPigeonsBtn = document.getElementById('admin-tab-pigeons');
 const tabMapBtn = document.getElementById('admin-tab-map');
+const tabMetalPipeBtn = document.getElementById('admin-tab-metalpipe');
+const panelMetalPipe = document.getElementById('admin-panel-metalpipe');
+const metalPipeStatusLabel = document.getElementById('metalpipe-status-label');
+const metalPipeClaimBtn = document.getElementById('btn-metalpipe-claim');
+const metalPipeEquipBtn = document.getElementById('btn-metalpipe-equip');
+const metalPipeReleaseBtn = document.getElementById('btn-metalpipe-release');
 const panelAccounts = document.getElementById('admin-panel-accounts');
 const panelUsers = document.getElementById('admin-panel-users');
 const panelPosts = document.getElementById('admin-panel-posts');
@@ -112,6 +119,75 @@ function ensureMapEditor() {
   return mapEditor;
 }
 
+function readMetalPipeLocal() {
+  try {
+    return {
+      pass: localStorage.getItem(METAL_PIPE.passStorageKey) || '',
+      equipped: localStorage.getItem(METAL_PIPE.equipStorageKey) === '1'
+    };
+  } catch {
+    return { pass: '', equipped: false };
+  }
+}
+
+function clearMetalPipeStorage() {
+  try {
+    localStorage.removeItem(METAL_PIPE.passStorageKey);
+    localStorage.removeItem(METAL_PIPE.equipStorageKey);
+  } catch {}
+}
+
+function renderMetalPipeState() {
+  const st = readMetalPipeLocal();
+  const owned = Boolean(st.pass);
+  if (metalPipeStatusLabel) {
+    metalPipeStatusLabel.textContent = !owned ? 'Non récupéré' : st.equipped ? 'Équipé' : 'Récupéré (non équipé)';
+  }
+  if (metalPipeClaimBtn) metalPipeClaimBtn.disabled = owned;
+  if (metalPipeEquipBtn) {
+    metalPipeEquipBtn.disabled = !owned;
+    metalPipeEquipBtn.textContent = st.equipped ? 'Déséquiper' : 'Équiper';
+  }
+  if (metalPipeReleaseBtn) metalPipeReleaseBtn.disabled = !owned;
+}
+
+metalPipeClaimBtn?.addEventListener('click', async () => {
+  metalPipeClaimBtn.disabled = true;
+  try {
+    const data = await apiFetch('/api/admin/metal-pipe/pass', { method: 'POST', body: '{}' });
+    localStorage.setItem(METAL_PIPE.passStorageKey, data.pass);
+    localStorage.setItem(METAL_PIPE.equipStorageKey, '1');
+    showToast('Metal Pipe Bat récupéré et équipé', 'success');
+  } catch (err) {
+    showToast(err.message || 'Impossible de récupérer le bâton', 'error');
+  }
+  renderMetalPipeState();
+});
+
+metalPipeEquipBtn?.addEventListener('click', () => {
+  const st = readMetalPipeLocal();
+  if (!st.pass) return;
+  localStorage.setItem(METAL_PIPE.equipStorageKey, st.equipped ? '0' : '1');
+  renderMetalPipeState();
+});
+
+metalPipeReleaseBtn?.addEventListener('click', async () => {
+  const st = readMetalPipeLocal();
+  clearMetalPipeStorage();
+  renderMetalPipeState();
+  if (st.pass) {
+    try {
+      await apiFetch('/api/admin/metal-pipe/pass', {
+        method: 'DELETE',
+        body: JSON.stringify({ pass: st.pass })
+      });
+    } catch {}
+  }
+});
+
+window.addEventListener('storage', renderMetalPipeState);
+renderMetalPipeState();
+
 function switchAdminSection(section) {
   activeSection =
     section === 'users'
@@ -122,12 +198,16 @@ function switchAdminSection(section) {
           ? 'pigeons'
           : section === 'map'
             ? 'map'
-            : 'accounts';
+            : section === 'metalpipe'
+              ? 'metalpipe'
+              : 'accounts';
   tabAccountsBtn?.classList.toggle('active', activeSection === 'accounts');
   tabUsersBtn?.classList.toggle('active', activeSection === 'users');
   tabPostsBtn?.classList.toggle('active', activeSection === 'posts');
   tabPigeonsBtn?.classList.toggle('active', activeSection === 'pigeons');
   tabMapBtn?.classList.toggle('active', activeSection === 'map');
+  tabMetalPipeBtn?.classList.toggle('active', activeSection === 'metalpipe');
+  panelMetalPipe?.classList.toggle('hidden', activeSection !== 'metalpipe');
   panelAccounts?.classList.toggle('hidden', activeSection !== 'accounts');
   panelUsers?.classList.toggle('hidden', activeSection !== 'users');
   panelPosts?.classList.toggle('hidden', activeSection !== 'posts');
@@ -208,6 +288,7 @@ function setAuthenticated(authenticated) {
 }
 
 function clearSession(msg = '') {
+  clearMetalPipeStorage();
   adminToken = '';
   sessionStorage.removeItem(TOKEN_STORAGE_KEY);
   setAuthenticated(false);
@@ -826,6 +907,10 @@ tabUsersBtn?.addEventListener('click', () => switchAdminSection('users'));
 tabPostsBtn?.addEventListener('click', () => switchAdminSection('posts'));
 tabPigeonsBtn?.addEventListener('click', () => switchAdminSection('pigeons'));
 tabMapBtn?.addEventListener('click', () => switchAdminSection('map'));
+tabMetalPipeBtn?.addEventListener('click', () => {
+  renderMetalPipeState();
+  switchAdminSection('metalpipe');
+});
 
 searchAccountInput?.addEventListener('input', renderAccountsTable);
 

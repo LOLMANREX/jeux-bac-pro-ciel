@@ -115,6 +115,9 @@
           <button type="button" id="admin-tab-map" class="admin-tab">
             🗺 Éditeur de Map <span class="tab-badge">2D / 3D</span>
           </button>
+          <button type="button" id="admin-tab-metalpipe" class="admin-tab">
+            🔩 Metal Pipe Bat <span class="tab-badge" id="tab-badge-metalpipe">ADMIN</span>
+          </button>
         </nav>
 
         <section id="admin-panel-accounts" class="admin-panel">
@@ -258,6 +261,31 @@
             </div>
             <div id="pigeons-empty-state" class="empty-state hidden">
               Aucun pigeon attrapé pour le moment. Patience... 🐦
+            </div>
+          </div>
+        </section>
+
+        <section id="admin-panel-metalpipe" class="admin-panel hidden">
+          <div class="metalpipe-card">
+            <div class="metalpipe-icon" aria-hidden="true">🔩</div>
+            <div class="metalpipe-body">
+              <h2>Metal Pipe Bat <span class="metalpipe-tag">OBJET SPÉCIAL ADMIN</span></h2>
+              <p>
+                Bâton humoristique réservé aux administrateurs : un joueur touché est projeté à environ
+                3 mètres en tournoyant, avec un bruit de tuyau métallique, puis retombe sans aucun dégât.
+              </p>
+              <p class="metalpipe-hint">
+                Récupérez le bâton, équipez-le, puis ouvrez le jeu dans un autre onglet : clic gauche
+                pour frapper un joueur proche.
+              </p>
+              <div class="metalpipe-status">
+                Statut : <strong id="metalpipe-status-label">Non récupéré</strong>
+              </div>
+              <div class="metalpipe-actions">
+                <button type="button" id="btn-metalpipe-claim" class="btn-primary">Récupérer le bâton</button>
+                <button type="button" id="btn-metalpipe-equip" class="btn-secondary" disabled>Équiper</button>
+                <button type="button" id="btn-metalpipe-release" class="btn-secondary" disabled>Rendre le bâton</button>
+              </div>
             </div>
           </div>
         </section>

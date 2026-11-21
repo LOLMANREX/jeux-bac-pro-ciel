@@ -612,9 +612,9 @@ test('v4.26 : Audit complet des 9 TPs, CSS responsive (360px-1024px), version et
   assert.ok(mgCss.includes('.tp3d-step-btn'));
 
   const viteSrc = fs.readFileSync(path.resolve('vite.config.js'), 'utf8');
-  assert.ok(viteSrc.includes('v4.36'));
-  assert.ok(APP_VERSION.startsWith('v4.36'));
-  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.36'));
+  assert.ok(viteSrc.includes('v4.37'));
+  assert.ok(APP_VERSION.startsWith('v4.37'));
+  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.37'));
   assert.equal(CHANGELOG_RELEASES[0].tag, 'DERNIÈRE MÀJ');
   assert.equal(CHANGELOG_RELEASES[1].tag, 'HISTORIQUE');
 

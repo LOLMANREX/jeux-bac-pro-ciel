@@ -10,6 +10,7 @@ import { computeAscensionGatheringLayout } from '../src/world/SceneManager.js';
 import { MAX_FLOOR, MAX_MAP_SIZE, MIN_FLOOR, createDefaultMap } from '../src/world/mapSchema.js';
 import { CombatMatchController } from '../src/world/CombatEngine.js';
 import { SurvivalMatchController } from '../src/world/SurvivalEngine.js';
+import { METAL_PIPE, validateMetalPipeHit } from '../src/core/metalPipe.js';
 import { sanitizeName, sanitizeSkin, ALL_TP_IDS, TP_IDS, TP_LABELS } from './store.js';
 
 const DEFAULT_ROOMS = ['plateau-u300', 'salle-reseau'];
@@ -101,7 +102,14 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, num));
 }
 
-export function attachWsHub(httpServer, store, mapStore = null, survivalOptions = {}, combatOptions = {}) {
+export function attachWsHub(
+  httpServer,
+  store,
+  mapStore = null,
+  survivalOptions = {},
+  combatOptions = {},
+  validateMetalPipePass = null
+) {
   const maxWorldHalf = MAX_MAP_SIZE * 0.5 + 100;
   const wss = new WebSocketServer({
     server: httpServer,
@@ -827,7 +835,8 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
       rankLabel: profile?.rankLabel ?? 'Apprenti CIEL',
       micEnabled: Boolean(state.micEnabled),
       isSpeaking: Boolean(state.isSpeaking),
-      vrData: state.vrData || null
+      vrData: state.vrData || null,
+      metalPipe: Boolean(state.metalPipePass)
     };
   }
 
@@ -1342,7 +1351,10 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
       lastPlaytimeFlushMs: 0,
       micEnabled: false,
       isSpeaking: false,
-      vrData: null
+      vrData: null,
+      metalPipePass: null,
+      pipeLastHitAt: 0,
+      pipeLaunchUntil: 0
     };
     clients.set(ws, state);
 
@@ -2253,6 +2265,85 @@ export function attachWsHub(httpServer, store, mapStore = null, survivalOptions 
               });
             }
           }
+          break;
+        }
+
+        case 'metal_pipe_equip': {
+          if (!state.name) return;
+          const wantsEquip = Boolean(msg.enabled);
+          const pass = typeof msg.pass === 'string' ? msg.pass.slice(0, 128) : '';
+          if (wantsEquip) {
+            const allowed =
+              typeof validateMetalPipePass === 'function' && pass && validateMetalPipePass(pass);
+            if (!allowed) {
+              state.metalPipePass = null;
+              ws.send(JSON.stringify({ type: 'metal_pipe_denied', reason: 'forbidden' }));
+              broadcastToRoom(
+                state.room,
+                { type: 'metal_pipe_equipped', id: state.id, enabled: false },
+                null
+              );
+              return;
+            }
+            state.metalPipePass = pass;
+          } else {
+            state.metalPipePass = null;
+          }
+          broadcastToRoom(
+            state.room,
+            { type: 'metal_pipe_equipped', id: state.id, enabled: Boolean(state.metalPipePass) },
+            null
+          );
+          break;
+        }
+
+        case 'metal_pipe_hit': {
+          if (!state.name || !state.metalPipePass) return;
+          if (
+            typeof validateMetalPipePass !== 'function' ||
+            !validateMetalPipePass(state.metalPipePass)
+          ) {
+            state.metalPipePass = null;
+            ws.send(JSON.stringify({ type: 'metal_pipe_denied', reason: 'expired' }));
+            broadcastToRoom(
+              state.room,
+              { type: 'metal_pipe_equipped', id: state.id, enabled: false },
+              null
+            );
+            return;
+          }
+          if (isIsolatedInstanceRoom(state.room)) return;
+          const targetId = typeof msg.targetId === 'string' ? msg.targetId : '';
+          let targetState = null;
+          for (const other of clients.values()) {
+            if (other.id === targetId && other.name && other.room === state.room) {
+              targetState = other;
+              break;
+            }
+          }
+          const nowMs = Date.now();
+          const verdict = validateMetalPipeHit({ attacker: state, target: targetState, now: nowMs });
+          if (!verdict.ok) return;
+          state.pipeLastHitAt = nowMs;
+          targetState.pipeLaunchUntil = nowMs + METAL_PIPE.hardCapMs;
+          const dirLen = Math.hypot(targetState.x - state.x, targetState.z - state.z) || 1;
+          broadcastToRoom(
+            state.room,
+            {
+              type: 'metal_pipe_launch',
+              attackerId: state.id,
+              targetId: targetState.id,
+              height: METAL_PIPE.launchHeight,
+              durationMs: METAL_PIPE.durationMs,
+              seed: Math.random(),
+              dirX: (targetState.x - state.x) / dirLen,
+              dirZ: (targetState.z - state.z) / dirLen,
+              x: targetState.x,
+              y: targetState.y,
+              z: targetState.z
+            },
+            null
+          );
           break;
         }
 

@@ -615,6 +615,21 @@ export class NetworkClient {
     });
   }
 
+  sendMetalPipeEquip(enabled, pass = '') {
+    return this.send({
+      type: 'metal_pipe_equip',
+      enabled: Boolean(enabled),
+      pass: enabled ? String(pass || '') : ''
+    });
+  }
+
+  sendMetalPipeHit(targetId) {
+    return this.send({
+      type: 'metal_pipe_hit',
+      targetId: String(targetId || '')
+    });
+  }
+
   sendDebugAction(action, extra = {}) {
     return this.send({
       type: 'debug_action',

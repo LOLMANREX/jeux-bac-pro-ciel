@@ -845,6 +845,68 @@ export class SoundEngine {
     this.playTone(420, 0.09, 'sine', 0.06, 0.03);
   }
 
+  playMetalPipeImpact(gainScale = 1) {
+    const ctx = this._ensureCtx();
+    if (!ctx) return;
+    const volScale = Number.isFinite(this.volume) ? Math.max(0, Math.min(1, this.volume)) : 0.8;
+    const scale = Math.max(0, Math.min(1, Number(gainScale) || 0)) * volScale;
+    if (scale <= 0.01) return;
+    const t0 = ctx.currentTime;
+    const partials = [
+      [1, 0.34],
+      [2.76, 0.22],
+      [5.4, 0.16],
+      [8.93, 0.1],
+      [13.3, 0.06]
+    ];
+    const base = 612;
+    const out = this._getOutputNode();
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(scale, t0);
+    master.connect(out);
+    for (const [ratio, level] of partials) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(base * ratio, t0);
+      osc.frequency.exponentialRampToValueAtTime(base * ratio * 0.985, t0 + 1.1);
+      gain.gain.setValueAtTime(level, t0);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.55 + 0.9 / ratio);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(t0);
+      osc.stop(t0 + 1.5);
+    }
+    const bounceTimes = [0.34, 0.6, 0.78, 0.9];
+    bounceTimes.forEach((delay, idx) => {
+      const at = t0 + delay;
+      const lvl = 0.22 / (idx + 1);
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(base * (1.5 + idx * 0.18), at);
+      gain.gain.setValueAtTime(lvl, at);
+      gain.gain.exponentialRampToValueAtTime(0.001, at + 0.22);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(at);
+      osc.stop(at + 0.25);
+    });
+    const noiseLen = Math.floor(ctx.sampleRate * 0.06);
+    const buffer = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < noiseLen; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / noiseLen);
+    }
+    const noise = ctx.createBufferSource();
+    const noiseGain = ctx.createGain();
+    noise.buffer = buffer;
+    noiseGain.gain.setValueAtTime(0.28, t0);
+    noise.connect(noiseGain);
+    noiseGain.connect(master);
+    noise.start(t0);
+  }
+
   playCombatHitmarker(isKill = false) {
     const ctx = this._ensureCtx();
     if (!ctx) return;

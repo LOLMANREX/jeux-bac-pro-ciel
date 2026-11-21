@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.36 - Tablette Interactive CIEL (Tab) : CIEL Formative, Campus Map Multi-Étages, Notes & Outils CIEL'),
+    __APP_VERSION__: JSON.stringify('v4.37 - Metal Pipe Bat : Bâton Admin, Projection Ragdoll & Clang Métallique'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {
