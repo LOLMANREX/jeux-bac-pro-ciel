@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import * as THREE from 'three';
 import {
   JPO_DEMO_COINS,
   JPO_KIOSK_IDLE_MS,
@@ -13,13 +14,15 @@ import {
   createKioskIdleController,
   getJpoHudVisibility,
   getJpoRoomConfig,
+  isJpoActive,
   isJpoRoomActive,
   normalizeJpoRoom,
   readJpoConfig,
   resolveJpoSpawnPose,
   saveJpoConfig
 } from '../src/core/jpoConfig.js';
-import { createDefaultMap, getDynamicMapColliders } from '../src/world/mapSchema.js';
+import { buildLabWorld } from '../src/world/LabBuilder.js';
+import { createDefaultMap, getDynamicMapColliders, normalizeMapData } from '../src/world/mapSchema.js';
 
 function createMemoryStorage() {
   const map = new Map();
@@ -480,4 +483,105 @@ test('Portes Ouvertes v4.39 : contournement login, HUD épuré, isolation LabBui
 
   assert.equal(forbiddenPattern.test(adminHtml), false);
   assert.equal(forbiddenPattern.test(indexHtml), false);
+});
+
+test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode JPO et préservation en mode standard', () => {
+  const mem = createMemoryStorage();
+  assert.equal(isJpoActive(mem), false);
+  mem.setItem('ciel_jpo_salle', 'standard');
+  assert.equal(isJpoActive(mem), false);
+  for (const roomId of ['cyber', 'reseau', 'elec']) {
+    mem.setItem('ciel_jpo_salle', roomId);
+    assert.equal(isJpoActive(mem), true);
+  }
+
+  for (const roomId of ['cyber', 'reseau', 'elec']) {
+    const rawJpoMap = createJpoRoomMap(roomId);
+    const normalizedJpoMap = normalizeMapData(rawJpoMap);
+    assert.equal(normalizedJpoMap.jpoIsolated, true);
+    assert.equal(normalizedJpoMap.id, `jpo-room-${roomId}`);
+
+    const lab = buildLabWorld(new THREE.Scene(), rawJpoMap, { hideSprites: true });
+    try {
+      assert.equal(lab.combatDoors.length, 0, `Aucun portail combat ne doit exister en salle ${roomId}`);
+      assert.equal(
+        lab.interactables.some(
+          (it) => it?.type === 'combat_door' || /AR[ÈE]NE DE COMBAT/i.test(String(it?.label || ''))
+        ),
+        false,
+        `Aucun trigger Arène de Combat ne doit exister dans interactables pour ${roomId}`
+      );
+
+      lab.rebuildWorld(createJpoRoomMap(roomId));
+      assert.equal(lab.combatDoors.length, 0);
+      assert.equal(
+        lab.interactables.some((it) => it?.type === 'combat_door'),
+        false
+      );
+    } finally {
+      lab.dispose();
+    }
+  }
+
+  const prevDesc = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const mockLocalStorage = createMemoryStorage();
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: mockLocalStorage
+  });
+  try {
+    for (const roomId of ['cyber', 'reseau', 'elec']) {
+      mockLocalStorage.setItem('ciel_jpo_salle', roomId);
+      assert.equal(isJpoActive(), true);
+      const mapWithCombatDoor = createDefaultMap();
+      assert.ok(mapWithCombatDoor.objects.some((o) => o.type === 'combat_door'));
+
+      const labWithStorage = buildLabWorld(new THREE.Scene(), mapWithCombatDoor, { hideSprites: true });
+      try {
+        assert.equal(labWithStorage.combatDoors.length, 0);
+        assert.equal(
+          labWithStorage.interactables.some((it) => it?.type === 'combat_door'),
+          false
+        );
+      } finally {
+        labWithStorage.dispose();
+      }
+    }
+
+    mockLocalStorage.setItem('ciel_jpo_salle', 'standard');
+    assert.equal(isJpoActive(), false);
+
+    const stdLab = buildLabWorld(new THREE.Scene(), createDefaultMap(), { hideSprites: true });
+    try {
+      assert.ok(stdLab.combatDoors.length >= 1);
+      assert.ok(stdLab.interactables.some((it) => it?.type === 'combat_door'));
+    } finally {
+      stdLab.dispose();
+    }
+
+    const fallbackMap = createDefaultMap();
+    fallbackMap.objects = fallbackMap.objects.filter((o) => o.type !== 'combat_door');
+    const stdFallbackLab = buildLabWorld(new THREE.Scene(), fallbackMap, { hideSprites: true });
+    try {
+      assert.ok(stdFallbackLab.combatDoors.length >= 1);
+      assert.ok(stdFallbackLab.interactables.some((it) => it?.type === 'combat_door'));
+    } finally {
+      stdFallbackLab.dispose();
+    }
+  } finally {
+    if (prevDesc) {
+      Object.defineProperty(globalThis, 'localStorage', prevDesc);
+    } else {
+      delete globalThis.localStorage;
+    }
+  }
+
+  const mainSrc = fs.readFileSync(path.resolve('src/main.js'), 'utf8');
+  assert.ok(mainSrc.includes('if (!joined || activeCinematic || isJpoDemoActive() || (!privateDebugMode && isJpoActive())) return;'));
+  assert.ok(mainSrc.includes("return lab.interactables.filter((it) => it?.type !== 'combat_door');"));
+  assert.ok(mainSrc.includes('skipCombatFallback: initialJpoActive'));
+
+  const hudSrc = fs.readFileSync(path.resolve('src/ui/HudManager.js'), 'utf8');
+  assert.ok(hudSrc.includes("if (!target || this.detentionHudHidden || (this.isJpoActive() && target.type === 'combat_door'))"));
 });

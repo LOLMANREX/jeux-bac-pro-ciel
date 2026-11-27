@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.39 - Mode Portes Ouvertes Affiné : Zéro Login, HUD Épuré & Salle Unique Dédiée'),
+    __APP_VERSION__: JSON.stringify('v4.40 - Correctif Portes Ouvertes : Suppression Totale du Portail Arène de Combat en Mode JPO'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

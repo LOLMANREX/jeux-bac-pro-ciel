@@ -1918,6 +1918,12 @@ export function normalizeMapData(raw) {
   if (models.length > 0) {
     out.models = models;
   }
+  if (src.jpoIsolated === true) {
+    out.jpoIsolated = true;
+    if (typeof src.id === 'string' && src.id.trim()) {
+      out.id = cleanText(src.id, 64, '');
+    }
+  }
   return out;
 }
 

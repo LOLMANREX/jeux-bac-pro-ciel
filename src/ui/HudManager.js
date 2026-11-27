@@ -1893,7 +1893,7 @@ export class HudManager {
   }
 
   setInteractPrompt(target) {
-    if (!target || this.detentionHudHidden) {
+    if (!target || this.detentionHudHidden || (this.isJpoActive() && target.type === 'combat_door')) {
       this._setCachedHidden(this.interactPromptEl, 'interactHidden', true);
       return;
     }

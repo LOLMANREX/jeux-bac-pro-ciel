@@ -77,6 +77,7 @@ import {
   createJpoVisitorName,
   createKioskIdleController,
   getJpoRoomConfig,
+  isJpoActive,
   isJpoRoomActive,
   JPO_DEMO_COINS,
   JPO_KIOSK_IDLE_MS,
@@ -157,7 +158,8 @@ let currentMapData = initialJpoActive ? createJpoRoomMap(initialJpoConfig.room) 
 let standardMapData = initialJpoActive ? null : currentMapData;
 const lab = buildLabWorld(sceneMgr.scene, currentMapData, {
   maxAnisotropy: sceneMgr.getMaxAnisotropy(),
-  lowRes: lowResWorld
+  lowRes: lowResWorld,
+  skipCombatFallback: initialJpoActive
 });
 const survivalArena = createSurvivalPocketRooms(sceneMgr.scene, currentMapData);
 const combatArena = createCombatPocketRooms(sceneMgr.scene, { lowRes: lowResWorld });
@@ -1408,6 +1410,9 @@ function getActiveInteractables() {
   }
   if (survivalState.hiddenRack) {
     return [];
+  }
+  if (isJpoDemoActive() || (!privateDebugMode && isJpoActive())) {
+    return lab.interactables.filter((it) => it?.type !== 'combat_door');
   }
   return lab.interactables;
 }
@@ -2861,7 +2866,7 @@ function syncCombatPanelMode() {
 }
 
 function enterCombatLobby() {
-  if (!joined || activeCinematic) return;
+  if (!joined || activeCinematic || isJpoDemoActive() || (!privateDebugMode && isJpoActive())) return;
   if (!network.connected) {
     hud?.toast?.('⚠️ Connectez-vous au serveur pour entrer dans l’Arène de Combat CIEL.', 'error');
     return;
@@ -3705,7 +3710,9 @@ function applyMapData(rawMap, liveUpdate = false) {
   if (!rawMap) return;
   closeCielOsPc({ restoreCamera: false });
   currentMapData = normalizeMapData(rawMap);
-  lab.rebuildWorld(currentMapData);
+  lab.rebuildWorld(currentMapData, {
+    skipCombatFallback: Boolean(currentMapData?.jpoIsolated || isJpoDemoActive())
+  });
   survivalArena?.setMapData?.(currentMapData);
   if (survivalState.introMapContext) {
     survivalState.introMapContext = {
@@ -5746,7 +5753,11 @@ function interactWith(target) {
   if (!target) return;
   if (target.id === 'teacher') openTeacherDialogue(target.dialogue || '');
   else if (target.type === 'survival_door') enterSurvivalLobby();
-  else if (target.type === 'combat_door') enterCombatLobby();
+  else if (target.type === 'combat_door') {
+    if (!isJpoDemoActive() && (privateDebugMode || !isJpoActive())) {
+      enterCombatLobby();
+    }
+  }
   else if (target.type === 'hiding_rack') toggleHidingInRack(target);
   else if (target.type === 'survival_lobby_console') toggleSurvivalReady();
   else if (target.type === 'survival_lobby_exit') leaveSurvivalLobby();
@@ -6803,11 +6814,11 @@ function startGameSession(
     jpoState.tpAutoOpened = false;
     jpoState.hasMovedSinceSpawn = false;
     const expectedMapId = `jpo-room-${jpoRoom}`;
-    if (!currentMapData?.jpoIsolated || currentMapData.id !== expectedMapId) {
+    if (!currentMapData?.jpoIsolated || currentMapData.id !== expectedMapId || lab.combatDoors.length > 0) {
       const jpoMap = createJpoRoomMap(jpoRoom);
       if (jpoMap) {
         currentMapData = jpoMap;
-        lab.rebuildWorld(currentMapData);
+        lab.rebuildWorld(currentMapData, { skipCombatFallback: true });
         sceneMgr.updateWorldBounds(currentMapData.bounds);
         player.setWalkableSurfaces?.(lab.walkableSurfaces);
         player.setSpatialHash?.(lab.spatialHash);

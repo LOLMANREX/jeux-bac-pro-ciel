@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.39 - Mode Portes Ouvertes Affiné : Zéro Login, HUD Épuré & Salle Unique Dédiée';
+    : 'v4.40 - Correctif Portes Ouvertes : Suppression Totale du Portail Arène de Combat en Mode JPO';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,21 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.39 — Mode Portes Ouvertes Affiné : Zéro Login, HUD Épuré & Salle Unique Dédiée',
+    version: 'v4.40 — Correctif Portes Ouvertes : Suppression Totale du Portail Arène de Combat en Mode JPO',
     date: '27/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'CORRECTIF SALLE JPO',
+        title: 'Suppression complète du portail Arène de Combat (arche 3D, cercle au sol, étiquette et interaction)',
+        desc: 'En mode Portes Ouvertes (Cybersécurité, Réseaux ou Électronique), la création, l’affichage et le déclenchement du portail Arène de Combat CIEL sont totalement désactivés afin que le poste du TP reste entièrement dégagé, tout en préservant à 100 % le mode Standard.'
+      }
+    ]
+  },
+  {
+    version: 'v4.39 — Mode Portes Ouvertes Affiné : Zéro Login, HUD Épuré & Salle Unique Dédiée',
+    date: '27/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'ZÉRO COMPTE / ZÉRO BASE',

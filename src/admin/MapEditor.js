@@ -4421,7 +4421,7 @@ export class MapEditor {
     scene.add(dir);
 
     const camera = new THREE.PerspectiveCamera(56, 1, 0.1, 320);
-    const lab = buildLabWorld(scene, this.mapData);
+    const lab = buildLabWorld(scene, this.mapData, { skipCombatFallback: false });
 
     this.three.renderer = renderer;
     this.three.scene = scene;

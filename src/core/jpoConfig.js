@@ -87,6 +87,10 @@ export function isJpoRoomActive(roomId) {
   return normalizeJpoRoom(roomId) !== 'standard';
 }
 
+export function isJpoActive(storage = globalThis?.localStorage) {
+  return isJpoRoomActive(readJpoConfig(storage).room);
+}
+
 export function readJpoConfig(storage = globalThis?.localStorage) {
   try {
     if (!storage || typeof storage.getItem !== 'function') {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
+import { isJpoActive } from '../core/jpoConfig.js';
 import { CielOsDesktop } from '../minigames/CielOsDesktop.js';
 import { createNpcTeacher } from './NpcTeacher.js';
 import { createRealisticMaterialPack } from './RealisticMaterials.js';
@@ -827,8 +828,18 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   };
   let leaderboardBoards = [];
   let materialPack = null;
-  let currentMapData = normalizeMapData(initialMapData || createDefaultMap());
+  const initialMapInput = initialMapData || createDefaultMap();
+  const defaultSkipCombatOpt = options.skipCombatFallback;
+  let currentMapData = normalizeMapData(initialMapInput);
   let walkableSurfaces = buildWalkableSurfaceData(currentMapData);
+  function resolveSkipCombatFallback(mapInput, rebuildOpts = {}) {
+    if (rebuildOpts?.skipCombatFallback === false) return false;
+    if (rebuildOpts?.skipCombatFallback === true || rebuildOpts?.jpoActive === true) return true;
+    if (defaultSkipCombatOpt === true) return true;
+    if (mapInput?.jpoIsolated === true) return true;
+    if (defaultSkipCombatOpt === false) return false;
+    return isJpoActive();
+  }
   let qualityTier = options.lowRes ? 'eco' : 'high';
   let spatialCulling = null;
   const spatialHash = new SpatialHash(8, Number(currentMapData.floorHeight) || 3.8);
@@ -2062,6 +2073,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         continue;
       }
 
+      if (obj.type === 'combat_door' && buildOpts?.skipCombatFallback) {
+        continue;
+      }
       if (obj.type === 'survival_door' || obj.type === 'combat_door') {
         buildSpecialModeDoor(obj, w, d, rotRad, cat, objBaseY, objFloor);
         continue;
@@ -3411,7 +3425,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     }
   }
 
-  function rebuildWorld(nextMapData) {
+  function rebuildWorld(nextMapData, rebuildOpts = {}) {
     setHoveredInteractable(null);
     colliders.length = 0;
     interactables.length = 0;
@@ -3446,8 +3460,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       worldGroup.remove(worldGroup.children[0]);
     }
 
-    const skipCombatFallback = Boolean(nextMapData?.jpoIsolated);
-    currentMapData = normalizeMapData(nextMapData || createDefaultMap());
+    const rawNext = nextMapData || createDefaultMap();
+    const skipCombatFallback = resolveSkipCombatFallback(rawNext, rebuildOpts);
+    currentMapData = normalizeMapData(rawNext);
     const dynColliders = getDynamicMapColliders(currentMapData);
     for (const c of dynColliders) colliders.push(c);
 
@@ -3775,7 +3790,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     scene.remove(worldGroup);
   }
 
-  rebuildWorld(currentMapData);
+  rebuildWorld(initialMapInput);
 
   return {
     worldGroup,
