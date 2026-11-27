@@ -15,20 +15,27 @@ import {
   JPO_MISSION_BRIEFINGS,
   JPO_ROOM_STORAGE_KEY,
   JPO_ROOMS,
+  JPO_WELCOME_BADGE,
+  JPO_WELCOME_CONFIG_LABEL,
+  JPO_WELCOME_PLAY_LABEL,
+  JPO_WELCOME_SCREENS,
   createJpoRoomMap,
   createJpoVisitorName,
   createKioskIdleController,
   getJpoHudVisibility,
   getJpoMissionBriefing,
   getJpoRoomConfig,
+  getJpoWelcomeScreen,
   isJpoActive,
   isJpoRoomActive,
   normalizeJpoRoom,
   readJpoConfig,
   resolveJpoSpawnPose,
-  saveJpoConfig
+  saveJpoConfig,
+  shouldShowJpoWelcome
 } from '../src/core/jpoConfig.js';
 import { JpoBriefingModal } from '../src/ui/JpoBriefingModal.js';
+import { JpoWelcomeModal } from '../src/ui/JpoWelcomeModal.js';
 import { buildLabWorld } from '../src/world/LabBuilder.js';
 import { createDefaultMap, getDynamicMapColliders, normalizeMapData } from '../src/world/mapSchema.js';
 
@@ -801,6 +808,201 @@ test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgaris
     'src/minigames/AntivirusGame.js',
     'src/minigames/VlanConfigGame.js',
     'src/minigames/ElectronicsGame.js',
+    'src/ui/ChangelogModal.js',
+    'vite.config.js',
+    'tests/jpo-doors.test.js'
+  ]) {
+    const txt = fs.readFileSync(path.resolve(rel), 'utf8');
+    assert.deepEqual(scanJsComments(txt), [], `Commentaire JS détecté dans ${rel}`);
+    assert.equal(forbiddenPattern.test(txt), false, `Nom interdit détecté dans ${rel}`);
+  }
+});
+
+test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & reset, absence en standard, correctif ATH TP et zéro commentaire', () => {
+  assert.equal(JPO_WELCOME_BADGE, 'PORTES OUVERTES • BAC PRO CIEL');
+  assert.equal(JPO_WELCOME_PLAY_LABEL, '🎮 Jouer');
+  assert.equal(JPO_WELCOME_CONFIG_LABEL, '⚙️ Config salle');
+  assert.deepEqual(Object.keys(JPO_WELCOME_SCREENS).sort(), ['cyber', 'elec', 'reseau']);
+
+  assert.equal(shouldShowJpoWelcome('standard'), false);
+  assert.equal(shouldShowJpoWelcome('unknown'), false);
+  assert.equal(getJpoWelcomeScreen('standard'), null);
+  assert.equal(getJpoWelcomeScreen('unknown'), null);
+
+  const expectedWelcome = {
+    cyber: {
+      title: '🛡️ Bienvenue sur le TP Cybersécurité',
+      subtitle: 'Découvrez comment protéger un réseau informatique contre une cyberattaque en quelques clics.'
+    },
+    reseau: {
+      title: '🌐 Bienvenue sur le TP Réseaux & Systèmes',
+      subtitle: "Apprenez à connecter et sécuriser les équipements réseau d'un bâtiment."
+    },
+    elec: {
+      title: '⚡ Bienvenue sur le TP Électronique & Embarqué',
+      subtitle: "Explorez le fonctionnement d'un circuit électronique et réalisez vos premiers réglages."
+    }
+  };
+
+  for (const roomId of ['cyber', 'reseau', 'elec']) {
+    assert.equal(shouldShowJpoWelcome(roomId), true);
+    const spec = getJpoWelcomeScreen(roomId);
+    assert.ok(spec);
+    assert.equal(spec.title, expectedWelcome[roomId].title);
+    assert.equal(spec.subtitle, expectedWelcome[roomId].subtitle);
+  }
+
+  const makeMockEl = (id, initialClasses = ['hidden']) => {
+    const classes = new Set(initialClasses);
+    const listeners = new Map();
+    const styles = new Map();
+    return {
+      id,
+      textContent: '',
+      style: {
+        setProperty: (k, v) => styles.set(k, v),
+        getPropertyValue: (k) => styles.get(k) || ''
+      },
+      classList: {
+        add: (...names) => names.forEach((n) => classes.add(n)),
+        remove: (...names) => names.forEach((n) => classes.delete(n)),
+        toggle: (name, force) => {
+          if (force === undefined) {
+            if (classes.has(name)) classes.delete(name);
+            else classes.add(name);
+          } else if (force) {
+            classes.add(name);
+          } else {
+            classes.delete(name);
+          }
+          return classes.has(name);
+        },
+        contains: (name) => classes.has(name)
+      },
+      addEventListener: (ev, fn) => {
+        if (!listeners.has(ev)) listeners.set(ev, []);
+        listeners.get(ev).push(fn);
+      },
+      trigger: (ev, eventObj = {}) => {
+        for (const fn of listeners.get(ev) || []) {
+          fn(eventObj);
+        }
+      }
+    };
+  };
+
+  const bodyEl = makeMockEl('body', []);
+  const elements = new Map([
+    ['jpo-welcome-screen', makeMockEl('jpo-welcome-screen')],
+    ['jpo-welcome-card', makeMockEl('jpo-welcome-card')],
+    ['jpo-welcome-badge', makeMockEl('jpo-welcome-badge')],
+    ['jpo-welcome-title', makeMockEl('jpo-welcome-title')],
+    ['jpo-welcome-subtitle', makeMockEl('jpo-welcome-subtitle')],
+    ['jpo-welcome-play-btn', makeMockEl('jpo-welcome-play-btn')],
+    ['jpo-welcome-config-link', makeMockEl('jpo-welcome-config-link')]
+  ]);
+
+  const prevDocDesc = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    writable: true,
+    value: {
+      body: bodyEl,
+      getElementById: (id) => elements.get(id) || null
+    }
+  });
+  try {
+    const modal = new JpoWelcomeModal();
+    assert.equal(modal.isOpen(), false);
+    assert.equal(modal.open('standard'), false);
+    assert.equal(modal.isOpen(), false);
+    assert.equal(bodyEl.classList.contains('jpo-welcome-open'), false);
+
+    let playCalls = 0;
+    for (const roomId of ['cyber', 'reseau', 'elec']) {
+      assert.equal(modal.open(roomId, { onPlay: () => playCalls++ }), true);
+      assert.equal(modal.isOpen(), true);
+      assert.equal(elements.get('jpo-welcome-screen').classList.contains('hidden'), false);
+      assert.equal(bodyEl.classList.contains('jpo-welcome-open'), true);
+      assert.equal(elements.get('jpo-welcome-badge').textContent, 'PORTES OUVERTES • BAC PRO CIEL');
+      assert.equal(elements.get('jpo-welcome-title').textContent, expectedWelcome[roomId].title);
+      assert.equal(elements.get('jpo-welcome-subtitle').textContent, expectedWelcome[roomId].subtitle);
+      assert.equal(elements.get('jpo-welcome-play-btn').textContent, '🎮 Jouer');
+      assert.equal(elements.get('jpo-welcome-config-link').textContent, '⚙️ Config salle');
+
+      elements.get('jpo-welcome-play-btn').trigger('click');
+      assert.equal(modal.isOpen(), false);
+      assert.equal(elements.get('jpo-welcome-screen').classList.contains('hidden'), true);
+      assert.equal(bodyEl.classList.contains('jpo-welcome-open'), false);
+    }
+    assert.equal(playCalls, 3);
+
+    modal.close();
+    assert.equal(modal.open('cyber', { onPlay: () => playCalls++ }), true);
+    assert.equal(modal.isOpen(), true);
+    assert.equal(elements.get('jpo-welcome-screen').classList.contains('hidden'), false);
+    elements.get('jpo-welcome-play-btn').trigger('click');
+    assert.equal(playCalls, 4);
+  } finally {
+    if (prevDocDesc) {
+      Object.defineProperty(globalThis, 'document', prevDocDesc);
+    } else {
+      delete globalThis.document;
+    }
+  }
+
+  const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
+  for (const needle of [
+    'id="jpo-welcome-screen"',
+    'id="jpo-welcome-card"',
+    'id="jpo-welcome-badge"',
+    'id="jpo-welcome-title"',
+    'id="jpo-welcome-subtitle"',
+    'id="jpo-welcome-play-btn"',
+    'id="jpo-welcome-config-link"',
+    'href="/admin"',
+    'PORTES OUVERTES • BAC PRO CIEL',
+    'ZQSD / Flèches',
+    'Souris',
+    '🎮 Jouer',
+    '⚙️ Config salle'
+  ]) {
+    assert.ok(indexHtml.includes(needle), `Élément manquant dans index.html : ${needle}`);
+  }
+  assert.deepEqual(scanHtmlComments(indexHtml), []);
+
+  const mainSrc = fs.readFileSync(path.resolve('src/main.js'), 'utf8');
+  for (const mainNeedle of [
+    'JpoWelcomeModal',
+    'openJpoWelcomeOverlay',
+    'shouldShowJpoWelcome',
+    'player.requestPointerLock',
+    'jpoWelcomeModal?.isOpen?.()',
+    'jpoWelcomeModal?.close?.()'
+  ]) {
+    assert.ok(mainSrc.includes(mainNeedle), `Logique manquante dans src/main.js : ${mainNeedle}`);
+  }
+
+  const mainCss = fs.readFileSync(path.resolve('src/styles/main.css'), 'utf8');
+  for (const cssNeedle of [
+    '.jpo-welcome-screen',
+    'body.jpo-mode.jpo-welcome-open #game-canvas',
+    'body.jpo-mode .tp3d-cameras',
+    'body.jpo-mode .tp3d-zoom-bar',
+    'body.jpo-mode .tp3d-zoom-btn',
+    'body.jpo-mode .tp3d-bottom-dock'
+  ]) {
+    assert.ok(mainCss.includes(cssNeedle), `Règle CSS manquante dans main.css : ${cssNeedle}`);
+  }
+  assert.deepEqual(scanCssComments(mainCss), []);
+
+  const forbiddenPattern = new RegExp('for' + 'tin', 'i');
+  for (const rel of [
+    'src/core/jpoConfig.js',
+    'src/ui/JpoWelcomeModal.js',
+    'src/ui/JpoBriefingModal.js',
+    'src/ui/HudManager.js',
+    'src/main.js',
     'src/ui/ChangelogModal.js',
     'vite.config.js',
     'tests/jpo-doors.test.js'

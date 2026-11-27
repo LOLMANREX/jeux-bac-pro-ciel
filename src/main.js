@@ -84,7 +84,8 @@ import {
   JPO_DEMO_COINS,
   JPO_KIOSK_IDLE_MS,
   readJpoConfig,
-  resolveJpoSpawnPose
+  resolveJpoSpawnPose,
+  shouldShowJpoWelcome
 } from './core/jpoConfig.js';
 import { ProximityVoiceChat } from './network/ProximityVoiceChat.js';
 import { VRManager } from './vr/VRManager.js';
@@ -105,6 +106,7 @@ import { buildShopViewModel, ShopModal } from './ui/ShopModal.js';
 import { buildLockerViewModel, LockerModal } from './ui/LockerModal.js';
 import { TabletOS, shouldHandleTabShortcut } from './ui/TabletOS.js';
 import { JpoBriefingModal } from './ui/JpoBriefingModal.js';
+import { JpoWelcomeModal } from './ui/JpoWelcomeModal.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
 import { getCielOsTouchLayout } from './minigames/TouchTpHelpers.js';
 import { VariationTableSession } from './minigames/VariationTableGame.js';
@@ -317,6 +319,7 @@ let touchControls = null;
 let dialogueModal = null;
 let miniGameModal = null;
 let jpoBriefingModal = null;
+let jpoWelcomeModal = null;
 let changelogModal = null;
 let faqModal = null;
 let battlePassModal = null;
@@ -404,14 +407,14 @@ function startKioskMode() {
   jpoState.idleController = createKioskIdleController({
     timeoutMs: JPO_KIOSK_IDLE_MS,
     onTimeout: () => {
-      if (joined && jpoState.kiosk) {
+      if (joined && jpoState.kiosk && !jpoWelcomeModal?.isOpen?.()) {
         resetJpoVisit('inactivity');
       }
     }
   });
   jpoState.idleController.start();
   jpoState.idleDisplayTimer = setInterval(() => {
-    if (!joined || !jpoState.kiosk || !jpoState.idleController) {
+    if (!joined || !jpoState.kiosk || !jpoState.idleController || jpoWelcomeModal?.isOpen?.()) {
       hud?.setJpoIdleCountdown?.(null);
       return;
     }
@@ -420,9 +423,36 @@ function startKioskMode() {
   }, 1000);
 }
 
+function openJpoWelcomeOverlay(roomId) {
+  if (!shouldShowJpoWelcome(roomId) || !jpoWelcomeModal) return false;
+  if (typeof document !== 'undefined' && document.pointerLockElement) {
+    document.exitPointerLock?.();
+  }
+  setModalActive(true, false, true);
+  return jpoWelcomeModal.open(roomId, {
+    onPlay: () => {
+      setModalActive(false, false, false);
+      jpoState.idleController?.touch?.();
+      hud?.setJpoIdleCountdown?.(null);
+      if (!gameState.touchMode && !vrManager?.isVrActive?.()) {
+        try {
+          player.requestPointerLock?.();
+        } catch {}
+      }
+      if (jpoState.roomConfig) {
+        hud?.toast?.(
+          `${jpoState.roomConfig.icon} ${jpoState.roomConfig.label} — Approchez-vous du poste et appuyez sur [E] pour démarrer l'activité !`,
+          'success'
+        );
+      }
+    }
+  });
+}
+
 function openJpoFeaturedTp() {
   const tpId = jpoState.roomConfig?.tpId;
   if (!tpId || !joined) return;
+  if (jpoWelcomeModal?.isOpen?.()) return;
   if (jpoBriefingModal?.isOpen?.()) return;
   if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
     return;
@@ -433,6 +463,7 @@ function openJpoFeaturedTp() {
 }
 
 function resetJpoVisit(reason = 'manual') {
+  jpoWelcomeModal?.close?.();
   jpoBriefingModal?.close?.();
   activeCameraTweenId++;
   tpOpenSeqId++;
@@ -976,6 +1007,7 @@ try {
   dialogueModal = new DialogueModal();
   miniGameModal = new MiniGameModal();
   jpoBriefingModal = new JpoBriefingModal();
+  jpoWelcomeModal = new JpoWelcomeModal();
 } catch (err) {
   console.warn('Modales de dialogue/TP:', err);
 }
@@ -4801,6 +4833,7 @@ try {
 }
 
 function returnToMainMenu(isLogout = false) {
+  jpoWelcomeModal?.close?.();
   jpoBriefingModal?.close?.();
   stopKioskMode();
   hud?.setJpoMode?.({ roomConfig: null, kiosk: false });
@@ -5836,6 +5869,15 @@ window.addEventListener('keydown', (e) => {
     }
   }
 
+  if (jpoWelcomeModal?.isOpen?.() && !isTyping) {
+    const onWelcomeControl = Boolean(e.target?.closest?.('#jpo-welcome-screen button, #jpo-welcome-screen a'));
+    if (!onWelcomeControl && (e.code === 'Enter' || e.code === 'Space')) {
+      e.preventDefault();
+      jpoWelcomeModal.startPlay();
+    }
+    return;
+  }
+
   if (jpoBriefingModal?.isOpen?.() && !isTyping) {
     if (e.code === 'Escape') {
       e.preventDefault();
@@ -6830,6 +6872,7 @@ function startGameSession(
   { name, room, skin, privateDebug = false, forceIntro = false, jpoRoom = null },
   startVr = false
 ) {
+  jpoWelcomeModal?.close?.();
   jpoBriefingModal?.close?.();
   const cleanRoom = room || 'plateau-u300';
   const isDebugRoom = Boolean(
@@ -6957,13 +7000,9 @@ function startGameSession(
   } else if (activeJpo) {
     if (JPO_AUTO_START_TP) {
       openJpoFeaturedTp();
+    } else if (shouldShowJpoWelcome(jpoState.roomId)) {
+      openJpoWelcomeOverlay(jpoState.roomId);
     }
-    setTimeout(() => {
-      hud?.toast?.(
-        `${jpoState.roomConfig.icon} ${jpoState.roomConfig.label} — Approchez-vous du poste et appuyez sur [E] pour démarrer l'activité !`,
-        'success'
-      );
-    }, 300);
   } else if (shouldRunIntro) {
     startIntroCinematic(Boolean(forceIntro));
   } else {

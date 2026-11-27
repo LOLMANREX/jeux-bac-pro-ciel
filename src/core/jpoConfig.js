@@ -10,6 +10,9 @@ export const JPO_INTERACT_PROMPT_TEXT = "Appuyez sur [E] pour démarrer l'activi
 export const JPO_BRIEFING_START_LABEL = "🚀 C'est parti !";
 export const JPO_BRIEFING_RESUME_LABEL = "✅ Reprendre l'activité";
 export const JPO_HELP_BUTTON_LABEL = '❓ Aide / Consignes';
+export const JPO_WELCOME_BADGE = 'PORTES OUVERTES • BAC PRO CIEL';
+export const JPO_WELCOME_PLAY_LABEL = '🎮 Jouer';
+export const JPO_WELCOME_CONFIG_LABEL = '⚙️ Config salle';
 export const JPO_ROOM_IDS = ['standard', 'cyber', 'reseau', 'elec'];
 
 export const JPO_ROOMS = {
@@ -193,6 +196,40 @@ export function getJpoMissionBriefing(key) {
     return JPO_MISSION_BRIEFINGS[roomCfg.tpId];
   }
   return null;
+}
+
+export const JPO_WELCOME_SCREENS = {
+  cyber: {
+    roomId: 'cyber',
+    icon: '🛡️',
+    accent: '#f43f5e',
+    title: '🛡️ Bienvenue sur le TP Cybersécurité',
+    subtitle: 'Découvrez comment protéger un réseau informatique contre une cyberattaque en quelques clics.'
+  },
+  reseau: {
+    roomId: 'reseau',
+    icon: '🌐',
+    accent: '#34d399',
+    title: '🌐 Bienvenue sur le TP Réseaux & Systèmes',
+    subtitle: "Apprenez à connecter et sécuriser les équipements réseau d'un bâtiment."
+  },
+  elec: {
+    roomId: 'elec',
+    icon: '⚡',
+    accent: '#fbbf24',
+    title: '⚡ Bienvenue sur le TP Électronique & Embarqué',
+    subtitle: "Explorez le fonctionnement d'un circuit électronique et réalisez vos premiers réglages."
+  }
+};
+
+export function getJpoWelcomeScreen(roomId) {
+  const clean = normalizeJpoRoom(roomId);
+  if (!isJpoRoomActive(clean)) return null;
+  return JPO_WELCOME_SCREENS[clean] || null;
+}
+
+export function shouldShowJpoWelcome(roomId) {
+  return isJpoRoomActive(roomId);
 }
 
 export function isJpoRoomActive(roomId) {

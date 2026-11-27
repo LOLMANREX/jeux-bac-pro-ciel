@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.41 - Mode Portes Ouvertes Grand Public : Spawn Libre, Briefing Mission Vulgarisé & HUD TP Agrandi';
+    : 'v4.42 - Mode Portes Ouvertes : Écran d’Accueil Borne Kiosque & Correctif ATH TP';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.41 — Mode Portes Ouvertes Grand Public : Spawn Libre, Briefing Mission Vulgarisé & HUD TP Agrandi',
+    version: 'v4.42 — Mode Portes Ouvertes : Écran d’Accueil Borne Kiosque & Correctif ATH TP',
     date: '27/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'BORNE PORTES OUVERTES',
+        title: 'Écran d’accueil plein écran dynamique au lancement et après chaque reset Kiosque',
+        desc: 'En mode Portes Ouvertes (Cybersécurité, Réseaux & Systèmes, Électronique & Embarqué), un écran d’accueil flouté présente le TP de la salle, les touches essentielles (ZQSD / Flèches, Souris, E), un bouton principal « 🎮 Jouer » qui active la caméra libre et un lien discret « ⚙️ Config salle » vers /admin.'
+      },
+      {
+        badge: 'CORRECTIF ATH TP',
+        title: 'Correction des boutons caméra/zoom à gauche et marges du dock d’actions en Mode JPO',
+        desc: 'Les rangées caméra et Zoom 3D / Panneau TP en mode Portes Ouvertes sont désormais clairement séparées et dimensionnées sans boutons vides ni chevauchements, et le dock d’actions en bas à gauche bénéficie de marges propres sur écrans 16:9 et ultrawide, sans aucun impact sur le mode Standard.'
+      }
+    ]
+  },
+  {
+    version: 'v4.41 — Mode Portes Ouvertes Grand Public : Spawn Libre, Briefing Mission Vulgarisé & HUD TP Agrandi',
+    date: '27/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'SPAWN LIBRE JPO',
