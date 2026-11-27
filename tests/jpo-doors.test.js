@@ -1247,3 +1247,72 @@ test('Portes Ouvertes v4.44 : régie audiovisuelle 3D enrichie, TP Brasure en sa
   assert.deepEqual(scanHtmlComments(adminHtml), []);
   assert.deepEqual(scanCssComments(mainCss), []);
 });
+
+test('Portes Ouvertes v4.45 : sublimation 3D des TP Cyber SOC, Réseau VLAN et Brasure PCB sans régression et zéro commentaire', () => {
+  const avSrc = fs.readFileSync(path.resolve('src/minigames/AntivirusGame.js'), 'utf8');
+  for (const needle of [
+    'CENTRE CYBERDÉFENSE • BAC PRO CIEL',
+    'socRackLeds',
+    'nodeActivityLeds',
+    'beamPulses',
+    'fwShieldWire',
+    'edrShieldDome',
+    'edrShieldWire',
+    '#soc-iso',
+    '#soc-fw-185',
+    '#soc-fw-91',
+    '#soc-fw-4444',
+    '#soc-edr-scan'
+  ]) {
+    assert.ok(avSrc.includes(needle), `Élément manquant dans AntivirusGame.js : ${needle}`);
+  }
+
+  const vlanSrc = fs.readFileSync(path.resolve('src/minigames/VlanConfigGame.js'), 'utf8');
+  for (const needle of [
+    'INFRASTRUCTURE RÉSEAU • BAC PRO CIEL',
+    'PATCH PANEL 19" CAT6A',
+    'switchPortLeds',
+    'CatmullRomCurve3',
+    'TubeGeometry',
+    'campusPortLeds',
+    'runCliCommand',
+    'triggerNetworkProbe',
+    '#cli-form',
+    '#cli-input'
+  ]) {
+    assert.ok(vlanSrc.includes(needle), `Élément manquant dans VlanConfigGame.js : ${needle}`);
+  }
+
+  const solderSrc = fs.readFileSync(path.resolve('src/minigames/SolderingGame.js'), 'utf8');
+  for (const needle of [
+    'POSTE BRASURE ÉLECTRONIQUE • BAC PRO CIEL',
+    'THREE.SpotLight',
+    'helpingHandsGroup',
+    'THREE.Points',
+    'fluxSmokePoints',
+    'pcbTestLight',
+    'ironTipLight',
+    '#solder-rng-temp',
+    '#solder-hold-btn',
+    'data-pad-id'
+  ]) {
+    assert.ok(solderSrc.includes(needle), `Élément manquant dans SolderingGame.js : ${needle}`);
+  }
+
+  const forbiddenPattern = new RegExp('for' + 'tin', 'i');
+  for (const rel of [
+    'src/minigames/AntivirusGame.js',
+    'src/minigames/VlanConfigGame.js',
+    'src/minigames/SolderingGame.js',
+    'src/ui/ChangelogModal.js',
+    'vite.config.js',
+    'tests/jpo-doors.test.js',
+    'tests/tablet-formative.test.js',
+    'tests/mobile-tp.test.js',
+    'tests/celebration-debug.test.js'
+  ]) {
+    const txt = fs.readFileSync(path.resolve(rel), 'utf8');
+    assert.deepEqual(scanJsComments(txt), [], `Commentaire JS détecté dans ${rel}`);
+    assert.equal(forbiddenPattern.test(txt), false, `Nom interdit détecté dans ${rel}`);
+  }
+});

@@ -4,10 +4,22 @@ import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/gra
 import {
   createWorkbench3D,
   makeCanvasScreen,
-  buildFlexibleCable,
-  createEsdMatTexture
+  buildFlexibleCable
 } from './Workbench3DHost.js';
 import { createVirtualKeypad } from './TouchTpHelpers.js';
+
+function makeCanvasTexture(width, height, drawFn) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  drawFn(ctx, width, height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
 
 export const AV_STAGES = [
   {
@@ -193,36 +205,260 @@ export function createAntivirusGame(api) {
     api?.isJpo || (typeof document !== 'undefined' && document.body?.classList?.contains('jpo-mode'))
   );
   const bench = createWorkbench3D(api.container, {
-    cameraPos: [0.0, 0.92, 1.18],
-    lookAt: [0.0, 0.22, -0.08],
+    background: '#081122',
+    wallColor: '#0c182e',
+    benchColor: '#131f33',
+    benchWidth: 4.2,
+    benchDepth: 1.75,
+    cameraPos: [0.0, 0.88, 1.24],
+    lookAt: [0.0, 0.25, -0.08],
     fov: 40,
+    envIntensity: 0.88,
     hasEsdMat: false
   });
 
-  const esdTex = createEsdMatTexture('#0f172a', '#0ea5e9');
+  const socBlueLight = new THREE.PointLight('#38bdf8', 2.2, 8, 1.4);
+  socBlueLight.position.set(-1.4, 1.65, 1.2);
+  bench.scene.add(socBlueLight);
+
+  const socAccentLight = new THREE.PointLight('#6366f1', 1.8, 8, 1.4);
+  socAccentLight.position.set(1.5, 1.55, -0.8);
+  bench.scene.add(socAccentLight);
+
+  const socAlertLight = new THREE.PointLight('#ef4444', 1.5, 6.0, 1.5);
+  socAlertLight.position.set(0, 1.1, -0.75);
+  bench.scene.add(socAlertLight);
+
+  const holoGlowLight = new THREE.PointLight('#38bdf8', 1.1, 2.8, 1.6);
+  holoGlowLight.position.set(0, 0.22, 0.04);
+  bench.scene.add(holoGlowLight);
+
+  const darkFrame = bench.track(
+    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.42, metalness: 0.65 })
+  );
+  const socChassisMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.36, metalness: 0.62 })
+  );
+  const socMetalMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: '#64748b', roughness: 0.28, metalness: 0.78 })
+  );
+
+  const socWallTex = bench.track(
+    makeCanvasTexture(1024, 512, (ctx, w, h) => {
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, '#071022');
+      grad.addColorStop(0.55, '#0d1b36');
+      grad.addColorStop(1, '#070d1a');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      for (let x = 0; x < w; x += 32) {
+        ctx.fillStyle = x % 64 === 0 ? 'rgba(15, 23, 42, 0.72)' : 'rgba(30, 41, 59, 0.38)';
+        ctx.fillRect(x, 0, 20, h);
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.09)';
+        ctx.fillRect(x + 20, 0, 2, h);
+      }
+
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.14)';
+      ctx.lineWidth = 1.5;
+      for (let y = 40; y < h; y += 44) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
+      ctx.fillRect(0, 36, w, 5);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.24)';
+      ctx.fillRect(0, h - 46, w, 5);
+    })
+  );
+  const socBackWall = new THREE.Mesh(
+    bench.track(new THREE.PlaneGeometry(5.6, 2.6)),
+    bench.track(new THREE.MeshStandardMaterial({ map: socWallTex, roughness: 0.68, metalness: 0.16 }))
+  );
+  socBackWall.position.set(0, 1.18, -0.92);
+  socBackWall.receiveShadow = true;
+  bench.scene.add(socBackWall);
+
+  const socWallNeonMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 1.05 })
+  );
+  const socTopNeon = new THREE.Mesh(bench.track(new THREE.BoxGeometry(3.2, 0.018, 0.025)), socWallNeonMat);
+  socTopNeon.position.set(0, 0.68, -0.89);
+  bench.scene.add(socTopNeon);
+  const socBotNeon = new THREE.Mesh(bench.track(new THREE.BoxGeometry(3.2, 0.016, 0.025)), socWallNeonMat);
+  socBotNeon.position.set(0, 0.40, -0.89);
+  bench.scene.add(socBotNeon);
+
+  const socSignFrame = new THREE.Mesh(bench.track(new THREE.BoxGeometry(1.56, 0.24, 0.04)), darkFrame);
+  socSignFrame.position.set(0, 0.54, -0.88);
+  bench.scene.add(socSignFrame);
+
+  const socSignScreen = makeCanvasScreen(760, 120, (ctx, w, h) => {
+    const bg = ctx.createLinearGradient(0, 0, w, 0);
+    bg.addColorStop(0, '#070e1d');
+    bg.addColorStop(0.5, '#0f2042');
+    bg.addColorStop(1, '#070e1d');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(4, 4, w - 8, h - 8);
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 34px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('CENTRE CYBERDÉFENSE • BAC PRO CIEL', w / 2, 54);
+
+    ctx.fillStyle = '#7dd3fc';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText('SALLE DE CRISE SOC  •  PARE-FEU FW-01  •  CIELGUARD EDR', w / 2, 90);
+    ctx.textAlign = 'left';
+  });
+  bench.track(socSignScreen.texture);
+  const socSignFace = new THREE.Mesh(
+    bench.track(new THREE.PlaneGeometry(1.48, 0.20)),
+    bench.track(new THREE.MeshBasicMaterial({ map: socSignScreen.texture }))
+  );
+  socSignFace.position.set(0, 0.54, -0.858);
+  bench.scene.add(socSignFace);
+
+  const socRackLeds = [];
+  [-1, 1].forEach((side) => {
+    const rackGrp = new THREE.Group();
+    rackGrp.position.set(side * 1.04, 0, -0.34);
+    rackGrp.rotation.y = side * -0.22;
+    bench.scene.add(rackGrp);
+
+    const cab = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.32, 0.48, 0.34)), darkFrame);
+    cab.position.set(0, 0.24, 0);
+    cab.castShadow = true;
+    rackGrp.add(cab);
+
+    for (const rx of [-0.14, 0.14]) {
+      const rail = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.016, 0.45, 0.016)), socMetalMat);
+      rail.position.set(rx, 0.24, 0.172);
+      rackGrp.add(rail);
+    }
+
+    for (let u = 0; u < 4; u++) {
+      const uy = 0.09 + u * 0.10;
+      const plate = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.26, 0.08, 0.014)), socChassisMat);
+      plate.position.set(0, uy, 0.172);
+      rackGrp.add(plate);
+
+      const vent = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.14, 0.04, 0.008)), darkFrame);
+      vent.position.set(-0.04, uy, 0.18);
+      rackGrp.add(vent);
+
+      for (let l = 0; l < 3; l++) {
+        const isAlert = l === 2;
+        const lMat = bench.track(
+          new THREE.MeshStandardMaterial({
+            color: isAlert ? '#38bdf8' : '#22c55e',
+            emissive: isAlert ? '#0284c7' : '#16a34a',
+            emissiveIntensity: 0.9
+          })
+        );
+        const led = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.0065, 8, 8)), lMat);
+        led.position.set(0.06 + l * 0.022, uy + 0.01, 0.182);
+        rackGrp.add(led);
+        socRackLeds.push({ mat: lMat, phase: (side + 2) * 1.3 + u * 0.9 + l * 0.65, isAlert });
+      }
+    }
+  });
+
+  const socMatTex = bench.track(
+    makeCanvasTexture(1024, 512, (ctx, w, h) => {
+      ctx.fillStyle = '#091326';
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.14)';
+      ctx.lineWidth = 1.5;
+      for (let x = 0; x <= w; x += 32) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= h; y += 32) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.52)';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(10, 10, w - 20, h - 20);
+
+      ctx.strokeStyle = 'rgba(14, 165, 233, 0.45)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(w / 2, h * 0.56, 170, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(125, 211, 252, 0.72)';
+      ctx.font = 'bold 16px monospace';
+      ctx.fillText('TAPIS ANTISTATIQUE SOC • HOLOGRAMME RÉSEAU • CIELGUARD', 26, 36);
+      ctx.fillText('COMMANDES SOC', 32, h - 28);
+      ctx.fillText('CLÉ EDR', w - 120, h - 28);
+    })
+  );
   const deskSurface = new THREE.Mesh(
-    new THREE.BoxGeometry(1.75, 0.012, 0.96),
-    new THREE.MeshStandardMaterial({ map: esdTex, roughness: 0.65 })
+    bench.track(new THREE.BoxGeometry(1.88, 0.012, 1.04)),
+    bench.track(new THREE.MeshStandardMaterial({ map: socMatTex, roughness: 0.68, metalness: 0.12 }))
   );
   deskSurface.position.set(0, 0.006, 0.02);
   deskSurface.receiveShadow = true;
   bench.scene.add(deskSurface);
 
-  const darkFrame = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.42, metalness: 0.65 });
+  for (const gx of [-0.62, 0, 0.62]) {
+    const grommet = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.036, 0.036, 0.014, 16)), socMetalMat);
+    grommet.position.set(gx, 0.01, -0.44);
+    bench.scene.add(grommet);
+    const hole = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.022, 0.022, 0.016, 16)), darkFrame);
+    hole.position.set(gx, 0.011, -0.44);
+    bench.scene.add(hole);
+  }
 
+  for (const cPts of [
+    [[-0.90, 0.05, -0.26], [-0.74, 0.02, -0.42], [-0.62, 0.015, -0.44]],
+    [[0.90, 0.05, -0.26], [0.74, 0.02, -0.42], [0.62, 0.015, -0.44]],
+    [[-0.54, 0.04, -0.29], [-0.30, 0.018, -0.42], [0, 0.015, -0.44]],
+    [[0.54, 0.04, -0.29], [0.30, 0.018, -0.42], [0, 0.015, -0.44]]
+  ]) {
+    const cCurve = new THREE.CatmullRomCurve3(cPts.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
+    const cMesh = new THREE.Mesh(
+      bench.track(new THREE.TubeGeometry(cCurve, 18, 0.007, 8, false)),
+      bench.track(new THREE.MeshStandardMaterial({ color: '#0ea5e9', roughness: 0.42, metalness: 0.2 }))
+    );
+    bench.scene.add(cMesh);
+  }
+
+  const monitorLeds = [];
   function makeSocMonitor(x, z, rotY, width = 0.52, height = 0.30) {
     const grp = new THREE.Group();
     grp.position.set(x, 0.012, z);
     grp.rotation.y = rotY;
-    const stand = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.014, 0.11), darkFrame);
+    const stand = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.14, 0.014, 0.11)), darkFrame);
     stand.position.y = 0.007;
-    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.22, 0.028), darkFrame);
+    const neck = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.035, 0.22, 0.028)), darkFrame);
     neck.position.set(0, 0.11, -0.018);
-    const bezel = new THREE.Mesh(new THREE.BoxGeometry(width + 0.03, height + 0.03, 0.024), darkFrame);
+    const bezel = new THREE.Mesh(bench.track(new THREE.BoxGeometry(width + 0.03, height + 0.03, 0.024)), darkFrame);
     bezel.position.set(0, 0.27, 0);
     bezel.castShadow = true;
-    grp.add(stand, neck, bezel);
+    const ledMat = bench.track(
+      new THREE.MeshStandardMaterial({ color: '#38bdf8', emissive: '#38bdf8', emissiveIntensity: 1.2 })
+    );
+    const statusBar = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.06, 0.006, 0.008)), ledMat);
+    statusBar.position.set(width * 0.36, 0.27 - height * 0.5 - 0.008, 0.012);
+    grp.add(stand, neck, bezel, statusBar);
     bench.scene.add(grp);
+    monitorLeds.push(ledMat);
     return { grp, width, height };
   }
 
@@ -230,67 +466,144 @@ export function createAntivirusGame(api) {
   const mCenter = makeSocMonitor(0.0, -0.34, 0.0, 0.56, 0.32);
   const mRight = makeSocMonitor(0.54, -0.26, -0.36);
 
-  const idsScreen = makeCanvasScreen(512, 320, (ctx, w, h, st) => {
-    ctx.fillStyle = '#070b12';
+  const idsScreen = makeCanvasScreen(640, 400, (ctx, w, h, st) => {
+    ctx.fillStyle = '#060a14';
     ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, w, 34);
+    ctx.fillRect(0, 0, w, 40);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(2, 2, w - 4, h - 4);
     ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 16px monospace';
-    ctx.fillText('IDS WIRESHARK — ANALYSE FLUX SOC', 12, 23);
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText('IDS WIRESHARK — ANALYSE FLUX SOC', 14, 27);
 
     const s = st || {};
     const logs = [
-      { blocked: s.fw185, text: s.fw185 ? '[BLOCKED] 185.42.19.88 -> SRV-WEB:443 (DDoS)' : '[ALERT] 185.42.19.88 -> SRV-WEB:443 SYN FLOOD!' },
-      { blocked: s.fw91, text: s.fw91 ? '[BLOCKED] 91.203.11.4 -> SRV-BDD:22 (SSH)' : '[ALERT] 91.203.11.4 -> SRV-BDD:22 BRUTEFORCE!' },
-      { blocked: s.fw4444, text: s.fw4444 ? '[DROPPED] PC-WORK -> Port 4444 C2 EXFIL' : '[CRITICAL] PC-WORK -> 45.14.9.1:4444 C2 OPEN!' },
-      { blocked: s.isolated, text: s.isolated ? '[ISOLATED] PC-WORK coupé du Switch SW-CORE' : '[LATERAL] PC-WORK SMB scan -> SRV-BDD!' },
-      { blocked: s.edrDone, text: s.edrDone ? '[CLEAN] CielGuard EDR : 0 menace active' : '[INFECTED] svch0st.exe + cryptolocker actifs' }
+      { blocked: s.fw185, tag: s.fw185 ? 'BLOCKED' : 'ALERT', text: s.fw185 ? '185.42.19.88 -> SRV-WEB:443 (DDoS)' : '185.42.19.88 -> SRV-WEB:443 SYN FLOOD!' },
+      { blocked: s.fw91, tag: s.fw91 ? 'BLOCKED' : 'ALERT', text: s.fw91 ? '91.203.11.4 -> SRV-BDD:22 (SSH)' : '91.203.11.4 -> SRV-BDD:22 BRUTEFORCE!' },
+      { blocked: s.fw4444, tag: s.fw4444 ? 'DROPPED' : 'CRIT', text: s.fw4444 ? 'PC-WORK -> Port 4444 C2 EXFIL' : 'PC-WORK -> 45.14.9.1:4444 C2 OPEN!' },
+      { blocked: s.isolated, tag: s.isolated ? 'ISOLATED' : 'LATERAL', text: s.isolated ? 'PC-WORK coupé du Switch SW-CORE' : 'PC-WORK SMB scan -> SRV-BDD!' },
+      { blocked: s.edrDone, tag: s.edrDone ? 'CLEAN' : 'INFECTED', text: s.edrDone ? 'CielGuard EDR : 0 menace active' : 'svch0st.exe + cryptolocker actifs' }
     ];
     logs.forEach((l, i) => {
+      const y = 78 + i * 44;
+      ctx.fillStyle = l.blocked ? 'rgba(34, 197, 94, 0.16)' : 'rgba(239, 68, 68, 0.18)';
+      ctx.fillRect(12, y - 20, 96, 26);
       ctx.fillStyle = l.blocked ? '#4ade80' : '#f87171';
       ctx.font = 'bold 14px monospace';
-      ctx.fillText(l.text, 12, 72 + i * 42);
+      ctx.fillText(l.tag, 20, y - 2);
+      ctx.fillStyle = l.blocked ? '#bbf7d0' : '#fecaca';
+      ctx.font = '15px monospace';
+      ctx.fillText(l.text, 118, y - 2);
     });
+
+    ctx.fillStyle = '#0b1324';
+    ctx.fillRect(14, 304, w - 28, 78);
+    ctx.strokeStyle = '#1e293b';
+    ctx.strokeRect(14, 304, w - 28, 78);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('TRAFIC RÉSEAU TEMPS RÉEL (PKT/S)', 24, 323);
+    const phase = s.animPhase || 0;
+    const alertRatio = logs.filter((l) => !l.blocked).length / logs.length;
+    for (let b = 0; b < 28; b++) {
+      const val = 0.2 + 0.75 * Math.abs(Math.sin(phase * 1.4 + b * 0.55));
+      const bh = Math.max(6, Math.round(val * (18 + alertRatio * 30)));
+      ctx.fillStyle = alertRatio > 0 && b % 4 === 0 ? '#ef4444' : alertRatio === 0 ? '#22c55e' : '#38bdf8';
+      ctx.fillRect(24 + b * 21, 374 - bh, 14, bh);
+    }
   });
 
-  const centerScreen = makeCanvasScreen(512, 320, (ctx, w, h, st) => {
+  const centerScreen = makeCanvasScreen(640, 400, (ctx, w, h, st) => {
     const s = st || { integrity: 100, activeThreats: 8, cveCount: 0, fwCount: 0 };
-    ctx.fillStyle = s.integrity < 40 ? '#1f0b0e' : '#081224';
+    ctx.fillStyle = s.integrity < 40 ? '#1f0b0e' : '#061022';
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(0, 0, w, 38);
+    ctx.fillStyle = '#0f1d36';
+    ctx.fillRect(0, 0, w, 42);
+    ctx.strokeStyle = s.secured ? '#22c55e' : '#38bdf8';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(2, 2, w - 4, h - 4);
     ctx.fillStyle = '#f8fafc';
-    ctx.font = 'bold 17px monospace';
-    ctx.fillText('CIEL SOC — INTÉGRITÉ INFRASTRUCTURE', 14, 25);
+    ctx.font = 'bold 19px monospace';
+    ctx.fillText('CIEL SOC — INTÉGRITÉ INFRASTRUCTURE', 18, 28);
 
-    ctx.fillStyle = s.integrity >= 70 ? '#4ade80' : s.integrity >= 40 ? '#fbbf24' : '#ef4444';
-    ctx.font = 'bold 54px monospace';
-    ctx.fillText(`${Math.round(s.integrity)}%`, 24, 114);
+    const cx = 122;
+    const cy = 152;
+    const r = 68;
+    const pct = Math.max(0, Math.min(100, s.integrity)) / 100;
+    const ringCol = s.integrity >= 70 ? '#22c55e' : s.integrity >= 40 ? '#f59e0b' : '#ef4444';
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
 
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(24, 134, w - 48, 22);
-    ctx.fillStyle = s.integrity >= 70 ? '#22c55e' : s.integrity >= 40 ? '#f59e0b' : '#ef4444';
-    ctx.fillRect(24, 134, ((w - 48) * Math.max(0, s.integrity)) / 100, 22);
+    ctx.strokeStyle = ringCol;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
+    ctx.stroke();
 
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '15px monospace';
-    ctx.fillText(`Attaques actives : ${s.activeThreats}  |  CVE patchées : ${s.cveCount}/3`, 24, 198);
-    ctx.fillText(`Pare-feu : ${s.fwCount}/3 règles  |  EDR : ${s.edrDone ? 'SAIN' : s.edrScanning ? 'SCAN...' : 'REQUIS'}`, 24, 232);
+    ctx.fillStyle = ringCol;
+    ctx.font = 'bold 34px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${Math.round(s.integrity)}%`, cx, cy + 12);
+    ctx.textAlign = 'left';
+
+    const statsCards = [
+      { label: 'MENACES ACTIVES', val: String(s.activeThreats), ok: s.activeThreats === 0 },
+      { label: 'PARE-FEU FW-01', val: `${s.fwCount}/3`, ok: s.fwCount === 3 },
+      { label: 'CORRECTIFS CVE', val: `${s.cveCount}/3`, ok: s.cveCount === 3 },
+      { label: 'ANALYSE EDR', val: s.edrDone ? 'SAIN' : s.edrScanning ? 'SCAN...' : 'REQUIS', ok: s.edrDone }
+    ];
+    statsCards.forEach((sc, idx) => {
+      const col = idx % 2;
+      const row = Math.floor(idx / 2);
+      const bx = 228 + col * 194;
+      const by = 68 + row * 86;
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(bx, by, 180, 74);
+      ctx.strokeStyle = sc.ok ? '#22c55e' : '#334155';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(bx, by, 180, 74);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(sc.label, bx + 12, by + 24);
+      ctx.fillStyle = sc.ok ? '#4ade80' : '#f8fafc';
+      ctx.font = 'bold 24px monospace';
+      ctx.fillText(sc.val, bx + 12, by + 56);
+    });
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(24, 256, w - 48, 28);
+    ctx.fillStyle = ringCol;
+    ctx.fillRect(24, 256, (w - 48) * pct, 28);
+
+    ctx.fillStyle = s.secured ? 'rgba(34, 197, 94, 0.16)' : 'rgba(250, 204, 21, 0.12)';
+    ctx.fillRect(24, 308, w - 48, 66);
+    ctx.strokeStyle = s.secured ? '#22c55e' : '#facc15';
+    ctx.strokeRect(24, 308, w - 48, 66);
     ctx.fillStyle = s.secured ? '#4ade80' : '#facc15';
-    ctx.font = 'bold 16px monospace';
-    ctx.fillText(s.secured ? 'RÉSEAU SÉCURISÉ — PRÊT POUR VALIDATION' : 'INTERVENEZ SUR L’HOLOGRAMME & LE PANNEAU SOC', 24, 282);
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText(
+      s.secured ? '✔ RÉSEAU SÉCURISÉ — PRÊT POUR VALIDATION' : '⚡ INTERVENEZ SUR L’HOLOGRAMME & LE PANNEAU SOC',
+      40,
+      348
+    );
   });
 
-  const rightScreen = makeCanvasScreen(512, 320, (ctx, w, h, st) => {
+  const rightScreen = makeCanvasScreen(640, 400, (ctx, w, h, st) => {
     const s = st || { scanPct: 0 };
-    ctx.fillStyle = '#070c16';
+    ctx.fillStyle = '#060b16';
     ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, w, 34);
-    ctx.fillStyle = '#a855f7';
-    ctx.font = 'bold 16px monospace';
-    ctx.fillText('SYSTÈMES & CORRECTIFS CVE', 14, 23);
+    ctx.fillRect(0, 0, w, 40);
+    ctx.strokeStyle = '#a855f7';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(2, 2, w - 4, h - 4);
+    ctx.fillStyle = '#c084fc';
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText('SYSTÈMES & CORRECTIFS CVE', 16, 27);
 
     const items = [
       { ok: s.cveWeb, label: 'CVE-2024 Apache (SRV-WEB) + Process' },
@@ -298,42 +611,96 @@ export function createAntivirusGame(api) {
       { ok: s.cveHost, label: 'Quarantaine svch0st.exe (typosquat)' }
     ];
     items.forEach((it, idx) => {
-      ctx.fillStyle = it.ok ? '#4ade80' : '#fbbf24';
-      ctx.font = 'bold 15px monospace';
-      ctx.fillText(`${it.ok ? '[OK]' : '[VULN]'} ${it.label}`, 16, 86 + idx * 54);
+      const y = 66 + idx * 66;
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(16, y, w - 32, 52);
+      ctx.strokeStyle = it.ok ? '#22c55e' : '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(16, y, w - 32, 52);
+      ctx.fillStyle = it.ok ? '#16a34a' : '#b45309';
+      ctx.fillRect(28, y + 12, 74, 28);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText(it.ok ? 'PATCHÉ' : 'VULN', 38, y + 31);
+      ctx.fillStyle = it.ok ? '#86efac' : '#fde68a';
+      ctx.font = 'bold 16px monospace';
+      ctx.fillText(it.label, 116, y + 32);
     });
-    ctx.fillStyle = s.edrDone ? '#38bdf8' : '#94a3b8';
-    ctx.font = 'bold 16px monospace';
-    ctx.fillText(`Clé CielGuard EDR : ${s.edrDone ? 'TERMINÉ ✔' : s.edrScanning ? `ANALYSE ${Math.round(s.scanPct)}%` : 'NON LANCÉE'}`, 16, 268);
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(16, 282, w - 32, 92);
+    ctx.strokeStyle = s.edrDone ? '#22c55e' : '#38bdf8';
+    ctx.strokeRect(16, 282, w - 32, 92);
+    ctx.fillStyle = s.edrDone ? '#4ade80' : '#38bdf8';
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText(
+      `Clé CielGuard EDR : ${s.edrDone ? 'TERMINÉ ✔' : s.edrScanning ? `ANALYSE ${Math.round(s.scanPct)}%` : 'EN ATTENTE'}`,
+      30,
+      318
+    );
+    const barW = w - 60;
+    const fill = s.edrDone ? 1 : s.edrScanning ? Math.max(0, Math.min(1, (s.scanPct || 0) / 100)) : 0;
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(30, 336, barW, 20);
+    ctx.fillStyle = s.edrDone ? '#22c55e' : '#38bdf8';
+    ctx.fillRect(30, 336, barW * fill, 20);
   });
 
-  const pLeft = new THREE.Mesh(new THREE.PlaneGeometry(mLeft.width, mLeft.height), new THREE.MeshBasicMaterial({ map: idsScreen.texture }));
+  bench.track(idsScreen.texture);
+  bench.track(centerScreen.texture);
+  bench.track(rightScreen.texture);
+
+  const pLeft = new THREE.Mesh(
+    bench.track(new THREE.PlaneGeometry(mLeft.width, mLeft.height)),
+    bench.track(new THREE.MeshBasicMaterial({ map: idsScreen.texture }))
+  );
   pLeft.position.set(0, 0.27, 0.013);
   mLeft.grp.add(pLeft);
 
-  const pCenter = new THREE.Mesh(new THREE.PlaneGeometry(mCenter.width, mCenter.height), new THREE.MeshBasicMaterial({ map: centerScreen.texture }));
+  const pCenter = new THREE.Mesh(
+    bench.track(new THREE.PlaneGeometry(mCenter.width, mCenter.height)),
+    bench.track(new THREE.MeshBasicMaterial({ map: centerScreen.texture }))
+  );
   pCenter.position.set(0, 0.27, 0.013);
   mCenter.grp.add(pCenter);
 
-  const pRight = new THREE.Mesh(new THREE.PlaneGeometry(mRight.width, mRight.height), new THREE.MeshBasicMaterial({ map: rightScreen.texture }));
+  const pRight = new THREE.Mesh(
+    bench.track(new THREE.PlaneGeometry(mRight.width, mRight.height)),
+    bench.track(new THREE.MeshBasicMaterial({ map: rightScreen.texture }))
+  );
   pRight.position.set(0, 0.27, 0.013);
   mRight.grp.add(pRight);
 
   const holoPad = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.46, 0.50, 0.02, 36),
-    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3, metalness: 0.75 })
+    bench.track(new THREE.CylinderGeometry(0.46, 0.50, 0.02, 36)),
+    bench.track(new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3, metalness: 0.75 }))
   );
   holoPad.position.set(0, 0.022, 0.04);
   holoPad.receiveShadow = true;
   bench.scene.add(holoPad);
 
   const holoRing = new THREE.Mesh(
-    new THREE.TorusGeometry(0.44, 0.008, 12, 48),
-    new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, emissiveIntensity: 1.5 })
+    bench.track(new THREE.TorusGeometry(0.44, 0.008, 12, 48)),
+    bench.track(new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, emissiveIntensity: 1.5 }))
   );
   holoRing.rotation.x = Math.PI / 2;
   holoRing.position.set(0, 0.033, 0.04);
   bench.scene.add(holoRing);
+
+  const holoInnerRing = new THREE.Mesh(
+    bench.track(new THREE.RingGeometry(0.24, 0.255, 36)),
+    bench.track(
+      new THREE.MeshBasicMaterial({
+        color: '#38bdf8',
+        transparent: true,
+        opacity: 0.45,
+        side: THREE.DoubleSide
+      })
+    )
+  );
+  holoInnerRing.rotation.x = -Math.PI / 2;
+  holoInnerRing.position.set(0, 0.034, 0.04);
+  bench.scene.add(holoInnerRing);
 
   const nodeDefs = [
     { id: 'FW-01', pos: new THREE.Vector3(0, 0.14, -0.14), color: 0x38bdf8, size: [0.08, 0.08, 0.05] },
@@ -344,35 +711,165 @@ export function createAntivirusGame(api) {
   ];
 
   const nodes = {};
+  const nodeActivityLeds = [];
+  let pcMiniScreenMat = null;
   for (const nd of nodeDefs) {
-    const mat = new THREE.MeshStandardMaterial({
-      color: nd.color,
-      emissive: nd.color,
-      emissiveIntensity: nd.id === 'PC-WORK' ? 1.5 : 0.6,
-      roughness: 0.28,
-      metalness: 0.45,
-      transparent: true,
-      opacity: 0.92
-    });
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...nd.size), mat);
+    const mat = bench.track(
+      new THREE.MeshStandardMaterial({
+        color: nd.color,
+        emissive: nd.color,
+        emissiveIntensity: nd.id === 'PC-WORK' ? 1.5 : 0.6,
+        roughness: 0.28,
+        metalness: 0.45,
+        transparent: true,
+        opacity: 0.92
+      })
+    );
+    const mesh = new THREE.Mesh(bench.track(new THREE.BoxGeometry(...nd.size)), mat);
     mesh.position.copy(nd.pos);
     mesh.castShadow = true;
+
+    if (nd.id === 'SRV-WEB' || nd.id === 'SRV-BDD') {
+      const frontPlate = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.064, 0.115, 0.008)), darkFrame);
+      frontPlate.position.set(0, 0, 0.039);
+      mesh.add(frontPlate);
+      for (let b = 0; b < 3; b++) {
+        const bay = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.052, 0.018, 0.005)), socChassisMat);
+        bay.position.set(0, -0.032 + b * 0.026, 0.044);
+        mesh.add(bay);
+        const ledMat = bench.track(
+          new THREE.MeshStandardMaterial({ color: '#38bdf8', emissive: '#38bdf8', emissiveIntensity: 1.1 })
+        );
+        const led = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.004, 8, 8)), ledMat);
+        led.position.set(0.02, -0.032 + b * 0.026, 0.048);
+        mesh.add(led);
+        nodeActivityLeds.push({ mat: ledMat, phase: b * 1.4 + (nd.id === 'SRV-BDD' ? 1.8 : 0), nodeId: nd.id });
+      }
+    } else if (nd.id === 'SW-CORE') {
+      const swFace = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.09, 0.032, 0.006)), darkFrame);
+      swFace.position.set(0, 0, 0.041);
+      mesh.add(swFace);
+      for (let p = 0; p < 6; p++) {
+        const ledMat = bench.track(
+          new THREE.MeshStandardMaterial({ color: '#22c55e', emissive: '#16a34a', emissiveIntensity: 1.0 })
+        );
+        const led = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.007, 0.006, 0.004)), ledMat);
+        led.position.set(-0.032 + p * 0.013, 0.004, 0.045);
+        mesh.add(led);
+        nodeActivityLeds.push({ mat: ledMat, phase: p * 0.7, nodeId: 'SW-CORE' });
+      }
+    } else if (nd.id === 'PC-WORK') {
+      const pcFront = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.072, 0.068, 0.006)), darkFrame);
+      pcFront.position.set(0, 0, 0.039);
+      mesh.add(pcFront);
+      pcMiniScreenMat = bench.track(
+        new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 1.25 })
+      );
+      const miniScreen = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.065, 0.042, 0.008)), pcMiniScreenMat);
+      miniScreen.position.set(0, 0.064, 0);
+      miniScreen.rotation.x = -0.25;
+      mesh.add(miniScreen);
+      for (let l = 0; l < 2; l++) {
+        const ledMat = bench.track(
+          new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 1.2 })
+        );
+        const led = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.0045, 8, 8)), ledMat);
+        led.position.set(-0.02 + l * 0.016, 0.016, 0.044);
+        mesh.add(led);
+        nodeActivityLeds.push({ mat: ledMat, phase: l * 1.1, nodeId: 'PC-WORK' });
+      }
+    } else if (nd.id === 'FW-01') {
+      const trimBand = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.086, 0.014, 0.056)), darkFrame);
+      mesh.add(trimBand);
+    }
+
     bench.scene.add(mesh);
     nodes[nd.id] = { mesh, mat, basePos: nd.pos.clone() };
   }
 
-  const fwDomeMat = new THREE.MeshStandardMaterial({
-    color: 0x38bdf8,
-    emissive: 0x0284c7,
-    emissiveIntensity: 0.8,
-    transparent: true,
-    opacity: 0.18,
-    depthWrite: false
-  });
-  const fwDome = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 16), fwDomeMat);
+  const fwDomeMat = bench.track(
+    new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0284c7,
+      emissiveIntensity: 0.85,
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false
+    })
+  );
+  const fwDome = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.11, 20, 16)), fwDomeMat);
   fwDome.position.copy(nodes['FW-01'].basePos);
   fwDome.visible = false;
   bench.scene.add(fwDome);
+
+  const fwShieldWireMat = bench.track(
+    new THREE.MeshBasicMaterial({
+      color: '#38bdf8',
+      wireframe: true,
+      transparent: true,
+      opacity: 0.48
+    })
+  );
+  const fwShieldWire = new THREE.Mesh(bench.track(new THREE.IcosahedronGeometry(0.122, 1)), fwShieldWireMat);
+  fwShieldWire.position.copy(nodes['FW-01'].basePos);
+  fwShieldWire.visible = false;
+  bench.scene.add(fwShieldWire);
+
+  const fwShieldRingMat = bench.track(
+    new THREE.MeshBasicMaterial({
+      color: '#7dd3fc',
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide
+    })
+  );
+  const fwShieldRing = new THREE.Mesh(bench.track(new THREE.RingGeometry(0.125, 0.138, 32)), fwShieldRingMat);
+  fwShieldRing.rotation.x = Math.PI / 2;
+  fwShieldRing.position.copy(nodes['FW-01'].basePos).add(new THREE.Vector3(0, -0.02, 0));
+  fwShieldRing.visible = false;
+  bench.scene.add(fwShieldRing);
+
+  const edrShieldDomeMat = bench.track(
+    new THREE.MeshStandardMaterial({
+      color: '#22c55e',
+      emissive: '#16a34a',
+      emissiveIntensity: 0.9,
+      transparent: true,
+      opacity: 0.2,
+      depthWrite: false
+    })
+  );
+  const edrShieldDome = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.105, 20, 16)), edrShieldDomeMat);
+  edrShieldDome.position.copy(nodes['PC-WORK'].basePos);
+  edrShieldDome.visible = false;
+  bench.scene.add(edrShieldDome);
+
+  const edrShieldWireMat = bench.track(
+    new THREE.MeshBasicMaterial({
+      color: '#4ade80',
+      wireframe: true,
+      transparent: true,
+      opacity: 0.55
+    })
+  );
+  const edrShieldWire = new THREE.Mesh(bench.track(new THREE.IcosahedronGeometry(0.118, 1)), edrShieldWireMat);
+  edrShieldWire.position.copy(nodes['PC-WORK'].basePos);
+  edrShieldWire.visible = false;
+  bench.scene.add(edrShieldWire);
+
+  const edrShieldRingMat = bench.track(
+    new THREE.MeshBasicMaterial({
+      color: '#4ade80',
+      transparent: true,
+      opacity: 0.78,
+      side: THREE.DoubleSide
+    })
+  );
+  const edrShieldRing = new THREE.Mesh(bench.track(new THREE.RingGeometry(0.115, 0.128, 32)), edrShieldRingMat);
+  edrShieldRing.rotation.x = Math.PI / 2;
+  edrShieldRing.position.copy(nodes['PC-WORK'].basePos).add(new THREE.Vector3(0, -0.02, 0));
+  edrShieldRing.visible = false;
+  bench.scene.add(edrShieldRing);
 
   const linkPairs = [
     ['FW-01', 'SW-CORE', 0x38bdf8],
@@ -381,10 +878,21 @@ export function createAntivirusGame(api) {
     ['SW-CORE', 'PC-WORK', 0xef4444]
   ];
   const linkCables = {};
+  const beamPulses = [];
+  const beamGeo = bench.track(new THREE.SphereGeometry(0.011, 10, 10));
   for (const [a, b, c] of linkPairs) {
     const cable = buildFlexibleCable([nodes[a].basePos.clone(), nodes[b].basePos.clone()], c, 0.005, c);
+    bench.track(cable.mesh.geometry);
+    bench.track(cable.mat);
     bench.scene.add(cable.mesh);
-    linkCables[`${a}->${b}`] = cable;
+    const key = `${a}->${b}`;
+    linkCables[key] = cable;
+    for (let k = 0; k < 2; k++) {
+      const pMat = bench.track(new THREE.MeshBasicMaterial({ color: c }));
+      const pMesh = new THREE.Mesh(beamGeo, pMat);
+      bench.scene.add(pMesh);
+      beamPulses.push({ key, mesh: pMesh, mat: pMat, curve: cable.getCurve(), t: k * 0.5 });
+    }
   }
 
   function makeToggleSwitch(x, z, baseColor) {
@@ -462,7 +970,7 @@ export function createAntivirusGame(api) {
   };
 
   const CAM_VIEWS = [
-    { id: 'soc', label: 'Poste SOC', pos: [0.0, 0.92, 1.18], lookAt: [0.0, 0.22, -0.08], fov: 40 },
+    { id: 'soc', label: 'Poste SOC', pos: [0.0, 0.88, 1.24], lookAt: [0.0, 0.25, -0.08], fov: 40 },
     { id: 'holo', label: 'Hologramme Réseau', pos: [0.0, 0.65, 0.62], lookAt: [0.0, 0.12, 0.08], fov: 38 },
     { id: 'screens', label: 'Écrans IDS', pos: [0.0, 0.42, 0.48], lookAt: [0.0, 0.27, -0.34], fov: 44 }
   ];
@@ -487,14 +995,15 @@ export function createAntivirusGame(api) {
     return { fwCount, cveCount, activeThreats, secured };
   }
 
-  function updateScreensAndVisuals() {
+  function updateScreensAndVisuals(animPhase = 0) {
     const st = getStats();
     idsScreen.update({
       fw185: state.fw185,
       fw91: state.fw91,
       fw4444: state.fw4444,
       isolated: state.isolated,
-      edrDone: state.edrDone
+      edrDone: state.edrDone,
+      animPhase
     });
     centerScreen.update({
       integrity: state.integrity,
@@ -514,14 +1023,47 @@ export function createAntivirusGame(api) {
       scanPct: state.scanPct
     });
 
-    fwDome.visible = st.fwCount > 0;
+    const fwActive = st.fwCount > 0;
+    fwDome.visible = fwActive;
+    fwShieldWire.visible = fwActive;
+    fwShieldRing.visible = fwActive;
     fwDomeMat.opacity = 0.12 + st.fwCount * 0.08;
+    fwShieldWireMat.opacity = 0.26 + st.fwCount * 0.14;
 
-    nodes['PC-WORK'].mat.color.setHex(state.edrDone ? 0x22c55e : state.isolated ? 0xf59e0b : 0xef4444);
+    const edrActive = state.edrScanning || state.edrDone;
+    edrShieldDome.visible = edrActive;
+    edrShieldWire.visible = edrActive;
+    edrShieldRing.visible = edrActive;
+    const edrHex = state.edrDone ? '#22c55e' : '#38bdf8';
+    edrShieldDomeMat.color.set(edrHex);
+    edrShieldDomeMat.emissive.set(state.edrDone ? '#16a34a' : '#0284c7');
+    edrShieldDomeMat.opacity = state.edrDone ? 0.24 : 0.14;
+    edrShieldWireMat.color.set(edrHex);
+    edrShieldRingMat.color.set(edrHex);
+
+    const pcHex = state.edrDone ? 0x22c55e : state.isolated ? 0xf59e0b : 0xef4444;
+    nodes['PC-WORK'].mat.color.setHex(pcHex);
     nodes['PC-WORK'].mat.emissive.setHex(state.edrDone ? 0x16a34a : state.isolated ? 0xd97706 : 0xef4444);
-    nodes['SRV-WEB'].mat.color.setHex(state.cveWeb && state.fw185 ? 0x22c55e : 0xf59e0b);
-    nodes['SRV-WEB'].mat.emissive.setHex(state.cveWeb && state.fw185 ? 0x16a34a : 0xd97706);
+    if (pcMiniScreenMat) {
+      pcMiniScreenMat.color.setHex(pcHex);
+      pcMiniScreenMat.emissive.setHex(pcHex);
+    }
 
+    const webOk = state.cveWeb && state.fw185;
+    nodes['SRV-WEB'].mat.color.setHex(webOk ? 0x22c55e : 0xf59e0b);
+    nodes['SRV-WEB'].mat.emissive.setHex(webOk ? 0x16a34a : 0xd97706);
+
+    const bddOk = state.cveBdd && state.fw91;
+    nodes['SRV-BDD'].mat.color.setHex(bddOk ? 0x22c55e : 0x38bdf8);
+    nodes['SRV-BDD'].mat.emissive.setHex(bddOk ? 0x16a34a : 0x0284c7);
+
+    const fwOk = st.fwCount === 3;
+    linkCables['FW-01->SW-CORE'].mat.color.setHex(fwOk ? 0x22c55e : 0x38bdf8);
+    linkCables['FW-01->SW-CORE'].mat.emissive.setHex(fwOk ? 0x16a34a : 0x0284c7);
+    linkCables['SW-CORE->SRV-WEB'].mat.color.setHex(webOk ? 0x22c55e : 0xef4444);
+    linkCables['SW-CORE->SRV-WEB'].mat.emissive.setHex(webOk ? 0x16a34a : 0xef4444);
+    linkCables['SW-CORE->SRV-BDD'].mat.color.setHex(bddOk ? 0x22c55e : 0xf97316);
+    linkCables['SW-CORE->SRV-BDD'].mat.emissive.setHex(bddOk ? 0x16a34a : 0xf97316);
     linkCables['SW-CORE->PC-WORK'].mat.color.setHex(state.isolated ? 0x334155 : state.edrDone ? 0x22c55e : 0xef4444);
     linkCables['SW-CORE->PC-WORK'].mat.emissive.setHex(state.isolated ? 0x0f172a : state.edrDone ? 0x16a34a : 0xef4444);
 
@@ -536,6 +1078,11 @@ export function createAntivirusGame(api) {
     patchSwitch.leverPivot.rotation.x = st.cveCount === 3 ? 0.5 : -0.45;
     patchSwitch.ledMat.color.setHex(st.cveCount === 3 ? 0x22c55e : 0xf59e0b);
     patchSwitch.ledMat.emissive.setHex(st.cveCount === 3 ? 0x22c55e : 0xf59e0b);
+
+    monitorLeds.forEach((mLed) => {
+      mLed.color.set(st.secured ? '#22c55e' : '#38bdf8');
+      mLed.emissive.set(st.secured ? '#22c55e' : '#38bdf8');
+    });
   }
 
   let socKeypadCleanup = null;
@@ -999,11 +1546,92 @@ export function createAntivirusGame(api) {
 
   bench.setCameras(CAM_VIEWS, state.camId, selectCamera);
 
+  const attackOrbGeo = bench.track(new THREE.SphereGeometry(0.011, 8, 8));
+  const attackRedMat = bench.track(new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+  const attackOrangeMat = bench.track(new THREE.MeshBasicMaterial({ color: 0xf97316 }));
+
   let uiRefreshTimer = 0;
   bench.addUpdate((dt, elapsed) => {
     const st = getStats();
     nodes['FW-01'].mesh.rotation.y = elapsed * 0.6;
-    if (fwDome.visible) fwDome.rotation.y = -elapsed * 0.9;
+    if (fwDome.visible) {
+      fwDome.rotation.y = -elapsed * 0.9;
+      fwShieldWire.rotation.y = elapsed * 0.7;
+      fwShieldWire.rotation.x = Math.sin(elapsed * 0.8) * 0.2;
+      fwShieldRing.rotation.z = elapsed * 1.1;
+    }
+    if (edrShieldDome.visible) {
+      edrShieldWire.rotation.y = -elapsed * 1.1;
+      edrShieldRing.rotation.z = -elapsed * 1.3;
+    }
+
+    if (st.secured) {
+      socAlertLight.color.set('#22c55e');
+      socAlertLight.intensity = 1.25;
+      socWallNeonMat.color.set('#22c55e');
+      socWallNeonMat.emissive.set('#16a34a');
+      socWallNeonMat.emissiveIntensity = 1.15;
+    } else {
+      const pulse = 0.65 + 0.55 * Math.abs(Math.sin(elapsed * 3.4));
+      socAlertLight.color.set('#ef4444');
+      socAlertLight.intensity = 1.1 * pulse;
+      socWallNeonMat.color.set('#ef4444');
+      socWallNeonMat.emissive.set('#dc2626');
+      socWallNeonMat.emissiveIntensity = 0.55 + 0.65 * Math.abs(Math.sin(elapsed * 3.4));
+    }
+
+    socRackLeds.forEach((rl) => {
+      if (st.secured && rl.isAlert) {
+        rl.mat.color.set('#22c55e');
+        rl.mat.emissive.set('#16a34a');
+      } else if (!st.secured && rl.isAlert) {
+        rl.mat.color.set('#ef4444');
+        rl.mat.emissive.set('#ef4444');
+      }
+      rl.mat.emissiveIntensity = 0.35 + 0.85 * Math.abs(Math.sin(elapsed * 3.2 + rl.phase));
+    });
+
+    nodeActivityLeds.forEach((nl) => {
+      const isOk =
+        nl.nodeId === 'SRV-WEB'
+          ? state.cveWeb && state.fw185
+          : nl.nodeId === 'SRV-BDD'
+          ? state.cveBdd && state.fw91
+          : nl.nodeId === 'PC-WORK'
+          ? state.edrDone
+          : st.fwCount === 3;
+      nl.mat.color.set(isOk ? '#22c55e' : nl.nodeId === 'PC-WORK' ? '#ef4444' : '#38bdf8');
+      nl.mat.emissive.set(isOk ? '#16a34a' : nl.nodeId === 'PC-WORK' ? '#ef4444' : '#0284c7');
+      nl.mat.emissiveIntensity = 0.3 + 1.0 * Math.abs(Math.sin(elapsed * 4.5 + nl.phase));
+    });
+
+    beamPulses.forEach((bp) => {
+      const isWebOk = state.cveWeb && state.fw185;
+      const isBddOk = state.cveBdd && state.fw91;
+      const isFwOk = st.fwCount === 3;
+      const isPcLink = bp.key === 'SW-CORE->PC-WORK';
+      if (isPcLink && state.isolated && !state.edrDone) {
+        bp.mesh.visible = false;
+        return;
+      }
+      bp.mesh.visible = true;
+      let segOk = isFwOk;
+      if (bp.key === 'SW-CORE->SRV-WEB') segOk = isWebOk;
+      else if (bp.key === 'SW-CORE->SRV-BDD') segOk = isBddOk;
+      else if (isPcLink) segOk = state.edrDone;
+      const speed = segOk ? 0.65 : 1.35;
+      bp.t = (bp.t + dt * speed) % 1;
+      const pos = bp.curve.getPoint(bp.t);
+      bp.mesh.position.copy(pos);
+      if (segOk) {
+        bp.mat.color.set('#22c55e');
+        bp.mesh.scale.setScalar(0.88);
+      } else {
+        const pulseScale = 0.85 + 0.45 * Math.abs(Math.sin(elapsed * 7 + bp.t * 6));
+        bp.mat.color.set(bp.key === 'FW-01->SW-CORE' ? '#38bdf8' : '#ef4444');
+        bp.mesh.scale.setScalar(pulseScale);
+      }
+    });
 
     if (st.activeThreats > 0 && !state.finished) {
       const drain = (!state.isolated ? 0.45 : 0.08) + (3 - st.fwCount) * 0.16 + (3 - st.cveCount) * 0.12;
@@ -1031,7 +1659,7 @@ export function createAntivirusGame(api) {
     if (packetSpawnTimer > 0.35) {
       packetSpawnTimer = 0;
       if (!state.fw185 || !state.fw91) {
-        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+        const orb = new THREE.Mesh(attackOrbGeo, attackRedMat);
         bench.scene.add(orb);
         attackPackets.push({
           mesh: orb,
@@ -1042,7 +1670,7 @@ export function createAntivirusGame(api) {
         });
       }
       if (!state.isolated && !state.edrDone) {
-        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 8), new THREE.MeshBasicMaterial({ color: 0xf97316 }));
+        const orb = new THREE.Mesh(attackOrbGeo, attackOrangeMat);
         bench.scene.add(orb);
         attackPackets.push({
           mesh: orb,
@@ -1068,6 +1696,14 @@ export function createAntivirusGame(api) {
     uiRefreshTimer += dt;
     if (uiRefreshTimer > 0.25) {
       uiRefreshTimer = 0;
+      idsScreen.update({
+        fw185: state.fw185,
+        fw91: state.fw91,
+        fw4444: state.fw4444,
+        isolated: state.isolated,
+        edrDone: state.edrDone,
+        animPhase: elapsed
+      });
       centerScreen.update({
         integrity: state.integrity,
         activeThreats: st.activeThreats,

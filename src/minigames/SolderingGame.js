@@ -3,6 +3,19 @@ import { sfx } from '../core/audio.js';
 import { toSafeNumber, finalizeGrade20, createGradeBreakdown } from '../core/grading.js';
 import { createWorkbench3D, makeCanvasScreen } from './Workbench3DHost.js';
 
+function makeCanvasTexture(width, height, drawFn) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  drawFn(ctx, width, height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
+
 export const SOLDER_STAGES = [
   {
     id: 1,
@@ -198,63 +211,348 @@ export function createSolderingGame(api) {
   };
 
   const wb = createWorkbench3D(api.container, {
-    cameraPos: [0, 1.32, 1.48],
-    lookAt: [0, 0.08, 0.02],
+    cameraPos: [0, 1.18, 1.56],
+    lookAt: [0, 0.14, -0.02],
     fov: 40,
-    hasEsdMat: true,
-    esdColor: '#164e63',
-    esdGridColor: '#22829c'
+    background: '#131c2e',
+    wallColor: '#1a253a',
+    benchColor: '#222b3a',
+    benchWidth: 4.2,
+    benchDepth: 2.0,
+    envIntensity: 0.9,
+    hasEsdMat: false
   });
+
+  const lampSpotLight = new THREE.SpotLight('#fff3d6', 4.4, 4.8, 0.66, 0.52, 1.1);
+  lampSpotLight.position.set(-0.08, 0.98, -0.18);
+  lampSpotLight.target.position.set(0.02, 0.14, 0.04);
+  lampSpotLight.castShadow = true;
+  wb.scene.add(lampSpotLight);
+  wb.scene.add(lampSpotLight.target);
+
+  const warmFillLight = new THREE.PointLight('#fed7aa', 1.5, 7, 1.5);
+  warmFillLight.position.set(-1.1, 1.35, 0.9);
+  wb.scene.add(warmFillLight);
+
+  const coolRimLight = new THREE.PointLight('#38bdf8', 1.1, 7, 1.5);
+  coolRimLight.position.set(1.3, 1.25, -0.8);
+  wb.scene.add(coolRimLight);
+
+  const pcbTestLight = new THREE.PointLight('#22c55e', 0, 1.5, 1.8);
+  pcbTestLight.position.set(0.56, 0.24, 0.30);
+  wb.scene.add(pcbTestLight);
+
+  const darkLabMat = wb.track(
+    new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.42, metalness: 0.62 })
+  );
+  const standMat = wb.track(new THREE.MeshStandardMaterial({ color: '#475569', roughness: 0.35, metalness: 0.8 }));
+  const chromeMat = wb.track(new THREE.MeshStandardMaterial({ color: '#cbd5e1', roughness: 0.2, metalness: 0.88 }));
+
+  const elecWallTex = wb.track(
+    makeCanvasTexture(1024, 512, (ctx, w, h) => {
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, '#111a2c');
+      grad.addColorStop(0.55, '#19263e');
+      grad.addColorStop(1, '#101829');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.14)';
+      for (let x = 24; x < w; x += 28) {
+        for (let y = 24; y < h; y += 28) {
+          ctx.beginPath();
+          ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.22)';
+      ctx.fillRect(0, 42, w, 5);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.22)';
+      ctx.fillRect(0, h - 46, w, 5);
+    })
+  );
+  const elecBackWall = new THREE.Mesh(
+    wb.track(new THREE.PlaneGeometry(5.6, 2.6)),
+    wb.track(new THREE.MeshStandardMaterial({ map: elecWallTex, roughness: 0.68, metalness: 0.12 }))
+  );
+  elecBackWall.position.set(0, 1.15, -1.04);
+  elecBackWall.receiveShadow = true;
+  wb.scene.add(elecBackWall);
+
+  const elecWallRailMat = wb.track(
+    new THREE.MeshStandardMaterial({ color: '#fbbf24', emissive: '#f59e0b', emissiveIntensity: 0.85 })
+  );
+  const elecTopRail = new THREE.Mesh(wb.track(new THREE.BoxGeometry(3.2, 0.016, 0.022)), elecWallRailMat);
+  elecTopRail.position.set(0, 0.62, -1.01);
+  wb.scene.add(elecTopRail);
+
+  const elecSignFrame = new THREE.Mesh(wb.track(new THREE.BoxGeometry(1.56, 0.23, 0.04)), darkLabMat);
+  elecSignFrame.position.set(0, 0.42, -1.0);
+  wb.scene.add(elecSignFrame);
+
+  const elecSignScreen = makeCanvasScreen(760, 120, (ctx, w, h) => {
+    const bg = ctx.createLinearGradient(0, 0, w, 0);
+    bg.addColorStop(0, '#0f172a');
+    bg.addColorStop(0.5, '#172a45');
+    bg.addColorStop(1, '#0f172a');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(4, 4, w - 8, h - 8);
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('POSTE BRASURE ÉLECTRONIQUE • BAC PRO CIEL', w / 2, 54);
+
+    ctx.fillStyle = '#fde68a';
+    ctx.font = 'bold 17px sans-serif';
+    ctx.fillText('STATION THERMORÉGULÉE SAC305  •  POSTE ESD  •  CONTRÔLE PCB 5V', w / 2, 90);
+    ctx.textAlign = 'left';
+  });
+  wb.track(elecSignScreen.texture);
+  const elecSignFace = new THREE.Mesh(
+    wb.track(new THREE.PlaneGeometry(1.48, 0.19)),
+    wb.track(new THREE.MeshBasicMaterial({ map: elecSignScreen.texture }))
+  );
+  elecSignFace.position.set(0, 0.42, -0.978);
+  wb.scene.add(elecSignFace);
+
+  const esdMatTex = wb.track(
+    makeCanvasTexture(1024, 512, (ctx, w, h) => {
+      ctx.fillStyle = '#154c6b';
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = 'rgba(186, 230, 253, 0.16)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= w; x += 16) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= h; y += 16) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = 'rgba(186, 230, 253, 0.34)';
+      ctx.lineWidth = 2;
+      for (let x = 0; x <= w; x += 80) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= h; y += 80) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = 'rgba(224, 242, 254, 0.45)';
+      ctx.lineWidth = 5;
+      ctx.strokeRect(10, 10, w - 20, h - 20);
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.42)';
+      ctx.fillRect(14, h - 42, w - 28, 28);
+      ctx.fillStyle = 'rgba(224, 242, 254, 0.85)';
+      for (let mx = 40; mx < w - 40; mx += 10) {
+        const mh = mx % 50 === 0 ? 12 : 6;
+        ctx.fillRect(mx, h - 42, 1.5, mh);
+      }
+
+      ctx.font = 'bold 16px monospace';
+      ctx.fillText('TAPIS ESD ANTISTATIQUE • 1 MΩ • POSTE BRASURE CIEL', 28, 36);
+    })
+  );
+  const esdMatMesh = new THREE.Mesh(
+    wb.track(new THREE.BoxGeometry(2.55, 0.012, 1.48)),
+    wb.track(new THREE.MeshStandardMaterial({ map: esdMatTex, roughness: 0.72, metalness: 0.06 }))
+  );
+  esdMatMesh.position.set(0, 0.006, 0.04);
+  esdMatMesh.receiveShadow = true;
+  wb.scene.add(esdMatMesh);
+
+  const esdSnapStud = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.024, 0.028, 0.01, 14)), chromeMat);
+  esdSnapStud.position.set(-1.14, 0.014, 0.62);
+  wb.scene.add(esdSnapStud);
+
+  const lampGroup = new THREE.Group();
+  lampGroup.position.set(-0.46, 0.01, -0.68);
+  wb.scene.add(lampGroup);
+
+  const lampBase = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.11, 0.13, 0.032, 20)), darkLabMat);
+  lampBase.position.y = 0.016;
+  lampBase.castShadow = true;
+  lampGroup.add(lampBase);
+
+  const lampLowerArm = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.014, 0.014, 0.56, 12)), standMat);
+  lampLowerArm.position.set(0.04, 0.28, 0.08);
+  lampLowerArm.rotation.x = 0.28;
+  lampLowerArm.rotation.z = -0.15;
+  lampLowerArm.castShadow = true;
+  lampGroup.add(lampLowerArm);
+
+  const lampJoint = new THREE.Mesh(wb.track(new THREE.SphereGeometry(0.024, 12, 12)), chromeMat);
+  lampJoint.position.set(0.09, 0.53, 0.16);
+  lampGroup.add(lampJoint);
+
+  const lampUpperArm = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.012, 0.012, 0.52, 12)), standMat);
+  lampUpperArm.position.set(0.24, 0.76, 0.34);
+  lampUpperArm.rotation.x = 0.65;
+  lampUpperArm.rotation.z = -0.45;
+  lampUpperArm.castShadow = true;
+  lampGroup.add(lampUpperArm);
+
+  const lampHead = new THREE.Group();
+  lampHead.position.set(0.38, 0.96, 0.5);
+  lampHead.rotation.x = 0.58;
+  lampHead.rotation.y = -0.18;
+  lampGroup.add(lampHead);
+
+  const lampShade = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.42, 0.045, 0.11)), darkLabMat);
+  lampShade.castShadow = true;
+  lampHead.add(lampShade);
+
+  const lampLedBar = new THREE.Mesh(
+    wb.track(new THREE.PlaneGeometry(0.38, 0.07)),
+    wb.track(new THREE.MeshBasicMaterial({ color: '#fef3c7', side: THREE.DoubleSide }))
+  );
+  lampLedBar.rotation.x = Math.PI / 2;
+  lampLedBar.position.y = -0.024;
+  lampHead.add(lampLedBar);
 
   const pcbGroup = new THREE.Group();
   pcbGroup.position.set(0.02, 0.14, 0.04);
   wb.scene.add(pcbGroup);
 
-  const standMat = wb.track(new THREE.MeshStandardMaterial({ color: '#475569', roughness: 0.38, metalness: 0.78 }));
+  const helpingHandsGroup = new THREE.Group();
+  wb.scene.add(helpingHandsGroup);
+  const hhRail = new THREE.Mesh(wb.track(new THREE.BoxGeometry(1.56, 0.022, 0.06)), darkLabMat);
+  hhRail.position.set(0, 0.02, -0.34);
+  hhRail.castShadow = true;
+  helpingHandsGroup.add(hhRail);
+
   for (const sx of [-0.74, 0.74]) {
-    const base = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.08, 0.1, 0.03, 16)), standMat);
-    base.position.set(sx, 0.015, 0.04);
+    const base = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.075, 0.095, 0.032, 18)), darkLabMat);
+    base.position.set(sx, 0.022, 0.04);
     base.castShadow = true;
-    wb.scene.add(base);
-    const arm = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.015, 0.015, 0.14, 10)), standMat);
-    arm.position.set(sx, 0.08, 0.04);
-    wb.scene.add(arm);
-    const clip = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.06, 0.03, 0.05)), standMat);
-    clip.position.set(sx > 0 ? sx - 0.03 : sx + 0.03, 0.14, 0.04);
-    wb.scene.add(clip);
+    helpingHandsGroup.add(base);
+
+    const collar = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.026, 0.032, 0.024, 14)), chromeMat);
+    collar.position.set(sx, 0.044, 0.04);
+    helpingHandsGroup.add(collar);
+
+    const arm = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.013, 0.013, 0.105, 12)), chromeMat);
+    arm.position.set(sx, 0.095, 0.04);
+    helpingHandsGroup.add(arm);
+
+    const ballJoint = new THREE.Mesh(wb.track(new THREE.SphereGeometry(0.02, 12, 12)), chromeMat);
+    ballJoint.position.set(sx, 0.142, 0.04);
+    helpingHandsGroup.add(ballJoint);
+
+    const dir = sx > 0 ? -1 : 1;
+    const bootMat = wb.track(
+      new THREE.MeshStandardMaterial({ color: sx < 0 ? '#dc2626' : '#0f172a', roughness: 0.55 })
+    );
+    const boot = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.044, 0.028, 0.036)), bootMat);
+    boot.position.set(sx + dir * 0.028, 0.142, 0.04);
+    helpingHandsGroup.add(boot);
+
+    const upperJaw = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.042, 0.01, 0.022)), chromeMat);
+    upperJaw.position.set(sx + dir * 0.056, 0.153, 0.04);
+    upperJaw.rotation.z = dir * -0.06;
+    helpingHandsGroup.add(upperJaw);
+
+    const lowerJaw = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.042, 0.01, 0.022)), chromeMat);
+    lowerJaw.position.set(sx + dir * 0.056, 0.131, 0.04);
+    lowerJaw.rotation.z = dir * 0.06;
+    helpingHandsGroup.add(lowerJaw);
   }
 
   const pcbCanvas = document.createElement('canvas');
   pcbCanvas.width = 1024;
   pcbCanvas.height = 680;
   const pCtx = pcbCanvas.getContext('2d');
-  pCtx.fillStyle = '#0f5c3a';
+  pCtx.fillStyle = '#064e3b';
   pCtx.fillRect(0, 0, 1024, 680);
-  pCtx.strokeStyle = '#22c55e';
+
+  pCtx.strokeStyle = 'rgba(16, 185, 129, 0.12)';
+  pCtx.lineWidth = 2;
+  for (let x = -680; x < 1024 + 680; x += 22) {
+    pCtx.beginPath();
+    pCtx.moveTo(x, 0);
+    pCtx.lineTo(x + 680, 680);
+    pCtx.stroke();
+  }
+
+  pCtx.strokeStyle = '#34d399';
   pCtx.lineWidth = 4;
   pCtx.strokeRect(18, 18, 988, 644);
-  pCtx.strokeStyle = '#eab308';
-  pCtx.lineWidth = 6;
+
   const tracePaths = [
-    [[160, 210], [320, 210], [420, 260], [640, 260]],
-    [[160, 390], [340, 390], [500, 460], [820, 460]],
-    [[640, 220], [720, 220], [840, 220], [840, 410]],
-    [[340, 220], [340, 140], [620, 140], [620, 220]]
+    [[140, 175], [290, 175], [350, 220], [580, 220], [640, 220]],
+    [[140, 395], [310, 395], [400, 465], [610, 465], [820, 465]],
+    [[640, 220], [740, 220], [855, 220], [855, 420]],
+    [[340, 220], [340, 125], [640, 125], [640, 220]],
+    [[180, 250], [270, 250], [330, 310], [520, 310]],
+    [[680, 310], [780, 310], [840, 370], [890, 370]]
   ];
   for (const pathPts of tracePaths) {
+    pCtx.strokeStyle = 'rgba(250, 204, 21, 0.35)';
+    pCtx.lineWidth = 10;
+    pCtx.beginPath();
+    pathPts.forEach(([x, y], idx) => (idx === 0 ? pCtx.moveTo(x, y) : pCtx.lineTo(x, y)));
+    pCtx.stroke();
+
+    pCtx.strokeStyle = '#fbbf24';
+    pCtx.lineWidth = 5;
     pCtx.beginPath();
     pathPts.forEach(([x, y], idx) => (idx === 0 ? pCtx.moveTo(x, y) : pCtx.lineTo(x, y)));
     pCtx.stroke();
   }
+
+  for (const [vx, vy] of [
+    [290, 175],
+    [580, 220],
+    [400, 465],
+    [740, 220],
+    [340, 125],
+    [520, 310],
+    [780, 310]
+  ]) {
+    pCtx.beginPath();
+    pCtx.arc(vx, vy, 8, 0, Math.PI * 2);
+    pCtx.fillStyle = '#fbbf24';
+    pCtx.fill();
+    pCtx.beginPath();
+    pCtx.arc(vx, vy, 3.5, 0, Math.PI * 2);
+    pCtx.fillStyle = '#022c22';
+    pCtx.fill();
+  }
+
+  pCtx.strokeStyle = '#e2e8f0';
+  pCtx.lineWidth = 2.5;
+  pCtx.strokeRect(52, 130, 150, 290);
+  pCtx.strokeRect(275, 135, 165, 120);
+  pCtx.strokeRect(615, 120, 260, 165);
+
   pCtx.fillStyle = '#f8fafc';
   pCtx.font = 'bold 26px monospace';
-  pCtx.fillText('ATELIER CIEL — CARTE STM32 / PWM v4.0', 44, 68);
+  pCtx.fillText('ATELIER CIEL — CARTE STM32 / PWM v4.5', 44, 66);
   pCtx.font = 'bold 20px monospace';
-  pCtx.fillText('J1 PWR    R1 470Ω      C1 100µF      U1 ATmega     LEDs', 92, 610);
+  pCtx.fillText('J1 PWR    R1 470Ω      C1 100µF      U1 STM32     LEDs TEST', 84, 616);
   allPads.forEach((pad) => {
     const px = Math.round((pad.x / 1.42 + 0.5) * 1024);
     const py = Math.round((pad.z / 0.86 + 0.5) * 680);
-    pCtx.fillStyle = 'rgba(2, 6, 23, 0.72)';
+    pCtx.fillStyle = 'rgba(2, 6, 23, 0.78)';
     pCtx.fillRect(px - 44, py + 30, 88, 22);
     pCtx.fillStyle = '#fde68a';
     pCtx.font = 'bold 16px monospace';
@@ -268,51 +566,173 @@ export function createSolderingGame(api) {
 
   const boardMesh = new THREE.Mesh(
     wb.track(new THREE.BoxGeometry(1.42, 0.022, 0.86)),
-    wb.track(new THREE.MeshStandardMaterial({ map: pcbTex, roughness: 0.44, metalness: 0.14 }))
+    wb.track(
+      new THREE.MeshPhysicalMaterial({
+        map: pcbTex,
+        roughness: 0.34,
+        metalness: 0.12,
+        clearcoat: 0.65,
+        clearcoatRoughness: 0.22
+      })
+    )
   );
   boardMesh.castShadow = true;
   boardMesh.receiveShadow = true;
   pcbGroup.add(boardMesh);
 
+  const goldHoleMat = wb.track(new THREE.MeshStandardMaterial({ color: '#fbbf24', metalness: 0.9, roughness: 0.2 }));
+  for (const [mx, mz] of [
+    [-0.65, -0.37],
+    [0.65, -0.37],
+    [-0.65, 0.37],
+    [0.65, 0.37]
+  ]) {
+    const holeRing = new THREE.Mesh(wb.track(new THREE.TorusGeometry(0.022, 0.006, 8, 16)), goldHoleMat);
+    holeRing.rotation.x = Math.PI / 2;
+    holeRing.position.set(mx, 0.013, mz);
+    pcbGroup.add(holeRing);
+  }
+
+  const j1Header = new THREE.Mesh(
+    wb.track(new THREE.BoxGeometry(0.085, 0.048, 0.18)),
+    darkLabMat
+  );
+  j1Header.position.set(-0.62, 0.035, -0.07);
+  j1Header.castShadow = true;
+  pcbGroup.add(j1Header);
+  for (const pz of [-0.11, -0.03]) {
+    const j1Pin = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.014, 0.03, 0.014)), goldHoleMat);
+    j1Pin.position.set(-0.62, 0.06, pz);
+    pcbGroup.add(j1Pin);
+  }
+
   const rBody = new THREE.Mesh(
     wb.track(new THREE.CylinderGeometry(0.024, 0.024, 0.14, 14)),
-    wb.track(new THREE.MeshStandardMaterial({ color: '#d97706', roughness: 0.45 }))
+    wb.track(new THREE.MeshStandardMaterial({ color: '#d97706', roughness: 0.42 }))
   );
   rBody.rotation.z = Math.PI / 2;
   rBody.position.set(-0.22, 0.036, -0.25);
   rBody.castShadow = true;
   pcbGroup.add(rBody);
 
+  const bandColors = ['#facc15', '#7e22ce', '#78350f', '#fbbf24'];
+  bandColors.forEach((bc, bi) => {
+    const band = new THREE.Mesh(
+      wb.track(new THREE.CylinderGeometry(0.025, 0.025, 0.012, 14)),
+      wb.track(new THREE.MeshStandardMaterial({ color: bc, roughness: 0.35 }))
+    );
+    band.rotation.z = Math.PI / 2;
+    band.position.set(-0.265 + bi * 0.03, 0.036, -0.25);
+    pcbGroup.add(band);
+  });
+
   const capBody = new THREE.Mesh(
     wb.track(new THREE.CylinderGeometry(0.048, 0.048, 0.13, 18)),
-    wb.track(new THREE.MeshStandardMaterial({ color: '#1d4ed8', roughness: 0.32, metalness: 0.25 }))
+    wb.track(new THREE.MeshStandardMaterial({ color: '#1d4ed8', roughness: 0.3, metalness: 0.3 }))
   );
   capBody.position.set(0.08, 0.08, 0.16);
   capBody.castShadow = true;
   pcbGroup.add(capBody);
 
+  const capTopVent = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.044, 0.044, 0.008, 18)), chromeMat);
+  capTopVent.position.set(0.08, 0.146, 0.16);
+  pcbGroup.add(capTopVent);
+
   const icBody = new THREE.Mesh(
     wb.track(new THREE.BoxGeometry(0.38, 0.036, 0.16)),
-    wb.track(new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.55, metalness: 0.1 }))
+    wb.track(new THREE.MeshStandardMaterial({ color: '#111827', roughness: 0.48, metalness: 0.16 }))
   );
   icBody.position.set(0.38, 0.03, -0.26);
   icBody.castShadow = true;
   pcbGroup.add(icBody);
 
+  const icSilkTex = wb.track(
+    makeCanvasTexture(256, 128, (ctx, w, h) => {
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = 'bold 22px monospace';
+      ctx.fillText('STM32F4 • CIEL', 24, 58);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 16px monospace';
+      ctx.fillText('REV 4.5 ARM M4', 24, 92);
+    })
+  );
+  const icTopLabel = new THREE.Mesh(
+    wb.track(new THREE.PlaneGeometry(0.34, 0.13)),
+    wb.track(new THREE.MeshBasicMaterial({ map: icSilkTex }))
+  );
+  icTopLabel.rotation.x = -Math.PI / 2;
+  icTopLabel.position.set(0.38, 0.049, -0.26);
+  pcbGroup.add(icTopLabel);
+
+  const smdPinGeo = wb.track(new THREE.BoxGeometry(0.012, 0.01, 0.022));
+  for (let ip = 0; ip < 9; ip++) {
+    const px = 0.24 + ip * 0.035;
+    for (const pz of [-0.348, -0.172]) {
+      const pin = new THREE.Mesh(smdPinGeo, chromeMat);
+      pin.position.set(px, 0.018, pz);
+      pcbGroup.add(pin);
+    }
+  }
+
+  const smdBodyMat = wb.track(new THREE.MeshStandardMaterial({ color: '#92400e', roughness: 0.45 }));
+  const smdSpecs = [
+    [-0.36, 0.18],
+    [-0.24, 0.26],
+    [-0.08, -0.05],
+    [0.14, -0.08],
+    [-0.05, 0.30]
+  ];
+  for (const [sx, sz] of smdSpecs) {
+    const smdChip = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.042, 0.014, 0.022)), smdBodyMat);
+    smdChip.position.set(sx, 0.018, sz);
+    pcbGroup.add(smdChip);
+    for (const ex of [-0.022, 0.022]) {
+      const cap = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.01, 0.015, 0.023)), chromeMat);
+      cap.position.set(sx + ex, 0.018, sz);
+      pcbGroup.add(cap);
+    }
+  }
+
+  const crystalCan = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.085, 0.024, 0.038)), chromeMat);
+  crystalCan.position.set(0.02, 0.023, -0.26);
+  pcbGroup.add(crystalCan);
+
   const pcbLeds = [];
   for (let i = 0; i < 4; i++) {
+    const colHex = i === 0 ? '#22c55e' : '#38bdf8';
+    const collar = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.026, 0.028, 0.01, 14)), darkLabMat);
+    collar.position.set(0.45 + i * 0.075, 0.016, 0.26);
+    pcbGroup.add(collar);
+
     const lMat = wb.track(
       new THREE.MeshStandardMaterial({
-        color: i === 0 ? '#22c55e' : '#38bdf8',
+        color: colHex,
         emissive: i === 0 ? '#16a34a' : '#0284c7',
         emissiveIntensity: 0.05,
-        roughness: 0.25
+        roughness: 0.18,
+        metalness: 0.05
       })
     );
     const led = new THREE.Mesh(wb.track(new THREE.SphereGeometry(0.022, 14, 14)), lMat);
     led.position.set(0.45 + i * 0.075, 0.032, 0.26);
     pcbGroup.add(led);
-    pcbLeds.push({ mesh: led, mat: lMat, colorHex: i === 0 ? '#22c55e' : '#38bdf8' });
+
+    const haloMat = wb.track(
+      new THREE.MeshBasicMaterial({
+        color: colHex,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide
+      })
+    );
+    const halo = new THREE.Mesh(wb.track(new THREE.RingGeometry(0.024, 0.044, 20)), haloMat);
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.set(0.45 + i * 0.075, 0.013, 0.26);
+    pcbGroup.add(halo);
+
+    pcbLeds.push({ mesh: led, mat: lMat, haloMat, halo, colorHex: colHex });
   }
 
   const solderPhysMat = wb.track(
@@ -623,39 +1043,57 @@ export function createSolderingGame(api) {
 
   const stationBox = new THREE.Mesh(
     wb.track(new THREE.BoxGeometry(0.42, 0.24, 0.34)),
-    wb.track(new THREE.MeshStandardMaterial({ color: '#ea580c', roughness: 0.44, metalness: 0.1 }))
+    wb.track(new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.4, metalness: 0.45 }))
   );
   stationBox.position.y = 0.12;
   stationBox.castShadow = true;
   stationGroup.add(stationBox);
 
+  const stationFrontBezel = new THREE.Mesh(
+    wb.track(new THREE.BoxGeometry(0.43, 0.22, 0.03)),
+    wb.track(new THREE.MeshStandardMaterial({ color: '#ea580c', roughness: 0.38, metalness: 0.15 }))
+  );
+  stationFrontBezel.position.set(0, 0.12, 0.16);
+  stationGroup.add(stationFrontBezel);
+
+  const stationPwrLed = new THREE.Mesh(
+    wb.track(new THREE.BoxGeometry(0.024, 0.016, 0.014)),
+    wb.track(new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#dc2626', emissiveIntensity: 1.4 }))
+  );
+  stationPwrLed.position.set(-0.16, 0.05, 0.176);
+  stationGroup.add(stationPwrLed);
+
   const lcdScreen = makeCanvasScreen(256, 128, (ctx, w, h, curTemp) => {
     const t = curTemp ?? tempC;
     const inZone = t >= 335 && t <= 370;
-    ctx.fillStyle = '#071a12';
+    ctx.fillStyle = '#050c0a';
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = inZone ? '#10b981' : '#f59e0b';
+    ctx.strokeStyle = inZone ? '#10b981' : t > 380 ? '#ef4444' : '#f59e0b';
     ctx.lineWidth = 6;
     ctx.strokeRect(4, 4, w - 8, h - 8);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText('LED TEMP • STATION PRO', 20, 24);
     ctx.fillStyle = inZone ? '#34d399' : t > 380 ? '#fb7185' : '#38bdf8';
-    ctx.font = 'bold 54px monospace';
-    ctx.fillText(`${Math.round(t)}°C`, 32, 74);
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = 'bold 18px sans-serif';
-    ctx.fillText(inZone ? 'SAC305 OPTIMAL' : 'CIBLE: 340-365°C', 28, 108);
+    ctx.font = 'bold 52px monospace';
+    ctx.fillText(`${Math.round(t)}°C`, 30, 80);
+    ctx.fillStyle = inZone ? '#86efac' : '#fde68a';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(inZone ? '● SAC305 OPTIMAL' : 'CIBLE: 340-365°C', 28, 110);
   });
+  wb.track(lcdScreen.texture);
   const lcdPlane = new THREE.Mesh(
     wb.track(new THREE.PlaneGeometry(0.24, 0.11)),
     wb.track(new THREE.MeshBasicMaterial({ map: lcdScreen.texture }))
   );
-  lcdPlane.position.set(-0.04, 0.15, 0.172);
+  lcdPlane.position.set(-0.04, 0.15, 0.178);
   stationGroup.add(lcdPlane);
 
   const tempKnobGroup = new THREE.Group();
-  tempKnobGroup.position.set(0.14, 0.12, 0.175);
+  tempKnobGroup.position.set(0.14, 0.12, 0.182);
   const knobCyl = new THREE.Mesh(
     wb.track(new THREE.CylinderGeometry(0.036, 0.04, 0.04, 20)),
-    wb.track(new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.4, metalness: 0.5 }))
+    wb.track(new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.35, metalness: 0.6 }))
   );
   knobCyl.rotation.x = Math.PI / 2;
   tempKnobGroup.add(knobCyl);
@@ -698,14 +1136,28 @@ export function createSolderingGame(api) {
   wb.scene.add(fumeGroup);
   const fumeStand = new THREE.Mesh(
     wb.track(new THREE.BoxGeometry(0.32, 0.34, 0.16)),
-    wb.track(new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.5, metalness: 0.3 }))
+    wb.track(new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.45, metalness: 0.38 }))
   );
   fumeStand.position.y = 0.17;
   fumeStand.castShadow = true;
   fumeGroup.add(fumeStand);
 
+  const fumeCarbonBack = new THREE.Mesh(
+    wb.track(new THREE.CylinderGeometry(0.125, 0.125, 0.016, 20)),
+    darkLabMat
+  );
+  fumeCarbonBack.rotation.x = Math.PI / 2;
+  fumeCarbonBack.position.set(0, 0.21, 0.078);
+  fumeGroup.add(fumeCarbonBack);
+
+  for (const gr of [0.05, 0.09, 0.125]) {
+    const grilleRing = new THREE.Mesh(wb.track(new THREE.TorusGeometry(gr, 0.004, 8, 24)), chromeMat);
+    grilleRing.position.set(0, 0.21, 0.094);
+    fumeGroup.add(grilleRing);
+  }
+
   const fanHub = new THREE.Group();
-  fanHub.position.set(0, 0.21, 0.085);
+  fanHub.position.set(0, 0.21, 0.086);
   for (let b = 0; b < 5; b++) {
     const blade = new THREE.Mesh(
       wb.track(new THREE.BoxGeometry(0.032, 0.11, 0.008)),
@@ -720,7 +1172,7 @@ export function createSolderingGame(api) {
     new THREE.MeshStandardMaterial({ color: '#22c55e', emissive: '#16a34a', emissiveIntensity: 0.05 })
   );
   const fumeLed = new THREE.Mesh(wb.track(new THREE.SphereGeometry(0.016, 12, 12)), fumeLedMat);
-  fumeLed.position.set(-0.1, 0.06, 0.085);
+  fumeLed.position.set(-0.1, 0.06, 0.088);
   fumeGroup.add(fumeLed);
 
   wb.addInteractive(fumeGroup, {
@@ -763,15 +1215,40 @@ export function createSolderingGame(api) {
   wb.scene.add(spongeGroup);
   const spongeTray = new THREE.Mesh(
     wb.track(new THREE.BoxGeometry(0.24, 0.03, 0.18)),
-    wb.track(new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.45 }))
+    darkLabMat
   );
   spongeTray.position.y = 0.015;
+  spongeTray.castShadow = true;
+
+  const spongeTex = wb.track(
+    makeCanvasTexture(256, 256, (ctx, w, h) => {
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(0, 0, w, h);
+      for (let i = 0; i < 220; i++) {
+        const px = ((i * 53) % (w - 16)) + 8;
+        const py = ((i * 97) % (h - 16)) + 8;
+        ctx.fillStyle = i % 3 === 0 ? 'rgba(161, 98, 7, 0.55)' : 'rgba(254, 240, 138, 0.45)';
+        ctx.beginPath();
+        ctx.arc(px, py, 2 + (i % 4), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    })
+  );
   const spongePad = new THREE.Mesh(
     wb.track(new THREE.BoxGeometry(0.19, 0.032, 0.13)),
-    wb.track(new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.92 }))
+    wb.track(new THREE.MeshStandardMaterial({ map: spongeTex, roughness: 0.92 }))
   );
   spongePad.position.y = 0.028;
-  spongeGroup.add(spongeTray, spongePad);
+
+  const brassCup = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.052, 0.048, 0.045, 16)), chromeMat);
+  brassCup.position.set(-0.2, 0.022, -0.02);
+  const brassWool = new THREE.Mesh(
+    wb.track(new THREE.CylinderGeometry(0.044, 0.044, 0.02, 16)),
+    wb.track(new THREE.MeshStandardMaterial({ color: '#d97706', metalness: 0.85, roughness: 0.35 }))
+  );
+  brassWool.position.set(-0.2, 0.038, -0.02);
+
+  spongeGroup.add(spongeTray, spongePad, brassCup, brassWool);
   wb.addInteractive(spongeGroup, {
     label: '🧽 Éponge humide (Nettoyer la panne du fer)',
     onClick: () => {
@@ -796,7 +1273,16 @@ export function createSolderingGame(api) {
     solderPhysMat
   );
   spoolCore.position.y = 0.01;
-  spoolGroup.add(spoolFlangeTop, spoolFlangeBot, spoolCore);
+  const spoolTailCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.064, 0.02, 0),
+    new THREE.Vector3(0.11, 0.01, 0.04),
+    new THREE.Vector3(0.14, -0.02, 0.09)
+  ]);
+  const spoolTail = new THREE.Mesh(
+    wb.track(new THREE.TubeGeometry(spoolTailCurve, 12, 0.004, 6, false)),
+    solderPhysMat
+  );
+  spoolGroup.add(spoolFlangeTop, spoolFlangeBot, spoolCore, spoolTail);
   wb.addInteractive(spoolGroup, {
     label: '🧵 Bobine d’étain SAC305 (Sélectionner le fil d’étain)',
     onClick: () => {
@@ -814,14 +1300,21 @@ export function createSolderingGame(api) {
 
   const ironHandle = new THREE.Mesh(
     wb.track(new THREE.CylinderGeometry(0.022, 0.026, 0.28, 16)),
-    wb.track(new THREE.MeshStandardMaterial({ color: '#ea580c', roughness: 0.45 }))
+    wb.track(new THREE.MeshStandardMaterial({ color: '#ea580c', roughness: 0.42 }))
   );
   ironHandle.position.y = 0.18;
   ironGroup.add(ironHandle);
 
+  const ironGrip = new THREE.Mesh(
+    wb.track(new THREE.CylinderGeometry(0.0265, 0.0265, 0.11, 16)),
+    darkLabMat
+  );
+  ironGrip.position.y = 0.105;
+  ironGroup.add(ironGrip);
+
   const ironShaft = new THREE.Mesh(
     wb.track(new THREE.CylinderGeometry(0.009, 0.009, 0.14, 12)),
-    standMat
+    chromeMat
   );
   ironShaft.position.y = -0.02;
   ironGroup.add(ironShaft);
@@ -840,6 +1333,10 @@ export function createSolderingGame(api) {
   ironTip.position.y = -0.11;
   ironGroup.add(ironTip);
 
+  const ironTipLight = new THREE.PointLight('#fb923c', 0.25, 0.45, 2.0);
+  ironTipLight.position.set(0, -0.12, 0);
+  ironGroup.add(ironTipLight);
+
   const tinWireGroup = new THREE.Group();
   tinWireGroup.position.set(0.35, 0.26, 0.32);
   tinWireGroup.rotation.set(-0.6, 0.1, 0.45);
@@ -850,6 +1347,50 @@ export function createSolderingGame(api) {
   );
   tinStrand.position.y = 0.02;
   tinWireGroup.add(tinStrand);
+
+  const fluxTex = wb.track(
+    makeCanvasTexture(64, 64, (ctx, w, h) => {
+      const grad = ctx.createRadialGradient(w / 2, h / 2, 2, w / 2, h / 2, w / 2);
+      grad.addColorStop(0, 'rgba(241, 245, 249, 0.95)');
+      grad.addColorStop(0.45, 'rgba(226, 232, 240, 0.45)');
+      grad.addColorStop(1, 'rgba(226, 232, 240, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+    })
+  );
+  const FLUX_COUNT = 64;
+  const fluxPositions = new Float32Array(FLUX_COUNT * 3);
+  const fluxMeta = Array.from({ length: FLUX_COUNT }, () => ({
+    active: false,
+    age: 0,
+    life: 1.2,
+    vx: 0,
+    vy: 0,
+    vz: 0
+  }));
+  for (let i = 0; i < FLUX_COUNT; i++) {
+    fluxPositions[i * 3 + 1] = -10;
+  }
+  const fluxGeo = wb.track(new THREE.BufferGeometry());
+  const fluxPosAttr = new THREE.BufferAttribute(fluxPositions, 3);
+  fluxGeo.setAttribute('position', fluxPosAttr);
+  const fluxMat = wb.track(
+    new THREE.PointsMaterial({
+      map: fluxTex,
+      color: '#f8fafc',
+      size: 0.048,
+      transparent: true,
+      opacity: 0.42,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+      sizeAttenuation: true
+    })
+  );
+  const fluxSmokePoints = new THREE.Points(fluxGeo, fluxMat);
+  fluxSmokePoints.frustumCulled = false;
+  wb.scene.add(fluxSmokePoints);
+  let fluxSpawnCursor = 0;
+  let fluxEmitAccum = 0;
 
   let ironTargetPos = new THREE.Vector3(-0.3, 0.28, 0.25);
 
@@ -869,7 +1410,11 @@ export function createSolderingGame(api) {
     powerOn = !powerOn;
     pwrLever.rotation.x = powerOn ? 0.35 : -0.35;
     if (!powerOn) {
-      pcbLeds.forEach((l) => (l.mat.emissiveIntensity = 0.05));
+      pcbLeds.forEach((l) => {
+        l.mat.emissiveIntensity = 0.05;
+        l.haloMat.opacity = 0;
+      });
+      pcbTestLight.intensity = 0;
       refreshHud();
       return;
     }
@@ -918,7 +1463,11 @@ export function createSolderingGame(api) {
       pcbPowerLedTime = 0;
       powerOn = false;
       pwrLever.rotation.x = -0.35;
-      pcbLeds.forEach((l) => (l.mat.emissiveIntensity = 0.05));
+      pcbLeds.forEach((l) => {
+        l.mat.emissiveIntensity = 0.05;
+        l.haloMat.opacity = 0;
+      });
+      pcbTestLight.intensity = 0;
       sfx.error();
       wb.showToast(`⚠️ Certaines pastilles restent incomplètes (${allPads.filter((p) => p.state === 'good').length}/${allPads.length})`, 'error');
     }
@@ -1078,7 +1627,11 @@ export function createSolderingGame(api) {
           pcbPowerLedTime = 0;
           finalized = false;
           pwrLever.rotation.x = -0.35;
-          pcbLeds.forEach((l) => (l.mat.emissiveIntensity = 0.05));
+          pcbLeds.forEach((l) => {
+            l.mat.emissiveIntensity = 0.05;
+            l.haloMat.opacity = 0;
+          });
+          pcbTestLight.intensity = 0;
           const initialMap = new Map(
             [...SOLDER_STAGES[0].pads, ...SOLDER_STAGES[1].pads].map((p) => [p.id, p])
           );
@@ -1260,7 +1813,7 @@ export function createSolderingGame(api) {
 
   let activeCam = 'global';
   const cams = [
-    { id: 'global', label: '🔭 Vue Globale', pos: [0, 1.32, 1.48], look: [0, 0.08, 0.02] },
+    { id: 'global', label: '🔭 Vue Globale', pos: [0, 1.18, 1.56], look: [0, 0.14, -0.02] },
     { id: 'pcb', label: '🔬 Zoom PCB', pos: [0.05, 0.76, 0.62], look: [0.05, 0.14, 0.0] },
     { id: 'station', label: '🌡️ Station / Extracteur', pos: [0, 0.85, 0.98], look: [-0.25, 0.18, -0.35] }
   ];
@@ -1277,7 +1830,10 @@ export function createSolderingGame(api) {
       fanHub.rotation.z += dt * 18;
     }
 
-    ironTipMat.emissiveIntensity = Math.max(0.1, (tempC - 240) / 140);
+    const heatRatio = Math.max(0, Math.min(1, (tempC - 260) / 160));
+    ironTipMat.emissive.set(tempC >= 335 ? '#fb923c' : '#ef4444');
+    ironTipMat.emissiveIntensity = 0.12 + heatRatio * 1.45;
+    ironTipLight.intensity = (tool !== 'wick' ? 0.15 + heatRatio * 0.75 : 0);
     ironGroup.visible = tool !== 'wick';
     tinWireGroup.visible = tool === 'tin' || tinFeeding;
 
@@ -1285,6 +1841,52 @@ export function createSolderingGame(api) {
     if (tinWireGroup.visible) {
       const tinGoal = ironTargetPos.clone().add(new THREE.Vector3(0.14, -0.04, 0.06));
       tinWireGroup.position.lerp(tinGoal, 1 - Math.exp(-16 * dt));
+    }
+
+    if (heatingActive && activePad && activePad.temp >= 180 && tool !== 'wick') {
+      const pm = padMeshes.get(activePad.id);
+      if (pm) {
+        fluxEmitAccum += dt * (tinFeeding || tool === 'tin' ? 18 : 10);
+        while (fluxEmitAccum >= 1) {
+          fluxEmitAccum -= 1;
+          const idx = fluxSpawnCursor;
+          fluxSpawnCursor = (fluxSpawnCursor + 1) % FLUX_COUNT;
+          const wp = new THREE.Vector3();
+          pm.grp.getWorldPosition(wp);
+          fluxPositions[idx * 3] = wp.x + (Math.random() - 0.5) * 0.018;
+          fluxPositions[idx * 3 + 1] = wp.y + 0.015;
+          fluxPositions[idx * 3 + 2] = wp.z + (Math.random() - 0.5) * 0.018;
+          fluxMeta[idx].active = true;
+          fluxMeta[idx].age = 0;
+          fluxMeta[idx].life = 0.9 + Math.random() * 0.6;
+          fluxMeta[idx].vx = (Math.random() - 0.5) * 0.045;
+          fluxMeta[idx].vy = 0.14 + Math.random() * 0.1;
+          fluxMeta[idx].vz = (Math.random() - 0.5) * 0.045;
+        }
+      }
+    }
+
+    let fluxDirty = false;
+    for (let i = 0; i < FLUX_COUNT; i++) {
+      const fm = fluxMeta[i];
+      if (!fm.active) continue;
+      fluxDirty = true;
+      fm.age += dt;
+      if (fm.age >= fm.life) {
+        fm.active = false;
+        fluxPositions[i * 3 + 1] = -10;
+        continue;
+      }
+      if (fumeExtractorOn) {
+        fm.vx += (0.88 - fluxPositions[i * 3]) * dt * 1.6;
+        fm.vz += (-0.45 - fluxPositions[i * 3 + 2]) * dt * 1.6;
+      }
+      fluxPositions[i * 3] += fm.vx * dt;
+      fluxPositions[i * 3 + 1] += fm.vy * dt;
+      fluxPositions[i * 3 + 2] += fm.vz * dt;
+    }
+    if (fluxDirty) {
+      fluxPosAttr.needsUpdate = true;
     }
 
     allPads.forEach((pad) => {
@@ -1296,9 +1898,14 @@ export function createSolderingGame(api) {
 
     if (powerOn && pcbPowerLedTime > 0) {
       pcbPowerLedTime += dt;
+      let litCount = 0;
       pcbLeds.forEach((l, idx) => {
-        l.mat.emissiveIntensity = pcbPowerLedTime > idx * 0.25 ? 2.2 : 0.05;
+        const isLit = pcbPowerLedTime > idx * 0.25;
+        l.mat.emissiveIntensity = isLit ? 2.8 : 0.05;
+        l.haloMat.opacity = isLit ? 0.65 : 0;
+        if (isLit) litCount += 1;
       });
+      pcbTestLight.intensity = (litCount / pcbLeds.length) * 1.85;
     }
   });
 

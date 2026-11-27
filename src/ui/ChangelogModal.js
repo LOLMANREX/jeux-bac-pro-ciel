@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.44 - Mode Portes Ouvertes : Régie Audiovisuelle 3D Pro & TP Brasure en Salle Élec';
+    : 'v4.45 - Sublimation 3D Pro des 3 TP Portes Ouvertes (Cyber SOC, VLAN & Brasure)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.44 — Mode Portes Ouvertes : Régie Audiovisuelle 3D Pro & TP Brasure en Salle Élec',
+    version: 'v4.45 — Sublimation 3D Pro des 3 TP Portes Ouvertes (Cyber SOC, VLAN & Brasure)',
     date: '27/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'CYBER SOC 3D',
+        title: 'Salle de crise SOC immersive, boucliers holographiques et faisceaux de données animés',
+        desc: 'Habillage complet du TP Cybersécurité avec mur texturé, panneau lumineux « CENTRE CYBERDÉFENSE • BAC PRO CIEL », baies latérales à LEDs clignotantes, tapis antistatique, graphiques temps réel sur les 3 moniteurs SOC, boucliers filaires FW-01/EDR et faisceaux animés vert/rouge entre les nœuds.'
+      },
+      {
+        badge: 'RÉSEAU VLAN 3D',
+        title: 'Laboratoire réseau professionnel avec baie 19 pouces, ports RJ45 dynamiques et cordons courbés',
+        desc: 'Ajout d’un mur laboratoire avec bandeau « INFRASTRUCTURE RÉSEAU • BAC PRO CIEL », d’une baie de brassage 19 pouces (Switch L3, Routeur, Patch Panel Cat6A), de LEDs RJ45 passant du rouge à l’orange puis au vert selon le VLAN et de câbles courbés TubeGeometry.'
+      },
+      {
+        badge: 'BRASURE PCB 3D',
+        title: 'Poste de soudure haute précision avec lampe articulée, pinces crocodiles et fumée de flux',
+        desc: 'Refonte de l’établi Électronique : éclairage chaud focalisé par lampe d’atelier, tapis ESD quadrillé, support troisième main à pinces crocodiles, PCB vernis émeraude détaillé (composants SMD, quartz, header), panne chauffante, fumée de flux en particules Points et LEDs de validation 5V lumineuses.'
+      }
+    ]
+  },
+  {
+    version: 'v4.44 — Mode Portes Ouvertes : Régie Audiovisuelle 3D Pro & TP Brasure en Salle Élec',
+    date: '27/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'RÉGIE SPECTACLE 3D',

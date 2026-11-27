@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.44 - Mode Portes Ouvertes : Régie Audiovisuelle 3D Pro & TP Brasure en Salle Élec'),
+    __APP_VERSION__: JSON.stringify('v4.45 - Sublimation 3D Pro des 3 TP Portes Ouvertes (Cyber SOC, VLAN & Brasure)'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

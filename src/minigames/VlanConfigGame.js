@@ -8,6 +8,19 @@ import {
 } from './Workbench3DHost.js';
 import { createVirtualKeypad } from './TouchTpHelpers.js';
 
+function makeCanvasTexture(width, height, drawFn) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  drawFn(ctx, width, height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
+
 export const VMVLAN_STAGES = [
   {
     id: 1,
@@ -325,7 +338,7 @@ export function computeVlanConfigScore3D(metrics = {}) {
 }
 
 const CAM_VIEWS = [
-  { id: 'overview', label: 'Vue Bureau Admin', pos: [0.04, 1.15, 1.56], lookAt: [0.04, 0.24, -0.02], fov: 41 },
+  { id: 'overview', label: 'Vue Bureau Admin', pos: [0.02, 1.06, 1.62], lookAt: [0.02, 0.28, -0.06], fov: 41 },
   { id: 'console', label: 'PC Portable Console', pos: [-0.55, 0.54, 0.64], lookAt: [-0.55, 0.19, 0.08], fov: 35 },
   { id: 'campus', label: 'Maquette Infrastructure 3D', pos: [0.42, 0.78, 0.94], lookAt: [0.34, 0.16, 0.0], fov: 37 }
 ];
@@ -339,17 +352,165 @@ export function createVlanConfigGame(api) {
     lookAt: CAM_VIEWS[0].lookAt,
     fov: CAM_VIEWS[0].fov,
     hasEsdMat: false,
-    wallColor: '#dbe7f3',
-    background: '#d4e2f0'
+    background: '#101c30',
+    wallColor: '#15243c',
+    benchColor: '#1b2940',
+    benchWidth: 4.2,
+    benchDepth: 2.0,
+    envIntensity: 0.92
   });
 
-  const deskPad = new THREE.Mesh(
-    new THREE.BoxGeometry(1.94, 0.008, 1.02),
-    new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.78, metalness: 0.08 })
+  const studioKeyLight = new THREE.PointLight('#f0f9ff', 2.4, 9, 1.4);
+  studioKeyLight.position.set(-1.5, 1.9, 1.4);
+  bench.scene.add(studioKeyLight);
+
+  const rackAccentLight = new THREE.PointLight('#38bdf8', 1.8, 8, 1.4);
+  rackAccentLight.position.set(1.6, 1.65, -0.9);
+  bench.scene.add(rackAccentLight);
+
+  const campusBounceLight = new THREE.PointLight('#38bdf8', 1.0, 4.5, 1.5);
+  campusBounceLight.position.set(0.36, 0.72, 0.22);
+  bench.scene.add(campusBounceLight);
+
+  const darkMetalMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.36, metalness: 0.68 })
   );
-  deskPad.position.set(0, 0.004, 0.06);
+  const chassisSlateMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.38, metalness: 0.56 })
+  );
+  const brushedAluMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: '#94a3b8', roughness: 0.26, metalness: 0.82 })
+  );
+
+  const netWallTex = bench.track(
+    makeCanvasTexture(1024, 512, (ctx, w, h) => {
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, '#0c172a');
+      grad.addColorStop(0.55, '#162844');
+      grad.addColorStop(1, '#0d1729');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      for (let x = 0; x < w; x += 40) {
+        ctx.fillStyle = x % 80 === 0 ? 'rgba(15, 23, 42, 0.58)' : 'rgba(30, 41, 59, 0.34)';
+        ctx.fillRect(x, 0, 24, h);
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.14)';
+        ctx.fillRect(x + 24, 0, 2, h);
+      }
+
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
+      ctx.fillRect(0, 44, w, 5);
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.16)';
+      ctx.fillRect(0, h - 48, w, 5);
+    })
+  );
+  const netBackWall = new THREE.Mesh(
+    bench.track(new THREE.PlaneGeometry(5.8, 2.8)),
+    bench.track(new THREE.MeshStandardMaterial({ map: netWallTex, roughness: 0.64, metalness: 0.14 }))
+  );
+  netBackWall.position.set(0, 1.25, -1.04);
+  netBackWall.receiveShadow = true;
+  bench.scene.add(netBackWall);
+
+  const netWallBarMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: '#38bdf8', emissive: '#0ea5e9', emissiveIntensity: 1.0 })
+  );
+  const netTopStrip = new THREE.Mesh(bench.track(new THREE.BoxGeometry(3.4, 0.018, 0.024)), netWallBarMat);
+  netTopStrip.position.set(0, 0.86, -1.01);
+  bench.scene.add(netTopStrip);
+  const netBotStrip = new THREE.Mesh(bench.track(new THREE.BoxGeometry(3.4, 0.016, 0.024)), netWallBarMat);
+  netBotStrip.position.set(0, 0.42, -1.01);
+  bench.scene.add(netBotStrip);
+
+  const netSignFrame = new THREE.Mesh(bench.track(new THREE.BoxGeometry(1.70, 0.25, 0.04)), darkMetalMat);
+  netSignFrame.position.set(0, 0.64, -1.01);
+  bench.scene.add(netSignFrame);
+
+  const netSignScreen = makeCanvasScreen(760, 120, (ctx, w, h) => {
+    const bg = ctx.createLinearGradient(0, 0, w, 0);
+    bg.addColorStop(0, '#0a1324');
+    bg.addColorStop(0.5, '#132a4c');
+    bg.addColorStop(1, '#0a1324');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(4, 4, w - 8, h - 8);
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 34px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('INFRASTRUCTURE RÉSEAU • BAC PRO CIEL', w / 2, 54);
+
+    ctx.fillStyle = '#7dd3fc';
+    ctx.font = 'bold 17px sans-serif';
+    ctx.fillText('SWITCH L3 802.1Q  •  BAIE DE BRASSAGE 19"  •  ROUTAGE INTER-VLAN', w / 2, 90);
+    ctx.textAlign = 'left';
+  });
+  bench.track(netSignScreen.texture);
+  const netSignFace = new THREE.Mesh(
+    bench.track(new THREE.PlaneGeometry(1.62, 0.21)),
+    bench.track(new THREE.MeshBasicMaterial({ map: netSignScreen.texture }))
+  );
+  netSignFace.position.set(0, 0.64, -0.988);
+  bench.scene.add(netSignFace);
+
+  const deskPadTex = bench.track(
+    makeCanvasTexture(1024, 512, (ctx, w, h) => {
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.14)';
+      ctx.lineWidth = 1.5;
+      for (let x = 0; x <= w; x += 32) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= h; y += 32) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(10, 10, w - 20, h - 20);
+
+      const zones = [
+        { x: 26, y: 185, zw: 340, zh: 295, color: '#38bdf8', title: 'CONSOLE SSH' },
+        { x: 110, y: 26, zw: 370, zh: 145, color: '#f59e0b', title: 'BAIE 19" SW-L3' },
+        { x: 495, y: 26, zw: 500, zh: 454, color: '#22c55e', title: 'MAQUETTE VLAN 802.1Q' }
+      ];
+      for (const z of zones) {
+        ctx.strokeStyle = z.color;
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(z.x, z.y, z.zw, z.zh);
+        ctx.fillStyle = z.color;
+        ctx.font = 'bold 16px monospace';
+        ctx.fillText(z.title, z.x + 12, z.y + z.zh - 14);
+      }
+    })
+  );
+  const deskPad = new THREE.Mesh(
+    bench.track(new THREE.BoxGeometry(2.12, 0.01, 1.12)),
+    bench.track(new THREE.MeshStandardMaterial({ map: deskPadTex, roughness: 0.72, metalness: 0.1 }))
+  );
+  deskPad.position.set(0, 0.005, 0.04);
   deskPad.receiveShadow = true;
   bench.scene.add(deskPad);
+
+  for (const gx of [-0.68, 0, 0.68]) {
+    const grommet = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.036, 0.036, 0.014, 16)), brushedAluMat);
+    grommet.position.set(gx, 0.009, -0.44);
+    bench.scene.add(grommet);
+    const hole = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.022, 0.022, 0.016, 16)), darkMetalMat);
+    hole.position.set(gx, 0.01, -0.44);
+    bench.scene.add(hole);
+  }
 
   const state = {
     camId: 'overview',
@@ -427,19 +588,47 @@ export function createVlanConfigGame(api) {
   bench.scene.add(laptopGroup);
 
   const laptopBase = new THREE.Mesh(
-    new THREE.BoxGeometry(0.46, 0.022, 0.32),
-    new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.65 })
+    bench.track(new THREE.BoxGeometry(0.46, 0.022, 0.32)),
+    bench.track(new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.36, metalness: 0.72 }))
   );
   laptopBase.position.y = 0.011;
   laptopBase.castShadow = true;
   laptopGroup.add(laptopBase);
 
-  const keyPad = new THREE.Mesh(
-    new THREE.BoxGeometry(0.4, 0.004, 0.16),
-    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.65 })
+  const kbTex = bench.track(
+    makeCanvasTexture(512, 256, (ctx, w, h) => {
+      ctx.fillStyle = '#0b1220';
+      ctx.fillRect(0, 0, w, h);
+      for (let r = 0; r < 5; r++) {
+        for (let c = 0; c < 14; c++) {
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(14 + c * 35, 16 + r * 44, 28, 34);
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+          ctx.strokeRect(14 + c * 35, 16 + r * 44, 28, 34);
+        }
+      }
+    })
   );
-  keyPad.position.set(0, 0.023, 0.02);
+  const keyPad = new THREE.Mesh(
+    bench.track(new THREE.BoxGeometry(0.4, 0.005, 0.16)),
+    bench.track(new THREE.MeshStandardMaterial({ map: kbTex, roughness: 0.55 }))
+  );
+  keyPad.position.set(0, 0.023, -0.01);
   laptopGroup.add(keyPad);
+
+  const trackPad = new THREE.Mesh(
+    bench.track(new THREE.BoxGeometry(0.13, 0.003, 0.075)),
+    darkMetalMat
+  );
+  trackPad.position.set(0, 0.023, 0.105);
+  laptopGroup.add(trackPad);
+
+  const laptopLed = new THREE.Mesh(
+    bench.track(new THREE.SphereGeometry(0.005, 8, 8)),
+    bench.track(new THREE.MeshStandardMaterial({ color: '#22c55e', emissive: '#22c55e', emissiveIntensity: 1.4 }))
+  );
+  laptopLed.position.set(0.19, 0.024, 0.135);
+  laptopGroup.add(laptopLed);
 
   const lidGroup = new THREE.Group();
   lidGroup.position.set(0, 0.022, -0.15);
@@ -447,20 +636,28 @@ export function createVlanConfigGame(api) {
   laptopGroup.add(lidGroup);
 
   const lidShell = new THREE.Mesh(
-    new THREE.BoxGeometry(0.46, 0.3, 0.014),
-    new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.35, metalness: 0.6 })
+    bench.track(new THREE.BoxGeometry(0.46, 0.3, 0.014)),
+    bench.track(new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.32, metalness: 0.68 }))
   );
   lidShell.position.set(0, 0.15, 0);
   lidShell.castShadow = true;
   lidGroup.add(lidShell);
 
+  const lidTrim = new THREE.Mesh(
+    bench.track(new THREE.BoxGeometry(0.47, 0.31, 0.006)),
+    brushedAluMat
+  );
+  lidTrim.position.set(0, 0.15, -0.006);
+  lidGroup.add(lidTrim);
+
   const laptopScreen = makeCanvasScreen(540, 336, (ctx, w, h) => {
     ctx.fillStyle = '#050b14';
     ctx.fillRect(0, 0, w, h);
   });
+  bench.track(laptopScreen.texture);
   const screenMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.42, 0.26),
-    new THREE.MeshBasicMaterial({ map: laptopScreen.texture })
+    bench.track(new THREE.PlaneGeometry(0.42, 0.26)),
+    bench.track(new THREE.MeshBasicMaterial({ map: laptopScreen.texture }))
   );
   screenMesh.position.set(0, 0.15, 0.009);
   lidGroup.add(screenMesh);
@@ -475,64 +672,248 @@ export function createVlanConfigGame(api) {
   });
 
   const stackGroup = new THREE.Group();
-  stackGroup.position.set(-0.3, 0.012, -0.26);
+  stackGroup.position.set(-0.34, 0.012, -0.34);
   bench.scene.add(stackGroup);
 
+  const rackSideGeo = bench.track(new THREE.BoxGeometry(0.022, 0.31, 0.27));
+  for (const sx of [-0.236, 0.236]) {
+    const side = new THREE.Mesh(rackSideGeo, darkMetalMat);
+    side.position.set(sx, 0.155, 0);
+    side.castShadow = true;
+    stackGroup.add(side);
+  }
+  const rackTop = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.494, 0.018, 0.27)), darkMetalMat);
+  rackTop.position.set(0, 0.305, 0);
+  rackTop.castShadow = true;
+  stackGroup.add(rackTop);
+
+  const rackBack = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.45, 0.295, 0.014)), chassisSlateMat);
+  rackBack.position.set(0, 0.152, -0.128);
+  stackGroup.add(rackBack);
+
+  for (const rx of [-0.222, 0.222]) {
+    const rail = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.016, 0.29, 0.016)), brushedAluMat);
+    rail.position.set(rx, 0.15, 0.128);
+    stackGroup.add(rail);
+  }
+
   const l3Switch = new THREE.Mesh(
-    new THREE.BoxGeometry(0.42, 0.072, 0.24),
-    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.35, metalness: 0.72 })
+    bench.track(new THREE.BoxGeometry(0.42, 0.072, 0.24)),
+    bench.track(new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.35, metalness: 0.72 }))
   );
-  l3Switch.position.y = 0.036;
+  l3Switch.position.y = 0.055;
   l3Switch.castShadow = true;
   stackGroup.add(l3Switch);
 
+  const switchBay = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.32, 0.042, 0.01)), chassisSlateMat);
+  switchBay.position.set(-0.03, 0.055, 0.118);
+  stackGroup.add(switchBay);
+
   const consolePortRing = new THREE.Mesh(
-    new THREE.BoxGeometry(0.032, 0.028, 0.016),
-    new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, emissiveIntensity: 0.6 })
+    bench.track(new THREE.BoxGeometry(0.032, 0.028, 0.016)),
+    bench.track(new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, emissiveIntensity: 0.7 }))
   );
-  consolePortRing.position.set(0.14, 0.04, 0.122);
+  consolePortRing.position.set(0.165, 0.055, 0.122);
   stackGroup.add(consolePortRing);
 
+  const switchPortLeds = [];
+  const ambientRackLeds = [];
+  const rj45PocketGeo = bench.track(new THREE.BoxGeometry(0.018, 0.018, 0.008));
+  const portLedGeo = bench.track(new THREE.BoxGeometry(0.013, 0.008, 0.006));
   for (let p = 0; p < 12; p++) {
-    const portLed = new THREE.Mesh(
-      new THREE.BoxGeometry(0.014, 0.01, 0.006),
-      new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x16a34a, emissiveIntensity: 0.65 })
+    const px = -0.168 + p * 0.026;
+    const pocket = new THREE.Mesh(rj45PocketGeo, darkMetalMat);
+    pocket.position.set(px, 0.047, 0.122);
+    stackGroup.add(pocket);
+
+    const ledMat = bench.track(
+      new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 0.85 })
     );
-    portLed.position.set(-0.16 + p * 0.025, 0.036, 0.123);
+    const portLed = new THREE.Mesh(portLedGeo, ledMat);
+    portLed.position.set(px, 0.064, 0.124);
     stackGroup.add(portLed);
+    switchPortLeds.push({ idx: p, mat: ledMat, pos: new THREE.Vector3(px - 0.34, 0.06, -0.216) });
+    if (p >= 3 && p <= 10) {
+      ambientRackLeds.push({ mat: ledMat, phase: p * 0.65 });
+    }
   }
 
   const routerBox = new THREE.Mesh(
-    new THREE.BoxGeometry(0.42, 0.068, 0.24),
-    new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.35, metalness: 0.7 })
+    bench.track(new THREE.BoxGeometry(0.42, 0.068, 0.24)),
+    bench.track(new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.34, metalness: 0.72 }))
   );
-  routerBox.position.y = 0.106;
+  routerBox.position.y = 0.145;
   routerBox.castShadow = true;
   stackGroup.add(routerBox);
 
+  const routerOled = new THREE.Mesh(
+    bench.track(new THREE.BoxGeometry(0.12, 0.024, 0.008)),
+    bench.track(new THREE.MeshStandardMaterial({ color: '#0ea5e9', emissive: '#0284c7', emissiveIntensity: 0.75 }))
+  );
+  routerOled.position.set(-0.12, 0.145, 0.121);
+  stackGroup.add(routerOled);
+
+  const routerLeds = [];
+  for (let rp = 0; rp < 4; rp++) {
+    const rx = 0.02 + rp * 0.034;
+    const rPocket = new THREE.Mesh(rj45PocketGeo, darkMetalMat);
+    rPocket.position.set(rx, 0.142, 0.121);
+    stackGroup.add(rPocket);
+
+    const rLedMat = bench.track(
+      new THREE.MeshStandardMaterial({ color: '#f59e0b', emissive: '#d97706', emissiveIntensity: 0.8 })
+    );
+    const rLed = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.0055, 8, 8)), rLedMat);
+    rLed.position.set(rx, 0.16, 0.124);
+    stackGroup.add(rLed);
+    routerLeds.push(rLedMat);
+  }
+
+  const patchPanelBody = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.42, 0.066, 0.22)), darkMetalMat);
+  patchPanelBody.position.set(0, 0.235, -0.01);
+  patchPanelBody.castShadow = true;
+  stackGroup.add(patchPanelBody);
+
+  const ppLabelTex = bench.track(
+    makeCanvasTexture(512, 64, (ctx, w, h) => {
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 18px monospace';
+      ctx.fillText('PATCH PANEL 19" CAT6A • 01 02 03 04 ... 12', 16, 40);
+    })
+  );
+  const ppStrip = new THREE.Mesh(
+    bench.track(new THREE.PlaneGeometry(0.38, 0.02)),
+    bench.track(new THREE.MeshBasicMaterial({ map: ppLabelTex }))
+  );
+  ppStrip.position.set(0, 0.256, 0.102);
+  stackGroup.add(ppStrip);
+
+  for (let kp = 0; kp < 12; kp++) {
+    const kx = -0.168 + kp * 0.026;
+    const keyJack = new THREE.Mesh(rj45PocketGeo, chassisSlateMat);
+    keyJack.position.set(kx, 0.226, 0.102);
+    stackGroup.add(keyJack);
+  }
+
+  const cableGuideBar = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.4, 0.008, 0.032)), brushedAluMat);
+  cableGuideBar.position.set(0, 0.194, 0.125);
+  stackGroup.add(cableGuideBar);
+
   const consoleCable = buildFlexibleCable(
     [
-      [-0.34, 0.03, 0.14],
-      [-0.26, 0.035, 0.01],
-      [-0.16, 0.05, -0.14]
+      [-0.36, 0.03, 0.14],
+      [-0.29, 0.025, -0.01],
+      [-0.22, 0.04, -0.14],
+      [-0.175, 0.065, -0.216]
     ],
     '#38bdf8',
-    0.0075,
+    0.007,
     '#0284c7'
   );
+  bench.track(consoleCable.mesh.geometry);
+  bench.track(consoleCable.mat);
   bench.scene.add(consoleCable.mesh);
+
+  const patchCordSpecs = [
+    {
+      color: '#3b82f6',
+      pts: [
+        [-0.508, 0.238, -0.235],
+        [-0.535, 0.195, -0.175],
+        [-0.535, 0.115, -0.175],
+        [-0.508, 0.060, -0.216]
+      ]
+    },
+    {
+      color: '#22c55e',
+      pts: [
+        [-0.482, 0.238, -0.235],
+        [-0.505, 0.190, -0.165],
+        [-0.505, 0.110, -0.165],
+        [-0.482, 0.060, -0.216]
+      ]
+    },
+    {
+      color: '#a855f7',
+      pts: [
+        [-0.456, 0.238, -0.235],
+        [-0.475, 0.185, -0.155],
+        [-0.475, 0.105, -0.155],
+        [-0.456, 0.060, -0.216]
+      ]
+    },
+    {
+      color: '#f59e0b',
+      pts: [
+        [-0.222, 0.060, -0.216],
+        [-0.175, 0.085, -0.175],
+        [-0.185, 0.125, -0.175],
+        [-0.222, 0.154, -0.216]
+      ]
+    },
+    {
+      color: '#0ea5e9',
+      pts: [
+        [-0.12, 0.04, -0.35],
+        [0.0, 0.018, -0.44],
+        [0.18, 0.018, -0.36],
+        [0.24, 0.03, -0.18]
+      ]
+    }
+  ];
+  for (const pcs of patchCordSpecs) {
+    const pCurve = new THREE.CatmullRomCurve3(pcs.pts.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
+    const pMesh = new THREE.Mesh(
+      bench.track(new THREE.TubeGeometry(pCurve, 22, 0.0055, 8, false)),
+      bench.track(new THREE.MeshStandardMaterial({ color: pcs.color, roughness: 0.38, metalness: 0.15 }))
+    );
+    pMesh.castShadow = true;
+    bench.scene.add(pMesh);
+  }
 
   const campusGroup = new THREE.Group();
   campusGroup.position.set(0.36, 0.012, 0.04);
   bench.scene.add(campusGroup);
 
+  const plinthTex = bench.track(
+    makeCanvasTexture(512, 512, (ctx, w, h) => {
+      ctx.fillStyle = '#0c1526';
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.16)';
+      ctx.lineWidth = 2;
+      for (let p = 0; p <= w; p += 32) {
+        ctx.beginPath();
+        ctx.moveTo(p, 0);
+        ctx.lineTo(p, h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, p);
+        ctx.lineTo(w, p);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(8, 8, w - 16, h - 16);
+    })
+  );
   const plinth = new THREE.Mesh(
-    new THREE.BoxGeometry(0.96, 0.03, 0.78),
-    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6, metalness: 0.25 })
+    bench.track(new THREE.BoxGeometry(0.96, 0.03, 0.78)),
+    bench.track(new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.55, metalness: 0.35 }))
   );
   plinth.position.y = 0.015;
   plinth.receiveShadow = true;
   campusGroup.add(plinth);
+
+  const plinthTop = new THREE.Mesh(
+    bench.track(new THREE.PlaneGeometry(0.94, 0.76)),
+    bench.track(new THREE.MeshStandardMaterial({ map: plinthTex, roughness: 0.6, metalness: 0.15 }))
+  );
+  plinthTop.rotation.x = -Math.PI / 2;
+  plinthTop.position.y = 0.031;
+  plinthTop.receiveShadow = true;
+  campusGroup.add(plinthTop);
 
   const NODE_DEFS = [
     { id: 'core', label: 'Switch Cœur L3', pos: [0, 0.03, 0.0], size: [0.22, 0.14, 0.22], baseColor: 0x38bdf8 },
@@ -543,34 +924,86 @@ export function createVlanConfigGame(api) {
   ];
 
   const nodeMeshes = {};
+  const campusPortLeds = { core: [], firewall: [], stations: [] };
   for (const n of NODE_DEFS) {
     const group = new THREE.Group();
     group.position.set(n.pos[0], n.pos[1], n.pos[2]);
 
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.48 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(n.size[0], n.size[1], n.size[2]), bodyMat);
+    const bodyMat = bench.track(
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.38, metalness: 0.52 })
+    );
+    const body = new THREE.Mesh(bench.track(new THREE.BoxGeometry(n.size[0], n.size[1], n.size[2])), bodyMat);
     body.position.y = n.size[1] / 2;
     body.castShadow = true;
     group.add(body);
 
-    const roofMat = new THREE.MeshStandardMaterial({
-      color: n.baseColor,
-      emissive: n.baseColor,
-      emissiveIntensity: 0.45,
-      roughness: 0.3
-    });
+    const roofMat = bench.track(
+      new THREE.MeshStandardMaterial({
+        color: n.baseColor,
+        emissive: n.baseColor,
+        emissiveIntensity: 0.45,
+        roughness: 0.3
+      })
+    );
     const roof = new THREE.Mesh(
-      new THREE.BoxGeometry(n.size[0] * 0.86, 0.014, n.size[2] * 0.86),
+      bench.track(new THREE.BoxGeometry(n.size[0] * 0.86, 0.014, n.size[2] * 0.86)),
       roofMat
     );
     roof.position.y = n.size[1] + 0.008;
     group.add(roof);
 
-    if (n.id === 'wifi') {
+    if (n.id === 'core') {
+      const face = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.18, 0.045, 0.008)), darkMetalMat);
+      face.position.set(0, 0.07, 0.112);
+      group.add(face);
+      for (let cl = 0; cl < 4; cl++) {
+        const lMat = bench.track(
+          new THREE.MeshStandardMaterial({ color: '#38bdf8', emissive: '#0284c7', emissiveIntensity: 1.0 })
+        );
+        const lMesh = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.02, 0.012, 0.006)), lMat);
+        lMesh.position.set(-0.054 + cl * 0.036, 0.07, 0.118);
+        group.add(lMesh);
+        campusPortLeds.core.push(lMat);
+      }
+    } else if (n.id === 'firewall') {
+      const fwBar = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.16, 0.02, 0.01)), brushedAluMat);
+      fwBar.position.set(0, 0.09, 0.092);
+      group.add(fwBar);
+      for (let fl = 0; fl < 2; fl++) {
+        const lMat = bench.track(
+          new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 1.0 })
+        );
+        const lMesh = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.009, 8, 8)), lMat);
+        lMesh.position.set(-0.04 + fl * 0.08, 0.05, 0.094);
+        group.add(lMesh);
+        campusPortLeds.firewall.push(lMat);
+      }
+    } else if (n.id === 'admin' || n.id === 'atelier') {
+      const miniMon = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.11, 0.07, 0.012)), darkMetalMat);
+      miniMon.position.set(-0.03, n.size[1] + 0.055, -0.02);
+      miniMon.rotation.x = -0.12;
+      group.add(miniMon);
+      const monGlowMat = bench.track(
+        new THREE.MeshStandardMaterial({ color: n.baseColor, emissive: n.baseColor, emissiveIntensity: 0.75 })
+      );
+      const monFace = new THREE.Mesh(bench.track(new THREE.PlaneGeometry(0.092, 0.052)), monGlowMat);
+      monFace.position.set(-0.03, n.size[1] + 0.055, -0.012);
+      monFace.rotation.x = -0.12;
+      group.add(monFace);
+      campusPortLeds.stations.push({ id: n.id, mat: monGlowMat });
+    } else if (n.id === 'wifi') {
+      const apRingMat = bench.track(
+        new THREE.MeshStandardMaterial({ color: '#a855f7', emissive: '#a855f7', emissiveIntensity: 0.85 })
+      );
+      const apRing = new THREE.Mesh(bench.track(new THREE.TorusGeometry(0.042, 0.006, 8, 20)), apRingMat);
+      apRing.rotation.x = Math.PI / 2;
+      apRing.position.set(0, n.size[1] + 0.018, 0.02);
+      group.add(apRing);
+      campusPortLeds.stations.push({ id: 'wifi', mat: apRingMat });
       for (const ax of [-0.05, 0.05]) {
         const ant = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.005, 0.007, 0.07, 8),
-          new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.6 })
+          bench.track(new THREE.CylinderGeometry(0.005, 0.007, 0.07, 8)),
+          brushedAluMat
         );
         ant.position.set(ax, n.size[1] + 0.045, -0.04);
         group.add(ant);
@@ -595,15 +1028,17 @@ export function createVlanConfigGame(api) {
     const start = new THREE.Vector3(aPos[0], 0.065, aPos[2]);
     const end = new THREE.Vector3(bPos[0], 0.065, bPos[2]);
     const mid = start.clone().add(end).multiplyScalar(0.5);
-    mid.y = 0.085;
+    mid.y = 0.095;
     const curve = new THREE.CatmullRomCurve3([start, mid, end]);
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xef4444,
-      emissive: 0xef4444,
-      emissiveIntensity: 0.55,
-      roughness: 0.3
-    });
-    const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.013, 8, false), mat);
+    const mat = bench.track(
+      new THREE.MeshStandardMaterial({
+        color: 0xef4444,
+        emissive: 0xef4444,
+        emissiveIntensity: 0.55,
+        roughness: 0.3
+      })
+    );
+    const mesh = new THREE.Mesh(bench.track(new THREE.TubeGeometry(curve, 24, 0.013, 8, false)), mat);
     campusGroup.add(mesh);
     return { mesh, mat, curve };
   }
@@ -765,6 +1200,48 @@ export function createVlanConfigGame(api) {
     nodeMeshes.firewall.roofMat.emissive.setHex(trunkCol);
     nodeMeshes.core.roofMat.color.setHex(ev.fullRouteOk ? 0x22c55e : 0x38bdf8);
     nodeMeshes.core.roofMat.emissive.setHex(ev.fullRouteOk ? 0x22c55e : 0x38bdf8);
+
+    const gi1Col = statusHex(ev.acc1Ok, state.vlans[10].active || state.ports['Gi0/1'].pvid === 10);
+    const gi2Col = statusHex(ev.acc2Ok, state.vlans[20].active || state.ports['Gi0/2'].pvid === 20);
+    const gi3Col = statusHex(ev.acc3Ok, state.vlans[30].active || state.ports['Gi0/3'].pvid === 30);
+    const gi24Col = statusHex(ev.trunkConfigured, ev.vlansCreated > 0);
+    switchPortLeds.forEach((sl) => {
+      let col = 0x22c55e;
+      if (sl.idx === 0) col = gi1Col;
+      else if (sl.idx === 1) col = gi2Col;
+      else if (sl.idx === 2) col = gi3Col;
+      else if (sl.idx === 11) col = gi24Col;
+      else col = ev.vlansCreated > 0 ? 0x22c55e : 0xf59e0b;
+      sl.mat.color.setHex(col);
+      sl.mat.emissive.setHex(col);
+    });
+
+    routerLeds.forEach((rl, i) => {
+      const gwOk = i === 0 ? ev.gw10Ok : i === 1 ? ev.gw20Ok : i === 2 ? ev.gw30Ok : ev.trunkConfigured;
+      const c = gwOk ? 0x22c55e : 0xf59e0b;
+      rl.color.setHex(c);
+      rl.emissive.setHex(c);
+    });
+
+    if (campusPortLeds.core.length >= 4) {
+      [gi1Col, gi2Col, gi3Col, gi24Col].forEach((c, idx) => {
+        campusPortLeds.core[idx].color.setHex(c);
+        campusPortLeds.core[idx].emissive.setHex(c);
+      });
+    }
+    campusPortLeds.firewall.forEach((fm) => {
+      fm.color.setHex(trunkCol);
+      fm.emissive.setHex(trunkCol);
+    });
+    campusPortLeds.stations.forEach((st) => {
+      const c = st.id === 'admin' ? adminCol : st.id === 'atelier' ? atelierCol : wifiCol;
+      st.mat.color.setHex(c);
+      st.mat.emissive.setHex(c);
+    });
+
+    campusBounceLight.color.setHex(ev.fullRouteOk ? 0x22c55e : 0x38bdf8);
+    netWallBarMat.color.setHex(ev.fullRouteOk ? 0x22c55e : 0x38bdf8);
+    netWallBarMat.emissive.setHex(ev.fullRouteOk ? 0x16a34a : 0x0ea5e9);
   }
 
   function drawLaptopScreen() {
@@ -1134,10 +1611,13 @@ export function createVlanConfigGame(api) {
   }
 
   bench.addFloatingTag([-0.56, 0.38, 0.18], 'PC Portable Console SSH', 'info');
-  bench.addFloatingTag([-0.3, 0.22, -0.26], 'Switch L3 / Port Console', 'info');
+  bench.addFloatingTag([-0.34, 0.34, -0.34], 'Baie 19" • Switch L3', 'info');
   bench.addFloatingTag([0.36, 0.25, 0.0], 'Maquette Infra 3D', 'info');
 
-  const unsubTick = bench.addUpdate((dt) => {
+  const unsubTick = bench.addUpdate((dt, elapsed) => {
+    ambientRackLeds.forEach((al) => {
+      al.mat.emissiveIntensity = 0.4 + 0.75 * Math.abs(Math.sin(elapsed * 3.8 + al.phase));
+    });
     for (let i = state.packets.length - 1; i >= 0; i--) {
       const pkt = state.packets[i];
       if (!pkt.segments.length) {
