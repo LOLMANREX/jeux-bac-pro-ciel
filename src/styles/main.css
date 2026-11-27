@@ -7554,3 +7554,119 @@ body.combat-active #crosshair {
 .perf-mon-cell.perf-low {
   color: #f87171;
 }
+
+.hud-jpo-banner {
+  --jpo-accent: #38bdf8;
+  position: relative;
+  z-index: 26;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: calc(100vw - 28px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(8, 15, 30, 0.84);
+  border: 1.5px solid var(--jpo-accent);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+.hud-jpo-banner.hidden {
+  display: none !important;
+}
+
+.hud-jpo-banner.kiosk-only {
+  margin: 0 16px 0 auto;
+  padding: 5px 10px;
+  background: rgba(8, 15, 30, 0.72);
+  border-color: rgba(148, 163, 184, 0.38);
+}
+
+.hud-jpo-pole-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hud-jpo-tag {
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.14);
+  border: 1px solid var(--jpo-accent);
+  color: #f8fafc;
+}
+
+.hud-jpo-room-label {
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: #f1f5f9;
+}
+
+.hud-jpo-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hud-jpo-tp-btn {
+  background: linear-gradient(135deg, #06b6d4, #0284c7);
+  color: #ffffff;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.hud-jpo-tp-btn:hover {
+  filter: brightness(1.1);
+}
+
+.hud-jpo-visit-btn {
+  background: rgba(30, 41, 59, 0.85);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hud-jpo-visit-btn:hover {
+  color: #ffffff;
+  border-color: #22d3ee;
+  background: rgba(51, 65, 85, 0.92);
+}
+
+.hud-jpo-idle-pill {
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: #fde047;
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+@media (max-width: 760px) {
+  .hud-jpo-banner {
+    border-radius: 14px;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+  .hud-jpo-room-label {
+    font-size: 0.76rem;
+  }
+}

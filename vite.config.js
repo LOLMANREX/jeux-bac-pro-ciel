@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.37 - Metal Pipe Bat : Bâton Admin, Projection Ragdoll & Clang Métallique'),
+    __APP_VERSION__: JSON.stringify('v4.38 - Portes Ouvertes CIEL : Configuration Salle Admin, Spawn Pôle, TP Pré-activé & Mode Kiosque'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

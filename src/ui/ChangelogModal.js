@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.37 - Metal Pipe Bat : Bâton Admin, Projection Ragdoll & Clang Métallique';
+    : 'v4.38 - Portes Ouvertes CIEL : Configuration Salle Admin, Spawn Pôle, TP Pré-activé & Mode Kiosque';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
+    version: 'v4.38 — Portes Ouvertes CIEL : Configuration Salle Admin, Spawn Pôle, TP Pré-activé & Mode Kiosque',
+    date: '27/11/2026',
+    tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'ONGLET PORTES OUVERTES (/ADMIN)',
+        title: 'Assignation locale du poste à une salle JPO (Standard, Cyber, Réseaux, Électronique)',
+        desc: 'Nouvel onglet « Portes Ouvertes » dans la console d’administration permettant d’assigner ce navigateur à une salle précise (clé localStorage ciel_jpo_salle) avec indicateur visuel de salle active et bouton de lancement direct vers le jeu.'
+      },
+      {
+        badge: 'SPAWN PÔLE & 500 COINS DÉMO',
+        title: 'Arrivée directe au pôle de la salle avec TP pré-activé et bandeau HUD dédié',
+        desc: 'Au démarrage en salle Cybersécurité (U305), Réseaux & Infrastructure (U307) ou Électronique & Embarqué (U302), le visiteur apparaît directement devant le poste du pôle avec le TP associé pré-activé, un bandeau HUD dédié et 500 CIEL Coins de démonstration.'
+      },
+      {
+        badge: 'MODE KIOSQUE',
+        title: 'Réinitialisation automatique après 60s d’inactivité et bouton « Nouvelle visite »',
+        desc: 'L’interrupteur « Activer le Mode Kiosque » dans /admin active le suivi d’inactivité (reset automatique au bout de 60 secondes) et affiche un bouton discret « Nouvelle visite » sur le HUD pour accueillir instantanément le visiteur suivant.'
+      }
+    ]
+  },
+  {
     version: 'v4.37 — Metal Pipe Bat : Bâton Admin, Projection Ragdoll & Clang Métallique',
     date: '21/11/2026',
-    tag: 'DERNIÈRE MÀJ',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'DASHBOARD ADMIN',

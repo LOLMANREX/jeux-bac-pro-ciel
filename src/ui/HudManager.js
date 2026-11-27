@@ -180,6 +180,13 @@ export class HudManager {
     this.ascensionFallbackTimer = null;
 
     this.privateDebugBadgeEl = document.getElementById('hud-private-debug-badge');
+    this.jpoBannerEl = document.getElementById('hud-jpo-banner');
+    this.jpoPoleInfoEl = document.getElementById('hud-jpo-pole-info');
+    this.jpoRoomLabelEl = document.getElementById('hud-jpo-room-label');
+    this.jpoOpenTpBtn = document.getElementById('btn-jpo-open-tp');
+    this.jpoIdlePillEl = document.getElementById('hud-jpo-idle-pill');
+    this.jpoNewVisitBtn = document.getElementById('btn-jpo-new-visit');
+    this.jpoState = { roomConfig: null, kiosk: false };
     this.debugPanelEl = document.getElementById('debug-tools-panel');
     this.debugCollapseBtn = document.getElementById('btn-debug-collapse');
     this.dbgFpsEl = document.getElementById('dbg-val-fps');
@@ -602,6 +609,16 @@ export class HudManager {
       sfx.click();
       this.closeSettings();
       this.handlers.onToggleVr?.();
+    });
+
+    this.jpoOpenTpBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onJpoOpenTp?.();
+    });
+
+    this.jpoNewVisitBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.handlers.onJpoNewVisit?.();
     });
 
     this.creatorPowerBtn?.addEventListener('click', (e) => {
@@ -1615,6 +1632,45 @@ export class HudManager {
     }
   }
 
+  setJpoMode({ roomConfig = null, kiosk = false } = {}) {
+    this.jpoState = { roomConfig, kiosk: Boolean(kiosk) };
+    const hasActiveRoom = Boolean(roomConfig && roomConfig.id && roomConfig.id !== 'standard');
+    const showBanner = (hasActiveRoom || Boolean(kiosk)) && !this.detentionHudHidden;
+    if (!this.jpoBannerEl) return;
+    this.jpoBannerEl.classList.toggle('hidden', !showBanner);
+    this.jpoBannerEl.classList.toggle('kiosk-only', !hasActiveRoom && Boolean(kiosk));
+    if (hasActiveRoom) {
+      this.jpoBannerEl.style.setProperty('--jpo-accent', roomConfig.accent || '#38bdf8');
+      if (this.jpoRoomLabelEl) {
+        this.jpoRoomLabelEl.textContent = `${roomConfig.icon} ${roomConfig.label} • ${roomConfig.poleLabel}`;
+      }
+      if (this.jpoOpenTpBtn) {
+        this.jpoOpenTpBtn.textContent = `▶ ${roomConfig.tpShortLabel || 'Lancer le TP'}`;
+        this.jpoOpenTpBtn.classList.toggle('hidden', !roomConfig.tpId);
+      }
+      this.jpoPoleInfoEl?.classList.remove('hidden');
+    } else {
+      this.jpoPoleInfoEl?.classList.add('hidden');
+      this.jpoOpenTpBtn?.classList.add('hidden');
+    }
+    this.jpoNewVisitBtn?.classList.toggle('hidden', !Boolean(kiosk));
+    if (!kiosk) {
+      this.setJpoIdleCountdown(null);
+    }
+  }
+
+  setJpoIdleCountdown(remainingSec = null) {
+    if (!this.jpoIdlePillEl) return;
+    const sec = Number(remainingSec);
+    if (!Number.isFinite(sec) || sec <= 0 || sec > 15 || !this.jpoState?.kiosk || this.detentionHudHidden) {
+      this.jpoIdlePillEl.classList.add('hidden');
+      this.jpoIdlePillEl.textContent = '';
+      return;
+    }
+    this.jpoIdlePillEl.textContent = `⏱️ Reset dans ${Math.ceil(sec)}s`;
+    this.jpoIdlePillEl.classList.remove('hidden');
+  }
+
   _setCachedText(el, key, value) {
     if (!el) return false;
     const str = String(value);
@@ -2549,6 +2605,7 @@ export class HudManager {
       this.hudEl?.classList.add('hidden');
       this.debugPanelEl?.classList.add('hidden');
       this.privateDebugBadgeEl?.classList.add('hidden');
+      this.jpoBannerEl?.classList.add('hidden');
       this.voiceNearbyBar?.classList.add('hidden');
       this.orientationHintEl?.classList.add('hidden');
       return true;
@@ -2558,6 +2615,7 @@ export class HudManager {
     }
     this.hudWasVisibleBeforeDetention = false;
     this.setPrivateDebugMode(this.privateDebugActive, this.gameState?.room || '');
+    this.setJpoMode(this.jpoState);
     return false;
   }
 

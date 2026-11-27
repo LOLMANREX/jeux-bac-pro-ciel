@@ -657,54 +657,56 @@ test('v4.9 : Système de Comptes Élèves, Persistance accounts.json, Skins Divi
   }
 });
 
-test('v4.37 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
-  assert.ok(APP_VERSION.startsWith('v4.37'));
-  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.37'));
+test('v4.38 : DOM index.html, admin.html et ChangelogModal exposent tous les éléments requis', () => {
+  assert.ok(APP_VERSION.startsWith('v4.38'));
+  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.38'));
   assert.equal(CHANGELOG_RELEASES[0].tag, 'DERNIÈRE MÀJ');
-  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.36'));
+  assert.ok(CHANGELOG_RELEASES[1].version.startsWith('v4.37'));
   assert.equal(CHANGELOG_RELEASES[1].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[2].version.startsWith('v4.35'));
+  assert.ok(CHANGELOG_RELEASES[2].version.startsWith('v4.36'));
   assert.equal(CHANGELOG_RELEASES[2].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[3].version.startsWith('v4.34'));
+  assert.ok(CHANGELOG_RELEASES[3].version.startsWith('v4.35'));
   assert.equal(CHANGELOG_RELEASES[3].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[4].version.startsWith('v4.33'));
+  assert.ok(CHANGELOG_RELEASES[4].version.startsWith('v4.34'));
   assert.equal(CHANGELOG_RELEASES[4].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[5].version.startsWith('v4.32'));
+  assert.ok(CHANGELOG_RELEASES[5].version.startsWith('v4.33'));
   assert.equal(CHANGELOG_RELEASES[5].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[6].version.startsWith('v4.31'));
+  assert.ok(CHANGELOG_RELEASES[6].version.startsWith('v4.32'));
   assert.equal(CHANGELOG_RELEASES[6].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[7].version.startsWith('v4.30'));
+  assert.ok(CHANGELOG_RELEASES[7].version.startsWith('v4.31'));
   assert.equal(CHANGELOG_RELEASES[7].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[8].version.startsWith('v4.29'));
+  assert.ok(CHANGELOG_RELEASES[8].version.startsWith('v4.30'));
   assert.equal(CHANGELOG_RELEASES[8].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[9].version.startsWith('v4.28'));
+  assert.ok(CHANGELOG_RELEASES[9].version.startsWith('v4.29'));
   assert.equal(CHANGELOG_RELEASES[9].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[10].version.startsWith('v4.27'));
+  assert.ok(CHANGELOG_RELEASES[10].version.startsWith('v4.28'));
   assert.equal(CHANGELOG_RELEASES[10].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[11].version.startsWith('v4.26'));
+  assert.ok(CHANGELOG_RELEASES[11].version.startsWith('v4.27'));
   assert.equal(CHANGELOG_RELEASES[11].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[12].version.startsWith('v4.25'));
+  assert.ok(CHANGELOG_RELEASES[12].version.startsWith('v4.26'));
   assert.equal(CHANGELOG_RELEASES[12].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[13].version.startsWith('v4.24'));
+  assert.ok(CHANGELOG_RELEASES[13].version.startsWith('v4.25'));
   assert.equal(CHANGELOG_RELEASES[13].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[14].version.startsWith('v4.23'));
+  assert.ok(CHANGELOG_RELEASES[14].version.startsWith('v4.24'));
   assert.equal(CHANGELOG_RELEASES[14].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[15].version.startsWith('v4.22'));
+  assert.ok(CHANGELOG_RELEASES[15].version.startsWith('v4.23'));
   assert.equal(CHANGELOG_RELEASES[15].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[16].version.startsWith('v4.21'));
+  assert.ok(CHANGELOG_RELEASES[16].version.startsWith('v4.22'));
   assert.equal(CHANGELOG_RELEASES[16].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[17].version.startsWith('v4.20'));
+  assert.ok(CHANGELOG_RELEASES[17].version.startsWith('v4.21'));
   assert.equal(CHANGELOG_RELEASES[17].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[18].version.startsWith('v4.19'));
+  assert.ok(CHANGELOG_RELEASES[18].version.startsWith('v4.20'));
   assert.equal(CHANGELOG_RELEASES[18].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[19].version.startsWith('v4.18'));
+  assert.ok(CHANGELOG_RELEASES[19].version.startsWith('v4.19'));
   assert.equal(CHANGELOG_RELEASES[19].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[20].version.startsWith('v4.17'));
+  assert.ok(CHANGELOG_RELEASES[20].version.startsWith('v4.18'));
   assert.equal(CHANGELOG_RELEASES[20].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[21].version.startsWith('v4.16'));
+  assert.ok(CHANGELOG_RELEASES[21].version.startsWith('v4.17'));
   assert.equal(CHANGELOG_RELEASES[21].tag, 'HISTORIQUE');
-  assert.ok(CHANGELOG_RELEASES[22].version.startsWith('v4.15'));
+  assert.ok(CHANGELOG_RELEASES[22].version.startsWith('v4.16'));
   assert.equal(CHANGELOG_RELEASES[22].tag, 'HISTORIQUE');
+  assert.ok(CHANGELOG_RELEASES[23].version.startsWith('v4.15'));
+  assert.equal(CHANGELOG_RELEASES[23].tag, 'HISTORIQUE');
 
   const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
   for (const id of [
@@ -790,7 +792,10 @@ test('v4.37 : DOM index.html, admin.html et ChangelogModal exposent tous les él
     'btn-shop-ingame',
     'shop-modal',
     'shop-preview-canvas',
-    'shop-items-grid'
+    'shop-items-grid',
+    'hud-jpo-banner',
+    'btn-jpo-open-tp',
+    'btn-jpo-new-visit'
   ]) {
     assert.ok(indexHtml.includes(`id="${id}"`), `ID manquant dans index.html: ${id}`);
   }
@@ -807,7 +812,13 @@ test('v4.37 : DOM index.html, admin.html et ChangelogModal exposent tous les él
     'accounts-tbody',
     'btn-toggle-all-acc-pw',
     'admin-password-modal',
-    'admin-edit-pw-input'
+    'admin-edit-pw-input',
+    'admin-tab-jpo',
+    'admin-panel-jpo',
+    'jpo-room-selector',
+    'jpo-active-status-card',
+    'jpo-kiosk-toggle',
+    'btn-jpo-launch'
   ]) {
     assert.ok(adminHtml.includes(`id="${id}"`), `ID manquant dans admin.html: ${id}`);
   }

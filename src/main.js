@@ -48,7 +48,6 @@ import { PlayerController } from './world/PlayerController.js';
 import { METAL_PIPE, computeLaunchVelocity, computeTumble } from './core/metalPipe.js';
 import { MetalPipeImpactFx, buildMetalPipeBatMesh } from './world/MetalPipeBat.js';
 import { buildPetMesh } from './world/PetBuilder.js';
-import { isShopPetId } from './world/ShopCatalog.js';
 import {
   createSpeechBubble,
   RemotePlayersManager,
@@ -60,12 +59,29 @@ import {
   ASCENSION_SPECIALTIES,
   buildStudentAvatarMesh,
   createVoiceIndicatorSprite,
+  DEFAULT_SKIN,
   disposeObject3D,
   isCreatorLouis,
   resolveAscensionSpecialty,
   ULTIMATE_SECRET_SKIN_ID,
   updateVoiceIndicatorSprite
 } from './world/AvatarBuilder.js';
+import {
+  getShopItemById,
+  isShopAccessoryId,
+  isShopPetId,
+  isShopSkinId
+} from './world/ShopCatalog.js';
+import {
+  createJpoVisitorName,
+  createKioskIdleController,
+  getJpoRoomConfig,
+  isJpoRoomActive,
+  JPO_DEMO_COINS,
+  JPO_KIOSK_IDLE_MS,
+  readJpoConfig,
+  resolveJpoSpawnPose
+} from './core/jpoConfig.js';
 import { ProximityVoiceChat } from './network/ProximityVoiceChat.js';
 import { VRManager } from './vr/VRManager.js';
 import {
@@ -302,6 +318,162 @@ let vrLockerFeedback = null;
 let lastCoinDedupKey = '';
 let lastCoinDedupAt = 0;
 
+const jpoState = {
+  roomId: 'standard',
+  roomConfig: null,
+  kiosk: false,
+  demoCoins: 0,
+  tpAutoOpened: false,
+  tpAutoTimer: null,
+  hasMovedSinceSpawn: false,
+  idleController: null,
+  idleDisplayTimer: null,
+  activityBound: false,
+  lastMoveTouchAt: 0
+};
+
+function isJpoDemoActive() {
+  return Boolean(jpoState.roomConfig && isJpoRoomActive(jpoState.roomId));
+}
+
+function handleJpoUserActivity(isPointerMove = false) {
+  jpoState.hasMovedSinceSpawn = true;
+  if (!jpoState.kiosk || !jpoState.idleController) return;
+  if (isPointerMove) {
+    const now = Date.now();
+    if (now - jpoState.lastMoveTouchAt < 500) return;
+    jpoState.lastMoveTouchAt = now;
+  }
+  jpoState.idleController.touch();
+  hud?.setJpoIdleCountdown?.(null);
+}
+
+const onJpoActivityImmediate = () => handleJpoUserActivity(false);
+const onJpoActivityMove = () => handleJpoUserActivity(true);
+
+function bindKioskActivityListeners() {
+  if (jpoState.activityBound || typeof window === 'undefined') return;
+  jpoState.activityBound = true;
+  window.addEventListener('pointerdown', onJpoActivityImmediate, { passive: true, capture: true });
+  window.addEventListener('keydown', onJpoActivityImmediate, { passive: true, capture: true });
+  window.addEventListener('touchstart', onJpoActivityImmediate, { passive: true, capture: true });
+  window.addEventListener('wheel', onJpoActivityImmediate, { passive: true, capture: true });
+  window.addEventListener('pointermove', onJpoActivityMove, { passive: true, capture: true });
+}
+
+function unbindKioskActivityListeners() {
+  if (!jpoState.activityBound || typeof window === 'undefined') return;
+  jpoState.activityBound = false;
+  window.removeEventListener('pointerdown', onJpoActivityImmediate, { capture: true });
+  window.removeEventListener('keydown', onJpoActivityImmediate, { capture: true });
+  window.removeEventListener('touchstart', onJpoActivityImmediate, { capture: true });
+  window.removeEventListener('wheel', onJpoActivityImmediate, { capture: true });
+  window.removeEventListener('pointermove', onJpoActivityMove, { capture: true });
+}
+
+function stopKioskMode() {
+  if (jpoState.idleDisplayTimer) {
+    clearInterval(jpoState.idleDisplayTimer);
+    jpoState.idleDisplayTimer = null;
+  }
+  jpoState.idleController?.stop?.();
+  jpoState.idleController = null;
+  unbindKioskActivityListeners();
+  hud?.setJpoIdleCountdown?.(null);
+}
+
+function startKioskMode() {
+  stopKioskMode();
+  if (!jpoState.kiosk) return;
+  bindKioskActivityListeners();
+  jpoState.idleController = createKioskIdleController({
+    timeoutMs: JPO_KIOSK_IDLE_MS,
+    onTimeout: () => {
+      if (joined && jpoState.kiosk) {
+        resetJpoVisit('inactivity');
+      }
+    }
+  });
+  jpoState.idleController.start();
+  jpoState.idleDisplayTimer = setInterval(() => {
+    if (!joined || !jpoState.kiosk || !jpoState.idleController) {
+      hud?.setJpoIdleCountdown?.(null);
+      return;
+    }
+    const sec = Math.ceil(jpoState.idleController.getRemainingMs() / 1000);
+    hud?.setJpoIdleCountdown?.(sec <= 15 && sec > 0 ? sec : null);
+  }, 1000);
+}
+
+function openJpoFeaturedTp() {
+  const tpId = jpoState.roomConfig?.tpId;
+  if (!tpId || !joined) return;
+  if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
+    return;
+  }
+  const stationItem =
+    (lab?.interactables || []).find((it) => it && (it.tpId === tpId || it.id === tpId)) || null;
+  openTp(tpId, stationItem);
+}
+
+function resetJpoVisit(reason = 'manual') {
+  if (jpoState.tpAutoTimer) {
+    clearTimeout(jpoState.tpAutoTimer);
+    jpoState.tpAutoTimer = null;
+  }
+  activeCameraTweenId++;
+  tpOpenSeqId++;
+  if (typeof document !== 'undefined' && document.pointerLockElement) {
+    document.exitPointerLock?.();
+  }
+  tabletOS?.close?.({ restoreControls: false });
+  shopModal?.close?.();
+  lockerModal?.close?.();
+  battlePassModal?.close?.();
+  changelogModal?.close?.();
+  faqModal?.close?.();
+  platformModal?.close?.();
+  dialogueModal?.close?.();
+  if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
+    miniGameModal.close();
+  }
+  hud?.closeAllModals?.();
+  closeCielOsPc({ restoreCamera: false });
+  setModalActive(false, false, false);
+
+  const cfg = readJpoConfig();
+  jpoState.kiosk = Boolean(cfg.kiosk);
+
+  if (isJpoRoomActive(cfg.room)) {
+    const roomCfg = getJpoRoomConfig(cfg.room);
+    const visitorName = createJpoVisitorName(roomCfg.id);
+    const baseSkin = { ...DEFAULT_SKIN };
+    network.disconnect();
+    remotePlayers.clearAll();
+    startGameSession(
+      {
+        name: visitorName,
+        room: 'plateau-u300',
+        skin: baseSkin,
+        jpoRoom: roomCfg.id
+      },
+      false
+    );
+    setTimeout(() => {
+      hud?.toast?.(
+        reason === 'inactivity'
+          ? `⏱️ Session réinitialisée après 60s d’inactivité — Bienvenue en ${roomCfg.label} !`
+          : `🔄 Nouvelle visite — Bienvenue en ${roomCfg.label} !`,
+        'info'
+      );
+    }, 180);
+    return;
+  }
+
+  returnToMainMenu(true);
+  mainMenu?.handleLogout?.();
+}
+
 function handleCoinReward({
   coinsEarned = 0,
   source = 'reward',
@@ -345,6 +517,36 @@ function handleCoinReward({
 
 async function buyShopItemAction(item) {
   if (!item?.id) return { ok: false, error: 'Article invalide.' };
+  if (isJpoDemoActive()) {
+    const spec = getShopItemById(item.id);
+    if (!spec) return { ok: false, error: 'Article introuvable.' };
+    if (gameState.hasOwnedItem(spec.id)) {
+      return { ok: false, error: 'Article déjà possédé.' };
+    }
+    const balance = Math.max(0, Math.floor(Number(gameState.coins) || 0));
+    if (balance < spec.price) {
+      return { ok: false, error: 'Solde insuffisant.' };
+    }
+    const nextCoins = balance - spec.price;
+    const nextOwned = [...gameState.ownedItems, spec.id];
+    jpoState.demoCoins = nextCoins;
+    sfx.shopPurchase?.();
+    gameState.applyEconomySnapshot({
+      coins: nextCoins,
+      ownedItems: nextOwned
+    });
+    lab.setLocalCoins?.(nextCoins);
+    hud?.refresh?.();
+    mainMenu?.syncPlayerBadge?.();
+    shopModal?.refresh?.();
+    lockerModal?.refresh?.();
+    syncVrWatchHud();
+    return {
+      ok: true,
+      coins: nextCoins,
+      ownedItems: nextOwned
+    };
+  }
   if (gameState.authToken && !network.getAuthToken()) {
     network.setAuthToken(gameState.authToken);
   }
@@ -368,6 +570,32 @@ async function buyShopItemAction(item) {
 }
 
 async function equipShopItemAction(item, equip = true) {
+  if (isJpoDemoActive()) {
+    const itemId = item?.id || null;
+    const category = item?.category || null;
+    if (category === 'skins' || (itemId && isShopSkinId(itemId))) {
+      gameState.equipDivineSkin(equip && itemId ? itemId : null);
+    } else if (category === 'pets' || (itemId && isShopPetId(itemId))) {
+      const nextPet = equip && itemId && gameState.hasOwnedItem(itemId) ? itemId : null;
+      gameState.setSkin({ ...gameState.skin, equippedPet: nextPet });
+    } else if (category === 'accessories' || (itemId && isShopAccessoryId(itemId))) {
+      const nextTrail = equip && itemId && gameState.hasOwnedItem(itemId) ? itemId : null;
+      gameState.setSkin({ ...gameState.skin, equippedTrail: nextTrail });
+    }
+    sessionDivineSpecialty = gameState.skin?.secretSkin
+      ? ULTIMATE_SECRET_SKIN_ID
+      : gameState.skin?.divineSpecialty || null;
+    rebuildLocalAvatar(gameState.skin);
+    network.sendSkinUpdate(gameState.skin);
+    hud?._refreshInGameSkinUi?.();
+    mainMenu?.renderSkinUi?.();
+    mainMenu?.preview?.rebuild?.();
+    battlePassModal?.refresh?.();
+    shopModal?.refresh?.();
+    lockerModal?.refresh?.();
+    syncVrWatchHud();
+    return { ok: true };
+  }
   if (gameState.authToken && !network.getAuthToken()) {
     network.setAuthToken(gameState.authToken);
   }
@@ -3528,6 +3756,13 @@ async function fetchInitialMap() {
   const remoteMap = await network.fetchMap(3500);
   if (remoteMap) {
     applyMapData(remoteMap, false);
+    if (joined && isJpoDemoActive() && !jpoState.hasMovedSinceSpawn) {
+      const pose = resolveJpoSpawnPose(currentMapData, jpoState.roomId);
+      player.teleportTo(pose.pos, pose.lookAt);
+      const zone = getZoneAtPositionInMap(currentMapData, pose.pos.x, pose.pos.z, player.getCurrentFloor());
+      lastZoneId = zone.id;
+      hud?.setCurrentZone?.(zone);
+    }
   }
 }
 
@@ -3665,12 +3900,14 @@ async function openTp(tpId, stationItem = null) {
       ) {
         network.sendSurvivalTpDone(doneId, safeScore);
       }
-      network.saveAccount({
-        tpScores: p.grades,
-        unlockedDivineSkins: gameState.unlockedDivineSkins,
-        selectedSkin: getSelectedSkinIdFromSkin(gameState.skin),
-        avatarCustomization: gameState.skin
-      });
+      if (!isJpoDemoActive()) {
+        network.saveAccount({
+          tpScores: p.grades,
+          unlockedDivineSkins: gameState.unlockedDivineSkins,
+          selectedSkin: getSelectedSkinIdFromSkin(gameState.skin),
+          avatarCustomization: gameState.skin
+        });
+      }
       if (firstTimeAllAt20 && !network.connected) {
         runWorldCelebration({
           playerName: gameState.profile.name,
@@ -4416,6 +4653,8 @@ hud = new HudManager(gameState, network, {
     }
   },
   onReturnToMenu: () => returnToMainMenu(false),
+  onJpoOpenTp: () => openJpoFeaturedTp(),
+  onJpoNewVisit: () => resetJpoVisit('manual'),
   onLogout: () => {
     returnToMainMenu(true);
     mainMenu?.handleLogout?.();
@@ -4536,6 +4775,12 @@ try {
 }
 
 function returnToMainMenu(isLogout = false) {
+  if (jpoState.tpAutoTimer) {
+    clearTimeout(jpoState.tpAutoTimer);
+    jpoState.tpAutoTimer = null;
+  }
+  stopKioskMode();
+  hud?.setJpoMode?.({ roomConfig: null, kiosk: false });
   activeCameraTweenId++;
   tpOpenSeqId++;
   tabletOS?.close?.({ restoreControls: false });
@@ -4621,6 +4866,16 @@ network.on('welcome', (msg) => {
   notifiedNetError = false;
   gameState.room = msg.room || gameState.room;
   gameState.setProfile(msg.profile);
+  if (isJpoDemoActive()) {
+    const nextCoins = Math.max(gameState.coins, jpoState.demoCoins || JPO_DEMO_COINS);
+    gameState.applyEconomySnapshot({
+      coins: nextCoins,
+      ownedItems: [...gameState.ownedItems],
+      equippedSkin: gameState.equippedSkin,
+      equippedPet: gameState.equippedPet,
+      equippedTrail: gameState.equippedTrail
+    });
+  }
   sessionDivineSpecialty = gameState.skin?.secretSkin
     ? ULTIMATE_SECRET_SKIN_ID
     : gameState.skin?.divineSpecialty || null;
@@ -6521,13 +6776,18 @@ window.addEventListener('beforeunload', () => {
   shopModal?.preview?.dispose?.();
   lockerModal?.preview?.dispose?.();
   tabletOS?.destroy?.();
+  stopKioskMode();
   network.disconnect?.();
 });
 
 function startGameSession(
-  { name, room, skin, privateDebug = false, forceIntro = false },
+  { name, room, skin, privateDebug = false, forceIntro = false, jpoRoom = null },
   startVr = false
 ) {
+  if (jpoState.tpAutoTimer) {
+    clearTimeout(jpoState.tpAutoTimer);
+    jpoState.tpAutoTimer = null;
+  }
   const cleanRoom = room || 'plateau-u300';
   const isDebugRoom = Boolean(
     privateDebug || String(cleanRoom).toLowerCase().startsWith('priv-debug')
@@ -6535,7 +6795,47 @@ function startGameSession(
   privateDebugMode = isDebugRoom;
   notifiedNetError = false;
   gameState.room = cleanRoom;
-  gameState.setProfile({ ...gameState.profile, name, skin });
+
+  const activeJpo = Boolean(!isDebugRoom && jpoRoom && isJpoRoomActive(jpoRoom));
+  if (activeJpo) {
+    jpoState.roomId = jpoRoom;
+    jpoState.roomConfig = getJpoRoomConfig(jpoRoom);
+    jpoState.demoCoins = jpoState.roomConfig.demoCoins || JPO_DEMO_COINS;
+    jpoState.tpAutoOpened = false;
+    jpoState.hasMovedSinceSpawn = false;
+    gameState.applyEconomySnapshot({
+      coins: jpoState.demoCoins,
+      ownedItems: [],
+      equippedSkin: null,
+      equippedPet: null,
+      equippedTrail: null
+    });
+    gameState.setProfile({
+      ...gameState.profile,
+      name,
+      skin,
+      grades: {},
+      average: null,
+      completedCount: 0,
+      diplomaEarned: false,
+      xp: 0,
+      questAccepted: true,
+      coins: jpoState.demoCoins,
+      ownedItems: [],
+      equippedSkin: null,
+      equippedPet: null,
+      equippedTrail: null
+    });
+    lab.updateStationBadges({});
+  } else {
+    jpoState.roomId = 'standard';
+    jpoState.roomConfig = null;
+    jpoState.demoCoins = 0;
+    jpoState.tpAutoOpened = false;
+    jpoState.hasMovedSinceSpawn = false;
+    gameState.setProfile({ ...gameState.profile, name, skin });
+  }
+
   rebuildLocalAvatar(skin);
   lab.setLocalCoins?.(gameState.coins);
   shopModal?.refresh?.();
@@ -6543,6 +6843,10 @@ function startGameSession(
 
   hud.show();
   hud.setPrivateDebugMode(isDebugRoom, cleanRoom);
+  hud?.setJpoMode?.({
+    roomConfig: activeJpo ? jpoState.roomConfig : null,
+    kiosk: !isDebugRoom && jpoState.kiosk
+  });
   vrManager?.setPrivateDebug?.(isDebugRoom);
   hud?.syncDebugVrPanelBtn?.(Boolean(vrManager?.debugOverlayEnabled));
   player.setSpeedMultiplier(1);
@@ -6555,7 +6859,7 @@ function startGameSession(
   touchControls?.setVisible?.(gameState.touchMode);
   hud?.miniMap?.setMapData?.(currentMapData);
   hud?.setMapData?.(currentMapData);
-  const pose = getSpawnPose(currentMapData);
+  const pose = activeJpo ? resolveJpoSpawnPose(currentMapData, jpoState.roomId) : getSpawnPose(currentMapData);
   player.teleportTo(pose.pos, pose.lookAt);
   const startZone = getZoneAtPositionInMap(currentMapData, pose.pos.x, pose.pos.z);
   lastZoneId = startZone.id;
@@ -6570,13 +6874,33 @@ function startGameSession(
   });
   refreshWallLeaderboard();
 
+  if (!isDebugRoom && jpoState.kiosk) {
+    startKioskMode();
+  } else {
+    stopKioskMode();
+  }
+
   const shouldRunIntro =
     !startVr &&
     !isDebugRoom &&
+    !activeJpo &&
     (Boolean(forceIntro) || (gameState.isAuthenticated() && gameState.account?.introSeen === false));
 
   if (startVr) {
     vrManager?.enterVr?.();
+  } else if (activeJpo) {
+    jpoState.tpAutoTimer = setTimeout(() => {
+      if (joined && isJpoDemoActive() && !jpoState.tpAutoOpened) {
+        jpoState.tpAutoOpened = true;
+        openJpoFeaturedTp();
+      }
+    }, 450);
+    setTimeout(() => {
+      hud?.toast?.(
+        `${jpoState.roomConfig.icon} ${jpoState.roomConfig.label} — ${jpoState.demoCoins} 🪙 CIEL Coins de démo crédités !`,
+        'success'
+      );
+    }, 300);
   } else if (shouldRunIntro) {
     startIntroCinematic(Boolean(forceIntro));
   } else {
@@ -6694,4 +7018,22 @@ if (typeof window !== 'undefined') {
   setTimeout(() => {
     hud?.toast?.('🛠️ Serveur Privé (Mode Debug) actif — Salon isolé des élèves publics', 'success');
   }, 350);
+})();
+
+(function checkAutoLaunchJpoMode() {
+  if (typeof window === 'undefined' || joined) return;
+  const cfg = readJpoConfig();
+  jpoState.kiosk = Boolean(cfg.kiosk);
+  if (!isJpoRoomActive(cfg.room)) return;
+  platformModal?.close?.();
+  mainMenu?.hide?.();
+  startGameSession(
+    {
+      name: createJpoVisitorName(cfg.room),
+      room: 'plateau-u300',
+      skin: { ...DEFAULT_SKIN },
+      jpoRoom: cfg.room
+    },
+    false
+  );
 })();

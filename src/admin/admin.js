@@ -10,6 +10,13 @@ import { TP_CATALOG } from '../core/gameState.js';
 import { MapEditor } from './MapEditor.js';
 import { METAL_PIPE } from '../core/metalPipe.js';
 import { PRIVATE_DEBUG_STORAGE_KEY, requestPrivateDebugSession } from '../admin.js';
+import {
+  JPO_ROOMS,
+  getJpoRoomConfig,
+  isJpoRoomActive,
+  readJpoConfig,
+  saveJpoConfig
+} from '../core/jpoConfig.js';
 
 const TOKEN_STORAGE_KEY = 'ciel_admin_token';
 
@@ -32,7 +39,20 @@ const tabPostsBtn = document.getElementById('admin-tab-posts');
 const tabPigeonsBtn = document.getElementById('admin-tab-pigeons');
 const tabMapBtn = document.getElementById('admin-tab-map');
 const tabMetalPipeBtn = document.getElementById('admin-tab-metalpipe');
+const tabJpoBtn = document.getElementById('admin-tab-jpo');
 const panelMetalPipe = document.getElementById('admin-panel-metalpipe');
+const panelJpo = document.getElementById('admin-panel-jpo');
+const tabBadgeJpo = document.getElementById('tab-badge-jpo');
+const jpoStatusCard = document.getElementById('jpo-active-status-card');
+const jpoActiveRoomBadge = document.getElementById('jpo-active-room-badge');
+const jpoActiveRoomTitle = document.getElementById('jpo-active-room-title');
+const jpoActiveRoomDesc = document.getElementById('jpo-active-room-desc');
+const jpoActiveKioskPill = document.getElementById('jpo-active-kiosk-pill');
+const jpoRoomSelector = document.getElementById('jpo-room-selector');
+const jpoKioskToggle = document.getElementById('jpo-kiosk-toggle');
+const jpoKioskStateLabel = document.getElementById('jpo-kiosk-state-label');
+const jpoLaunchBtn = document.getElementById('btn-jpo-launch');
+const jpoResetStandardBtn = document.getElementById('btn-jpo-reset-standard');
 const metalPipeStatusLabel = document.getElementById('metalpipe-status-label');
 const metalPipeClaimBtn = document.getElementById('btn-metalpipe-claim');
 const metalPipeEquipBtn = document.getElementById('btn-metalpipe-equip');
@@ -185,8 +205,91 @@ metalPipeReleaseBtn?.addEventListener('click', async () => {
   }
 });
 
-window.addEventListener('storage', renderMetalPipeState);
+window.addEventListener('storage', () => {
+  renderMetalPipeState();
+  renderJpoState();
+});
 renderMetalPipeState();
+
+function renderJpoState() {
+  const cfg = readJpoConfig();
+  const roomCfg = getJpoRoomConfig(cfg.room) || JPO_ROOMS.standard;
+  const activeJpo = isJpoRoomActive(roomCfg.id);
+
+  if (tabBadgeJpo) {
+    tabBadgeJpo.textContent = roomCfg.badgeCode;
+  }
+  if (jpoStatusCard) {
+    jpoStatusCard.style.setProperty('--jpo-accent', roomCfg.accent);
+  }
+  if (jpoActiveRoomBadge) {
+    jpoActiveRoomBadge.textContent = activeJpo
+      ? `SALLE ACTIVE SUR CE POSTE • ${roomCfg.roomCode}`
+      : 'MODE STANDARD ACTIF SUR CE POSTE';
+  }
+  if (jpoActiveRoomTitle) {
+    jpoActiveRoomTitle.textContent = `${roomCfg.icon} ${roomCfg.label}`;
+  }
+  if (jpoActiveRoomDesc) {
+    jpoActiveRoomDesc.textContent = roomCfg.description;
+  }
+  if (jpoActiveKioskPill) {
+    jpoActiveKioskPill.textContent = cfg.kiosk
+      ? 'Mode Kiosque : Actif (60s)'
+      : 'Mode Kiosque : Désactivé';
+    jpoActiveKioskPill.classList.toggle('active', cfg.kiosk);
+  }
+  if (jpoRoomSelector) {
+    jpoRoomSelector.querySelectorAll('[data-jpo-room]').forEach((btn) => {
+      const isSelected = btn.dataset.jpoRoom === roomCfg.id;
+      btn.classList.toggle('active', isSelected);
+      btn.setAttribute('aria-pressed', String(isSelected));
+    });
+  }
+  if (jpoKioskToggle) {
+    jpoKioskToggle.checked = Boolean(cfg.kiosk);
+  }
+  if (jpoKioskStateLabel) {
+    jpoKioskStateLabel.textContent = cfg.kiosk
+      ? 'Actif — Reset auto après 60s d’inactivité + bouton « Nouvelle visite »'
+      : 'Désactivé';
+    jpoKioskStateLabel.classList.toggle('active', cfg.kiosk);
+  }
+}
+
+jpoRoomSelector?.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-jpo-room]');
+  if (!btn) return;
+  const saved = saveJpoConfig({ room: btn.dataset.jpoRoom });
+  const roomCfg = getJpoRoomConfig(saved.room);
+  renderJpoState();
+  showToast(`Salle active définie : ${roomCfg.icon} ${roomCfg.label}`, 'success');
+});
+
+jpoKioskToggle?.addEventListener('change', () => {
+  const saved = saveJpoConfig({ kiosk: Boolean(jpoKioskToggle.checked) });
+  renderJpoState();
+  showToast(
+    saved.kiosk
+      ? 'Mode Kiosque activé (reset automatique après 60s d’inactivité)'
+      : 'Mode Kiosque désactivé',
+    saved.kiosk ? 'success' : 'info'
+  );
+});
+
+jpoResetStandardBtn?.addEventListener('click', () => {
+  saveJpoConfig({ room: 'standard', kiosk: false });
+  renderJpoState();
+  showToast('Configuration réinitialisée en Mode normal', 'info');
+});
+
+jpoLaunchBtn?.addEventListener('click', () => {
+  const current = readJpoConfig();
+  saveJpoConfig(current);
+  window.location.href = '/';
+});
+
+renderJpoState();
 
 function switchAdminSection(section) {
   activeSection =
@@ -200,14 +303,18 @@ function switchAdminSection(section) {
             ? 'map'
             : section === 'metalpipe'
               ? 'metalpipe'
-              : 'accounts';
+              : section === 'jpo'
+                ? 'jpo'
+                : 'accounts';
   tabAccountsBtn?.classList.toggle('active', activeSection === 'accounts');
   tabUsersBtn?.classList.toggle('active', activeSection === 'users');
   tabPostsBtn?.classList.toggle('active', activeSection === 'posts');
   tabPigeonsBtn?.classList.toggle('active', activeSection === 'pigeons');
   tabMapBtn?.classList.toggle('active', activeSection === 'map');
   tabMetalPipeBtn?.classList.toggle('active', activeSection === 'metalpipe');
+  tabJpoBtn?.classList.toggle('active', activeSection === 'jpo');
   panelMetalPipe?.classList.toggle('hidden', activeSection !== 'metalpipe');
+  panelJpo?.classList.toggle('hidden', activeSection !== 'jpo');
   panelAccounts?.classList.toggle('hidden', activeSection !== 'accounts');
   panelUsers?.classList.toggle('hidden', activeSection !== 'users');
   panelPosts?.classList.toggle('hidden', activeSection !== 'posts');
@@ -910,6 +1017,10 @@ tabMapBtn?.addEventListener('click', () => switchAdminSection('map'));
 tabMetalPipeBtn?.addEventListener('click', () => {
   renderMetalPipeState();
   switchAdminSection('metalpipe');
+});
+tabJpoBtn?.addEventListener('click', () => {
+  renderJpoState();
+  switchAdminSection('jpo');
 });
 
 searchAccountInput?.addEventListener('input', renderAccountsTable);
