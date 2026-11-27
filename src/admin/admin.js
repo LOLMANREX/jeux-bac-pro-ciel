@@ -260,7 +260,7 @@ function renderJpoState() {
 jpoRoomSelector?.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-jpo-room]');
   if (!btn) return;
-  const saved = saveJpoConfig({ room: btn.dataset.jpoRoom });
+  const saved = saveJpoConfig({ room: btn.dataset.jpoRoom || btn.value });
   const roomCfg = getJpoRoomConfig(saved.room);
   renderJpoState();
   showToast(`Salle active définie : ${roomCfg.icon} ${roomCfg.label}`, 'success');

@@ -16,7 +16,6 @@ import {
   JPO_ROOM_STORAGE_KEY,
   JPO_ROOMS,
   JPO_WELCOME_BADGE,
-  JPO_WELCOME_CONFIG_LABEL,
   JPO_WELCOME_PLAY_LABEL,
   JPO_WELCOME_SCREENS,
   createJpoRoomMap,
@@ -34,6 +33,10 @@ import {
   saveJpoConfig,
   shouldShowJpoWelcome
 } from '../src/core/jpoConfig.js';
+import {
+  JPO_AV_TARGET,
+  evaluateJpoAudiovisuelState
+} from '../src/minigames/JpoAudiovisuelGame.js';
 import { JpoBriefingModal } from '../src/ui/JpoBriefingModal.js';
 import { JpoWelcomeModal } from '../src/ui/JpoWelcomeModal.js';
 import { buildLabWorld } from '../src/world/LabBuilder.js';
@@ -363,10 +366,11 @@ test('Portes Ouvertes v4.39 : visibilité HUD, salle dédiée fermée et préser
   const expectedTpType = {
     cyber: 'tp_antivirus',
     reseau: 'tp_vmvlan',
-    elec: 'tp_electronics'
+    elec: 'tp_electronics',
+    audiovisuel: 'tp_audiovisual'
   };
 
-  for (const roomId of ['cyber', 'reseau', 'elec']) {
+  for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
     const jpoVis = getJpoHudVisibility(roomId, false);
     assert.deepEqual(jpoVis, {
       isJpo: true,
@@ -422,6 +426,8 @@ test('Portes Ouvertes v4.39 : contournement login, HUD épuré, isolation LabBui
     'data-jpo-room="cyber"',
     'data-jpo-room="reseau"',
     'data-jpo-room="elec"',
+    'data-jpo-room="audiovisuel"',
+    'value="audiovisuel"',
     'id="jpo-kiosk-toggle"',
     'Activer le Mode Kiosque',
     'id="btn-jpo-launch"',
@@ -505,12 +511,12 @@ test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode
   assert.equal(isJpoActive(mem), false);
   mem.setItem('ciel_jpo_salle', 'standard');
   assert.equal(isJpoActive(mem), false);
-  for (const roomId of ['cyber', 'reseau', 'elec']) {
+  for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
     mem.setItem('ciel_jpo_salle', roomId);
     assert.equal(isJpoActive(mem), true);
   }
 
-  for (const roomId of ['cyber', 'reseau', 'elec']) {
+  for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
     const rawJpoMap = createJpoRoomMap(roomId);
     const normalizedJpoMap = normalizeMapData(rawJpoMap);
     assert.equal(normalizedJpoMap.jpoIsolated, true);
@@ -546,7 +552,7 @@ test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode
     value: mockLocalStorage
   });
   try {
-    for (const roomId of ['cyber', 'reseau', 'elec']) {
+    for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
       mockLocalStorage.setItem('ciel_jpo_salle', roomId);
       assert.equal(isJpoActive(), true);
       const mapWithCombatDoor = createDefaultMap();
@@ -608,7 +614,7 @@ test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgaris
   assert.equal(JPO_BRIEFING_RESUME_LABEL, "✅ Reprendre l'activité");
   assert.equal(JPO_HELP_BUTTON_LABEL, '❓ Aide / Consignes');
 
-  assert.deepEqual(Object.keys(JPO_MISSION_BRIEFINGS).sort(), ['antivirus', 'electronics', 'vmvlan']);
+  assert.deepEqual(Object.keys(JPO_MISSION_BRIEFINGS).sort(), ['antivirus', 'audiovisual', 'electronics', 'vmvlan']);
 
   const cyberBrief = getJpoMissionBriefing('tp_antivirus');
   assert.equal(cyberBrief.title, '🛡️ Mission Cyber : Protège le réseau du lycée !');
@@ -821,8 +827,7 @@ test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgaris
 test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & reset, absence en standard, correctif ATH TP et zéro commentaire', () => {
   assert.equal(JPO_WELCOME_BADGE, 'PORTES OUVERTES • BAC PRO CIEL');
   assert.equal(JPO_WELCOME_PLAY_LABEL, '🎮 Jouer');
-  assert.equal(JPO_WELCOME_CONFIG_LABEL, '⚙️ Config salle');
-  assert.deepEqual(Object.keys(JPO_WELCOME_SCREENS).sort(), ['cyber', 'elec', 'reseau']);
+  assert.deepEqual(Object.keys(JPO_WELCOME_SCREENS).sort(), ['audiovisuel', 'cyber', 'elec', 'reseau']);
 
   assert.equal(shouldShowJpoWelcome('standard'), false);
   assert.equal(shouldShowJpoWelcome('unknown'), false);
@@ -841,10 +846,14 @@ test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & re
     elec: {
       title: '⚡ Bienvenue sur le TP Électronique & Embarqué',
       subtitle: "Explorez le fonctionnement d'un circuit électronique et réalisez vos premiers réglages."
+    },
+    audiovisuel: {
+      title: '🎬 Bienvenue sur le TP Audiovisuel',
+      subtitle: "Découvrez comment piloter le son, la lumière DMX et la régie vidéo d'un événement."
     }
   };
 
-  for (const roomId of ['cyber', 'reseau', 'elec']) {
+  for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
     assert.equal(shouldShowJpoWelcome(roomId), true);
     const spec = getJpoWelcomeScreen(roomId);
     assert.ok(spec);
@@ -898,8 +907,7 @@ test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & re
     ['jpo-welcome-badge', makeMockEl('jpo-welcome-badge')],
     ['jpo-welcome-title', makeMockEl('jpo-welcome-title')],
     ['jpo-welcome-subtitle', makeMockEl('jpo-welcome-subtitle')],
-    ['jpo-welcome-play-btn', makeMockEl('jpo-welcome-play-btn')],
-    ['jpo-welcome-config-link', makeMockEl('jpo-welcome-config-link')]
+    ['jpo-welcome-play-btn', makeMockEl('jpo-welcome-play-btn')]
   ]);
 
   const prevDocDesc = Object.getOwnPropertyDescriptor(globalThis, 'document');
@@ -919,7 +927,7 @@ test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & re
     assert.equal(bodyEl.classList.contains('jpo-welcome-open'), false);
 
     let playCalls = 0;
-    for (const roomId of ['cyber', 'reseau', 'elec']) {
+    for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
       assert.equal(modal.open(roomId, { onPlay: () => playCalls++ }), true);
       assert.equal(modal.isOpen(), true);
       assert.equal(elements.get('jpo-welcome-screen').classList.contains('hidden'), false);
@@ -928,21 +936,20 @@ test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & re
       assert.equal(elements.get('jpo-welcome-title').textContent, expectedWelcome[roomId].title);
       assert.equal(elements.get('jpo-welcome-subtitle').textContent, expectedWelcome[roomId].subtitle);
       assert.equal(elements.get('jpo-welcome-play-btn').textContent, '🎮 Jouer');
-      assert.equal(elements.get('jpo-welcome-config-link').textContent, '⚙️ Config salle');
 
       elements.get('jpo-welcome-play-btn').trigger('click');
       assert.equal(modal.isOpen(), false);
       assert.equal(elements.get('jpo-welcome-screen').classList.contains('hidden'), true);
       assert.equal(bodyEl.classList.contains('jpo-welcome-open'), false);
     }
-    assert.equal(playCalls, 3);
+    assert.equal(playCalls, 4);
 
     modal.close();
     assert.equal(modal.open('cyber', { onPlay: () => playCalls++ }), true);
     assert.equal(modal.isOpen(), true);
     assert.equal(elements.get('jpo-welcome-screen').classList.contains('hidden'), false);
     elements.get('jpo-welcome-play-btn').trigger('click');
-    assert.equal(playCalls, 4);
+    assert.equal(playCalls, 5);
   } finally {
     if (prevDocDesc) {
       Object.defineProperty(globalThis, 'document', prevDocDesc);
@@ -959,13 +966,10 @@ test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & re
     'id="jpo-welcome-title"',
     'id="jpo-welcome-subtitle"',
     'id="jpo-welcome-play-btn"',
-    'id="jpo-welcome-config-link"',
-    'href="/admin"',
     'PORTES OUVERTES • BAC PRO CIEL',
     'ZQSD / Flèches',
     'Souris',
-    '🎮 Jouer',
-    '⚙️ Config salle'
+    '🎮 Jouer'
   ]) {
     assert.ok(indexHtml.includes(needle), `Élément manquant dans index.html : ${needle}`);
   }
@@ -1011,4 +1015,153 @@ test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & re
     assert.deepEqual(scanJsComments(txt), [], `Commentaire JS détecté dans ${rel}`);
     assert.equal(forbiddenPattern.test(txt), false, `Nom interdit détecté dans ${rel}`);
   }
+});
+
+test('Portes Ouvertes v4.43 : suppression Config salle / /admin et ajout complet de la 4e salle Audiovisuel', () => {
+  const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
+  for (const forbidden of ['btn-jpo-config', 'jpo-welcome-config-link', 'Config salle', '/admin']) {
+    assert.equal(indexHtml.includes(forbidden), false, `Élément interdit présent dans index.html : ${forbidden}`);
+  }
+
+  const jpoCfgSrc = fs.readFileSync(path.resolve('src/core/jpoConfig.js'), 'utf8');
+  assert.equal(jpoCfgSrc.includes('JPO_WELCOME_CONFIG_LABEL'), false);
+  assert.equal(jpoCfgSrc.includes('Config salle'), false);
+
+  const welcomeModalSrc = fs.readFileSync(path.resolve('src/ui/JpoWelcomeModal.js'), 'utf8');
+  assert.equal(welcomeModalSrc.includes('JPO_WELCOME_CONFIG_LABEL'), false);
+  assert.equal(welcomeModalSrc.includes('jpo-welcome-config-link'), false);
+  assert.equal(welcomeModalSrc.includes('/admin'), false);
+
+  const mainCss = fs.readFileSync(path.resolve('src/styles/main.css'), 'utf8');
+  assert.equal(mainCss.includes('.jpo-welcome-config-link'), false);
+  assert.equal(mainCss.includes('.jpo-welcome-footer'), false);
+  assert.ok(mainCss.includes('.jpo-av-drawer'));
+
+  const mainSrc = fs.readFileSync(path.resolve('src/main.js'), 'utf8');
+  assert.equal(mainSrc.includes('#jpo-welcome-screen a'), false);
+  assert.ok(mainSrc.includes('createJpoAudiovisuelGame'));
+  assert.ok(mainSrc.includes('api?.isJpo ? createJpoAudiovisuelGame(api) : createDmxLightingGame(api)'));
+
+  const adminHtml = fs.readFileSync(path.resolve('admin.html'), 'utf8');
+  assert.ok(adminHtml.includes('data-jpo-room="audiovisuel"'));
+  assert.ok(adminHtml.includes('value="audiovisuel"'));
+  assert.ok(adminHtml.includes('🎬 Salle Audiovisuel') || adminHtml.includes('>Salle Audiovisuel<'));
+  assert.ok(adminHtml.includes('AUDIOVISUEL • U303'));
+
+  const adminCss = fs.readFileSync(path.resolve('src/admin/admin.css'), 'utf8');
+  assert.ok(adminCss.includes('.jpo-room-card[data-jpo-room="audiovisuel"].active'));
+
+  const storage = createMemoryStorage();
+  saveJpoConfig({ room: 'audiovisuel', kiosk: true }, storage);
+  assert.equal(storage.getItem('ciel_jpo_salle'), 'audiovisuel');
+  assert.deepEqual(readJpoConfig(storage), { room: 'audiovisuel', kiosk: true });
+  assert.equal(normalizeJpoRoom('AUDIOVISUEL'), 'audiovisuel');
+  assert.equal(isJpoRoomActive('audiovisuel'), true);
+
+  const avCfg = getJpoRoomConfig('audiovisuel');
+  assert.equal(avCfg.id, 'audiovisuel');
+  assert.equal(avCfg.badgeCode, 'AUDIOVISUEL');
+  assert.equal(avCfg.roomCode, 'U303');
+  assert.equal(avCfg.tpId, 'audiovisual');
+  assert.ok(createJpoVisitorName('audiovisuel', () => 0.5).startsWith('Visiteur_AV_'));
+
+  const avWelcome = getJpoWelcomeScreen('audiovisuel');
+  assert.equal(avWelcome.title, '🎬 Bienvenue sur le TP Audiovisuel');
+  assert.equal(
+    avWelcome.subtitle,
+    "Découvrez comment piloter le son, la lumière DMX et la régie vidéo d'un événement."
+  );
+
+  const avBrief = getJpoMissionBriefing('audiovisuel');
+  assert.equal(avBrief, getJpoMissionBriefing('audiovisual'));
+  assert.equal(avBrief, getJpoMissionBriefing('tp_audiovisual'));
+  assert.equal(avBrief.title, '🎬 Mission Audiovisuel : Pilote le spectacle en direct !');
+  assert.equal(avBrief.steps.length, 3);
+
+  const avMap = createJpoRoomMap('audiovisuel');
+  assert.equal(avMap.jpoIsolated, true);
+  assert.equal(avMap.bounds.width, 12);
+  assert.equal(avMap.bounds.depth, 12);
+  assert.ok(avMap.objects.some((o) => o.type === 'tp_audiovisual'));
+  assert.ok(avMap.objects.some((o) => o.type === 'av_led_light'));
+  assert.ok(avMap.objects.some((o) => o.type === 'av_mixer'));
+  assert.ok(avMap.objects.some((o) => o.type === 'av_camera'));
+
+  const avLab = buildLabWorld(new THREE.Scene(), avMap, { hideSprites: true });
+  try {
+    assert.equal(avLab.combatDoors.length, 0);
+    const avInteractables = avLab.interactables.filter((it) => it?.type === 'tp');
+    assert.ok(avInteractables.length >= 1);
+    assert.ok(avInteractables.every((it) => it.tpId === 'audiovisual'));
+  } finally {
+    avLab.dispose();
+  }
+
+  const avPose = resolveJpoSpawnPose(avMap, 'audiovisuel');
+  assert.equal(avPose.roomCode, 'U303');
+  assert.equal(avPose.tpId, 'audiovisual');
+
+  const evInit = evaluateJpoAudiovisuelState({
+    micOn: false,
+    audioLevel: 35,
+    dmxPower: false,
+    dmxIntensity: 30,
+    dmxPreset: 'concert',
+    videoSource: 'CAM-2',
+    videoLive: false
+  });
+  assert.equal(evInit.completedSteps, 0);
+  assert.equal(evInit.allValid, false);
+  assert.ok(evInit.score < 10);
+
+  const evAudioOnly = evaluateJpoAudiovisuelState({
+    micOn: true,
+    audioLevel: JPO_AV_TARGET.minAudio + 5,
+    dmxPower: false,
+    dmxIntensity: 30,
+    dmxPreset: 'concert',
+    videoSource: 'CAM-2',
+    videoLive: false
+  });
+  assert.equal(evAudioOnly.audioOk, true);
+  assert.equal(evAudioOnly.completedSteps, 1);
+
+  const evPerfect = evaluateJpoAudiovisuelState({
+    micOn: true,
+    audioLevel: 75,
+    dmxPower: true,
+    dmxIntensity: 85,
+    dmxPreset: 'spectacle',
+    videoSource: 'CAM-1',
+    videoLive: true
+  });
+  assert.equal(evPerfect.audioOk, true);
+  assert.equal(evPerfect.dmxOk, true);
+  assert.equal(evPerfect.videoOk, true);
+  assert.equal(evPerfect.completedSteps, 3);
+  assert.equal(evPerfect.allValid, true);
+  assert.equal(evPerfect.score, 20);
+
+  const forbiddenPattern = new RegExp('for' + 'tin', 'i');
+  for (const rel of [
+    'src/core/jpoConfig.js',
+    'src/ui/JpoWelcomeModal.js',
+    'src/ui/JpoBriefingModal.js',
+    'src/ui/HudManager.js',
+    'src/minigames/JpoAudiovisuelGame.js',
+    'src/admin/admin.js',
+    'src/world/LabBuilder.js',
+    'src/main.js',
+    'src/ui/ChangelogModal.js',
+    'vite.config.js',
+    'tests/jpo-doors.test.js'
+  ]) {
+    const txt = fs.readFileSync(path.resolve(rel), 'utf8');
+    assert.deepEqual(scanJsComments(txt), [], `Commentaire JS détecté dans ${rel}`);
+    assert.equal(forbiddenPattern.test(txt), false, `Nom interdit détecté dans ${rel}`);
+  }
+  assert.deepEqual(scanHtmlComments(adminHtml), []);
+  assert.deepEqual(scanHtmlComments(indexHtml), []);
+  assert.deepEqual(scanCssComments(adminCss), []);
+  assert.deepEqual(scanCssComments(mainCss), []);
 });

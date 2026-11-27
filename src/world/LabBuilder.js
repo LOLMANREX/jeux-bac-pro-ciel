@@ -2817,7 +2817,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           foot.position.set(px, 0.025, 0);
           grp.add(foot);
         }
-        const linkedTpId = obj.z < -3.2 ? 'audiovisual' : 'studio';
+        const linkedTpId = mapData?.jpoIsolated ? 'audiovisual' : (obj.z < -3.2 ? 'audiovisual' : 'studio');
         interactables.push({
           id: obj.id,
           tpId: linkedTpId,
@@ -2855,7 +2855,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const tally = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), new THREE.MeshBasicMaterial({ color: '#ef4444' }));
         tally.position.set(0, 1.65, 0.2);
         grp.add(tally);
-        const linkedTpId = obj.z < -3.2 ? 'audiovisual' : 'studio';
+        const linkedTpId = mapData?.jpoIsolated ? 'audiovisual' : (obj.z < -3.2 ? 'audiovisual' : 'studio');
         interactables.push({
           id: obj.id,
           tpId: linkedTpId,
@@ -2890,7 +2890,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const face = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.36), new THREE.MeshBasicMaterial({ color: '#fffef7' }));
         face.position.set(0, 0, 0.075);
         housing.add(face);
-        const linkedTpId = obj.z < -3.2 ? 'audiovisual' : 'studio';
+        const linkedTpId = mapData?.jpoIsolated ? 'audiovisual' : (obj.z < -3.2 ? 'audiovisual' : 'studio');
         interactables.push({
           id: obj.id,
           tpId: linkedTpId,
@@ -2928,13 +2928,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.16, 10), micHlMat);
         mic.position.set(0, 1.5, 0.34);
         grp.add(mic);
+        const linkedTpId = mapData?.jpoIsolated ? 'audiovisual' : 'studio';
         interactables.push({
           id: obj.id,
-          tpId: 'studio',
+          tpId: linkedTpId,
           isProp: true,
-          label: `[E] ${obj.label || 'Micro Studio'} (Lancer TP Studio)`,
+          label: `[E] ${obj.label || 'Micro Studio'} (Lancer TP ${linkedTpId === 'audiovisual' ? 'AV' : 'Studio'})`,
           type: 'tp',
-          tp: ALL_STATIONS_MAP.get('studio'),
+          tp: ALL_STATIONS_MAP.get(linkedTpId),
           position: new THREE.Vector3(obj.x, objBaseY, obj.z),
           floor: objFloor,
           interactRadius: 1.85,
@@ -3084,13 +3085,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           ledStrip.position.set(f * (w * 0.15), 0.08, 0);
           body.add(ledStrip);
         }
+        const linkedTpId = mapData?.jpoIsolated ? 'audiovisual' : 'studio';
         interactables.push({
           id: obj.id,
-          tpId: 'studio',
+          tpId: linkedTpId,
           isProp: true,
-          label: `[E] ${obj.label || 'Console Mixage Audio'} (Lancer TP Studio)`,
+          label: `[E] ${obj.label || 'Console Mixage Audio'} (Lancer TP ${linkedTpId === 'audiovisual' ? 'AV' : 'Studio'})`,
           type: 'tp',
-          tp: ALL_STATIONS_MAP.get('studio'),
+          tp: ALL_STATIONS_MAP.get(linkedTpId),
           position: new THREE.Vector3(obj.x, objBaseY, obj.z),
           floor: objFloor,
           interactRadius: 2.0,

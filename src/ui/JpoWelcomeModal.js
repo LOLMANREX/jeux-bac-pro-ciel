@@ -2,7 +2,6 @@ import { sfx } from '../core/audio.js';
 import {
   getJpoWelcomeScreen,
   JPO_WELCOME_BADGE,
-  JPO_WELCOME_CONFIG_LABEL,
   JPO_WELCOME_PLAY_LABEL
 } from '../core/jpoConfig.js';
 
@@ -14,7 +13,6 @@ export class JpoWelcomeModal {
     this.titleEl = document.getElementById('jpo-welcome-title');
     this.subtitleEl = document.getElementById('jpo-welcome-subtitle');
     this.playBtn = document.getElementById('jpo-welcome-play-btn');
-    this.configLink = document.getElementById('jpo-welcome-config-link');
 
     this._open = false;
     this._roomId = null;
@@ -43,7 +41,6 @@ export class JpoWelcomeModal {
     if (this.titleEl) this.titleEl.textContent = spec.title;
     if (this.subtitleEl) this.subtitleEl.textContent = spec.subtitle;
     if (this.playBtn) this.playBtn.textContent = JPO_WELCOME_PLAY_LABEL;
-    if (this.configLink) this.configLink.textContent = JPO_WELCOME_CONFIG_LABEL;
 
     this.backdrop.classList?.remove('hidden');
     document?.body?.classList?.add?.('jpo-welcome-open');

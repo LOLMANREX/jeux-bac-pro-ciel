@@ -1,5 +1,5 @@
 import { getStationTeleportInMap, normalizeMapData } from '../world/mapSchema.js';
-import { TP_STATION_LAYOUT } from '../world/plateauLayout.js';
+import { EXTRA_STATIONS, TP_STATION_LAYOUT } from '../world/plateauLayout.js';
 
 export const JPO_ROOM_STORAGE_KEY = 'ciel_jpo_salle';
 export const JPO_KIOSK_STORAGE_KEY = 'ciel_jpo_kiosk';
@@ -12,8 +12,7 @@ export const JPO_BRIEFING_RESUME_LABEL = "✅ Reprendre l'activité";
 export const JPO_HELP_BUTTON_LABEL = '❓ Aide / Consignes';
 export const JPO_WELCOME_BADGE = 'PORTES OUVERTES • BAC PRO CIEL';
 export const JPO_WELCOME_PLAY_LABEL = '🎮 Jouer';
-export const JPO_WELCOME_CONFIG_LABEL = '⚙️ Config salle';
-export const JPO_ROOM_IDS = ['standard', 'cyber', 'reseau', 'elec'];
+export const JPO_ROOM_IDS = ['standard', 'cyber', 'reseau', 'elec', 'audiovisuel'];
 
 export const JPO_ROOMS = {
   standard: {
@@ -79,6 +78,22 @@ export const JPO_ROOMS = {
     demoCoins: 0,
     visitorPrefix: 'Visiteur_Elec',
     description: 'Salle Électronique & Embarqué dédiée et fermée (U302) • Accès direct sans compte • TP Électronique 3D prêt à lancer.'
+  },
+  audiovisuel: {
+    id: 'audiovisuel',
+    label: 'Salle Audiovisuel',
+    shortLabel: 'Audiovisuel',
+    badgeCode: 'AUDIOVISUEL',
+    poleLabel: 'Pôle Audiovisuel & Scénique (U303)',
+    roomCode: 'U303',
+    icon: '🎬',
+    accent: '#a855f7',
+    tpId: 'audiovisual',
+    tpShortLabel: 'TP Audiovisuel',
+    tpLabel: 'TP Son, Lumière DMX & Régie Vidéo',
+    demoCoins: 0,
+    visitorPrefix: 'Visiteur_AV',
+    description: 'Salle Audiovisuel & Scénique dédiée et fermée (U303) • Accès direct sans compte • TP Audiovisuel prêt à lancer.'
   }
 };
 
@@ -181,6 +196,36 @@ export const JPO_MISSION_BRIEFINGS = {
         text: 'pour valider le fonctionnement.'
       }
     ]
+  },
+  audiovisual: {
+    tpId: 'audiovisual',
+    roomId: 'audiovisuel',
+    objectType: 'tp_audiovisual',
+    icon: '🎬',
+    accent: '#a855f7',
+    shortTitle: 'Mission Audiovisuel : Pilote le spectacle en direct',
+    title: '🎬 Mission Audiovisuel : Pilote le spectacle en direct !',
+    intro: 'Le spectacle du lycée va commencer. Ton objectif en 3 étapes simples :',
+    steps: [
+      {
+        num: 1,
+        icon: '🎙️',
+        lead: 'Règle le son',
+        text: 'en allumant le micro de scène et en plaçant le volume dans la zone verte.'
+      },
+      {
+        num: 2,
+        icon: '💡',
+        lead: 'Pilote les lumières',
+        text: "en allumant les projecteurs DMX et en choisissant l'ambiance du spectacle."
+      },
+      {
+        num: 3,
+        icon: '📺',
+        lead: 'Valide la vidéo',
+        text: 'en sélectionnant la caméra de la scène puis en lançant la diffusion en direct.'
+      }
+    ]
   }
 };
 
@@ -219,6 +264,13 @@ export const JPO_WELCOME_SCREENS = {
     accent: '#fbbf24',
     title: '⚡ Bienvenue sur le TP Électronique & Embarqué',
     subtitle: "Explorez le fonctionnement d'un circuit électronique et réalisez vos premiers réglages."
+  },
+  audiovisuel: {
+    roomId: 'audiovisuel',
+    icon: '🎬',
+    accent: '#a855f7',
+    title: '🎬 Bienvenue sur le TP Audiovisuel',
+    subtitle: "Découvrez comment piloter le son, la lumière DMX et la régie vidéo d'un événement."
   }
 };
 
@@ -300,7 +352,7 @@ export function resolveJpoSpawnPose(mapData, roomId) {
         };
       }
     }
-    const fallbackLayout = TP_STATION_LAYOUT[cfg.tpId];
+    const fallbackLayout = TP_STATION_LAYOUT[cfg.tpId] || EXTRA_STATIONS.find((s) => s.id === cfg.tpId);
     if (fallbackLayout) {
       return {
         pos: { x: fallbackLayout.teleport.x, y: 0, z: fallbackLayout.teleport.z, floor: 0 },
@@ -369,6 +421,28 @@ function buildJpoRoomObjects(roomId) {
       { id: 'jpo-net-chair-r', floor: 0, type: 'chair_student', x: 3.1, z: 0.6, rotation: 90 },
       { id: 'jpo-net-wb', floor: 0, type: 'whiteboard', x: 0, z: -5.82, rotation: 0 },
       { id: 'jpo-net-cab', floor: 0, type: 'metal_cabinet', x: 4.9, z: 4.9, rotation: 180 }
+    ];
+  }
+  if (roomId === 'audiovisuel') {
+    return [
+      { id: 'jpo-tp-audiovisual', floor: 0, type: 'tp_audiovisual', x: 0, z: -2.0, rotation: 0, w: 2.4, d: 1.3, color: '#a855f7', label: 'TP Audiovisuel & Régie 3D' },
+      { id: 'jpo-av-wall-screen', floor: 0, type: 'soc_wall_screen', x: 0, z: -5.82, rotation: 0, w: 4.6, d: 0.16, label: 'RÉGIE AUDIOVISUELLE • SON • DMX • VIDÉO' },
+      { id: 'jpo-av-light-nl', floor: 0, type: 'av_led_light', x: -3.6, z: -4.4, rotation: 30 },
+      { id: 'jpo-av-light-nr', floor: 0, type: 'av_led_light', x: 3.6, z: -4.4, rotation: 330 },
+      { id: 'jpo-av-light-sl', floor: 0, type: 'av_led_light', x: -4.2, z: 3.8, rotation: 150 },
+      { id: 'jpo-av-light-sr', floor: 0, type: 'av_led_light', x: 4.2, z: 3.8, rotation: 210 },
+      { id: 'jpo-av-cam-l', floor: 0, type: 'av_camera', x: -2.4, z: -4.1, rotation: 15 },
+      { id: 'jpo-av-cam-r', floor: 0, type: 'av_camera', x: 2.4, z: -4.1, rotation: 345 },
+      { id: 'jpo-av-greenscreen', floor: 0, type: 'av_greenscreen', x: 0, z: 5.2, rotation: 180, w: 4.4, d: 0.8 },
+      { id: 'jpo-av-bench-l', floor: 0, type: 'workbench_large', x: -4.5, z: 0.2, rotation: 90, w: 3.2, d: 1.1 },
+      { id: 'jpo-av-mixer-l', floor: 0, type: 'av_mixer', x: -4.5, z: 0.2, rotation: 90, label: 'Console Son / Régie Audio' },
+      { id: 'jpo-av-chair-l', floor: 0, type: 'chair_student', x: -3.2, z: 0.2, rotation: 270 },
+      { id: 'jpo-av-bench-r', floor: 0, type: 'workbench_large', x: 4.5, z: 0.2, rotation: 270, w: 3.2, d: 1.1 },
+      { id: 'jpo-av-mixer-r', floor: 0, type: 'av_mixer', x: 4.5, z: 0.2, rotation: 270, label: 'Pupitre Lumière DMX & Vidéo' },
+      { id: 'jpo-av-chair-r', floor: 0, type: 'chair_student', x: 3.2, z: 0.2, rotation: 90 },
+      { id: 'jpo-av-mic', floor: 0, type: 'av_mic_stand', x: 0, z: 3.9, rotation: 180 },
+      { id: 'jpo-av-rack', floor: 0, type: 'net_rack_19', x: -4.8, z: -4.9, rotation: 0 },
+      { id: 'jpo-av-cab', floor: 0, type: 'metal_cabinet', x: 4.8, z: -4.9, rotation: 0 }
     ];
   }
   return [

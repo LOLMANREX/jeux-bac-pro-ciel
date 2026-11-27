@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.42 - Mode Portes Ouvertes : Écran d’Accueil Borne Kiosque & Correctif ATH TP';
+    : 'v4.43 - Mode Portes Ouvertes : 4e Salle Audiovisuel & Écran d’Accueil Sécurisé';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.42 — Mode Portes Ouvertes : Écran d’Accueil Borne Kiosque & Correctif ATH TP',
+    version: 'v4.43 — Mode Portes Ouvertes : 4e Salle Audiovisuel & Écran d’Accueil Sécurisé',
     date: '27/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: '4E SALLE PORTES OUVERTES',
+        title: 'Nouvelle salle « 🎬 Salle Audiovisuel » (U303) dans /admin, le monde 3D et le TP découverte',
+        desc: 'Ajout de la 4e salle Portes Ouvertes « audiovisuel » : carte dédiée dans /admin (badge AUDIOVISUEL), salle fermée 12m × 12m avec régie audiovisuelle, projecteurs DMX, caméras et écran de contrôle, écran d’accueil dédié, briefing mission en 3 étapes et activité interactive son, lumière DMX et signal vidéo en mode JPO uniquement.'
+      },
+      {
+        badge: 'SÉCURISATION ACCUEIL JPO',
+        title: 'Suppression complète du bouton/lien « ⚙️ Config salle » vers /admin sur l’écran d’accueil',
+        desc: 'Retrait total du lien de configuration salle sur l’écran d’accueil Portes Ouvertes afin qu’aucun visiteur ne puisse accéder à la console d’administration depuis la borne.'
+      }
+    ]
+  },
+  {
+    version: 'v4.42 — Mode Portes Ouvertes : Écran d’Accueil Borne Kiosque & Correctif ATH TP',
+    date: '27/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'BORNE PORTES OUVERTES',

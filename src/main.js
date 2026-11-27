@@ -119,6 +119,7 @@ import { createPatchPanelGame } from './minigames/PatchPanelGame.js';
 import { createPcHardwareGame } from './minigames/PcHardwareGame.js';
 import { createDmxLightingGame } from './minigames/DmxLightingGame.js';
 import { createStudioRegieGame } from './minigames/StudioRegieGame.js';
+import { createJpoAudiovisuelGame } from './minigames/JpoAudiovisuelGame.js';
 
 const MINIGAME_FACTORIES = {
   oscilloscope: createOscilloscopeGame,
@@ -128,7 +129,7 @@ const MINIGAME_FACTORIES = {
   vmvlan: createVlanConfigGame,
   patchrack: createPatchPanelGame,
   hardware: createPcHardwareGame,
-  audiovisual: createDmxLightingGame,
+  audiovisual: (api) => (api?.isJpo ? createJpoAudiovisuelGame(api) : createDmxLightingGame(api)),
   studio: createStudioRegieGame
 };
 
@@ -5870,7 +5871,7 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (jpoWelcomeModal?.isOpen?.() && !isTyping) {
-    const onWelcomeControl = Boolean(e.target?.closest?.('#jpo-welcome-screen button, #jpo-welcome-screen a'));
+    const onWelcomeControl = Boolean(e.target?.closest?.('#jpo-welcome-screen button'));
     if (!onWelcomeControl && (e.code === 'Enter' || e.code === 'Space')) {
       e.preventDefault();
       jpoWelcomeModal.startPlay();

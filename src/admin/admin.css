@@ -1818,6 +1818,12 @@ button:active {
   box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.45), 0 12px 26px rgba(245, 158, 11, 0.18);
 }
 
+.jpo-room-card[data-jpo-room="audiovisuel"].active {
+  border-color: #a855f7;
+  background: rgba(59, 7, 100, 0.46);
+  box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.45), 0 12px 26px rgba(168, 85, 247, 0.22);
+}
+
 .jpo-room-card-top {
   display: flex;
   align-items: center;
