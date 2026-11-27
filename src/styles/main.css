@@ -7685,3 +7685,293 @@ body.jpo-mode #btn-shop-ingame {
 .hud.jpo-active .hud-jpo-banner {
   margin: 12px auto 0;
 }
+
+body.jpo-mode .interact-prompt {
+  font-size: 1.15rem;
+  padding: 14px 24px;
+  border: 2px solid #38bdf8;
+  background: rgba(8, 15, 30, 0.96);
+  box-shadow: 0 12px 34px rgba(2, 132, 199, 0.42);
+}
+
+body.jpo-mode .interact-prompt .key-cap {
+  display: none;
+}
+
+.jpo-briefing-backdrop {
+  z-index: 120;
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 18px;
+}
+
+.jpo-briefing-card {
+  --jpo-accent: #38bdf8;
+  width: min(780px, calc(100vw - 32px));
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  background: linear-gradient(160deg, #0f172a, #111c33);
+  color: #f8fafc;
+  border: 2px solid var(--jpo-accent);
+  border-radius: 24px;
+  padding: 32px 36px;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.72);
+}
+
+.jpo-briefing-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.jpo-briefing-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  background: rgba(56, 189, 248, 0.14);
+  border: 1.5px solid var(--jpo-accent);
+  color: #f8fafc;
+}
+
+.jpo-briefing-title {
+  margin: 0 0 12px;
+  font-size: clamp(1.45rem, 2.5vw, 1.95rem);
+  font-weight: 900;
+  line-height: 1.2;
+  color: #ffffff;
+}
+
+.jpo-briefing-intro {
+  margin: 0 0 20px;
+  font-size: 1.15rem;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+.jpo-briefing-steps {
+  list-style: none;
+  margin: 0 0 26px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.jpo-briefing-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1.5px solid rgba(148, 163, 184, 0.28);
+}
+
+.jpo-briefing-num {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--jpo-accent);
+  color: #091120;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.jpo-briefing-step-ico {
+  font-size: 1.55rem;
+  line-height: 1.25;
+  flex-shrink: 0;
+}
+
+.jpo-briefing-step-text {
+  font-size: 1.08rem;
+  line-height: 1.5;
+  color: #e2e8f0;
+}
+
+.jpo-briefing-step-text strong {
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.jpo-briefing-footer {
+  display: flex;
+  justify-content: center;
+}
+
+.jpo-briefing-start-btn {
+  min-height: 56px;
+  padding: 16px 34px;
+  border-radius: 16px;
+  border: none;
+  background: linear-gradient(135deg, #0ea5e9, #10b981);
+  color: #ffffff;
+  font-size: 1.25rem;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 12px 30px rgba(14, 165, 233, 0.42);
+  transition: transform 0.14s ease, filter 0.14s ease;
+}
+
+.jpo-briefing-start-btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.mg-jpo-help-btn {
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1.5px solid #0284c7;
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: #ffffff;
+  font-size: 0.96rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.28);
+}
+
+.mg-jpo-help-btn:hover {
+  filter: brightness(1.08);
+}
+
+.mg-jpo-help-btn.hidden {
+  display: none !important;
+}
+
+body.jpo-mode #minigame-modal.tp3d-mode .minigame-title-group h2 {
+  font-size: 1.32rem;
+}
+
+body.jpo-mode #minigame-modal.tp3d-mode .mg-subtitle {
+  font-size: 0.82rem;
+}
+
+body.jpo-mode #minigame-modal.tp3d-mode .stage-pill {
+  font-size: 0.94rem;
+  padding: 7px 13px;
+}
+
+body.jpo-mode #minigame-modal.tp3d-mode .mg-timer {
+  font-size: 1.08rem;
+}
+
+body.jpo-mode .tp3d-brief-bar {
+  top: 76px;
+  padding: 12px 18px;
+  border-left: 5px solid #0284c7;
+}
+
+body.jpo-mode .tp3d-brief-badge {
+  font-size: 0.92rem;
+  padding: 6px 12px;
+}
+
+body.jpo-mode .tp3d-brief-title {
+  font-size: 1.16rem;
+}
+
+body.jpo-mode .tp3d-brief-sub {
+  font-size: 0.98rem;
+  line-height: 1.4;
+}
+
+body.jpo-mode .tp3d-accuracy-pill strong {
+  font-size: 1.08rem;
+}
+
+body.jpo-mode .tp3d-cameras,
+body.jpo-mode .tp3d-zoom-bar {
+  top: 158px;
+}
+
+body.jpo-mode .tp3d-cam-btn {
+  font-size: 0.9rem;
+  padding: 7px 13px;
+}
+
+body.jpo-mode .tp3d-side-drawer {
+  top: 158px;
+  width: min(440px, calc(100vw - 28px));
+  max-height: calc(100vh - 260px);
+  padding: 16px 18px;
+  font-size: 1rem;
+}
+
+body.jpo-mode .tp3d-side-drawer h4 {
+  font-size: 1.18rem;
+  margin-bottom: 10px;
+}
+
+body.jpo-mode .tp3d-side-drawer .tp3d-tool-btn,
+body.jpo-mode .tp3d-side-drawer .tp-connect-btn,
+body.jpo-mode .tp3d-side-drawer .tp3d-act-btn {
+  font-size: 1rem;
+  min-height: 48px;
+  padding: 11px 14px;
+}
+
+body.jpo-mode .tp3d-bottom-dock .tp3d-act-btn,
+body.jpo-mode .tp3d-bottom-dock .tp3d-tool-btn {
+  font-size: 0.98rem;
+  padding: 10px 16px;
+  min-height: 46px;
+}
+
+body.jpo-mode .tp3d-float-tag {
+  font-size: 0.88rem;
+  padding: 5px 11px;
+}
+
+@media (max-width: 760px) {
+  .jpo-briefing-card {
+    padding: 20px 18px;
+    border-radius: 18px;
+  }
+  .jpo-briefing-intro {
+    font-size: 1rem;
+  }
+  .jpo-briefing-step {
+    padding: 12px;
+    gap: 10px;
+  }
+  .jpo-briefing-step-text {
+    font-size: 0.96rem;
+  }
+  .jpo-briefing-start-btn {
+    width: 100%;
+    font-size: 1.1rem;
+    padding: 14px 20px;
+  }
+  body.jpo-mode .tp3d-brief-bar {
+    top: 112px;
+    padding: 8px 12px;
+  }
+  body.jpo-mode .tp3d-brief-title {
+    font-size: 0.98rem;
+  }
+  body.jpo-mode .tp3d-brief-sub {
+    font-size: 0.85rem;
+  }
+  body.jpo-mode .tp3d-zoom-bar {
+    top: 196px;
+  }
+  body.jpo-mode .tp3d-side-drawer {
+    top: auto;
+    bottom: 148px;
+    width: auto;
+    max-height: min(44dvh, 300px);
+    padding: 12px;
+  }
+}

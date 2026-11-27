@@ -189,6 +189,9 @@ export function computeSocDefenseScore3D(metrics = {}) {
 }
 
 export function createAntivirusGame(api) {
+  const isJpo = Boolean(
+    api?.isJpo || (typeof document !== 'undefined' && document.body?.classList?.contains('jpo-mode'))
+  );
   const bench = createWorkbench3D(api.container, {
     cameraPos: [0.0, 0.92, 1.18],
     lookAt: [0.0, 0.22, -0.08],
@@ -574,7 +577,49 @@ export function createAntivirusGame(api) {
   function renderSideDrawer() {
     socKeypadCleanup?.();
     socKeypadCleanup = null;
-    const html = `
+    const html = isJpo
+      ? `
+      <h4>🛡️ Actions de protection</h4>
+      <div style="color:#475569;margin-bottom:10px;">
+        Suis les 3 étapes dans l’ordre :
+      </div>
+      <div style="display:grid;gap:8px;margin-bottom:12px;">
+        <button type="button" class="tp3d-tool-btn ${state.isolated ? 'active' : ''}" id="soc-iso">
+          ${state.isolated ? '✅ 1. PC infecté isolé' : '🔌 1. Isoler le PC (couper le câble infecté)'}
+        </button>
+      </div>
+      <div style="font-weight:800;text-transform:uppercase;color:#334155;margin:8px 0 6px;">🧱 2. Protections du pare-feu</div>
+      <div style="display:grid;gap:8px;margin-bottom:12px;">
+        <button type="button" class="tp3d-tool-btn ${state.fw185 ? 'active' : ''}" id="soc-fw-185">
+          ${state.fw185 ? '✅ Attaque site web bloquée' : '🛡️ Bloquer l’attaque sur le site web'}
+        </button>
+        <button type="button" class="tp3d-tool-btn ${state.fw91 ? 'active' : ''}" id="soc-fw-91">
+          ${state.fw91 ? '✅ Vol de mots de passe bloqué' : '🔒 Bloquer le vol de mots de passe'}
+        </button>
+        <button type="button" class="tp3d-tool-btn ${state.fw4444 ? 'active' : ''}" id="soc-fw-4444">
+          ${state.fw4444 ? '✅ Accès caché fermé' : '🚫 Fermer l’accès caché du pirate'}
+        </button>
+      </div>
+      <div style="font-weight:800;text-transform:uppercase;color:#334155;margin:8px 0 6px;">🔧 Réparer &amp; éliminer le virus</div>
+      <div style="display:grid;gap:8px;margin-bottom:12px;">
+        <button type="button" class="tp3d-tool-btn ${state.cveWeb ? 'active' : ''}" id="soc-cve-web">
+          ${state.cveWeb ? '✅ Serveur web réparé' : '🔧 Réparer le serveur web'}
+        </button>
+        <button type="button" class="tp3d-tool-btn ${state.cveBdd ? 'active' : ''}" id="soc-cve-bdd">
+          ${state.cveBdd ? '✅ Base de données protégée' : '🔐 Protéger la base de données'}
+        </button>
+        <button type="button" class="tp3d-tool-btn ${state.cveHost ? 'active' : ''}" id="soc-cve-host">
+          ${state.cveHost ? '✅ Faux programme supprimé' : '🗑️ Supprimer le faux « svch0st.exe » (avec un zéro)'}
+        </button>
+        <button type="button" class="tp3d-tool-btn" id="soc-false-svchost">
+          ⚠️ Supprimer « svchost.exe » (programme normal)
+        </button>
+      </div>
+      <button type="button" class="tp3d-act-btn primary" id="soc-edr-scan" style="width:100%;" ${state.edrDone || state.edrScanning ? 'disabled' : ''}>
+        ${state.edrDone ? '✅ 3. Antivirus terminé !' : state.edrScanning ? `🧼 Nettoyage en cours (${Math.round(state.scanPct)}%)` : '🧼 3. Lancer l’antivirus (nettoyer le PC)'}
+      </button>
+    `
+      : `
       <h4>Console Cyber-Défense SOC</h4>
       <div style="font-size:12px;color:#475569;margin-bottom:8px;">
         Stoppez les attaques en cours avant que l’intégrité serveur ne chute !
@@ -752,6 +797,65 @@ export function createAntivirusGame(api) {
 
   function refreshHud() {
     const st = getStats();
+    if (isJpo) {
+      if (st.secured) {
+        state.integrity = 100;
+        bench.setInstruction(
+          'MISSION RÉUSSIE !',
+          'Le réseau du lycée est nettoyé et protégé à 100 % !',
+          'Clique sur « Terminer la mission » en bas à droite pour voir ton résultat.'
+        );
+      } else if (!state.isolated) {
+        bench.setInstruction(
+          'ÉTAPE 1 / 3',
+          'Coupe le câble du PC infecté pour stopper le virus',
+          'Clique sur l’élément rouge au bureau 3D ou sur « Isoler le PC » en haut à droite.'
+        );
+      } else if (st.fwCount < 3) {
+        bench.setInstruction(
+          'ÉTAPE 2 / 3',
+          `Bloque les intrus avec le pare-feu (${st.fwCount}/3 protections activées)`,
+          'Clique sur les 3 boutons de protection du pare-feu dans le panneau à droite.'
+        );
+      } else {
+        bench.setInstruction(
+          'ÉTAPE 3 / 3',
+          `Répare les failles (${st.cveCount}/3) puis lance l’antivirus`,
+          'Termine les réparations à droite puis clique sur le bouton bleu « Lancer l’antivirus ».'
+        );
+      }
+      bench.setAccuracy(`Santé réseau : ${Math.round(state.integrity)} %`);
+      const stageIdx = !state.isolated ? 0 : st.fwCount < 3 ? 1 : 2;
+      api.setStages(
+        [
+          { name: '1. Isoler le PC' },
+          { name: `2. Bloquer les intrus (${st.fwCount}/3)` },
+          { name: `3. Nettoyer (${st.cveCount}/3)` }
+        ],
+        stageIdx
+      );
+      const actions = [
+        {
+          id: 'hint-soc',
+          label: '💡 Astuce',
+          onClick: () =>
+            bench.showToast(
+              '1) Isole le PC rouge  2) Active les 3 protections du pare-feu  3) Répare et supprime le faux « svch0st.exe »  4) Lance l’antivirus !',
+              'info'
+            )
+        },
+        { id: 'reset', label: '🔄 Recommencer', onClick: resetSoc },
+        {
+          id: 'finish-soc',
+          label: st.secured ? '✅ Terminer la mission' : '✅ Valider ma mission',
+          primary: true,
+          onClick: finishWorkshop
+        }
+      ];
+      bench.setActions(actions);
+      return;
+    }
+
     bench.setInstruction(
       st.secured ? 'SOC SÉCURISÉ' : 'ALERTE CYBER SOC 3D',
       st.secured
@@ -887,11 +991,11 @@ export function createAntivirusGame(api) {
     onClick: startEdrScan
   });
 
-  bench.addFloatingTag(() => nodes['FW-01'].basePos.clone().add(new THREE.Vector3(0, 0.08, 0)), 'FW-01', 'fw');
-  bench.addFloatingTag(() => nodes['SRV-WEB'].basePos.clone().add(new THREE.Vector3(0, 0.1, 0)), 'SRV-WEB', 'web');
-  bench.addFloatingTag(() => nodes['SRV-BDD'].basePos.clone().add(new THREE.Vector3(0, 0.1, 0)), 'SRV-BDD', 'bdd');
-  bench.addFloatingTag(() => nodes['PC-WORK'].basePos.clone().add(new THREE.Vector3(0, 0.08, 0)), 'PC-WORK', 'pc');
-  bench.addFloatingTag(() => new THREE.Vector3(0.56, 0.08, 0.22), 'Clé EDR', 'edr');
+  bench.addFloatingTag(() => nodes['FW-01'].basePos.clone().add(new THREE.Vector3(0, 0.08, 0)), isJpo ? 'Pare-feu' : 'FW-01', 'fw');
+  bench.addFloatingTag(() => nodes['SRV-WEB'].basePos.clone().add(new THREE.Vector3(0, 0.1, 0)), isJpo ? 'Serveur Web' : 'SRV-WEB', 'web');
+  bench.addFloatingTag(() => nodes['SRV-BDD'].basePos.clone().add(new THREE.Vector3(0, 0.1, 0)), isJpo ? 'Base de données' : 'SRV-BDD', 'bdd');
+  bench.addFloatingTag(() => nodes['PC-WORK'].basePos.clone().add(new THREE.Vector3(0, 0.08, 0)), isJpo ? 'PC Infecté' : 'PC-WORK', 'pc');
+  bench.addFloatingTag(() => new THREE.Vector3(0.56, 0.08, 0.22), isJpo ? 'Clé Antivirus' : 'Clé EDR', 'edr');
 
   bench.setCameras(CAM_VIEWS, state.camId, selectCamera);
 
@@ -913,7 +1017,7 @@ export function createAntivirusGame(api) {
         state.edrScanning = false;
         state.edrDone = true;
         if (getStats().secured) {
-          state.integrity = Math.min(100, state.integrity + 15);
+          state.integrity = isJpo ? 100 : Math.min(100, state.integrity + 15);
         }
         scanPlane.visible = false;
         sfx.success();

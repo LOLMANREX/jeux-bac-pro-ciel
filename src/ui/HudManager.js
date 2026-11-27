@@ -1,6 +1,6 @@
 import { sfx } from '../core/audio.js';
 import { detectDeviceProfile, getMention, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
-import { getJpoHudVisibility } from '../core/jpoConfig.js';
+import { getJpoHudVisibility, JPO_INTERACT_PROMPT_TEXT } from '../core/jpoConfig.js';
 import { getCatalogItem, getStationTeleportInMap, getZoneAtPositionInMap } from '../world/mapSchema.js';
 import {
   ASCENSION_SPECIALTIES,
@@ -1664,7 +1664,7 @@ export class HudManager {
         this.jpoRoomLabelEl.textContent = `${roomConfig.icon} ${roomConfig.label} • ${roomConfig.poleLabel}`;
       }
       if (this.jpoOpenTpBtn) {
-        this.jpoOpenTpBtn.textContent = `▶ ${roomConfig.tpShortLabel || 'Lancer le TP'}`;
+        this.jpoOpenTpBtn.textContent = '▶ Démarrer l’activité';
         this.jpoOpenTpBtn.classList.toggle('hidden', !roomConfig.tpId);
       }
       this.jpoPoleInfoEl?.classList.remove('hidden');
@@ -1898,7 +1898,13 @@ export class HudManager {
       return;
     }
     this._setCachedHidden(this.interactPromptEl, 'interactHidden', false);
-    this._setCachedText(this.interactLabelEl, 'interactLabel', target.label);
+    const isJpoStation =
+      this.isJpoActive() && Boolean(target.tpId || String(target.type || '').startsWith('tp_'));
+    this._setCachedText(
+      this.interactLabelEl,
+      'interactLabel',
+      isJpoStation ? JPO_INTERACT_PROMPT_TEXT : target.label
+    );
   }
 
   clearChat() {

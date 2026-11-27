@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.40 - Correctif Portes Ouvertes : Suppression Totale du Portail Arène de Combat en Mode JPO';
+    : 'v4.41 - Mode Portes Ouvertes Grand Public : Spawn Libre, Briefing Mission Vulgarisé & HUD TP Agrandi';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.40 — Correctif Portes Ouvertes : Suppression Totale du Portail Arène de Combat en Mode JPO',
+    version: 'v4.41 — Mode Portes Ouvertes Grand Public : Spawn Libre, Briefing Mission Vulgarisé & HUD TP Agrandi',
     date: '27/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'SPAWN LIBRE JPO',
+        title: 'Suppression du lancement automatique du TP au démarrage en salle Portes Ouvertes',
+        desc: 'En mode Portes Ouvertes (Cybersécurité, Réseaux ou Électronique), le visiteur apparaît librement face au poste de travail dans sa salle dédiée (12m × 12m) avec l’invite claire « Appuyez sur [E] pour démarrer l’activité ».'
+      },
+      {
+        badge: 'BRIEFING GRAND PUBLIC',
+        title: 'Écran de mission vulgarisé en 3 étapes simples et bouton « ❓ Aide / Consignes »',
+        desc: 'À l’ouverture de l’activité via la touche E (ou le bandeau JPO), une modale lisible et sans jargon présente les 3 étapes de la mission avant le lancement du chrono, et reste accessible à tout moment via le bouton « ❓ Aide / Consignes ».'
+      },
+      {
+        badge: 'LISIBILITÉ DÉMONSTRATION',
+        title: 'Agrandissement du HUD pendant les TP en Mode JPO et libellés guidés',
+        desc: 'Pendant les TP en mode Portes Ouvertes (body.jpo-mode), la taille des textes du bandeau d’objectif et du panneau d’actions à droite est agrandie avec des intitulés accessibles, sans aucune modification du mode Standard.'
+      }
+    ]
+  },
+  {
+    version: 'v4.40 — Correctif Portes Ouvertes : Suppression Totale du Portail Arène de Combat en Mode JPO',
+    date: '27/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'CORRECTIF SALLE JPO',

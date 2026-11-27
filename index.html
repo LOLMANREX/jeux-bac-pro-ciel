@@ -1257,11 +1257,27 @@
             </div>
             <div class="minigame-meta">
               <div id="mg-stage-pills" class="stage-pills"></div>
+              <button type="button" id="mg-jpo-help-btn" class="mg-jpo-help-btn hidden">❓ Aide / Consignes</button>
               <div class="mg-timer" id="mg-timer">00:00</div>
               <button id="mg-exit-btn" class="btn-danger btn-sm">Quitter le TP ✕</button>
             </div>
           </div>
           <div id="mg-content" class="mg-content"></div>
+        </div>
+      </div>
+
+      <div id="jpo-briefing-modal" class="modal-backdrop jpo-briefing-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="jpo-briefing-title">
+        <div id="jpo-briefing-card" class="jpo-briefing-card">
+          <div class="jpo-briefing-head">
+            <span class="jpo-briefing-badge">🎪 PORTES OUVERTES • MISSION DÉCOUVERTE</span>
+            <button type="button" id="jpo-briefing-close" class="icon-close jpo-briefing-close" title="Fermer">✕</button>
+          </div>
+          <h2 id="jpo-briefing-title" class="jpo-briefing-title"></h2>
+          <p id="jpo-briefing-intro" class="jpo-briefing-intro"></p>
+          <ol id="jpo-briefing-steps" class="jpo-briefing-steps"></ol>
+          <div class="jpo-briefing-footer">
+            <button type="button" id="jpo-briefing-start-btn" class="jpo-briefing-start-btn">🚀 C'est parti !</button>
+          </div>
         </div>
       </div>
 

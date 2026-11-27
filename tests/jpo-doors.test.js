@@ -4,15 +4,22 @@ import path from 'node:path';
 import test from 'node:test';
 import * as THREE from 'three';
 import {
+  JPO_AUTO_START_TP,
+  JPO_BRIEFING_RESUME_LABEL,
+  JPO_BRIEFING_START_LABEL,
   JPO_DEMO_COINS,
+  JPO_HELP_BUTTON_LABEL,
+  JPO_INTERACT_PROMPT_TEXT,
   JPO_KIOSK_IDLE_MS,
   JPO_KIOSK_STORAGE_KEY,
+  JPO_MISSION_BRIEFINGS,
   JPO_ROOM_STORAGE_KEY,
   JPO_ROOMS,
   createJpoRoomMap,
   createJpoVisitorName,
   createKioskIdleController,
   getJpoHudVisibility,
+  getJpoMissionBriefing,
   getJpoRoomConfig,
   isJpoActive,
   isJpoRoomActive,
@@ -21,6 +28,7 @@ import {
   resolveJpoSpawnPose,
   saveJpoConfig
 } from '../src/core/jpoConfig.js';
+import { JpoBriefingModal } from '../src/ui/JpoBriefingModal.js';
 import { buildLabWorld } from '../src/world/LabBuilder.js';
 import { createDefaultMap, getDynamicMapColliders, normalizeMapData } from '../src/world/mapSchema.js';
 
@@ -584,4 +592,221 @@ test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode
 
   const hudSrc = fs.readFileSync(path.resolve('src/ui/HudManager.js'), 'utf8');
   assert.ok(hudSrc.includes("if (!target || this.detentionHudHidden || (this.isJpoActive() && target.type === 'combat_door'))"));
+});
+
+test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgarisé (E), aide & lisibilité HUD JPO', () => {
+  assert.equal(JPO_AUTO_START_TP, false);
+  assert.equal(JPO_INTERACT_PROMPT_TEXT, "Appuyez sur [E] pour démarrer l'activité");
+  assert.equal(JPO_BRIEFING_START_LABEL, "🚀 C'est parti !");
+  assert.equal(JPO_BRIEFING_RESUME_LABEL, "✅ Reprendre l'activité");
+  assert.equal(JPO_HELP_BUTTON_LABEL, '❓ Aide / Consignes');
+
+  assert.deepEqual(Object.keys(JPO_MISSION_BRIEFINGS).sort(), ['antivirus', 'electronics', 'vmvlan']);
+
+  const cyberBrief = getJpoMissionBriefing('tp_antivirus');
+  assert.equal(cyberBrief.title, '🛡️ Mission Cyber : Protège le réseau du lycée !');
+  assert.equal(cyberBrief.intro, 'Un pirate attaque les ordinateurs du lycée. Ton objectif en 3 étapes simples :');
+  assert.equal(cyberBrief.steps.length, 3);
+  assert.equal(cyberBrief.steps[0].lead, 'Coupe le câble');
+  assert.equal(cyberBrief.steps[1].lead, 'Bloque les intrus');
+  assert.equal(cyberBrief.steps[2].lead, "Lance l'antivirus");
+  assert.equal(getJpoMissionBriefing('antivirus'), cyberBrief);
+  assert.equal(getJpoMissionBriefing('cyber'), cyberBrief);
+
+  const netBrief = getJpoMissionBriefing('tp_vmvlan');
+  assert.equal(netBrief.title, '🌐 Mission Réseau : Connecte les salles du lycée !');
+  assert.equal(netBrief.intro, "Les ordinateurs de l'étage n'ont plus d'Internet. Ton objectif en 3 étapes simples :");
+  assert.equal(netBrief.steps.length, 3);
+  assert.equal(netBrief.steps[0].lead, 'Branche et configure');
+  assert.equal(netBrief.steps[1].lead, 'Sépare les réseaux');
+  assert.equal(netBrief.steps[2].lead, 'Vérifie que tout passe au vert');
+  assert.equal(getJpoMissionBriefing('vmvlan'), netBrief);
+  assert.equal(getJpoMissionBriefing('reseau'), netBrief);
+
+  const elecBrief = getJpoMissionBriefing('tp_electronics');
+  assert.equal(elecBrief.title, '⚡ Mission Électronique : Fais fonctionner la carte !');
+  assert.equal(elecBrief.intro, 'Une carte électronique est en panne. Ton objectif en 3 étapes simples :');
+  assert.equal(elecBrief.steps.length, 3);
+  assert.equal(elecBrief.steps[0].lead, 'Observe le circuit');
+  assert.equal(elecBrief.steps[1].lead, 'Ajuste les valeurs');
+  assert.equal(elecBrief.steps[2].lead, 'Allume et teste le circuit');
+  assert.equal(getJpoMissionBriefing('electronics'), elecBrief);
+  assert.equal(getJpoMissionBriefing('elec'), elecBrief);
+
+  assert.equal(getJpoMissionBriefing('standard'), null);
+  assert.equal(getJpoMissionBriefing('unknown'), null);
+
+  const makeMockEl = (id) => {
+    const classes = new Set(['hidden']);
+    const listeners = new Map();
+    const styles = new Map();
+    return {
+      id,
+      textContent: '',
+      innerHTML: '',
+      style: {
+        setProperty: (k, v) => styles.set(k, v),
+        getPropertyValue: (k) => styles.get(k) || ''
+      },
+      classList: {
+        add: (...names) => names.forEach((n) => classes.add(n)),
+        remove: (...names) => names.forEach((n) => classes.delete(n)),
+        toggle: (name, force) => {
+          if (force === undefined) {
+            if (classes.has(name)) classes.delete(name);
+            else classes.add(name);
+          } else if (force) {
+            classes.add(name);
+          } else {
+            classes.delete(name);
+          }
+          return classes.has(name);
+        },
+        contains: (name) => classes.has(name)
+      },
+      addEventListener: (ev, fn) => {
+        if (!listeners.has(ev)) listeners.set(ev, []);
+        listeners.get(ev).push(fn);
+      },
+      trigger: (ev, eventObj = {}) => {
+        for (const fn of listeners.get(ev) || []) {
+          fn(eventObj);
+        }
+      }
+    };
+  };
+
+  const elements = new Map([
+    ['jpo-briefing-modal', makeMockEl('jpo-briefing-modal')],
+    ['jpo-briefing-card', makeMockEl('jpo-briefing-card')],
+    ['jpo-briefing-title', makeMockEl('jpo-briefing-title')],
+    ['jpo-briefing-intro', makeMockEl('jpo-briefing-intro')],
+    ['jpo-briefing-steps', makeMockEl('jpo-briefing-steps')],
+    ['jpo-briefing-start-btn', makeMockEl('jpo-briefing-start-btn')],
+    ['jpo-briefing-close', makeMockEl('jpo-briefing-close')]
+  ]);
+
+  const prevDocDesc = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    writable: true,
+    value: {
+      getElementById: (id) => elements.get(id) || null
+    }
+  });
+  try {
+    const modal = new JpoBriefingModal();
+    assert.equal(modal.isOpen(), false);
+    assert.equal(modal.open('standard'), false);
+    assert.equal(modal.isOpen(), false);
+
+    let starts = 0;
+    let cancels = 0;
+    assert.equal(
+      modal.open('antivirus', {
+        mode: 'start',
+        onStart: () => starts++,
+        onCancel: () => cancels++
+      }),
+      true
+    );
+    assert.equal(modal.isOpen(), true);
+    assert.equal(elements.get('jpo-briefing-modal').classList.contains('hidden'), false);
+    assert.equal(elements.get('jpo-briefing-title').textContent, '🛡️ Mission Cyber : Protège le réseau du lycée !');
+    assert.equal(elements.get('jpo-briefing-start-btn').textContent, "🚀 C'est parti !");
+    assert.ok(elements.get('jpo-briefing-steps').innerHTML.includes('Coupe le câble'));
+
+    elements.get('jpo-briefing-start-btn').trigger('click');
+    assert.equal(starts, 1);
+    assert.equal(cancels, 0);
+    assert.equal(modal.isOpen(), false);
+    assert.equal(elements.get('jpo-briefing-modal').classList.contains('hidden'), true);
+
+    assert.equal(
+      modal.open('vmvlan', {
+        mode: 'start',
+        onStart: () => starts++,
+        onCancel: () => cancels++
+      }),
+      true
+    );
+    elements.get('jpo-briefing-close').trigger('click');
+    assert.equal(starts, 1);
+    assert.equal(cancels, 1);
+    assert.equal(modal.isOpen(), false);
+
+    assert.equal(modal.open('electronics', { mode: 'help', onStart: () => starts++ }), true);
+    assert.equal(elements.get('jpo-briefing-start-btn').textContent, "✅ Reprendre l'activité");
+    elements.get('jpo-briefing-start-btn').trigger('click');
+    assert.equal(starts, 1);
+    assert.equal(modal.isOpen(), false);
+  } finally {
+    if (prevDocDesc) {
+      Object.defineProperty(globalThis, 'document', prevDocDesc);
+    } else {
+      delete globalThis.document;
+    }
+  }
+
+  const mainSrc = fs.readFileSync(path.resolve('src/main.js'), 'utf8');
+  assert.equal(mainSrc.includes('tpAutoTimer'), false);
+  assert.equal(mainSrc.includes('tpAutoOpened'), false);
+  assert.ok(mainSrc.includes('if (jpoDemo && !skipBriefing && jpoBriefingModal && getJpoMissionBriefing(tpId))'));
+  assert.ok(mainSrc.includes('jpoBriefingModal.open(tpId'));
+
+  const hudSrc = fs.readFileSync(path.resolve('src/ui/HudManager.js'), 'utf8');
+  assert.ok(hudSrc.includes('JPO_INTERACT_PROMPT_TEXT'));
+  assert.ok(hudSrc.includes('▶ Démarrer l’activité'));
+  assert.ok(hudSrc.includes("if (!target || this.detentionHudHidden || (this.isJpoActive() && target.type === 'combat_door'))"));
+
+  const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
+  for (const needle of [
+    'id="jpo-briefing-modal"',
+    'id="jpo-briefing-card"',
+    'id="jpo-briefing-title"',
+    'id="jpo-briefing-steps"',
+    'id="jpo-briefing-start-btn"',
+    'id="mg-jpo-help-btn"',
+    '❓ Aide / Consignes'
+  ]) {
+    assert.ok(indexHtml.includes(needle), `Élément JPO manquant dans index.html : ${needle}`);
+  }
+  assert.deepEqual(scanHtmlComments(indexHtml), []);
+
+  const hudActionsMatch = indexHtml.match(/<div class="hud-actions">([\s\S]*?)<\/div>/);
+  assert.ok(hudActionsMatch);
+  const hudActionButtons = hudActionsMatch[1].match(/<button\b/g) || [];
+  assert.equal(hudActionButtons.length, 2);
+
+  const mainCss = fs.readFileSync(path.resolve('src/styles/main.css'), 'utf8');
+  for (const cssNeedle of [
+    'body.jpo-mode .interact-prompt',
+    '.jpo-briefing-card',
+    '.jpo-briefing-start-btn',
+    '.mg-jpo-help-btn',
+    'body.jpo-mode .tp3d-brief-bar',
+    'body.jpo-mode .tp3d-side-drawer'
+  ]) {
+    assert.ok(mainCss.includes(cssNeedle), `Règle CSS manquante dans main.css : ${cssNeedle}`);
+  }
+  assert.deepEqual(scanCssComments(mainCss), []);
+
+  const forbiddenPattern = new RegExp('for' + 'tin', 'i');
+  for (const rel of [
+    'src/core/jpoConfig.js',
+    'src/ui/JpoBriefingModal.js',
+    'src/ui/HudManager.js',
+    'src/main.js',
+    'src/minigames/MiniGameModal.js',
+    'src/minigames/AntivirusGame.js',
+    'src/minigames/VlanConfigGame.js',
+    'src/minigames/ElectronicsGame.js',
+    'src/ui/ChangelogModal.js',
+    'vite.config.js',
+    'tests/jpo-doors.test.js'
+  ]) {
+    const txt = fs.readFileSync(path.resolve(rel), 'utf8');
+    assert.deepEqual(scanJsComments(txt), [], `Commentaire JS détecté dans ${rel}`);
+    assert.equal(forbiddenPattern.test(txt), false, `Nom interdit détecté dans ${rel}`);
+  }
 });

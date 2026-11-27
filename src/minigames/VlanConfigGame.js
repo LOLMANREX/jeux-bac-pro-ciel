@@ -331,6 +331,9 @@ const CAM_VIEWS = [
 ];
 
 export function createVlanConfigGame(api) {
+  const isJpo = Boolean(
+    api?.isJpo || (typeof document !== 'undefined' && document.body?.classList?.contains('jpo-mode'))
+  );
   const bench = createWorkbench3D(api.container, {
     cameraPos: CAM_VIEWS[0].pos,
     lookAt: CAM_VIEWS[0].lookAt,
@@ -813,7 +816,33 @@ export function createVlanConfigGame(api) {
     keypadCleanup = null;
     const ev = evaluateTopology();
     const recentCli = state.cliHistory.slice(-4);
-    const drawer = bench.setSideDrawer(`
+    const drawer = bench.setSideDrawer(
+      isJpo
+        ? `
+      <div style="display:flex;flex-direction:column;gap:10px;background:rgba(15,23,42,0.94);color:#f8fafc;padding:12px;border-radius:12px;border:1px solid #334155;">
+        <div style="font-weight:800;color:#38bdf8;">1. SÉPARER LES RÉSEAUX (${ev.vlansCreated}/3)</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+          <button type="button" class="tp-connect-btn ${state.vlans[10].active ? 'done' : ''}" data-cmd="vlan 10" data-active="${state.vlans[10].active ? '1' : '0'}" style="justify-content:center;padding:8px 4px;">Profs</button>
+          <button type="button" class="tp-connect-btn ${state.vlans[20].active ? 'done' : ''}" data-cmd="vlan 20" data-active="${state.vlans[20].active ? '1' : '0'}" style="justify-content:center;padding:8px 4px;">Élèves</button>
+          <button type="button" class="tp-connect-btn ${state.vlans[30].active ? 'done' : ''}" data-cmd="vlan 30" data-active="${state.vlans[30].active ? '1' : '0'}" style="justify-content:center;padding:8px 4px;">Wi-Fi</button>
+        </div>
+
+        <div style="font-weight:800;color:#22c55e;">2. BRANCHER LES SALLES (${ev.accessPortsOk}/3)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <button type="button" class="tp-connect-btn ${ev.acc1Ok ? 'done' : ''}" data-cmd="access gi0/1 10" data-active="${ev.acc1Ok ? '1' : '0'}">Relier Profs</button>
+          <button type="button" class="tp-connect-btn ${ev.acc2Ok ? 'done' : ''}" data-cmd="access gi0/2 20" data-active="${ev.acc2Ok ? '1' : '0'}">Relier Élèves</button>
+          <button type="button" class="tp-connect-btn ${ev.acc3Ok ? 'done' : ''}" data-cmd="access gi0/3 30" data-active="${ev.acc3Ok ? '1' : '0'}">Relier Wi-Fi</button>
+          <button type="button" class="tp-connect-btn ${ev.trunkConfigured ? 'done' : ''}" data-cmd="trunk gi0/24" data-active="${ev.trunkConfigured ? '1' : '0'}">Lien Internet</button>
+        </div>
+
+        <div style="font-weight:800;color:#f59e0b;">3. RÉTABLIR INTERNET (${ev.gatewaysOk}/3)</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button type="button" class="tp-connect-btn ${ev.gw20Ok ? 'done' : ''}" data-cmd="gw 20 192.168.20.254" data-active="${ev.gw20Ok ? '1' : '0'}">${ev.gw20Ok ? '✅ Internet Élèves actif' : '🌐 Activer Internet Élèves'}</button>
+          <button type="button" class="tp-connect-btn ${ev.gw30Ok ? 'done' : ''}" data-cmd="gw 30 192.168.30.254" data-active="${ev.gw30Ok ? '1' : '0'}">${ev.gw30Ok ? '✅ Internet Wi-Fi actif' : '📶 Activer Internet Wi-Fi'}</button>
+        </div>
+      </div>
+    `
+        : `
       <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;">
         <div style="font-weight:800;color:#38bdf8;font-size:12px;">1. SEGMENTATION VLAN (${ev.vlansCreated}/3)</div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
@@ -849,7 +878,8 @@ export function createVlanConfigGame(api) {
         </form>
         <div id="vlan-keypad-mount"></div>
       </div>
-    `);
+    `
+    );
 
     if (!drawer) return;
     drawer.querySelectorAll('[data-cmd]').forEach((b) => {
@@ -912,11 +942,17 @@ export function createVlanConfigGame(api) {
       ? 1
       : 2;
     api.setStages(
-      [
-        { name: `1. VLANs (${ev.vlansCreated}/3)` },
-        { name: `2. Ports & Trunk 802.1Q` },
-        { name: `3. Passerelles & Ping` }
-      ],
+      isJpo
+        ? [
+            { name: `1. Séparer les réseaux (${ev.vlansCreated}/3)` },
+            { name: '2. Brancher les salles' },
+            { name: '3. Tout passer au vert' }
+          ]
+        : [
+            { name: `1. VLANs (${ev.vlansCreated}/3)` },
+            { name: `2. Ports & Trunk 802.1Q` },
+            { name: `3. Passerelles & Ping` }
+          ],
       stageIdx,
       (idx) => {
         if (idx === 0) setCameraById('console');
@@ -925,18 +961,58 @@ export function createVlanConfigGame(api) {
       }
     );
 
-    bench.setInstruction(
-      'ATELIER CONFIGURATION VLAN 802.1Q, TRUNK & ROUTAGE 3D',
-      `VLANs ${ev.vlansCreated}/3 • Access ${ev.accessPortsOk}/3 • Trunk ${ev.trunkConfigured ? '802.1Q OK' : 'NON'} • GW ${ev.gatewaysOk}/3`,
-      '1) Créez VLAN 10/20/30  2) Assignez les ports Access + Trunk 802.1Q Gi0/24  3) Corrigez .20.254 & .30.254 puis lancez Ping & Traceroute.'
-    );
-    bench.setAccuracy(`Note est. ${estScore.toFixed(1)}/20`);
+    if (isJpo) {
+      if (ev.vlansCreated < 3) {
+        bench.setInstruction(
+          'ÉTAPE 1 / 3',
+          `Sépare les réseaux du lycée : Profs, Élèves et Wi-Fi (${ev.vlansCreated}/3)`,
+          'Clique sur les 3 boutons « Profs », « Élèves » et « Wi-Fi » en haut du panneau à droite.'
+        );
+      } else if (ev.accessPortsOk < 3 || !ev.trunkConfigured) {
+        bench.setInstruction(
+          'ÉTAPE 2 / 3',
+          'Branche chaque salle et le lien principal Internet',
+          'Clique sur les 4 boutons de branchement dans la section 2 à droite.'
+        );
+      } else if (ev.gatewaysOk < 3) {
+        bench.setInstruction(
+          'ÉTAPE 3 / 3',
+          'Rétablis l’accès Internet pour les salles Élèves et Wi-Fi',
+          'Clique sur « Activer Internet Élèves » et « Activer Internet Wi-Fi » à droite.'
+        );
+      } else if (!state.lastPingOk || !state.lastTraceOk) {
+        bench.setInstruction(
+          'PRESQUE FINI !',
+          'Teste la connexion pour faire passer tous les câbles au vert !',
+          'Clique sur « Tester la connexion » puis « Vérifier le parcours » en bas.'
+        );
+      } else {
+        bench.setInstruction(
+          'MISSION RÉUSSIE !',
+          'Tout est au vert : les ordinateurs du lycée ont retrouvé Internet !',
+          'Clique sur « Terminer la mission » en bas à droite.'
+        );
+      }
+      bench.setAccuracy(`Progression : ${Math.round((estScore / 20) * 100)} %`);
+    } else {
+      bench.setInstruction(
+        'ATELIER CONFIGURATION VLAN 802.1Q, TRUNK & ROUTAGE 3D',
+        `VLANs ${ev.vlansCreated}/3 • Access ${ev.accessPortsOk}/3 • Trunk ${ev.trunkConfigured ? '802.1Q OK' : 'NON'} • GW ${ev.gatewaysOk}/3`,
+        '1) Créez VLAN 10/20/30  2) Assignez les ports Access + Trunk 802.1Q Gi0/24  3) Corrigez .20.254 & .30.254 puis lancez Ping & Traceroute.'
+      );
+      bench.setAccuracy(`Note est. ${estScore.toFixed(1)}/20`);
+    }
 
     bench.setTools(
-      [
-        { id: 'ping', icon: 'P', label: 'Test Ping 3D', disabled: false },
-        { id: 'trace', icon: 'T', label: 'Traceroute 3D', disabled: false }
-      ],
+      isJpo
+        ? [
+            { id: 'ping', icon: '📡', label: 'Tester la connexion', disabled: false },
+            { id: 'trace', icon: '🛣️', label: 'Vérifier le parcours', disabled: false }
+          ]
+        : [
+            { id: 'ping', icon: 'P', label: 'Test Ping 3D', disabled: false },
+            { id: 'trace', icon: 'T', label: 'Traceroute 3D', disabled: false }
+          ],
       'ping',
       (toolId) => {
         triggerNetworkProbe(toolId === 'trace' ? 'traceroute' : 'ping');
@@ -946,19 +1022,19 @@ export function createVlanConfigGame(api) {
     bench.setActions([
       {
         id: 'ping-btn',
-        label: 'Lancer Ping 3D',
+        label: isJpo ? '📡 Tester la connexion' : 'Lancer Ping 3D',
         primary: !state.lastPingOk,
         onClick: () => triggerNetworkProbe('ping')
       },
       {
         id: 'trace-btn',
-        label: 'Traceroute 3D',
+        label: isJpo ? '🛣️ Vérifier le parcours' : 'Traceroute 3D',
         primary: state.lastPingOk && !state.lastTraceOk,
         onClick: () => triggerNetworkProbe('traceroute')
       },
       {
         id: 'finish-btn',
-        label: 'Valider Configuration',
+        label: isJpo ? '✅ Terminer la mission' : 'Valider Configuration',
         primary: state.lastPingOk && state.lastTraceOk,
         disabled: state.submitted,
         onClick: () => {
@@ -993,14 +1069,19 @@ export function createVlanConfigGame(api) {
       },
       {
         id: 'hint-vlan-btn',
-        label: '💡 Indice',
+        label: isJpo ? '💡 Astuce' : '💡 Indice',
         onClick: () => {
-          bench.showToast('Activez VLAN 10/20/30, assignez Gi0/1→10, Gi0/2→20, Gi0/3→30, Gi0/24 en Trunk, corrigez .20.254 et .30.254 puis Ping + Traceroute !', 'info');
+          bench.showToast(
+            isJpo
+              ? '1) Clique sur Profs, Élèves, Wi-Fi  2) Branche les 4 boutons  3) Active Internet Élèves et Wi-Fi  4) Teste la connexion !'
+              : 'Activez VLAN 10/20/30, assignez Gi0/1→10, Gi0/2→20, Gi0/3→30, Gi0/24 en Trunk, corrigez .20.254 et .30.254 puis Ping + Traceroute !',
+            'info'
+          );
         }
       },
       {
         id: 'reset-vlan-btn',
-        label: '🔄 Réinitialiser',
+        label: isJpo ? '🔄 Recommencer' : '🔄 Réinitialiser',
         onClick: () => {
           state.vlans = {
             10: { name: 'ADMIN', active: false },

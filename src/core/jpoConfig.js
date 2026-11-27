@@ -5,6 +5,11 @@ export const JPO_ROOM_STORAGE_KEY = 'ciel_jpo_salle';
 export const JPO_KIOSK_STORAGE_KEY = 'ciel_jpo_kiosk';
 export const JPO_KIOSK_IDLE_MS = 60000;
 export const JPO_DEMO_COINS = 0;
+export const JPO_AUTO_START_TP = false;
+export const JPO_INTERACT_PROMPT_TEXT = "Appuyez sur [E] pour démarrer l'activité";
+export const JPO_BRIEFING_START_LABEL = "🚀 C'est parti !";
+export const JPO_BRIEFING_RESUME_LABEL = "✅ Reprendre l'activité";
+export const JPO_HELP_BUTTON_LABEL = '❓ Aide / Consignes';
 export const JPO_ROOM_IDS = ['standard', 'cyber', 'reseau', 'elec'];
 
 export const JPO_ROOMS = {
@@ -81,6 +86,113 @@ export function normalizeJpoRoom(raw) {
 
 export function getJpoRoomConfig(roomId) {
   return JPO_ROOMS[normalizeJpoRoom(roomId)];
+}
+
+export const JPO_MISSION_BRIEFINGS = {
+  antivirus: {
+    tpId: 'antivirus',
+    roomId: 'cyber',
+    objectType: 'tp_antivirus',
+    icon: '🛡️',
+    accent: '#f43f5e',
+    shortTitle: 'Mission Cyber : Protège le réseau du lycée',
+    title: '🛡️ Mission Cyber : Protège le réseau du lycée !',
+    intro: 'Un pirate attaque les ordinateurs du lycée. Ton objectif en 3 étapes simples :',
+    steps: [
+      {
+        num: 1,
+        icon: '🔌',
+        lead: 'Coupe le câble',
+        text: "du PC infecté (clique sur l'élément rouge ou le bouton « Isoler le PC ») pour stopper le virus."
+      },
+      {
+        num: 2,
+        icon: '🧱',
+        lead: 'Bloque les intrus',
+        text: 'en activant les protections du pare-feu dans le panneau à droite.'
+      },
+      {
+        num: 3,
+        icon: '🧼',
+        lead: "Lance l'antivirus",
+        text: '(bouton bleu en bas à droite) pour nettoyer le système et remonter la barre verte à 100 %.'
+      }
+    ]
+  },
+  vmvlan: {
+    tpId: 'vmvlan',
+    roomId: 'reseau',
+    objectType: 'tp_vmvlan',
+    icon: '🌐',
+    accent: '#34d399',
+    shortTitle: 'Mission Réseau : Connecte les salles du lycée',
+    title: '🌐 Mission Réseau : Connecte les salles du lycée !',
+    intro: "Les ordinateurs de l'étage n'ont plus d'Internet. Ton objectif en 3 étapes simples :",
+    steps: [
+      {
+        num: 1,
+        icon: '🔧',
+        lead: 'Branche et configure',
+        text: 'les équipements réseau (switch / routeur) sur le bureau 3D.'
+      },
+      {
+        num: 2,
+        icon: '🔀',
+        lead: 'Sépare les réseaux',
+        text: "(élèves et professeurs) à l'aide des boutons guidés à droite."
+      },
+      {
+        num: 3,
+        icon: '✅',
+        lead: 'Vérifie que tout passe au vert',
+        text: 'pour rétablir la connexion.'
+      }
+    ]
+  },
+  electronics: {
+    tpId: 'electronics',
+    roomId: 'elec',
+    objectType: 'tp_electronics',
+    icon: '⚡',
+    accent: '#fbbf24',
+    shortTitle: 'Mission Électronique : Fais fonctionner la carte',
+    title: '⚡ Mission Électronique : Fais fonctionner la carte !',
+    intro: 'Une carte électronique est en panne. Ton objectif en 3 étapes simples :',
+    steps: [
+      {
+        num: 1,
+        icon: '👀',
+        lead: 'Observe le circuit',
+        text: "et repère les composants à placer ou régler sur l'établi 3D."
+      },
+      {
+        num: 2,
+        icon: '🎛️',
+        lead: 'Ajuste les valeurs',
+        text: 'avec les commandes simples à droite.'
+      },
+      {
+        num: 3,
+        icon: '💡',
+        lead: 'Allume et teste le circuit',
+        text: 'pour valider le fonctionnement.'
+      }
+    ]
+  }
+};
+
+export function getJpoMissionBriefing(key) {
+  const raw = String(key || '').trim().toLowerCase();
+  if (!raw) return null;
+  const clean = raw.startsWith('tp_') ? raw.slice(3) : raw;
+  if (JPO_MISSION_BRIEFINGS[clean]) {
+    return JPO_MISSION_BRIEFINGS[clean];
+  }
+  const roomCfg = JPO_ROOMS[clean];
+  if (roomCfg?.tpId && JPO_MISSION_BRIEFINGS[roomCfg.tpId]) {
+    return JPO_MISSION_BRIEFINGS[roomCfg.tpId];
+  }
+  return null;
 }
 
 export function isJpoRoomActive(roomId) {

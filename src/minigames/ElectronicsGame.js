@@ -180,6 +180,9 @@ const RESISTOR_STOCK = [
 ];
 
 export function createElectronicsGame(api) {
+  const isJpo = Boolean(
+    api?.isJpo || (typeof document !== 'undefined' && document.body?.classList?.contains('jpo-mode'))
+  );
   const bench = createWorkbench3D(api.container, {
     cameraPos: [0.02, 1.12, 1.14],
     lookAt: [0.0, 0.14, -0.02],
@@ -592,11 +595,17 @@ export function createElectronicsGame(api) {
     const ready = ledSim.status === 'ok' && divSim.ok && state.powerOn;
     const stepIdx = ledSim.status !== 'ok' ? 0 : !divSim.ok ? 1 : 2;
     api.setStages(
-      [
-        { name: '1. Circuit LED 5V' },
-        { name: '2. Pont Diviseur 3.3V' },
-        { name: '3. Multimètre & +5V' }
-      ],
+      isJpo
+        ? [
+            { name: '1. Protéger la LED' },
+            { name: '2. Régler 3,3 V' },
+            { name: '3. Allumer & tester' }
+          ]
+        : [
+            { name: '1. Circuit LED 5V' },
+            { name: '2. Pont Diviseur 3.3V' },
+            { name: '3. Multimètre & +5V' }
+          ],
       stepIdx,
       (idx) => {
         if (idx === 0 || idx === 1) selectCamera('breadboard');
@@ -604,17 +613,88 @@ export function createElectronicsGame(api) {
       }
     );
 
-    bench.setInstruction(
-      ready ? 'CIRCUITS VALIDÉS' : 'ÉLECTRONIQUE & MULTIMÈTRE 3D',
-      ready
-        ? 'LED nominale (~13.6 mA) et Pont diviseur (3.33 V) conformes !'
-        : 'Mesurez les résistances, câbles R_LED (220Ω) + Pont Diviseur 3.3V (R1=10kΩ, R2=20kΩ) et activez +5V',
-      'Sélectionnez une résistance sur le plateau pour la mesurer au Multimètre 3D puis cliquez sur un slot de la Breadboard.'
-    );
-    bench.setAccuracy(`LED: ${ledSim.currentMa} mA · Vout: ${divSim.vout.toFixed(2)}V`);
+    if (isJpo) {
+      if (ready) {
+        bench.setInstruction(
+          'MISSION RÉUSSIE !',
+          'La LED s’allume bien et la carte reçoit 3,3 V !',
+          'Clique sur « Terminer la mission » en bas à droite pour voir ton score.'
+        );
+      } else if (ledSim.status !== 'ok') {
+        bench.setInstruction(
+          'ÉTAPE 1 / 3',
+          'Protège la petite lumière rouge (LED) avec une résistance de 220 Ω',
+          'Choisis 220 Ω en bas puis clique sur le 1er emplacement à droite.'
+        );
+      } else if (!divSim.ok) {
+        bench.setInstruction(
+          'ÉTAPE 2 / 3',
+          'Règle la tension de la carte à 3,3 V (R1 = 10 kΩ, R2 = 20 kΩ)',
+          'Sélectionne 10 kΩ pour R1 Haut et 20 kΩ pour R2 Bas dans le panneau à droite.'
+        );
+      } else {
+        bench.setInstruction(
+          'ÉTAPE 3 / 3',
+          'Allume et teste le circuit pour valider le fonctionnement !',
+          'Clique sur le bouton vert « Allumer le circuit » en bas ou sur le bouton 3D à gauche.'
+        );
+      }
+      bench.setAccuracy(`LED : ${ledSim.status === 'ok' ? 'OK' : 'À régler'} · Carte : ${divSim.vout.toFixed(2)} V`);
+    } else {
+      bench.setInstruction(
+        ready ? 'CIRCUITS VALIDÉS' : 'ÉLECTRONIQUE & MULTIMÈTRE 3D',
+        ready
+          ? 'LED nominale (~13.6 mA) et Pont diviseur (3.33 V) conformes !'
+          : 'Mesurez les résistances, câbles R_LED (220Ω) + Pont Diviseur 3.3V (R1=10kΩ, R2=20kΩ) et activez +5V',
+        'Sélectionnez une résistance sur le plateau pour la mesurer au Multimètre 3D puis cliquez sur un slot de la Breadboard.'
+      );
+      bench.setAccuracy(`LED: ${ledSim.currentMa} mA · Vout: ${divSim.vout.toFixed(2)}V`);
+    }
+
+    const jpoSlotLabels = {
+      rLed: '1. Protection LED (conseillé : 220 Ω)',
+      r1: '2. Réglage Haut R1 (conseillé : 10 kΩ)',
+      r2: '3. Réglage Bas R2 (conseillé : 20 kΩ)'
+    };
 
     const selectedRes = RESISTOR_STOCK.find((r) => r.id === state.selectedResistorId);
-    const drawer = bench.setSideDrawer(`
+    const drawer = bench.setSideDrawer(
+      isJpo
+        ? `
+      <div style="display:flex;flex-direction:column;gap:10px;background:rgba(15,23,42,0.94);color:#f8fafc;padding:12px;border-radius:12px;border:1px solid #334155;">
+        <div style="font-weight:800;color:#38bdf8;">⚡ COMMANDES DE LA CARTE</div>
+        <div style="display:flex;justify-content:space-between;background:#020617;padding:8px 10px;border-radius:8px;gap:8px;">
+          <span>Lumière LED :</span>
+          <strong style="color:${ledSim.status === 'ok' ? '#4ade80' : '#fbbf24'};">${ledSim.status === 'ok' ? 'Prête ✔' : ledSim.status === 'burned' ? 'Trop fort (220 Ω)' : 'À brancher (220 Ω)'}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;background:#020617;padding:8px 10px;border-radius:8px;gap:8px;">
+          <span>Tension carte :</span>
+          <strong style="color:${divSim.ok ? '#4ade80' : '#fbbf24'};">${divSim.vout.toFixed(2)} V (cible 3,3 V)</strong>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button type="button" id="elec-prev-res" class="tp3d-step-btn" title="Composant précédent">◀</button>
+          <div style="flex:1;text-align:center;font-weight:800;color:#bae6fd;">${selectedRes ? formatOhms(selectedRes.ohms) : 'Aucun'}</div>
+          <button type="button" id="elec-next-res" class="tp3d-step-btn" title="Composant suivant">▶</button>
+        </div>
+        <div style="font-weight:700;color:#94a3b8;">Placer le composant choisi :</div>
+        <div style="display:grid;grid-template-columns:1fr;gap:8px;">
+          ${slotDefs
+            .map((sd) => {
+              const curId = state.slots[sd.id];
+              const curRes = RESISTOR_STOCK.find((r) => r.id === curId);
+              return `<button type="button" class="tp-connect-btn ${curRes ? 'done' : ''}" data-slot-id="${sd.id}">
+                <span>${curRes ? '✅' : '🔌'} ${jpoSlotLabels[sd.id] || sd.label}</span>
+                <strong style="color:#38bdf8;">${curRes ? formatOhms(curRes.ohms) : 'À placer'}</strong>
+              </button>`;
+            })
+            .join('')}
+        </div>
+        <button type="button" id="elec-pol-btn" class="tp-connect-btn">
+          Sens de la LED : <strong>${state.ledForwardPolarity ? 'Normal (allumée)' : 'Inversé (éteinte)'}</strong>
+        </button>
+      </div>
+    `
+        : `
       <div style="display:flex;flex-direction:column;gap:8px;background:rgba(15,23,42,0.92);color:#f8fafc;padding:9px 10px;border-radius:10px;border:1px solid #334155;font-size:12px;">
         <div style="font-weight:800;color:#38bdf8;font-size:12px;">BANC ÉLECTRONIQUE & MULTIMÈTRE</div>
         <div style="display:flex;justify-content:space-between;background:#020617;padding:6px 8px;border-radius:6px;">
@@ -647,7 +727,8 @@ export function createElectronicsGame(api) {
           Polarité LED : <strong>${state.ledForwardPolarity ? 'Directe (+ → -)' : 'Inversée'}</strong>
         </button>
       </div>
-    `);
+    `
+    );
     const cycleRes = (delta) => {
       const idx = RESISTOR_STOCK.findIndex((r) => r.id === state.selectedResistorId);
       const next = (Math.max(0, idx) + delta + RESISTOR_STOCK.length) % RESISTOR_STOCK.length;
@@ -682,19 +763,61 @@ export function createElectronicsGame(api) {
       }
     );
 
-    bench.setActions([
-      { id: 'dmm-mode', label: state.dmmMode === 'OHM' ? 'Multimètre: Mode Ω → V DC' : 'Multimètre: Mode V DC → Ω', onClick: () => { state.dmmMode = state.dmmMode === 'OHM' ? 'VDC' : 'OHM'; state.multimeterChecked = true; updateVisuals(); refreshHud(); } },
-      { id: 'pwr-5v', label: state.powerOn ? 'Couper +5V' : 'Alimenter +5V', primary: !ready, onClick: togglePower5V },
-      { id: 'finish-elec', label: 'Valider l’Atelier /20', primary: ready, onClick: finishWorkshop },
-      {
-        id: 'hint-elec',
-        label: '💡 Indice',
-        onClick: () => {
-          bench.showToast('Cible LED 5V : R_LED = 220 Ω • Pont diviseur 3.3V : R1 = 10 kΩ et R2 = 20 kΩ (Direct + → -).', 'info');
-        }
-      },
-      { id: 'reset-elec', label: '🔄 Réinitialiser', onClick: () => { sfx.click(); resetAll(); } }
-    ]);
+    bench.setActions(
+      isJpo
+        ? [
+            {
+              id: 'dmm-mode',
+              label: state.dmmMode === 'OHM' ? '🔍 Mesurer tension (V)' : '🔍 Mesurer composant (Ω)',
+              onClick: () => {
+                state.dmmMode = state.dmmMode === 'OHM' ? 'VDC' : 'OHM';
+                state.multimeterChecked = true;
+                updateVisuals();
+                refreshHud();
+              }
+            },
+            {
+              id: 'pwr-5v',
+              label: state.powerOn ? '🔌 Couper le courant' : '⚡ Allumer le circuit',
+              primary: !ready,
+              onClick: togglePower5V
+            },
+            {
+              id: 'finish-elec',
+              label: '✅ Terminer la mission',
+              primary: ready,
+              onClick: finishWorkshop
+            },
+            {
+              id: 'hint-elec',
+              label: '💡 Astuce',
+              onClick: () => {
+                bench.showToast('Place 220 Ω pour la LED, 10 kΩ sur R1 Haut, 20 kΩ sur R2 Bas, puis allume le circuit !', 'info');
+              }
+            },
+            {
+              id: 'reset-elec',
+              label: '🔄 Recommencer',
+              onClick: () => {
+                sfx.click();
+                resetAll();
+              }
+            }
+          ]
+        : [
+            { id: 'dmm-mode', label: state.dmmMode === 'OHM' ? 'Multimètre: Mode Ω → V DC' : 'Multimètre: Mode V DC → Ω', onClick: () => { state.dmmMode = state.dmmMode === 'OHM' ? 'VDC' : 'OHM'; state.multimeterChecked = true; updateVisuals(); refreshHud(); } },
+            { id: 'pwr-5v', label: state.powerOn ? 'Couper +5V' : 'Alimenter +5V', primary: !ready, onClick: togglePower5V },
+            { id: 'finish-elec', label: 'Valider l’Atelier /20', primary: ready, onClick: finishWorkshop },
+            {
+              id: 'hint-elec',
+              label: '💡 Indice',
+              onClick: () => {
+                bench.showToast('Cible LED 5V : R_LED = 220 Ω • Pont diviseur 3.3V : R1 = 10 kΩ et R2 = 20 kΩ (Direct + → -).', 'info');
+              }
+            },
+            { id: 'reset-elec', label: '🔄 Réinitialiser', onClick: () => { sfx.click(); resetAll(); } }
+          ]
+    );
   }
 
   function resetAll() {

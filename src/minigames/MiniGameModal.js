@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
 import { getStationById } from '../core/gameState.js';
+import { getJpoMissionBriefing } from '../core/jpoConfig.js';
 import { computeTpCoinReward } from '../world/ShopCatalog.js';
 import { buildBreakdownLines, renderBreakdownHtml } from '../core/grading.js';
 
@@ -11,6 +12,7 @@ export class MiniGameModal {
     this.subtitleEl = document.getElementById('mg-subtitle');
     this.titleEl = document.getElementById('mg-title');
     this.stagePillsEl = document.getElementById('mg-stage-pills');
+    this.jpoHelpBtn = document.getElementById('mg-jpo-help-btn');
     this.timerEl = document.getElementById('mg-timer');
     this.contentEl = document.getElementById('mg-content');
     this.exitBtn = document.getElementById('mg-exit-btn');
@@ -22,11 +24,18 @@ export class MiniGameModal {
     this.startTimeMs = 0;
     this.onCloseCallback = null;
     this.onFinishCallback = null;
+    this.onOpenHelpCallback = null;
+    this.jpoMode = false;
     this.vrManager = null;
     this.vrResultScene = null;
     this.vrResultActive = false;
     this._isOpen = false;
     this.stageSnapshot = { stages: [], activeStageIdx: 0, onSelectStage: null };
+
+    this.jpoHelpBtn?.addEventListener('click', () => {
+      sfx.click();
+      this.onOpenHelpCallback?.();
+    });
 
     this.exitBtn.addEventListener('click', () => {
       sfx.click();
@@ -34,7 +43,7 @@ export class MiniGameModal {
     });
   }
 
-  open(tpId, createGameFn, { vrManager = null, onComplete, onClose }) {
+  open(tpId, createGameFn, { vrManager = null, jpoMode = false, onOpenHelp = null, onComplete, onClose }) {
     const tp = getStationById(tpId);
     if (!tp) return;
     if (document.pointerLockElement) {
@@ -52,9 +61,13 @@ export class MiniGameModal {
 
     this.activeTpId = tpId;
     this.currentTp = tp;
+    this.jpoMode = Boolean(jpoMode);
+    this.onOpenHelpCallback = typeof onOpenHelp === 'function' ? onOpenHelp : null;
     this.onFinishCallback = onComplete;
     this.onCloseCallback = onClose;
     this.stageSnapshot = { stages: [], activeStageIdx: 0, onSelectStage: null };
+
+    this.jpoHelpBtn?.classList.toggle('hidden', !(this.jpoMode && this.onOpenHelpCallback));
 
     const vrActive = Boolean(this.vrManager?.isVrActive());
     this.backdrop.classList.toggle('vr-passthrough', vrActive);
@@ -87,8 +100,14 @@ export class MiniGameModal {
     };
 
     this.iconEl.textContent = tp.icon;
-    this.subtitleEl.textContent = `BAC PRO CIEL • ATELIER 3D • ${tp.pole.toUpperCase()}`;
-    this.titleEl.textContent = tp.title;
+    if (this.jpoMode) {
+      const briefing = getJpoMissionBriefing(tpId);
+      this.subtitleEl.textContent = `PORTES OUVERTES • DÉCOUVERTE ${tp.pole.toUpperCase()}`;
+      this.titleEl.textContent = briefing?.shortTitle || tp.title;
+    } else {
+      this.subtitleEl.textContent = `BAC PRO CIEL • ATELIER 3D • ${tp.pole.toUpperCase()}`;
+      this.titleEl.textContent = tp.title;
+    }
     this.stagePillsEl.innerHTML = '';
     this.backdrop.classList.add('tp3d-mode');
     this.backdrop.classList.remove('hidden');
@@ -103,6 +122,7 @@ export class MiniGameModal {
 
     const api = {
       container: this.contentEl,
+      isJpo: this.jpoMode,
       setStages: (stages, activeIdx, onSelect) => {
         this.stageSnapshot = {
           stages: stages || [],
@@ -189,6 +209,7 @@ export class MiniGameModal {
   }
 
   _showResultScreen(tp, score, durationSec, summaryHtml, breakdown = null) {
+    this.jpoHelpBtn?.classList.add('hidden');
     const passed = score >= 10;
     const isPerfect = score === 20;
     const estXp = Math.round(score * 15) + 30;
@@ -269,8 +290,8 @@ export class MiniGameModal {
           <div class="mg-result-badge ${passed ? 'pass' : 'fail'} ${isPerfect ? 'perfect' : ''}">
             <div class="mg-result-score">${score.toFixed(1)}<span>/20</span></div>
             <div class="mg-result-rewards">
-              <span class="mg-result-xp">+${estXp} XP</span>
-              ${coinsBase > 0 ? `<span class="mg-result-coins">🪙 +${coinsBase} CC</span>` : ''}
+              ${this.jpoMode ? '' : `<span class="mg-result-xp">+${estXp} XP</span>`}
+              ${!this.jpoMode && coinsBase > 0 ? `<span class="mg-result-coins">🪙 +${coinsBase} CC</span>` : ''}
             </div>
             <div class="mg-result-status">${isPerfect ? '🏆 PARFAIT 20/20' : passed ? '✅ COMPÉTENCE VALIDÉE' : '⚠️ À RETRAVAILLER'}</div>
           </div>
@@ -323,6 +344,9 @@ export class MiniGameModal {
 
   close(payload = {}) {
     this._isOpen = false;
+    this.jpoMode = false;
+    this.onOpenHelpCallback = null;
+    this.jpoHelpBtn?.classList.add('hidden');
     this.vrResultActive = false;
     this.vrManager?.detachTpContext?.();
     this.vrManager?.sceneMgr?.setCustomRenderTarget?.(null, null);

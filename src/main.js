@@ -76,9 +76,11 @@ import {
   createJpoRoomMap,
   createJpoVisitorName,
   createKioskIdleController,
+  getJpoMissionBriefing,
   getJpoRoomConfig,
   isJpoActive,
   isJpoRoomActive,
+  JPO_AUTO_START_TP,
   JPO_DEMO_COINS,
   JPO_KIOSK_IDLE_MS,
   readJpoConfig,
@@ -102,6 +104,7 @@ import { BattlePassModal } from './ui/BattlePassModal.js';
 import { buildShopViewModel, ShopModal } from './ui/ShopModal.js';
 import { buildLockerViewModel, LockerModal } from './ui/LockerModal.js';
 import { TabletOS, shouldHandleTabShortcut } from './ui/TabletOS.js';
+import { JpoBriefingModal } from './ui/JpoBriefingModal.js';
 import { MiniGameModal } from './minigames/MiniGameModal.js';
 import { getCielOsTouchLayout } from './minigames/TouchTpHelpers.js';
 import { VariationTableSession } from './minigames/VariationTableGame.js';
@@ -313,6 +316,7 @@ let platformModal = null;
 let touchControls = null;
 let dialogueModal = null;
 let miniGameModal = null;
+let jpoBriefingModal = null;
 let changelogModal = null;
 let faqModal = null;
 let battlePassModal = null;
@@ -336,8 +340,6 @@ const jpoState = {
   roomConfig: null,
   kiosk: false,
   demoCoins: 0,
-  tpAutoOpened: false,
-  tpAutoTimer: null,
   hasMovedSinceSpawn: false,
   idleController: null,
   idleDisplayTimer: null,
@@ -421,6 +423,7 @@ function startKioskMode() {
 function openJpoFeaturedTp() {
   const tpId = jpoState.roomConfig?.tpId;
   if (!tpId || !joined) return;
+  if (jpoBriefingModal?.isOpen?.()) return;
   if (miniGameModal?.backdrop && !miniGameModal.backdrop.classList.contains('hidden')) {
     return;
   }
@@ -430,10 +433,7 @@ function openJpoFeaturedTp() {
 }
 
 function resetJpoVisit(reason = 'manual') {
-  if (jpoState.tpAutoTimer) {
-    clearTimeout(jpoState.tpAutoTimer);
-    jpoState.tpAutoTimer = null;
-  }
+  jpoBriefingModal?.close?.();
   activeCameraTweenId++;
   tpOpenSeqId++;
   if (typeof document !== 'undefined' && document.pointerLockElement) {
@@ -975,6 +975,7 @@ sceneMgr.addAlwaysUpdater((dt, elapsed) => {
 try {
   dialogueModal = new DialogueModal();
   miniGameModal = new MiniGameModal();
+  jpoBriefingModal = new JpoBriefingModal();
 } catch (err) {
   console.warn('Modales de dialogue/TP:', err);
 }
@@ -3826,10 +3827,31 @@ function animateCameraPose(targetPos, lookAtPos, durationMs = 420) {
 
 let tpOpenSeqId = 0;
 
-async function openTp(tpId, stationItem = null) {
+async function openTp(tpId, stationItem = null, { skipBriefing = false } = {}) {
   const tp = getStationById(tpId);
   const factory = MINIGAME_FACTORIES[tpId];
   if (!tp || !factory) return;
+
+  const jpoDemo = isJpoDemoActive();
+  if (jpoDemo && !skipBriefing && jpoBriefingModal && getJpoMissionBriefing(tpId)) {
+    lab.setHoveredInteractable?.(null);
+    hoveredInteractable = null;
+    if (document.pointerLockElement) {
+      document.exitPointerLock?.();
+    }
+    sfx.interact();
+    setModalActive(true, !survivalState.inActiveMatch, true);
+    jpoBriefingModal.open(tpId, {
+      mode: 'start',
+      onStart: () => {
+        openTp(tpId, stationItem, { skipBriefing: true });
+      },
+      onCancel: () => {
+        setModalActive(false, false, false);
+      }
+    });
+    return;
+  }
 
   const openSeq = ++tpOpenSeqId;
   lab.setHoveredInteractable?.(null);
@@ -3837,13 +3859,13 @@ async function openTp(tpId, stationItem = null) {
 
   if (!gameState.profile.questAccepted) {
     gameState.profile.questAccepted = true;
-    if (!isJpoDemoActive()) {
+    if (!jpoDemo) {
       network.acceptQuest(gameState.profile.name);
     }
   }
 
   sfx.interact();
-  if (!isJpoDemoActive()) {
+  if (!jpoDemo) {
     network.sendActivity(`En ${tp.shortTitle}`);
   }
   voiceChat.setInTp(true);
@@ -3866,6 +3888,8 @@ async function openTp(tpId, stationItem = null) {
 
   miniGameModal.open(tpId, factory, {
     vrManager,
+    jpoMode: jpoDemo,
+    onOpenHelp: jpoDemo ? () => jpoBriefingModal?.open?.(tpId, { mode: 'help' }) : null,
     onComplete: ({ tpId: doneId, score, durationSec }) => {
       const safeScore = Number.isFinite(Number(score))
         ? Math.max(0, Math.min(20, Math.round(Number(score) * 10) / 10))
@@ -3926,8 +3950,9 @@ async function openTp(tpId, stationItem = null) {
       }
     },
     onClose: ({ replayTpId } = {}) => {
+      jpoBriefingModal?.close?.();
       if (replayTpId) {
-        openTp(replayTpId, null);
+        openTp(replayTpId, null, { skipBriefing: true });
         return;
       }
       if (!isJpoDemoActive()) {
@@ -4776,10 +4801,7 @@ try {
 }
 
 function returnToMainMenu(isLogout = false) {
-  if (jpoState.tpAutoTimer) {
-    clearTimeout(jpoState.tpAutoTimer);
-    jpoState.tpAutoTimer = null;
-  }
+  jpoBriefingModal?.close?.();
   stopKioskMode();
   hud?.setJpoMode?.({ roomConfig: null, kiosk: false });
   activeCameraTweenId++;
@@ -5814,6 +5836,20 @@ window.addEventListener('keydown', (e) => {
     }
   }
 
+  if (jpoBriefingModal?.isOpen?.() && !isTyping) {
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      jpoBriefingModal.dismiss();
+      return;
+    }
+    const onBriefingBtn = Boolean(e.target?.closest?.('#jpo-briefing-modal button'));
+    if (!onBriefingBtn && (e.code === 'Enter' || e.code === 'Space')) {
+      e.preventDefault();
+      jpoBriefingModal.confirmPrimary();
+      return;
+    }
+  }
+
   if (activeCinematic?.phase === 'intro' && !subModalActive) {
     if (e.code === 'Escape') {
       e.preventDefault();
@@ -6794,10 +6830,7 @@ function startGameSession(
   { name, room, skin, privateDebug = false, forceIntro = false, jpoRoom = null },
   startVr = false
 ) {
-  if (jpoState.tpAutoTimer) {
-    clearTimeout(jpoState.tpAutoTimer);
-    jpoState.tpAutoTimer = null;
-  }
+  jpoBriefingModal?.close?.();
   const cleanRoom = room || 'plateau-u300';
   const isDebugRoom = Boolean(
     privateDebug || String(cleanRoom).toLowerCase().startsWith('priv-debug')
@@ -6811,7 +6844,6 @@ function startGameSession(
     jpoState.roomId = jpoRoom;
     jpoState.roomConfig = getJpoRoomConfig(jpoRoom);
     jpoState.demoCoins = 0;
-    jpoState.tpAutoOpened = false;
     jpoState.hasMovedSinceSpawn = false;
     const expectedMapId = `jpo-room-${jpoRoom}`;
     if (!currentMapData?.jpoIsolated || currentMapData.id !== expectedMapId || lab.combatDoors.length > 0) {
@@ -6854,7 +6886,6 @@ function startGameSession(
     jpoState.roomId = 'standard';
     jpoState.roomConfig = null;
     jpoState.demoCoins = 0;
-    jpoState.tpAutoOpened = false;
     jpoState.hasMovedSinceSpawn = false;
     if (currentMapData?.jpoIsolated) {
       applyMapData(standardMapData || createDefaultMap(), false);
@@ -6924,15 +6955,12 @@ function startGameSession(
   if (startVr) {
     vrManager?.enterVr?.();
   } else if (activeJpo) {
-    jpoState.tpAutoTimer = setTimeout(() => {
-      if (joined && isJpoDemoActive() && !jpoState.tpAutoOpened) {
-        jpoState.tpAutoOpened = true;
-        openJpoFeaturedTp();
-      }
-    }, 450);
+    if (JPO_AUTO_START_TP) {
+      openJpoFeaturedTp();
+    }
     setTimeout(() => {
       hud?.toast?.(
-        `${jpoState.roomConfig.icon} ${jpoState.roomConfig.label} — Approchez-vous du poste ou cliquez sur « Lancer le TP » !`,
+        `${jpoState.roomConfig.icon} ${jpoState.roomConfig.label} — Approchez-vous du poste et appuyez sur [E] pour démarrer l'activité !`,
         'success'
       );
     }, 300);
