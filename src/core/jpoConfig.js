@@ -12,7 +12,27 @@ export const JPO_BRIEFING_RESUME_LABEL = "✅ Reprendre l'activité";
 export const JPO_HELP_BUTTON_LABEL = '❓ Aide / Consignes';
 export const JPO_WELCOME_BADGE = 'PORTES OUVERTES • BAC PRO CIEL';
 export const JPO_WELCOME_PLAY_LABEL = '🎮 Jouer';
-export const JPO_ROOM_IDS = ['standard', 'cyber', 'reseau', 'elec', 'audiovisuel'];
+export const JPO_ROOM_IDS = ['standard', 'domotique', 'reseau', 'elec', 'audiovisuel'];
+
+export const JPO_VIRTUAL_STATIONS = {
+  domotique: {
+    id: 'domotique',
+    title: 'TP Domotique & Maison Connectée 3D',
+    shortTitle: 'Domotique & IoT',
+    icon: '🏠',
+    pole: 'Domotique & IoT',
+    room: 'U305',
+    color: '#06b6d4',
+    brief:
+      'Connecte les capteurs IoT, programme les scénarios intelligents et lance la simulation jour/nuit de la maison connectée.',
+    teacherHint:
+      '« Appaire les capteurs sans fil, active les scénarios intelligents puis lance la simulation jour/nuit ! »'
+  }
+};
+
+export function getJpoVirtualStation(tpId) {
+  return JPO_VIRTUAL_STATIONS[String(tpId || '').trim().toLowerCase()] || null;
+}
 
 export const JPO_ROOMS = {
   standard: {
@@ -31,21 +51,21 @@ export const JPO_ROOMS = {
     visitorPrefix: null,
     description: 'Jeu complet sans restriction avec menu principal et connexion élève.'
   },
-  cyber: {
-    id: 'cyber',
-    label: 'Salle Cybersécurité',
-    shortLabel: 'Cybersécurité',
-    badgeCode: 'CYBER',
-    poleLabel: 'Pôle Cybersécurité • SOC (U305)',
+  domotique: {
+    id: 'domotique',
+    label: 'Salle Domotique',
+    shortLabel: 'Domotique',
+    badgeCode: 'DOMOTIQUE',
+    poleLabel: 'Pôle Domotique & Maison Connectée (U305)',
     roomCode: 'U305',
-    icon: '🛡️',
-    accent: '#f43f5e',
-    tpId: 'antivirus',
-    tpShortLabel: 'TP Cyber SOC',
-    tpLabel: 'TP Cybersécurité & Défense SOC 3D',
+    icon: '🏠',
+    accent: '#06b6d4',
+    tpId: 'domotique',
+    tpShortLabel: 'TP Domotique & IoT',
+    tpLabel: 'TP Domotique & Maison Connectée 3D',
     demoCoins: 0,
-    visitorPrefix: 'Visiteur_Cyber',
-    description: 'Salle Cybersécurité dédiée et fermée (U305) • Accès direct sans compte • TP Cyber SOC prêt à lancer.'
+    visitorPrefix: 'Visiteur_Domotique',
+    description: 'Salle Domotique & Maison Connectée dédiée et fermée (U305) • Accès direct sans compte • TP Domotique & IoT prêt à lancer.'
   },
   reseau: {
     id: 'reseau',
@@ -99,6 +119,7 @@ export const JPO_ROOMS = {
 
 export function normalizeJpoRoom(raw) {
   const clean = String(raw || '').trim().toLowerCase();
+  if (clean === 'cyber') return 'domotique';
   return JPO_ROOM_IDS.includes(clean) ? clean : 'standard';
 }
 
@@ -107,33 +128,33 @@ export function getJpoRoomConfig(roomId) {
 }
 
 export const JPO_MISSION_BRIEFINGS = {
-  antivirus: {
-    tpId: 'antivirus',
-    roomId: 'cyber',
-    objectType: 'tp_antivirus',
-    icon: '🛡️',
-    accent: '#f43f5e',
-    shortTitle: 'Mission Cyber : Protège le réseau du lycée',
-    title: '🛡️ Mission Cyber : Protège le réseau du lycée !',
-    intro: 'Un pirate attaque les ordinateurs du lycée. Ton objectif en 3 étapes simples :',
+  domotique: {
+    tpId: 'domotique',
+    roomId: 'domotique',
+    objectType: 'tp_domotique',
+    icon: '🏠',
+    accent: '#06b6d4',
+    shortTitle: 'Mission Domotique : Automatise la maison connectée',
+    title: '🏠 Mission Domotique : Automatise la maison connectée !',
+    intro: 'Une maison connectée attend ta configuration. Ton objectif en 3 étapes simples :',
     steps: [
       {
         num: 1,
-        icon: '🔌',
-        lead: 'Coupe le câble',
-        text: "du PC infecté (clique sur l'élément rouge ou le bouton « Isoler le PC ») pour stopper le virus."
+        icon: '📡',
+        lead: 'Connecte les capteurs',
+        text: '(présence, température, volets) à la box domotique centrale.'
       },
       {
         num: 2,
-        icon: '🧱',
-        lead: 'Bloque les intrus',
-        text: 'en activant les protections du pare-feu dans le panneau à droite.'
+        icon: '⚙️',
+        lead: 'Programme les scénarios intelligents',
+        text: '(éclairage auto, chauffage éco, alarme) depuis le panneau à droite.'
       },
       {
         num: 3,
-        icon: '🧼',
-        lead: "Lance l'antivirus",
-        text: '(bouton bleu en bas à droite) pour nettoyer le système et remonter la barre verte à 100 %.'
+        icon: '🌞',
+        lead: 'Lance le test grandeur nature',
+        text: 'et vérifie que toute la maison réagit automatiquement.'
       }
     ]
   },
@@ -242,20 +263,21 @@ export function getJpoMissionBriefing(key) {
   if (JPO_MISSION_BRIEFINGS[clean]) {
     return JPO_MISSION_BRIEFINGS[clean];
   }
-  const roomCfg = JPO_ROOMS[clean];
-  if (roomCfg?.tpId && JPO_MISSION_BRIEFINGS[roomCfg.tpId]) {
+  const normalizedRoom = normalizeJpoRoom(clean);
+  const roomCfg = JPO_ROOMS[normalizedRoom];
+  if (normalizedRoom !== 'standard' && roomCfg?.tpId && JPO_MISSION_BRIEFINGS[roomCfg.tpId]) {
     return JPO_MISSION_BRIEFINGS[roomCfg.tpId];
   }
   return null;
 }
 
 export const JPO_WELCOME_SCREENS = {
-  cyber: {
-    roomId: 'cyber',
-    icon: '🛡️',
-    accent: '#f43f5e',
-    title: '🛡️ Bienvenue sur le TP Cybersécurité',
-    subtitle: 'Découvrez comment protéger un réseau informatique contre une cyberattaque en quelques clics.'
+  domotique: {
+    roomId: 'domotique',
+    icon: '🏠',
+    accent: '#06b6d4',
+    title: '🏠 Bienvenue sur le TP Domotique & IoT',
+    subtitle: "Découvrez comment piloter et automatiser l'éclairage, le chauffage et la sécurité d'une maison connectée."
   },
   reseau: {
     roomId: 'reseau',
@@ -416,21 +438,21 @@ export function getJpoHudVisibility(roomId, kiosk = false) {
 }
 
 function buildJpoRoomObjects(roomId) {
-  if (roomId === 'cyber') {
+  if (roomId === 'domotique') {
     return [
-      { id: 'jpo-tp-antivirus', floor: 0, type: 'tp_antivirus', x: 0, z: -2.0, rotation: 0, w: 2.4, d: 1.3, color: '#f43f5e', label: 'TP Cyber SOC 3D' },
-      { id: 'jpo-cyber-soc-wall', floor: 0, type: 'soc_wall_screen', x: 0, z: -5.82, rotation: 0, w: 4.4, d: 0.16, label: 'SOC CYBER • SURVEILLANCE' },
-      { id: 'jpo-cyber-rack-l', floor: 0, type: 'net_rack_19', x: -4.6, z: -4.9, rotation: 0 },
-      { id: 'jpo-cyber-rack-r', floor: 0, type: 'net_rack_19', x: 4.6, z: -4.9, rotation: 0 },
-      { id: 'jpo-cyber-ups', floor: 0, type: 'net_ups', x: 3.3, z: -5.0, rotation: 0 },
-      { id: 'jpo-cyber-bench-l', floor: 0, type: 'workbench_large', x: -4.4, z: 0.4, rotation: 90, w: 3.4, d: 1.1 },
-      { id: 'jpo-cyber-bench-r', floor: 0, type: 'workbench_large', x: 4.4, z: 0.4, rotation: 270, w: 3.4, d: 1.1 },
-      { id: 'jpo-cyber-sw-l', floor: 0, type: 'net_switch_stack', x: -4.4, z: 0.4, rotation: 90 },
-      { id: 'jpo-cyber-sw-r', floor: 0, type: 'net_switch_stack', x: 4.4, z: 0.4, rotation: 270 },
-      { id: 'jpo-cyber-chair-l', floor: 0, type: 'chair_student', x: -3.1, z: 0.4, rotation: 270 },
-      { id: 'jpo-cyber-chair-r', floor: 0, type: 'chair_student', x: 3.1, z: 0.4, rotation: 90 },
-      { id: 'jpo-cyber-cab', floor: 0, type: 'metal_cabinet', x: -4.9, z: 4.9, rotation: 0 },
-      { id: 'jpo-cyber-wb', floor: 0, type: 'whiteboard', x: 0, z: 5.82, rotation: 180 }
+      { id: 'jpo-tp-domotique', floor: 0, type: 'tp_domotique', x: 0, z: -2.0, rotation: 0, w: 2.4, d: 1.3, color: '#06b6d4', label: 'TP Domotique & IoT 3D' },
+      { id: 'jpo-domo-wall-screen', floor: 0, type: 'soc_wall_screen', x: 0, z: -5.82, rotation: 0, w: 4.6, d: 0.16, label: 'DOMOTIQUE & IOT • SUPERVISION MAISON CONNECTÉE' },
+      { id: 'jpo-domo-rack-l', floor: 0, type: 'net_rack_19', x: -4.6, z: -4.9, rotation: 0 },
+      { id: 'jpo-domo-rack-r', floor: 0, type: 'net_rack_19', x: 4.6, z: -4.9, rotation: 0 },
+      { id: 'jpo-domo-ups', floor: 0, type: 'net_ups', x: 3.3, z: -5.0, rotation: 0 },
+      { id: 'jpo-domo-bench-l', floor: 0, type: 'workbench_large', x: -4.4, z: 0.4, rotation: 90, w: 3.4, d: 1.1 },
+      { id: 'jpo-domo-bench-r', floor: 0, type: 'workbench_large', x: 4.4, z: 0.4, rotation: 270, w: 3.4, d: 1.1 },
+      { id: 'jpo-domo-sw-l', floor: 0, type: 'net_switch_stack', x: -4.4, z: 0.4, rotation: 90 },
+      { id: 'jpo-domo-multi-r', floor: 0, type: 'elec_multimeter', x: 4.4, z: 0.4, rotation: 270 },
+      { id: 'jpo-domo-chair-l', floor: 0, type: 'chair_student', x: -3.1, z: 0.4, rotation: 270 },
+      { id: 'jpo-domo-chair-r', floor: 0, type: 'chair_student', x: 3.1, z: 0.4, rotation: 90 },
+      { id: 'jpo-domo-cab', floor: 0, type: 'metal_cabinet', x: -4.9, z: 4.9, rotation: 0 },
+      { id: 'jpo-domo-wb', floor: 0, type: 'whiteboard', x: 0, z: 5.82, rotation: 180 }
     ];
   }
   if (roomId === 'reseau') {

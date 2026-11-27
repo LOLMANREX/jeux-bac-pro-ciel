@@ -195,7 +195,7 @@ window.addEventListener('storage', () => {
 });
 renderMetalPipeState();
 
-const JPO_LINK_ROOM_IDS = ['cyber', 'reseau', 'elec', 'audiovisuel'];
+const JPO_LINK_ROOM_IDS = ['domotique', 'reseau', 'elec', 'audiovisuel'];
 
 function renderJpoState() {
   if (tabBadgeJpo) tabBadgeJpo.textContent = '4 SALLES';

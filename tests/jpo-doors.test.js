@@ -39,6 +39,10 @@ import {
   JPO_AV_TARGET,
   evaluateJpoAudiovisuelState
 } from '../src/minigames/JpoAudiovisuelGame.js';
+import {
+  JPO_DOMO_TARGET,
+  evaluateJpoDomotiqueState
+} from '../src/minigames/JpoDomotiqueGame.js';
 import { JpoBriefingModal } from '../src/ui/JpoBriefingModal.js';
 import { JpoWelcomeModal } from '../src/ui/JpoWelcomeModal.js';
 import { buildLabWorld } from '../src/world/LabBuilder.js';
@@ -254,42 +258,47 @@ test('jpoConfig : constantes, normalisation et persistance localStorage', () => 
   assert.equal(JPO_KIOSK_IDLE_MS, 60000);
   assert.equal(JPO_DEMO_COINS, 0);
 
-  assert.equal(normalizeJpoRoom('CYBER'), 'cyber');
+  assert.equal(normalizeJpoRoom('DOMOTIQUE'), 'domotique');
+  assert.equal(normalizeJpoRoom('CYBER'), 'domotique');
   assert.equal(normalizeJpoRoom('reseau'), 'reseau');
   assert.equal(normalizeJpoRoom('elec'), 'elec');
   assert.equal(normalizeJpoRoom('inconnue'), 'standard');
   assert.equal(isJpoRoomActive('standard'), false);
+  assert.equal(isJpoRoomActive('domotique'), true);
   assert.equal(isJpoRoomActive('cyber'), true);
 
   const storage = createMemoryStorage();
   assert.deepEqual(readJpoConfig(storage), { room: 'standard', kiosk: false });
 
-  saveJpoConfig({ room: 'cyber', kiosk: true }, storage);
-  assert.equal(storage.getItem('ciel_jpo_salle'), 'cyber');
+  saveJpoConfig({ room: 'domotique', kiosk: true }, storage);
+  assert.equal(storage.getItem('ciel_jpo_salle'), 'domotique');
   assert.equal(storage.getItem('ciel_jpo_kiosk'), '1');
-  assert.deepEqual(readJpoConfig(storage), { room: 'cyber', kiosk: true });
+  assert.deepEqual(readJpoConfig(storage), { room: 'domotique', kiosk: true });
 
   saveJpoConfig({ room: 'elec' }, storage);
   assert.deepEqual(readJpoConfig(storage), { room: 'elec', kiosk: true });
 
   const visitor = createJpoVisitorName('reseau', () => 0.5);
   assert.ok(visitor.startsWith('Visiteur_Reseau_'));
-  assert.equal(getJpoRoomConfig('cyber').tpId, 'antivirus');
+  assert.ok(createJpoVisitorName('domotique', () => 0.5).startsWith('Visiteur_Domotique_'));
+  assert.equal(getJpoRoomConfig('domotique').tpId, 'domotique');
+  assert.equal(getJpoRoomConfig('cyber').tpId, 'domotique');
   assert.equal(getJpoRoomConfig('reseau').tpId, 'vmvlan');
   assert.equal(getJpoRoomConfig('elec').tpId, 'soldering');
-  assert.equal(JPO_ROOMS.cyber.demoCoins, 0);
+  assert.equal(JPO_ROOMS.domotique.demoCoins, 0);
   assert.equal(JPO_ROOMS.reseau.demoCoins, 0);
   assert.equal(JPO_ROOMS.elec.demoCoins, 0);
 });
 
-test('jpoConfig : resolveJpoSpawnPose place directement au pôle Cyber, Réseau et Élec', () => {
-  const defaultMap = createDefaultMap();
-  const cyberPose = resolveJpoSpawnPose(defaultMap, 'cyber');
-  assert.equal(cyberPose.roomCode, 'U305');
-  assert.equal(cyberPose.tpId, 'antivirus');
-  assert.ok(Math.abs(cyberPose.pos.x - 7.8) < 3.5);
-  assert.ok(cyberPose.pos.z > 3.5);
+test('jpoConfig : resolveJpoSpawnPose place directement au pôle Domotique, Réseau et Élec', () => {
+  const domoMap = createJpoRoomMap('domotique');
+  const domoPose = resolveJpoSpawnPose(domoMap, 'domotique');
+  assert.equal(domoPose.roomCode, 'U305');
+  assert.equal(domoPose.tpId, 'domotique');
+  assert.ok(Math.abs(domoPose.pos.x) < 1);
+  assert.ok(domoPose.pos.z > -2 && domoPose.pos.z < 2);
 
+  const defaultMap = createDefaultMap();
   const reseauPose = resolveJpoSpawnPose(defaultMap, 'reseau');
   assert.equal(reseauPose.roomCode, 'U307');
   assert.equal(reseauPose.tpId, 'vmvlan');
@@ -366,13 +375,13 @@ test('Portes Ouvertes v4.39 : visibilité HUD, salle dédiée fermée et préser
   assert.ok(stdMap.walls.length >= 10);
 
   const expectedTpType = {
-    cyber: 'tp_antivirus',
+    domotique: 'tp_domotique',
     reseau: 'tp_vmvlan',
     elec: 'tp_soldering',
     audiovisuel: 'tp_audiovisual'
   };
 
-  for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
+  for (const roomId of ['domotique', 'reseau', 'elec', 'audiovisuel']) {
     const jpoVis = getJpoHudVisibility(roomId, false);
     assert.deepEqual(jpoVis, {
       isJpo: true,
@@ -500,12 +509,12 @@ test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode
   assert.equal(isJpoActive(mem), false);
   mem.setItem('ciel_jpo_salle', 'standard');
   assert.equal(isJpoActive(mem), false);
-  for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
+  for (const roomId of ['domotique', 'reseau', 'elec', 'audiovisuel']) {
     mem.setItem('ciel_jpo_salle', roomId);
     assert.equal(isJpoActive(mem), true);
   }
 
-  for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
+  for (const roomId of ['domotique', 'reseau', 'elec', 'audiovisuel']) {
     const rawJpoMap = createJpoRoomMap(roomId);
     const normalizedJpoMap = normalizeMapData(rawJpoMap);
     assert.equal(normalizedJpoMap.jpoIsolated, true);
@@ -544,7 +553,7 @@ test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode
     value: mockLocalStorage
   });
   try {
-    for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
+    for (const roomId of ['domotique', 'reseau', 'elec', 'audiovisuel']) {
       mockLocation.search = `?salle=${roomId}`;
       assert.equal(isJpoActive(), true);
       const mapWithCombatDoor = createDefaultMap();
@@ -563,7 +572,7 @@ test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode
     }
 
     mockLocation.search = '';
-    mockLocalStorage.setItem('ciel_jpo_salle', 'cyber');
+    mockLocalStorage.setItem('ciel_jpo_salle', 'domotique');
     assert.equal(isJpoActive(), false);
 
     const stdLab = buildLabWorld(new THREE.Scene(), createDefaultMap(), { hideSprites: true });
@@ -612,17 +621,17 @@ test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgaris
   assert.equal(JPO_BRIEFING_RESUME_LABEL, "✅ Reprendre l'activité");
   assert.equal(JPO_HELP_BUTTON_LABEL, '❓ Aide / Consignes');
 
-  assert.deepEqual(Object.keys(JPO_MISSION_BRIEFINGS).sort(), ['antivirus', 'audiovisual', 'soldering', 'vmvlan']);
+  assert.deepEqual(Object.keys(JPO_MISSION_BRIEFINGS).sort(), ['audiovisual', 'domotique', 'soldering', 'vmvlan']);
 
-  const cyberBrief = getJpoMissionBriefing('tp_antivirus');
-  assert.equal(cyberBrief.title, '🛡️ Mission Cyber : Protège le réseau du lycée !');
-  assert.equal(cyberBrief.intro, 'Un pirate attaque les ordinateurs du lycée. Ton objectif en 3 étapes simples :');
-  assert.equal(cyberBrief.steps.length, 3);
-  assert.equal(cyberBrief.steps[0].lead, 'Coupe le câble');
-  assert.equal(cyberBrief.steps[1].lead, 'Bloque les intrus');
-  assert.equal(cyberBrief.steps[2].lead, "Lance l'antivirus");
-  assert.equal(getJpoMissionBriefing('antivirus'), cyberBrief);
-  assert.equal(getJpoMissionBriefing('cyber'), cyberBrief);
+  const domoBrief = getJpoMissionBriefing('tp_domotique');
+  assert.equal(domoBrief.title, '🏠 Mission Domotique : Automatise la maison connectée !');
+  assert.equal(domoBrief.intro, 'Une maison connectée attend ta configuration. Ton objectif en 3 étapes simples :');
+  assert.equal(domoBrief.steps.length, 3);
+  assert.equal(domoBrief.steps[0].lead, 'Connecte les capteurs');
+  assert.equal(domoBrief.steps[1].lead, 'Programme les scénarios intelligents');
+  assert.equal(domoBrief.steps[2].lead, 'Lance le test grandeur nature');
+  assert.equal(getJpoMissionBriefing('domotique'), domoBrief);
+  assert.equal(getJpoMissionBriefing('cyber'), domoBrief);
 
   const netBrief = getJpoMissionBriefing('tp_vmvlan');
   assert.equal(netBrief.title, '🌐 Mission Réseau : Connecte les salles du lycée !');
@@ -715,7 +724,7 @@ test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgaris
     let starts = 0;
     let cancels = 0;
     assert.equal(
-      modal.open('antivirus', {
+      modal.open('domotique', {
         mode: 'start',
         onStart: () => starts++,
         onCancel: () => cancels++
@@ -724,9 +733,9 @@ test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgaris
     );
     assert.equal(modal.isOpen(), true);
     assert.equal(elements.get('jpo-briefing-modal').classList.contains('hidden'), false);
-    assert.equal(elements.get('jpo-briefing-title').textContent, '🛡️ Mission Cyber : Protège le réseau du lycée !');
+    assert.equal(elements.get('jpo-briefing-title').textContent, '🏠 Mission Domotique : Automatise la maison connectée !');
     assert.equal(elements.get('jpo-briefing-start-btn').textContent, "🚀 C'est parti !");
-    assert.ok(elements.get('jpo-briefing-steps').innerHTML.includes('Coupe le câble'));
+    assert.ok(elements.get('jpo-briefing-steps').innerHTML.includes('Connecte les capteurs'));
 
     elements.get('jpo-briefing-start-btn').trigger('click');
     assert.equal(starts, 1);
@@ -826,7 +835,7 @@ test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgaris
 test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & reset, absence en standard, correctif ATH TP et zéro commentaire', () => {
   assert.equal(JPO_WELCOME_BADGE, 'PORTES OUVERTES • BAC PRO CIEL');
   assert.equal(JPO_WELCOME_PLAY_LABEL, '🎮 Jouer');
-  assert.deepEqual(Object.keys(JPO_WELCOME_SCREENS).sort(), ['audiovisuel', 'cyber', 'elec', 'reseau']);
+  assert.deepEqual(Object.keys(JPO_WELCOME_SCREENS).sort(), ['audiovisuel', 'domotique', 'elec', 'reseau']);
 
   assert.equal(shouldShowJpoWelcome('standard'), false);
   assert.equal(shouldShowJpoWelcome('unknown'), false);
@@ -834,9 +843,9 @@ test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & re
   assert.equal(getJpoWelcomeScreen('unknown'), null);
 
   const expectedWelcome = {
-    cyber: {
-      title: '🛡️ Bienvenue sur le TP Cybersécurité',
-      subtitle: 'Découvrez comment protéger un réseau informatique contre une cyberattaque en quelques clics.'
+    domotique: {
+      title: '🏠 Bienvenue sur le TP Domotique & IoT',
+      subtitle: "Découvrez comment piloter et automatiser l'éclairage, le chauffage et la sécurité d'une maison connectée."
     },
     reseau: {
       title: '🌐 Bienvenue sur le TP Réseaux & Systèmes',
@@ -852,7 +861,7 @@ test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & re
     }
   };
 
-  for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
+  for (const roomId of ['domotique', 'reseau', 'elec', 'audiovisuel']) {
     assert.equal(shouldShowJpoWelcome(roomId), true);
     const spec = getJpoWelcomeScreen(roomId);
     assert.ok(spec);
@@ -926,7 +935,7 @@ test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & re
     assert.equal(bodyEl.classList.contains('jpo-welcome-open'), false);
 
     let playCalls = 0;
-    for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
+    for (const roomId of ['domotique', 'reseau', 'elec', 'audiovisuel']) {
       assert.equal(modal.open(roomId, { onPlay: () => playCalls++ }), true);
       assert.equal(modal.isOpen(), true);
       assert.equal(elements.get('jpo-welcome-screen').classList.contains('hidden'), false);
@@ -944,7 +953,7 @@ test('Portes Ouvertes v4.42 : écran d’accueil Borne Kiosque au lancement & re
     assert.equal(playCalls, 4);
 
     modal.close();
-    assert.equal(modal.open('cyber', { onPlay: () => playCalls++ }), true);
+    assert.equal(modal.open('domotique', { onPlay: () => playCalls++ }), true);
     assert.equal(modal.isOpen(), true);
     assert.equal(elements.get('jpo-welcome-screen').classList.contains('hidden'), false);
     elements.get('jpo-welcome-play-btn').trigger('click');
@@ -1325,7 +1334,7 @@ test('Portes Ouvertes v4.47 : racine toujours en jeu standard, salles pilotées 
     assert.equal(isJpoActive(), false);
     loc.search = '?salle=inconnue';
     assert.equal(isJpoActive(), false);
-    for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
+    for (const roomId of ['domotique', 'reseau', 'elec', 'audiovisuel']) {
       loc.search = `?salle=${roomId}`;
       assert.deepEqual(readJpoConfig(), { room: roomId, kiosk: true });
       assert.equal(isJpoActive(), true);
@@ -1333,6 +1342,9 @@ test('Portes Ouvertes v4.47 : racine toujours en jeu standard, salles pilotées 
       assert.deepEqual(readJpoConfig(), { room: roomId, kiosk: false });
       assert.equal(buildJpoRoomUrl(roomId, 'https://ciel.lolman.ovh'), `https://ciel.lolman.ovh/?salle=${roomId}`);
     }
+    loc.search = '?salle=cyber';
+    assert.deepEqual(readJpoConfig(), { room: 'domotique', kiosk: true });
+    assert.equal(buildJpoRoomUrl('cyber', 'https://ciel.lolman.ovh'), 'https://ciel.lolman.ovh/?salle=domotique');
     assert.deepEqual(readJpoConfigFromSearch(''), { room: 'standard', kiosk: false });
   } finally {
     if (prevLoc) Object.defineProperty(globalThis, 'location', prevLoc);
@@ -1357,4 +1369,131 @@ test('Portes Ouvertes v4.47 : racine toujours en jeu standard, salles pilotées 
   }
   assert.deepEqual(scanHtmlComments(adminHtml), []);
   assert.deepEqual(scanCssComments(fs.readFileSync(path.resolve('src/admin/admin.css'), 'utf8')), []);
+});
+
+test('Portes Ouvertes v4.48 : salle Domotique & IoT, alias ?salle=cyber, mini-jeu 3D 60 FPS et zéro impact standard', () => {
+  const domoCfg = getJpoRoomConfig('domotique');
+  assert.equal(domoCfg.id, 'domotique');
+  assert.equal(domoCfg.label, 'Salle Domotique');
+  assert.equal(domoCfg.roomCode, 'U305');
+  assert.equal(domoCfg.tpId, 'domotique');
+  assert.equal(getJpoRoomConfig('cyber'), domoCfg);
+
+  const domoWelcome = getJpoWelcomeScreen('domotique');
+  assert.equal(domoWelcome.title, '🏠 Bienvenue sur le TP Domotique & IoT');
+  assert.equal(
+    domoWelcome.subtitle,
+    "Découvrez comment piloter et automatiser l'éclairage, le chauffage et la sécurité d'une maison connectée."
+  );
+  assert.equal(getJpoWelcomeScreen('cyber'), domoWelcome);
+
+  const domoBrief = getJpoMissionBriefing('domotique');
+  assert.equal(domoBrief, getJpoMissionBriefing('tp_domotique'));
+  assert.equal(domoBrief, getJpoMissionBriefing('cyber'));
+  assert.equal(domoBrief.title, '🏠 Mission Domotique : Automatise la maison connectée !');
+  assert.equal(domoBrief.steps[0].lead, 'Connecte les capteurs');
+  assert.equal(domoBrief.steps[1].lead, 'Programme les scénarios intelligents');
+  assert.equal(domoBrief.steps[2].lead, 'Lance le test grandeur nature');
+
+  const domoMap = createJpoRoomMap('domotique');
+  assert.equal(domoMap.jpoIsolated, true);
+  assert.equal(domoMap.bounds.width, 12);
+  assert.equal(domoMap.bounds.depth, 12);
+  assert.ok(domoMap.objects.some((o) => o.type === 'tp_domotique'));
+  assert.deepEqual(createJpoRoomMap('cyber'), domoMap);
+
+  const domoLab = buildLabWorld(new THREE.Scene(), domoMap, { hideSprites: true });
+  try {
+    assert.equal(domoLab.combatDoors.length, 0);
+    const domoInteractables = domoLab.interactables.filter((it) => it?.type === 'tp');
+    assert.ok(domoInteractables.length >= 1);
+    assert.ok(domoInteractables.every((it) => it.tpId === 'domotique'));
+  } finally {
+    domoLab.dispose();
+  }
+
+  const stdMap = createDefaultMap();
+  assert.ok(stdMap.objects.some((o) => o.type === 'tp_antivirus'));
+  assert.equal(stdMap.objects.some((o) => o.type === 'tp_domotique'), false);
+
+  const evInit = evaluateJpoDomotiqueState({
+    sensorPresence: false,
+    sensorTemp: false,
+    sensorShutters: false,
+    ruleAutoLight: false,
+    ruleEcoHeat: false,
+    ruleAlarm: false,
+    targetTemp: 20,
+    simTested: false
+  });
+  assert.equal(evInit.completedSteps, 0);
+  assert.equal(evInit.allValid, false);
+  assert.ok(evInit.score < 10);
+
+  const evSensors = evaluateJpoDomotiqueState({
+    sensorPresence: true,
+    sensorTemp: true,
+    sensorShutters: true,
+    ruleAutoLight: false,
+    ruleEcoHeat: false,
+    ruleAlarm: false,
+    targetTemp: 20,
+    simTested: false
+  });
+  assert.equal(evSensors.sensorsOk, true);
+  assert.equal(evSensors.completedSteps, 1);
+
+  const evPerfect = evaluateJpoDomotiqueState({
+    sensorPresence: true,
+    sensorTemp: true,
+    sensorShutters: true,
+    ruleAutoLight: true,
+    ruleEcoHeat: true,
+    ruleAlarm: true,
+    targetTemp: JPO_DOMO_TARGET.targetTemp,
+    simTested: true
+  });
+  assert.equal(evPerfect.sensorsOk, true);
+  assert.equal(evPerfect.rulesOk, true);
+  assert.equal(evPerfect.simOk, true);
+  assert.equal(evPerfect.completedSteps, 3);
+  assert.equal(evPerfect.allValid, true);
+  assert.equal(evPerfect.score, 20);
+
+  const domoGameSrc = fs.readFileSync(path.resolve('src/minigames/JpoDomotiqueGame.js'), 'utf8');
+  for (const needle of [
+    'DOMOTIQUE & IOT • BAC PRO CIEL',
+    'CANVAS_THROTTLE_SEC = 1 / 12',
+    'THREE.InstancedMesh',
+    'bench.freezeStatic(',
+    'bench.requestShadowUpdate()',
+    'applyShuttersTransform',
+    'supervisionScreen'
+  ]) {
+    assert.ok(domoGameSrc.includes(needle), `Élément manquant dans JpoDomotiqueGame.js : ${needle}`);
+  }
+
+  const adminJs = fs.readFileSync(path.resolve('src/admin/admin.js'), 'utf8');
+  assert.ok(adminJs.includes("'domotique'"));
+  assert.equal(adminJs.includes("'cyber'"), false);
+  const adminCss = fs.readFileSync(path.resolve('src/admin/admin.css'), 'utf8');
+  assert.ok(adminCss.includes('.jpo-room-card[data-jpo-room="domotique"].active'));
+
+  const forbiddenPattern = new RegExp('for' + 'tin', 'i');
+  for (const rel of [
+    'src/core/jpoConfig.js',
+    'src/minigames/JpoDomotiqueGame.js',
+    'src/minigames/MiniGameModal.js',
+    'src/world/LabBuilder.js',
+    'src/world/mapSchema.js',
+    'src/main.js',
+    'src/admin/admin.js',
+    'src/ui/ChangelogModal.js',
+    'vite.config.js',
+    'tests/jpo-doors.test.js'
+  ]) {
+    const txt = fs.readFileSync(path.resolve(rel), 'utf8');
+    assert.deepEqual(scanJsComments(txt), [], `Commentaire JS détecté dans ${rel}`);
+    assert.equal(forbiddenPattern.test(txt), false, `Nom interdit détecté dans ${rel}`);
+  }
 });

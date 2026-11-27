@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { sfx } from '../core/audio.js';
 import { getStationById } from '../core/gameState.js';
-import { getJpoMissionBriefing } from '../core/jpoConfig.js';
+import { getJpoMissionBriefing, getJpoVirtualStation } from '../core/jpoConfig.js';
 import { computeTpCoinReward } from '../world/ShopCatalog.js';
 import { buildBreakdownLines, renderBreakdownHtml } from '../core/grading.js';
 
@@ -46,7 +46,7 @@ export class MiniGameModal {
   }
 
   open(tpId, createGameFn, { vrManager = null, sceneMgr = null, jpoMode = false, onOpenHelp = null, onComplete, onClose }) {
-    const tp = getStationById(tpId);
+    const tp = getStationById(tpId) || (jpoMode ? getJpoVirtualStation(tpId) : null);
     if (!tp) return;
     if (document.pointerLockElement) {
       document.exitPointerLock?.();

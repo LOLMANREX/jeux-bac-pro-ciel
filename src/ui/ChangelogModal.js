@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.47 - Portes Ouvertes par URL Indépendante (?salle=...)';
+    : 'v4.48 - Salle & TP Domotique 3D (Portes Ouvertes)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.47 — Portes Ouvertes par URL Indépendante (?salle=...)',
+    version: 'v4.48 — Salle & TP Domotique 3D (Portes Ouvertes)',
     date: '27/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'SALLE DOMOTIQUE JPO',
+        title: 'Remplacement de la salle Cyber JPO par la salle Domotique & Maison Connectée',
+        desc: 'Nouvelle salle Portes Ouvertes dédiée (?salle=domotique, avec redirection automatique de ?salle=cyber) équipée de son établi Smart Home 3D, écran d’accueil, briefing en 3 étapes et carte dédiée dans /admin, sans aucun impact sur le mode standard.'
+      },
+      {
+        badge: 'MAQUETTE 3D IOT',
+        title: 'Nouveau TP 3D Domotique & IoT à 60 FPS',
+        desc: 'Maquette de maison connectée en coupe (éclairage LED dynamique, volets roulants motorisés, radiateur connecté avec voyant thermique, capteur de présence et box domotique avec écran de supervision temps réel) et test grandeur nature Jour/Nuit.'
+      }
+    ]
+  },
+  {
+    version: 'v4.47 — Portes Ouvertes par URL Indépendante (?salle=...)',
+    date: '27/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'ISOLATION',

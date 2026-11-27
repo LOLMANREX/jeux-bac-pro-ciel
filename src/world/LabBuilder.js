@@ -2760,6 +2760,82 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.7, 2.55, spkHighlightMats);
           continue;
         }
+
+        if (obj.type === 'tp_domotique') {
+          const bench = buildWorkbenchMesh(w, d, 0.84, mats, false);
+          grp.add(bench);
+          const houseWallMat = new THREE.MeshStandardMaterial({
+            color: '#e2e8f0',
+            roughness: 0.55,
+            metalness: 0.08,
+            emissive: '#000000',
+            emissiveIntensity: 0
+          });
+          const roofMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.45, metalness: 0.35 });
+          const solarMat = new THREE.MeshStandardMaterial({ color: '#0284c7', roughness: 0.25, metalness: 0.5 });
+          const winLitMat = new THREE.MeshStandardMaterial({
+            color: '#fef08a',
+            emissive: '#f59e0b',
+            emissiveIntensity: 0.85
+          });
+          const hubMat = new THREE.MeshStandardMaterial({
+            color: '#0f172a',
+            roughness: 0.35,
+            metalness: 0.55,
+            emissive: '#000000',
+            emissiveIntensity: 0
+          });
+          const houseBase = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.04, 0.62), mats.darkMetalMat);
+          houseBase.position.set(-0.32, 0.88, 0.06);
+          grp.add(houseBase);
+          const houseBody = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.38, 0.48), houseWallMat);
+          houseBody.position.set(-0.32, 1.09, 0.06);
+          grp.add(houseBody);
+          for (const rx of [-1, 1]) {
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.035, 0.54), roofMat);
+            roof.position.set(-0.32 + rx * 0.19, 1.36, 0.06);
+            roof.rotation.z = rx * -0.45;
+            grp.add(roof);
+          }
+          const solar = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.015, 0.34), solarMat);
+          solar.position.set(-0.14, 1.39, 0.06);
+          solar.rotation.z = -0.45;
+          grp.add(solar);
+          for (const wx of [-0.48, -0.16]) {
+            const win = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.16), winLitMat);
+            win.position.set(wx, 1.09, 0.305);
+            grp.add(win);
+          }
+          const hub = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.22), hubMat);
+          hub.position.set(0.45, 0.9, 0.12);
+          grp.add(hub);
+          const hubGlow = new THREE.Mesh(
+            new THREE.BoxGeometry(0.22, 0.018, 0.02),
+            new THREE.MeshBasicMaterial({ color: '#06b6d4' })
+          );
+          hubGlow.position.set(0.45, 0.91, 0.235);
+          grp.add(hubGlow);
+          for (let s = 0; s < 3; s++) {
+            const sensorLed = new THREE.Mesh(
+              new THREE.SphereGeometry(0.028, 8, 8),
+              new THREE.MeshBasicMaterial({ color: s === 1 ? '#22c55e' : '#06b6d4' })
+            );
+            sensorLed.position.set(0.28 + s * 0.16, 0.9, -0.16);
+            grp.add(sensorLed);
+            animatedRefs.leds.push({ mesh: sensorLed, phase: s * 1.3, alert: false });
+          }
+          const supFrame = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.46, 0.05), mats.darkMetalMat);
+          supFrame.position.set(0.32, 1.24, -0.34);
+          grp.add(supFrame);
+          const supFace = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.76, 0.38),
+            new THREE.MeshBasicMaterial({ map: makeSocScreenTexture(obj.label || 'DOMOTIQUE & IOT') })
+          );
+          supFace.position.set(0.32, 1.24, -0.312);
+          grp.add(supFace);
+          attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.8, 2.6, [houseWallMat, hubMat]);
+          continue;
+        }
       }
 
       if (obj.type === 'chair_student') {

@@ -588,6 +588,22 @@ export const MAP_ITEM_CATALOG = [
     supportTop: 0.82
   },
   {
+    type: 'tp_domotique',
+    category: 'stations',
+    subGroup: 'Bornes de TP (Ateliers 3D)',
+    label: 'TP Domotique & Maison Connectée 3D',
+    shortLabel: 'TP Domotique 3D',
+    icon: '🏠',
+    tpId: 'domotique',
+    interactRadius: 2.8,
+    defaultW: 2.4,
+    defaultD: 1.3,
+    defaultH: 1.6,
+    defaultColor: '#06b6d4',
+    collides: true,
+    supportTop: 0.84
+  },
+  {
     type: 'npc_teacher',
     category: 'stations',
     subGroup: 'PNJ',

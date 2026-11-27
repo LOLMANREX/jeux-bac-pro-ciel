@@ -78,6 +78,7 @@ import {
   createKioskIdleController,
   getJpoMissionBriefing,
   getJpoRoomConfig,
+  getJpoVirtualStation,
   isJpoActive,
   isJpoRoomActive,
   JPO_AUTO_START_TP,
@@ -120,6 +121,7 @@ import { createPcHardwareGame } from './minigames/PcHardwareGame.js';
 import { createDmxLightingGame } from './minigames/DmxLightingGame.js';
 import { createStudioRegieGame } from './minigames/StudioRegieGame.js';
 import { createJpoAudiovisuelGame } from './minigames/JpoAudiovisuelGame.js';
+import { createJpoDomotiqueGame } from './minigames/JpoDomotiqueGame.js';
 
 const MINIGAME_FACTORIES = {
   oscilloscope: createOscilloscopeGame,
@@ -130,7 +132,8 @@ const MINIGAME_FACTORIES = {
   patchrack: createPatchPanelGame,
   hardware: createPcHardwareGame,
   audiovisual: (api) => (api?.isJpo ? createJpoAudiovisuelGame(api) : createDmxLightingGame(api)),
-  studio: createStudioRegieGame
+  studio: createStudioRegieGame,
+  domotique: (api) => createJpoDomotiqueGame(api)
 };
 
 function getDynamicAllTps() {
@@ -3862,11 +3865,11 @@ function animateCameraPose(targetPos, lookAtPos, durationMs = 420) {
 let tpOpenSeqId = 0;
 
 async function openTp(tpId, stationItem = null, { skipBriefing = false } = {}) {
-  const tp = getStationById(tpId);
+  const jpoDemo = isJpoDemoActive();
+  const tp = getStationById(tpId) || (jpoDemo ? getJpoVirtualStation(tpId) : null);
   const factory = MINIGAME_FACTORIES[tpId];
   if (!tp || !factory) return;
 
-  const jpoDemo = isJpoDemoActive();
   if (jpoDemo && !skipBriefing && jpoBriefingModal && getJpoMissionBriefing(tpId)) {
     lab.setHoveredInteractable?.(null);
     hoveredInteractable = null;

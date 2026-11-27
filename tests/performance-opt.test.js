@@ -696,6 +696,11 @@ test('v4.46 — Zéro double rendu GPU, ombres statiques, pixelRatio <= 1.5, thr
   assert.ok(jpoAvSrc.includes('THREE.InstancedMesh'));
   assert.ok(jpoAvSrc.includes('bench.freezeStatic('));
 
+  const jpoDomoSrc = fs.readFileSync(path.resolve('src/minigames/JpoDomotiqueGame.js'), 'utf8');
+  assert.ok(jpoDomoSrc.includes('CANVAS_THROTTLE_SEC = 1 / 12'));
+  assert.ok(jpoDomoSrc.includes('THREE.InstancedMesh'));
+  assert.ok(jpoDomoSrc.includes('bench.freezeStatic('));
+
   for (const rel of [
     'src/world/SceneManager.js',
     'src/world/LabBuilder.js',
@@ -706,6 +711,7 @@ test('v4.46 — Zéro double rendu GPU, ombres statiques, pixelRatio <= 1.5, thr
     'src/minigames/VlanConfigGame.js',
     'src/minigames/SolderingGame.js',
     'src/minigames/JpoAudiovisuelGame.js',
+    'src/minigames/JpoDomotiqueGame.js',
     'src/ui/ShopModal.js',
     'src/ui/LockerModal.js',
     'src/ui/SkinCustomizer.js',

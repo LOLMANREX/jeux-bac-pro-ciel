@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.47 - Portes Ouvertes par URL Indépendante (?salle=...)'),
+    __APP_VERSION__: JSON.stringify('v4.48 - Salle & TP Domotique 3D (Portes Ouvertes)'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {
