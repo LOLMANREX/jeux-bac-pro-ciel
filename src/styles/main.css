@@ -8224,12 +8224,82 @@ body.jpo-mode .tp3d-side-drawer h4 {
   margin-bottom: 10px;
 }
 
+body.jpo-mode .tp3d-side-drawer .tp3d-drawer-section {
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+body.jpo-mode .tp3d-side-drawer .tp3d-drawer-title {
+  font-size: 1.04rem;
+  font-weight: 800;
+  color: #f8fafc;
+  margin-bottom: 8px;
+}
+
+body.jpo-mode .tp3d-side-drawer .av-slider-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  font-size: 0.98rem;
+}
+
+body.jpo-mode .tp3d-side-drawer .av-slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+body.jpo-mode .tp3d-side-drawer .av-link-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+body.jpo-mode .tp3d-side-drawer .av-status-line {
+  font-size: 0.96rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #e2e8f0;
+  background: rgba(2, 6, 23, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 10px;
+  padding: 9px 11px;
+  margin-bottom: 10px;
+}
+
 body.jpo-mode .tp3d-side-drawer .tp3d-tool-btn,
 body.jpo-mode .tp3d-side-drawer .tp-connect-btn,
-body.jpo-mode .tp3d-side-drawer .tp3d-act-btn {
+body.jpo-mode .tp3d-side-drawer .tp3d-act-btn,
+body.jpo-mode .tp3d-side-drawer .tp3d-action-btn {
   font-size: 1rem;
   min-height: 48px;
   padding: 11px 14px;
+}
+
+body.jpo-mode .tp3d-side-drawer .tp-hold-btn {
+  width: 100%;
+  min-height: 54px;
+  font-size: 1.04rem;
+  font-weight: 800;
+  border-radius: 12px;
+  border: 2px solid #fb923c;
+  background: linear-gradient(135deg, #ea580c, #d97706);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+body.jpo-mode .tp3d-side-drawer .tp-hold-btn.pressed {
+  transform: scale(0.98);
+  filter: brightness(1.12);
+  box-shadow: 0 0 18px rgba(251, 146, 60, 0.55);
 }
 
 body.jpo-mode .tp3d-bottom-dock {

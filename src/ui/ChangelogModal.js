@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.43 - Mode Portes Ouvertes : 4e Salle Audiovisuel & Écran d’Accueil Sécurisé';
+    : 'v4.44 - Mode Portes Ouvertes : Régie Audiovisuelle 3D Pro & TP Brasure en Salle Élec';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.43 — Mode Portes Ouvertes : 4e Salle Audiovisuel & Écran d’Accueil Sécurisé',
+    version: 'v4.44 — Mode Portes Ouvertes : Régie Audiovisuelle 3D Pro & TP Brasure en Salle Élec',
     date: '27/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'RÉGIE SPECTACLE 3D',
+        title: 'Sublimation complète de la scène 3D du TP Audiovisuel Portes Ouvertes',
+        desc: 'Ajout d’un éclairage d’ambiance studio, d’un mur acoustique avec panneau lumineux « RÉGIE SCÉNIQUE • BAC PRO CIEL », d’un tapis antidérapant avec rack 19 pouces latéral à LEDs, d’une console son réaliste (faders, potentiomètres, touches rétroéclairées et VU-mètre LED dynamique 3D), d’un pont truss en treillis à 4 projecteurs PAR LED avec faisceaux volumétriques et d’une régie vidéo multi-écrans (PGM / EN DIRECT + moniteurs CAM 1 et CAM 2 + switcher PREVIEW / ON AIR).'
+      },
+      {
+        badge: 'SALLE ÉLEC • TP BRASURE',
+        title: 'Passage de la salle Portes Ouvertes Électronique sur le TP Brasure PCB 3D',
+        desc: 'En mode Portes Ouvertes uniquement, la salle Électronique & Embarqué (U302) lance désormais le TP Brasure (soldering) avec son briefing vulgarisé en 3 étapes et des styles grand public agrandis, tout en préservant à 100 % le mode Standard.'
+      }
+    ]
+  },
+  {
+    version: 'v4.43 — Mode Portes Ouvertes : 4e Salle Audiovisuel & Écran d’Accueil Sécurisé',
+    date: '27/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: '4E SALLE PORTES OUVERTES',

@@ -274,7 +274,7 @@ test('jpoConfig : constantes, normalisation et persistance localStorage', () => 
   assert.ok(visitor.startsWith('Visiteur_Reseau_'));
   assert.equal(getJpoRoomConfig('cyber').tpId, 'antivirus');
   assert.equal(getJpoRoomConfig('reseau').tpId, 'vmvlan');
-  assert.equal(getJpoRoomConfig('elec').tpId, 'electronics');
+  assert.equal(getJpoRoomConfig('elec').tpId, 'soldering');
   assert.equal(JPO_ROOMS.cyber.demoCoins, 0);
   assert.equal(JPO_ROOMS.reseau.demoCoins, 0);
   assert.equal(JPO_ROOMS.elec.demoCoins, 0);
@@ -296,7 +296,7 @@ test('jpoConfig : resolveJpoSpawnPose place directement au pôle Cyber, Réseau 
 
   const elecPose = resolveJpoSpawnPose(defaultMap, 'elec');
   assert.equal(elecPose.roomCode, 'U302');
-  assert.equal(elecPose.tpId, 'electronics');
+  assert.equal(elecPose.tpId, 'soldering');
   assert.ok(elecPose.pos.z < -3.0);
 });
 
@@ -366,7 +366,7 @@ test('Portes Ouvertes v4.39 : visibilité HUD, salle dédiée fermée et préser
   const expectedTpType = {
     cyber: 'tp_antivirus',
     reseau: 'tp_vmvlan',
-    elec: 'tp_electronics',
+    elec: 'tp_soldering',
     audiovisuel: 'tp_audiovisual'
   };
 
@@ -614,7 +614,7 @@ test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgaris
   assert.equal(JPO_BRIEFING_RESUME_LABEL, "✅ Reprendre l'activité");
   assert.equal(JPO_HELP_BUTTON_LABEL, '❓ Aide / Consignes');
 
-  assert.deepEqual(Object.keys(JPO_MISSION_BRIEFINGS).sort(), ['antivirus', 'audiovisual', 'electronics', 'vmvlan']);
+  assert.deepEqual(Object.keys(JPO_MISSION_BRIEFINGS).sort(), ['antivirus', 'audiovisual', 'soldering', 'vmvlan']);
 
   const cyberBrief = getJpoMissionBriefing('tp_antivirus');
   assert.equal(cyberBrief.title, '🛡️ Mission Cyber : Protège le réseau du lycée !');
@@ -636,15 +636,16 @@ test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgaris
   assert.equal(getJpoMissionBriefing('vmvlan'), netBrief);
   assert.equal(getJpoMissionBriefing('reseau'), netBrief);
 
-  const elecBrief = getJpoMissionBriefing('tp_electronics');
-  assert.equal(elecBrief.title, '⚡ Mission Électronique : Fais fonctionner la carte !');
-  assert.equal(elecBrief.intro, 'Une carte électronique est en panne. Ton objectif en 3 étapes simples :');
+  const elecBrief = getJpoMissionBriefing('tp_soldering');
+  assert.equal(elecBrief.title, '🔥 Mission Brasure : Soude ta carte électronique !');
+  assert.equal(elecBrief.intro, 'Une carte électronique attend ses composants. Ton objectif en 3 étapes simples :');
   assert.equal(elecBrief.steps.length, 3);
-  assert.equal(elecBrief.steps[0].lead, 'Observe le circuit');
-  assert.equal(elecBrief.steps[1].lead, 'Ajuste les valeurs');
-  assert.equal(elecBrief.steps[2].lead, 'Allume et teste le circuit');
-  assert.equal(getJpoMissionBriefing('electronics'), elecBrief);
+  assert.equal(elecBrief.steps[0].lead, 'Prépare et chauffe');
+  assert.equal(elecBrief.steps[1].lead, 'Positionne et brase');
+  assert.equal(elecBrief.steps[2].lead, 'Contrôle et teste');
+  assert.equal(getJpoMissionBriefing('soldering'), elecBrief);
   assert.equal(getJpoMissionBriefing('elec'), elecBrief);
+  assert.equal(JPO_MISSION_BRIEFINGS.elec, elecBrief);
 
   assert.equal(getJpoMissionBriefing('standard'), null);
   assert.equal(getJpoMissionBriefing('unknown'), null);
@@ -748,7 +749,7 @@ test('Portes Ouvertes v4.41 : spawn libre sans auto-lancement, briefing vulgaris
     assert.equal(cancels, 1);
     assert.equal(modal.isOpen(), false);
 
-    assert.equal(modal.open('electronics', { mode: 'help', onStart: () => starts++ }), true);
+    assert.equal(modal.open('soldering', { mode: 'help', onStart: () => starts++ }), true);
     assert.equal(elements.get('jpo-briefing-start-btn').textContent, "✅ Reprendre l'activité");
     elements.get('jpo-briefing-start-btn').trigger('click');
     assert.equal(starts, 1);
@@ -1163,5 +1164,86 @@ test('Portes Ouvertes v4.43 : suppression Config salle / /admin et ajout complet
   assert.deepEqual(scanHtmlComments(adminHtml), []);
   assert.deepEqual(scanHtmlComments(indexHtml), []);
   assert.deepEqual(scanCssComments(adminCss), []);
+  assert.deepEqual(scanCssComments(mainCss), []);
+});
+
+test('Portes Ouvertes v4.44 : régie audiovisuelle 3D enrichie, TP Brasure en salle elec, styles JPO et zéro commentaire', () => {
+  const elecCfg = getJpoRoomConfig('elec');
+  assert.equal(elecCfg.tpId, 'soldering');
+  assert.equal(elecCfg.tpShortLabel, 'TP Brasure 3D');
+
+  const elecMap = createJpoRoomMap('elec');
+  assert.equal(elecMap.jpoIsolated, true);
+  assert.ok(elecMap.objects.some((o) => o.type === 'tp_soldering'));
+  assert.equal(elecMap.objects.some((o) => o.type === 'tp_electronics'), false);
+
+  const elecLab = buildLabWorld(new THREE.Scene(), elecMap, { hideSprites: true });
+  try {
+    assert.equal(elecLab.combatDoors.length, 0);
+    const elecInteractables = elecLab.interactables.filter((it) => it?.type === 'tp');
+    assert.ok(elecInteractables.length >= 1);
+    assert.ok(elecInteractables.every((it) => it.tpId === 'soldering'));
+  } finally {
+    elecLab.dispose();
+  }
+
+  const stdMap = createDefaultMap();
+  assert.ok(stdMap.objects.some((o) => o.type === 'tp_electronics'));
+  assert.ok(stdMap.objects.some((o) => o.type === 'tp_soldering'));
+
+  const solderBrief = getJpoMissionBriefing('elec');
+  assert.equal(solderBrief, JPO_MISSION_BRIEFINGS.elec);
+  assert.equal(solderBrief, JPO_MISSION_BRIEFINGS.soldering);
+  assert.equal(solderBrief, getJpoMissionBriefing('tp_soldering'));
+  assert.equal(solderBrief.title, '🔥 Mission Brasure : Soude ta carte électronique !');
+  assert.equal(solderBrief.steps[0].lead, 'Prépare et chauffe');
+  assert.equal(solderBrief.steps[1].lead, 'Positionne et brase');
+  assert.equal(solderBrief.steps[2].lead, 'Contrôle et teste');
+
+  const jpoAvSrc = fs.readFileSync(path.resolve('src/minigames/JpoAudiovisuelGame.js'), 'utf8');
+  for (const needle of [
+    'RÉGIE SCÉNIQUE • BAC PRO CIEL',
+    'THREE.AdditiveBlending',
+    'THREE.SpotLight',
+    'spotXs = [-0.54, -0.18, 0.18, 0.54]',
+    'CAM 1 • SCÈNE',
+    'CAM 2 • PUBLIC',
+    'PGM / EN DIRECT',
+    'PREVIEW',
+    'ON AIR',
+    'vuColumns',
+    'rackLeds',
+    'faderKnobs'
+  ]) {
+    assert.ok(jpoAvSrc.includes(needle), `Élément 3D manquant dans JpoAudiovisuelGame.js : ${needle}`);
+  }
+
+  const mainCss = fs.readFileSync(path.resolve('src/styles/main.css'), 'utf8');
+  for (const cssNeedle of [
+    'body.jpo-mode .tp3d-side-drawer .tp3d-drawer-section',
+    'body.jpo-mode .tp3d-side-drawer .tp3d-drawer-title',
+    'body.jpo-mode .tp3d-side-drawer .tp-hold-btn'
+  ]) {
+    assert.ok(mainCss.includes(cssNeedle), `Règle CSS manquante dans main.css : ${cssNeedle}`);
+  }
+
+  const adminHtml = fs.readFileSync(path.resolve('admin.html'), 'utf8');
+  assert.ok(adminHtml.includes('TP Brasure 3D prêt à jouer'));
+  assert.ok(adminHtml.includes('TP Brasure pré-activé'));
+
+  const forbiddenPattern = new RegExp('for' + 'tin', 'i');
+  for (const rel of [
+    'src/core/jpoConfig.js',
+    'src/minigames/JpoAudiovisuelGame.js',
+    'src/minigames/SolderingGame.js',
+    'src/ui/ChangelogModal.js',
+    'vite.config.js',
+    'tests/jpo-doors.test.js'
+  ]) {
+    const txt = fs.readFileSync(path.resolve(rel), 'utf8');
+    assert.deepEqual(scanJsComments(txt), [], `Commentaire JS détecté dans ${rel}`);
+    assert.equal(forbiddenPattern.test(txt), false, `Nom interdit détecté dans ${rel}`);
+  }
+  assert.deepEqual(scanHtmlComments(adminHtml), []);
   assert.deepEqual(scanCssComments(mainCss), []);
 });

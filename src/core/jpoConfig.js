@@ -72,12 +72,12 @@ export const JPO_ROOMS = {
     roomCode: 'U302',
     icon: '⚡',
     accent: '#fbbf24',
-    tpId: 'electronics',
-    tpShortLabel: 'TP Électronique 3D',
-    tpLabel: 'TP Breadboard, Multimètre & Résistances 3D',
+    tpId: 'soldering',
+    tpShortLabel: 'TP Brasure 3D',
+    tpLabel: 'TP Brasure & Soudure PCB 3D',
     demoCoins: 0,
     visitorPrefix: 'Visiteur_Elec',
-    description: 'Salle Électronique & Embarqué dédiée et fermée (U302) • Accès direct sans compte • TP Électronique 3D prêt à lancer.'
+    description: 'Salle Électronique & Embarqué dédiée et fermée (U302) • Accès direct sans compte • TP Brasure 3D prêt à lancer.'
   },
   audiovisuel: {
     id: 'audiovisuel',
@@ -167,33 +167,33 @@ export const JPO_MISSION_BRIEFINGS = {
       }
     ]
   },
-  electronics: {
-    tpId: 'electronics',
+  soldering: {
+    tpId: 'soldering',
     roomId: 'elec',
-    objectType: 'tp_electronics',
-    icon: '⚡',
+    objectType: 'tp_soldering',
+    icon: '🔥',
     accent: '#fbbf24',
-    shortTitle: 'Mission Électronique : Fais fonctionner la carte',
-    title: '⚡ Mission Électronique : Fais fonctionner la carte !',
-    intro: 'Une carte électronique est en panne. Ton objectif en 3 étapes simples :',
+    shortTitle: 'Mission Brasure : Soude ta carte électronique',
+    title: '🔥 Mission Brasure : Soude ta carte électronique !',
+    intro: 'Une carte électronique attend ses composants. Ton objectif en 3 étapes simples :',
     steps: [
       {
         num: 1,
-        icon: '👀',
-        lead: 'Observe le circuit',
-        text: "et repère les composants à placer ou régler sur l'établi 3D."
+        icon: '🌡️',
+        lead: 'Prépare et chauffe',
+        text: 'le fer à souder à la bonne température.'
       },
       {
         num: 2,
-        icon: '🎛️',
-        lead: 'Ajuste les valeurs',
-        text: 'avec les commandes simples à droite.'
+        icon: '🔥',
+        lead: 'Positionne et brase',
+        text: "les composants sur la carte avec l'étain."
       },
       {
         num: 3,
         icon: '💡',
-        lead: 'Allume et teste le circuit',
-        text: 'pour valider le fonctionnement.'
+        lead: 'Contrôle et teste',
+        text: 'tes soudures pour allumer la carte.'
       }
     ]
   },
@@ -228,6 +228,12 @@ export const JPO_MISSION_BRIEFINGS = {
     ]
   }
 };
+
+Object.defineProperty(JPO_MISSION_BRIEFINGS, 'elec', {
+  get: () => JPO_MISSION_BRIEFINGS.soldering,
+  enumerable: false,
+  configurable: true
+});
 
 export function getJpoMissionBriefing(key) {
   const raw = String(key || '').trim().toLowerCase();
@@ -446,7 +452,7 @@ function buildJpoRoomObjects(roomId) {
     ];
   }
   return [
-    { id: 'jpo-tp-electronics', floor: 0, type: 'tp_electronics', x: 0, z: -2.0, rotation: 0, w: 2.4, d: 1.3, color: '#fbbf24', label: 'TP Électronique 3D' },
+    { id: 'jpo-tp-soldering', floor: 0, type: 'tp_soldering', x: 0, z: -2.0, rotation: 0, w: 2.4, d: 1.3, color: '#fb923c', label: 'TP Brasure 3D' },
     { id: 'jpo-elec-bench-lt', floor: 0, type: 'elec_bench', x: -4.4, z: -1.6, rotation: 90, w: 2.6, d: 1.0 },
     { id: 'jpo-elec-bench-lb', floor: 0, type: 'elec_bench', x: -4.4, z: 1.8, rotation: 90, w: 2.6, d: 1.0 },
     { id: 'jpo-elec-bench-rt', floor: 0, type: 'elec_bench', x: 4.4, z: -1.6, rotation: 270, w: 2.6, d: 1.0 },
