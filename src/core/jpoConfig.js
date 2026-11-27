@@ -294,12 +294,34 @@ export function isJpoRoomActive(roomId) {
   return normalizeJpoRoom(roomId) !== 'standard';
 }
 
-export function isJpoActive(storage = globalThis?.localStorage) {
+export function isJpoActive(storage) {
   return isJpoRoomActive(readJpoConfig(storage).room);
 }
 
-export function readJpoConfig(storage = globalThis?.localStorage) {
+export function readJpoConfigFromSearch(search = '') {
   try {
+    const params = new URLSearchParams(String(search || ''));
+    const room = normalizeJpoRoom(params.get('salle'));
+    if (room === 'standard') {
+      return { room: 'standard', kiosk: false };
+    }
+    return { room, kiosk: params.get('kiosk') !== '0' };
+  } catch {
+    return { room: 'standard', kiosk: false };
+  }
+}
+
+export function buildJpoRoomUrl(roomId, origin = '', { kiosk = true } = {}) {
+  const room = normalizeJpoRoom(roomId);
+  if (room === 'standard') return `${origin}/`;
+  return `${origin}/?salle=${room}${kiosk ? '' : '&kiosk=0'}`;
+}
+
+export function readJpoConfig(storage) {
+  try {
+    if (storage === undefined) {
+      return readJpoConfigFromSearch(globalThis?.location?.search || '');
+    }
     if (!storage || typeof storage.getItem !== 'function') {
       return { room: 'standard', kiosk: false };
     }

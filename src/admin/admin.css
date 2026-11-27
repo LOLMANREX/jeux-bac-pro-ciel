@@ -1979,3 +1979,54 @@ button:active {
     grid-template-columns: 1fr;
   }
 }
+
+.jpo-link-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.jpo-link-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--jpo-accent, #4fd1ff);
+  background: rgba(10, 18, 34, 0.7);
+}
+
+.jpo-link-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jpo-link-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.35);
+  color: inherit;
+  font-family: monospace;
+}
+
+.jpo-link-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.jpo-open-btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+@media (max-width: 780px) {
+  .jpo-link-grid {
+    grid-template-columns: 1fr;
+  }
+}

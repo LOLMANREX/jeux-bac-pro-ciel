@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.46 - Optimisation Performance 60 FPS WebGL/Three.js (Zéro Double Rendu, Ombres Statiques & Mutualisation)';
+    : 'v4.47 - Portes Ouvertes par URL Indépendante (?salle=...)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,26 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.46 — Optimisation Performance 60 FPS WebGL/Three.js (Zéro Double Rendu, Ombres Statiques & Mutualisation)',
+    version: 'v4.47 — Portes Ouvertes par URL Indépendante (?salle=...)',
     date: '27/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'ISOLATION',
+        title: 'La racine / reste toujours le jeu de base',
+        desc: 'Le lancement du mode Portes Ouvertes ne dépend plus du localStorage : seule une URL ?salle=cyber, reseau, elec ou audiovisuel (kiosque actif, &kiosk=0 pour le désactiver) démarre une salle isolée, sans socket multijoueur ni écriture serveur.'
+      },
+      {
+        badge: 'ADMIN',
+        title: 'Liens dédiés par salle',
+        desc: 'L’onglet Portes Ouvertes de /admin affiche pour chaque salle son URL prête à l’emploi avec les boutons Copier le lien et Ouvrir cette salle dans un nouvel onglet.'
+      }
+    ]
+  },
+  {
+    version: 'v4.46 — Optimisation Performance 60 FPS WebGL/Three.js (Zéro Double Rendu, Ombres Statiques & Mutualisation)',
+    date: '27/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'ZÉRO DOUBLE RENDU',

@@ -10,13 +10,7 @@ import { TP_CATALOG } from '../core/gameState.js';
 import { MapEditor } from './MapEditor.js';
 import { METAL_PIPE } from '../core/metalPipe.js';
 import { PRIVATE_DEBUG_STORAGE_KEY, requestPrivateDebugSession } from '../admin.js';
-import {
-  JPO_ROOMS,
-  getJpoRoomConfig,
-  isJpoRoomActive,
-  readJpoConfig,
-  saveJpoConfig
-} from '../core/jpoConfig.js';
+import { JPO_ROOMS, buildJpoRoomUrl } from '../core/jpoConfig.js';
 
 const TOKEN_STORAGE_KEY = 'ciel_admin_token';
 
@@ -43,16 +37,7 @@ const tabJpoBtn = document.getElementById('admin-tab-jpo');
 const panelMetalPipe = document.getElementById('admin-panel-metalpipe');
 const panelJpo = document.getElementById('admin-panel-jpo');
 const tabBadgeJpo = document.getElementById('tab-badge-jpo');
-const jpoStatusCard = document.getElementById('jpo-active-status-card');
-const jpoActiveRoomBadge = document.getElementById('jpo-active-room-badge');
-const jpoActiveRoomTitle = document.getElementById('jpo-active-room-title');
-const jpoActiveRoomDesc = document.getElementById('jpo-active-room-desc');
-const jpoActiveKioskPill = document.getElementById('jpo-active-kiosk-pill');
-const jpoRoomSelector = document.getElementById('jpo-room-selector');
-const jpoKioskToggle = document.getElementById('jpo-kiosk-toggle');
-const jpoKioskStateLabel = document.getElementById('jpo-kiosk-state-label');
-const jpoLaunchBtn = document.getElementById('btn-jpo-launch');
-const jpoResetStandardBtn = document.getElementById('btn-jpo-reset-standard');
+const jpoRoomLinks = document.getElementById('jpo-room-links');
 const metalPipeStatusLabel = document.getElementById('metalpipe-status-label');
 const metalPipeClaimBtn = document.getElementById('btn-metalpipe-claim');
 const metalPipeEquipBtn = document.getElementById('btn-metalpipe-equip');
@@ -207,87 +192,67 @@ metalPipeReleaseBtn?.addEventListener('click', async () => {
 
 window.addEventListener('storage', () => {
   renderMetalPipeState();
-  renderJpoState();
 });
 renderMetalPipeState();
 
-function renderJpoState() {
-  const cfg = readJpoConfig();
-  const roomCfg = getJpoRoomConfig(cfg.room) || JPO_ROOMS.standard;
-  const activeJpo = isJpoRoomActive(roomCfg.id);
+const JPO_LINK_ROOM_IDS = ['cyber', 'reseau', 'elec', 'audiovisuel'];
 
-  if (tabBadgeJpo) {
-    tabBadgeJpo.textContent = roomCfg.badgeCode;
-  }
-  if (jpoStatusCard) {
-    jpoStatusCard.style.setProperty('--jpo-accent', roomCfg.accent);
-  }
-  if (jpoActiveRoomBadge) {
-    jpoActiveRoomBadge.textContent = activeJpo
-      ? `SALLE ACTIVE SUR CE POSTE • ${roomCfg.roomCode}`
-      : 'MODE STANDARD ACTIF SUR CE POSTE';
-  }
-  if (jpoActiveRoomTitle) {
-    jpoActiveRoomTitle.textContent = `${roomCfg.icon} ${roomCfg.label}`;
-  }
-  if (jpoActiveRoomDesc) {
-    jpoActiveRoomDesc.textContent = roomCfg.description;
-  }
-  if (jpoActiveKioskPill) {
-    jpoActiveKioskPill.textContent = cfg.kiosk
-      ? 'Mode Kiosque : Actif (60s)'
-      : 'Mode Kiosque : Désactivé';
-    jpoActiveKioskPill.classList.toggle('active', cfg.kiosk);
-  }
-  if (jpoRoomSelector) {
-    jpoRoomSelector.querySelectorAll('[data-jpo-room]').forEach((btn) => {
-      const isSelected = btn.dataset.jpoRoom === roomCfg.id;
-      btn.classList.toggle('active', isSelected);
-      btn.setAttribute('aria-pressed', String(isSelected));
+function renderJpoState() {
+  if (tabBadgeJpo) tabBadgeJpo.textContent = '4 SALLES';
+  if (!jpoRoomLinks) return;
+  jpoRoomLinks.innerHTML = '';
+  for (const id of JPO_LINK_ROOM_IDS) {
+    const cfg = JPO_ROOMS[id];
+    const url = buildJpoRoomUrl(id, window.location.origin);
+    const card = document.createElement('div');
+    card.className = 'jpo-link-card';
+    card.dataset.jpoRoom = id;
+    card.style.setProperty('--jpo-accent', cfg.accent);
+    const head = document.createElement('div');
+    head.className = 'jpo-link-head';
+    const title = document.createElement('h3');
+    title.textContent = `${cfg.icon} ${cfg.label}`;
+    const code = document.createElement('span');
+    code.className = 'jpo-room-code';
+    code.textContent = cfg.roomCode;
+    head.append(title, code);
+    const desc = document.createElement('p');
+    desc.className = 'stat-sub';
+    desc.textContent = cfg.description;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.readOnly = true;
+    input.className = 'jpo-link-input';
+    input.value = url;
+    input.setAttribute('aria-label', `URL dédiée ${cfg.label}`);
+    const actions = document.createElement('div');
+    actions.className = 'jpo-link-actions';
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'btn-secondary jpo-copy-btn';
+    copyBtn.dataset.jpoCopy = id;
+    copyBtn.textContent = '📋 Copier le lien';
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch {
+        input.select();
+        document.execCommand?.('copy');
+      }
+      showToast(`Lien copié : ${url}`, 'success');
     });
-  }
-  if (jpoKioskToggle) {
-    jpoKioskToggle.checked = Boolean(cfg.kiosk);
-  }
-  if (jpoKioskStateLabel) {
-    jpoKioskStateLabel.textContent = cfg.kiosk
-      ? 'Actif — Reset auto après 60s d’inactivité + bouton « Nouvelle visite »'
-      : 'Désactivé';
-    jpoKioskStateLabel.classList.toggle('active', cfg.kiosk);
+    const openLink = document.createElement('a');
+    openLink.className = 'btn-primary jpo-open-btn';
+    openLink.href = url;
+    openLink.target = '_blank';
+    openLink.rel = 'noopener';
+    openLink.dataset.jpoOpen = id;
+    openLink.textContent = '🚀 Ouvrir cette salle';
+    actions.append(copyBtn, openLink);
+    card.append(head, desc, input, actions);
+    jpoRoomLinks.appendChild(card);
   }
 }
-
-jpoRoomSelector?.addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-jpo-room]');
-  if (!btn) return;
-  const saved = saveJpoConfig({ room: btn.dataset.jpoRoom || btn.value });
-  const roomCfg = getJpoRoomConfig(saved.room);
-  renderJpoState();
-  showToast(`Salle active définie : ${roomCfg.icon} ${roomCfg.label}`, 'success');
-});
-
-jpoKioskToggle?.addEventListener('change', () => {
-  const saved = saveJpoConfig({ kiosk: Boolean(jpoKioskToggle.checked) });
-  renderJpoState();
-  showToast(
-    saved.kiosk
-      ? 'Mode Kiosque activé (reset automatique après 60s d’inactivité)'
-      : 'Mode Kiosque désactivé',
-    saved.kiosk ? 'success' : 'info'
-  );
-});
-
-jpoResetStandardBtn?.addEventListener('click', () => {
-  saveJpoConfig({ room: 'standard', kiosk: false });
-  renderJpoState();
-  showToast('Configuration réinitialisée en Mode normal', 'info');
-});
-
-jpoLaunchBtn?.addEventListener('click', () => {
-  const current = readJpoConfig();
-  saveJpoConfig(current);
-  window.location.href = '/';
-});
 
 renderJpoState();
 

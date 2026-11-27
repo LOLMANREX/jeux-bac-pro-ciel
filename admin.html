@@ -298,125 +298,16 @@
         </section>
 
         <section id="admin-panel-jpo" class="admin-panel hidden">
-          <div id="jpo-active-status-card" class="jpo-status-card">
-            <div class="jpo-status-main">
-              <div class="jpo-status-dot-wrap">
-                <span class="jpo-status-dot" aria-hidden="true"></span>
-                <span id="jpo-active-room-badge" class="jpo-status-badge">SALLE ACTIVE SUR CE POSTE</span>
-              </div>
-              <h2 id="jpo-active-room-title">🏫 Mode normal</h2>
-              <p id="jpo-active-room-desc" class="stat-sub">
-                Jeu complet sans restriction avec menu principal et connexion élève.
-              </p>
-            </div>
-            <div class="jpo-status-meta">
-              <span id="jpo-active-kiosk-pill" class="jpo-kiosk-pill">Mode Kiosque : Désactivé</span>
-            </div>
-          </div>
-
           <div class="jpo-section-card">
             <div class="jpo-section-head">
               <div>
-                <h2>🏫 Assigner ce PC à une salle Portes Ouvertes</h2>
+                <h2>🏫 Liens dédiés Portes Ouvertes</h2>
                 <p class="stat-sub">
-                  Configuration enregistrée localement dans ce navigateur (clé <code>ciel_jpo_salle</code>) pour adapter automatiquement le lancement du jeu.
+                  Chaque salle possède sa propre URL indépendante. L'adresse racine <code>/</code> reste toujours le jeu de base. Ajoutez <code>&amp;kiosk=0</code> pour désactiver le mode kiosque.
                 </p>
               </div>
             </div>
-            <div id="jpo-room-selector" class="jpo-room-grid" role="group" aria-label="Sélection de la salle Portes Ouvertes">
-              <button type="button" class="jpo-room-card active" data-jpo-room="standard" aria-pressed="true">
-                <div class="jpo-room-card-top">
-                  <span class="jpo-room-icon" aria-hidden="true">🏫</span>
-                  <span class="jpo-room-code">STD • U300</span>
-                </div>
-                <div class="jpo-room-title">Mode normal</div>
-                <div class="jpo-room-desc">Jeu complet sans restriction avec menu principal et comptes élèves.</div>
-                <div class="jpo-room-perks">
-                  <span class="jpo-perk-chip">Atelier complet</span>
-                  <span class="jpo-perk-chip">Connexion élève</span>
-                </div>
-              </button>
-
-              <button type="button" class="jpo-room-card" data-jpo-room="cyber" aria-pressed="false">
-                <div class="jpo-room-card-top">
-                  <span class="jpo-room-icon" aria-hidden="true">🛡️</span>
-                  <span class="jpo-room-code">CYBER • U305</span>
-                </div>
-                <div class="jpo-room-title">Salle Cybersécurité</div>
-                <div class="jpo-room-desc">Salle dédiée fermée (U305) avec accès direct sans compte et TP Cyber SOC prêt à jouer.</div>
-                <div class="jpo-room-perks">
-                  <span class="jpo-perk-chip">Salle dédiée fermée</span>
-                  <span class="jpo-perk-chip">TP Cyber pré-activé</span>
-                  <span class="jpo-perk-chip">Zéro connexion</span>
-                </div>
-              </button>
-
-              <button type="button" class="jpo-room-card" data-jpo-room="reseau" aria-pressed="false">
-                <div class="jpo-room-card-top">
-                  <span class="jpo-room-icon" aria-hidden="true">🌐</span>
-                  <span class="jpo-room-code">RÉSEAU • U307</span>
-                </div>
-                <div class="jpo-room-title">Salle Réseaux &amp; Infrastructure</div>
-                <div class="jpo-room-desc">Salle dédiée fermée (U307) avec accès direct sans compte et TP VLAN 802.1Q prêt à jouer.</div>
-                <div class="jpo-room-perks">
-                  <span class="jpo-perk-chip">Salle dédiée fermée</span>
-                  <span class="jpo-perk-chip">TP Réseau pré-activé</span>
-                  <span class="jpo-perk-chip">Zéro connexion</span>
-                </div>
-              </button>
-
-              <button type="button" class="jpo-room-card" data-jpo-room="elec" aria-pressed="false">
-                <div class="jpo-room-card-top">
-                  <span class="jpo-room-icon" aria-hidden="true">⚡</span>
-                  <span class="jpo-room-code">ÉLEC • U302</span>
-                </div>
-                <div class="jpo-room-title">Salle Électronique &amp; Embarqué</div>
-                <div class="jpo-room-desc">Salle dédiée fermée (U302) avec accès direct sans compte et TP Brasure 3D prêt à jouer.</div>
-                <div class="jpo-room-perks">
-                  <span class="jpo-perk-chip">Salle dédiée fermée</span>
-                  <span class="jpo-perk-chip">TP Brasure pré-activé</span>
-                  <span class="jpo-perk-chip">Zéro connexion</span>
-                </div>
-              </button>
-
-              <button type="button" class="jpo-room-card" data-jpo-room="audiovisuel" value="audiovisuel" aria-pressed="false">
-                <div class="jpo-room-card-top">
-                  <span class="jpo-room-icon" aria-hidden="true">🎬</span>
-                  <span class="jpo-room-code">AUDIOVISUEL • U303</span>
-                </div>
-                <div class="jpo-room-title">Salle Audiovisuel</div>
-                <div class="jpo-room-desc">Salle dédiée fermée (U303) avec régie son, lumière DMX et vidéo, accès direct sans compte.</div>
-                <div class="jpo-room-perks">
-                  <span class="jpo-perk-chip">Salle dédiée fermée</span>
-                  <span class="jpo-perk-chip">TP Audiovisuel pré-activé</span>
-                  <span class="jpo-perk-chip">Zéro connexion</span>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <div id="jpo-kiosk-card" class="jpo-kiosk-card">
-            <div class="jpo-kiosk-info">
-              <h3>🖥️ Activer le Mode Kiosque</h3>
-              <p class="stat-sub">
-                Réinitialise automatiquement la partie après 60 secondes d'inactivité et affiche un bouton discret « Nouvelle visite » sur le HUD du jeu.
-              </p>
-              <span id="jpo-kiosk-state-label" class="jpo-kiosk-state-label">Désactivé</span>
-            </div>
-            <label class="jpo-switch" for="jpo-kiosk-toggle" title="Activer ou désactiver le Mode Kiosque">
-              <input type="checkbox" id="jpo-kiosk-toggle" />
-              <span class="jpo-switch-slider" aria-hidden="true"></span>
-              <span class="jpo-switch-text">Activer le Mode Kiosque</span>
-            </label>
-          </div>
-
-          <div class="jpo-actions-bar">
-            <button type="button" id="btn-jpo-launch" class="btn-primary jpo-launch-btn">
-              🚀 Lancer le jeu dans cette salle
-            </button>
-            <button type="button" id="btn-jpo-reset-standard" class="btn-secondary">
-              ↩️ Revenir en Mode Normal
-            </button>
+            <div id="jpo-room-links" class="jpo-link-grid"></div>
           </div>
         </section>
       </main>

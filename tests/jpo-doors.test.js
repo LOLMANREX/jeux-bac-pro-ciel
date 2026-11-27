@@ -28,6 +28,8 @@ import {
   isJpoActive,
   isJpoRoomActive,
   normalizeJpoRoom,
+  buildJpoRoomUrl,
+  readJpoConfigFromSearch,
   readJpoConfig,
   resolveJpoSpawnPose,
   saveJpoConfig,
@@ -420,20 +422,7 @@ test('Portes Ouvertes v4.39 : contournement login, HUD épuré, isolation LabBui
   for (const needle of [
     'id="admin-tab-jpo"',
     'id="admin-panel-jpo"',
-    'id="jpo-active-status-card"',
-    'id="jpo-room-selector"',
-    'data-jpo-room="standard"',
-    'data-jpo-room="cyber"',
-    'data-jpo-room="reseau"',
-    'data-jpo-room="elec"',
-    'data-jpo-room="audiovisuel"',
-    'value="audiovisuel"',
-    'id="jpo-kiosk-toggle"',
-    'Activer le Mode Kiosque',
-    'id="btn-jpo-launch"',
-    'Lancer le jeu dans cette salle',
-    'Salle dédiée fermée',
-    'Zéro connexion'
+    'id="jpo-room-links"'
   ]) {
     assert.ok(adminHtml.includes(needle), `Élément manquant dans admin.html : ${needle}`);
   }
@@ -546,6 +535,9 @@ test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode
 
   const prevDesc = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   const mockLocalStorage = createMemoryStorage();
+  const prevLocDesc = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  const mockLocation = { search: '' };
+  Object.defineProperty(globalThis, 'location', { configurable: true, writable: true, value: mockLocation });
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
     writable: true,
@@ -553,7 +545,7 @@ test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode
   });
   try {
     for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
-      mockLocalStorage.setItem('ciel_jpo_salle', roomId);
+      mockLocation.search = `?salle=${roomId}`;
       assert.equal(isJpoActive(), true);
       const mapWithCombatDoor = createDefaultMap();
       assert.ok(mapWithCombatDoor.objects.some((o) => o.type === 'combat_door'));
@@ -570,7 +562,8 @@ test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode
       }
     }
 
-    mockLocalStorage.setItem('ciel_jpo_salle', 'standard');
+    mockLocation.search = '';
+    mockLocalStorage.setItem('ciel_jpo_salle', 'cyber');
     assert.equal(isJpoActive(), false);
 
     const stdLab = buildLabWorld(new THREE.Scene(), createDefaultMap(), { hideSprites: true });
@@ -591,6 +584,11 @@ test('Portes Ouvertes v4.40 : absence totale du portail Arène de Combat en mode
       stdFallbackLab.dispose();
     }
   } finally {
+    if (prevLocDesc) {
+      Object.defineProperty(globalThis, 'location', prevLocDesc);
+    } else {
+      delete globalThis.location;
+    }
     if (prevDesc) {
       Object.defineProperty(globalThis, 'localStorage', prevDesc);
     } else {
@@ -1044,10 +1042,8 @@ test('Portes Ouvertes v4.43 : suppression Config salle / /admin et ajout complet
   assert.ok(mainSrc.includes('api?.isJpo ? createJpoAudiovisuelGame(api) : createDmxLightingGame(api)'));
 
   const adminHtml = fs.readFileSync(path.resolve('admin.html'), 'utf8');
-  assert.ok(adminHtml.includes('data-jpo-room="audiovisuel"'));
-  assert.ok(adminHtml.includes('value="audiovisuel"'));
-  assert.ok(adminHtml.includes('🎬 Salle Audiovisuel') || adminHtml.includes('>Salle Audiovisuel<'));
-  assert.ok(adminHtml.includes('AUDIOVISUEL • U303'));
+  assert.ok(adminHtml.includes('id="jpo-room-links"'));
+  assert.ok(fs.readFileSync(path.resolve('src/admin/admin.js'), 'utf8').includes("'audiovisuel'"));
 
   const adminCss = fs.readFileSync(path.resolve('src/admin/admin.css'), 'utf8');
   assert.ok(adminCss.includes('.jpo-room-card[data-jpo-room="audiovisuel"].active'));
@@ -1228,8 +1224,6 @@ test('Portes Ouvertes v4.44 : régie audiovisuelle 3D enrichie, TP Brasure en sa
   }
 
   const adminHtml = fs.readFileSync(path.resolve('admin.html'), 'utf8');
-  assert.ok(adminHtml.includes('TP Brasure 3D prêt à jouer'));
-  assert.ok(adminHtml.includes('TP Brasure pré-activé'));
 
   const forbiddenPattern = new RegExp('for' + 'tin', 'i');
   for (const rel of [
@@ -1315,4 +1309,52 @@ test('Portes Ouvertes v4.45 : sublimation 3D des TP Cyber SOC, Réseau VLAN et B
     assert.deepEqual(scanJsComments(txt), [], `Commentaire JS détecté dans ${rel}`);
     assert.equal(forbiddenPattern.test(txt), false, `Nom interdit détecté dans ${rel}`);
   }
+});
+
+test('Portes Ouvertes v4.47 : racine toujours en jeu standard, salles pilotées par URL isolée et zéro commentaire', () => {
+  const prevLoc = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  const prevStore = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const store = createMemoryStorage();
+  store.setItem('ciel_jpo_salle', 'cyber');
+  store.setItem('ciel_jpo_kiosk', '1');
+  const loc = { search: '' };
+  Object.defineProperty(globalThis, 'location', { configurable: true, writable: true, value: loc });
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: store });
+  try {
+    assert.deepEqual(readJpoConfig(), { room: 'standard', kiosk: false });
+    assert.equal(isJpoActive(), false);
+    loc.search = '?salle=inconnue';
+    assert.equal(isJpoActive(), false);
+    for (const roomId of ['cyber', 'reseau', 'elec', 'audiovisuel']) {
+      loc.search = `?salle=${roomId}`;
+      assert.deepEqual(readJpoConfig(), { room: roomId, kiosk: true });
+      assert.equal(isJpoActive(), true);
+      loc.search = `?salle=${roomId}&kiosk=0`;
+      assert.deepEqual(readJpoConfig(), { room: roomId, kiosk: false });
+      assert.equal(buildJpoRoomUrl(roomId, 'https://ciel.lolman.ovh'), `https://ciel.lolman.ovh/?salle=${roomId}`);
+    }
+    assert.deepEqual(readJpoConfigFromSearch(''), { room: 'standard', kiosk: false });
+  } finally {
+    if (prevLoc) Object.defineProperty(globalThis, 'location', prevLoc);
+    else delete globalThis.location;
+    if (prevStore) Object.defineProperty(globalThis, 'localStorage', prevStore);
+    else delete globalThis.localStorage;
+  }
+
+  const adminJs = fs.readFileSync(path.resolve('src/admin/admin.js'), 'utf8');
+  const adminHtml = fs.readFileSync(path.resolve('admin.html'), 'utf8');
+  const mainJs = fs.readFileSync(path.resolve('src/main.js'), 'utf8');
+  assert.ok(adminJs.includes('copyBtn'));
+  assert.ok(adminJs.includes("openLink.target = '_blank'"));
+  assert.ok(adminJs.includes('📋 Copier le lien'));
+  assert.ok(adminJs.includes('🚀 Ouvrir cette salle'));
+  assert.equal(adminJs.includes('saveJpoConfig'), false);
+  assert.ok(adminHtml.includes('id="jpo-room-links"'));
+  assert.equal(mainJs.includes('saveJpoConfig'), false);
+  for (const rel of ['src/admin/admin.js', 'src/core/jpoConfig.js', 'tests/jpo-doors.test.js']) {
+    const txt = fs.readFileSync(path.resolve(rel), 'utf8');
+    assert.deepEqual(scanJsComments(txt), [], `Commentaire JS détecté dans ${rel}`);
+  }
+  assert.deepEqual(scanHtmlComments(adminHtml), []);
+  assert.deepEqual(scanCssComments(fs.readFileSync(path.resolve('src/admin/admin.css'), 'utf8')), []);
 });

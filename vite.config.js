@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.46 - Optimisation Performance 60 FPS WebGL/Three.js (Zéro Double Rendu, Ombres Statiques & Mutualisation)'),
+    __APP_VERSION__: JSON.stringify('v4.47 - Portes Ouvertes par URL Indépendante (?salle=...)'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {
