@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.45 - Sublimation 3D Pro des 3 TP Portes Ouvertes (Cyber SOC, VLAN & Brasure)';
+    : 'v4.46 - Optimisation Performance 60 FPS WebGL/Three.js (Zéro Double Rendu, Ombres Statiques & Mutualisation)';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,36 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.45 — Sublimation 3D Pro des 3 TP Portes Ouvertes (Cyber SOC, VLAN & Brasure)',
+    version: 'v4.46 — Optimisation Performance 60 FPS WebGL/Three.js (Zéro Double Rendu, Ombres Statiques & Mutualisation)',
     date: '27/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'ZÉRO DOUBLE RENDU',
+        title: 'Pause complète de la boucle 3D principale pendant les TP & nettoyage mémoire strict',
+        desc: 'À l’ouverture d’un mini-jeu TP (MiniGameModal), la boucle de rendu WebGL principale en arrière-plan est mise en pause puis reprise à la fermeture, et chaque TP dispose intégralement ses géométries, matériaux, textures, lumières et contextes WebGLRenderer.'
+      },
+      {
+        badge: 'CANVAS 12 FPS',
+        title: 'Throttling à 12 FPS max & dirty-check des CanvasTexture dynamiques',
+        desc: 'Les moniteurs IDS/SOC, la console SSH VLAN, l’afficheur LCD de la station de soudure et les écrans/VU-mètres de la régie audiovisuelle ne s’actualisent qu’à 12 Hz maximum ou uniquement lors d’un changement d’état réel.'
+      },
+      {
+        badge: 'OMBRES & GPU',
+        title: 'Ombres statiques (shadowMap.autoUpdate=false), 1024px, DPR 1.5 et high-performance',
+        desc: 'Plafonnement du pixelRatio à 1.5 et des shadow maps à 1024×1024 avec recalcul ciblé uniquement lors de mouvements réels, plus contexte WebGL high-performance.'
+      },
+      {
+        badge: 'INSTANCING & STATIQUE',
+        title: 'Mutualisation des géométries/matériaux, InstancedMesh du pont Truss et gel des matrices',
+        desc: 'Partage des géométries/matériaux répétitifs dans LabBuilder et les 4 TP, regroupement en InstancedMesh des structures du pont lumière DMX et gel matrixAutoUpdate=false sur tous les objets immobiles sans aucune perte visuelle.'
+      }
+    ]
+  },
+  {
+    version: 'v4.45 — Sublimation 3D Pro des 3 TP Portes Ouvertes (Cyber SOC, VLAN & Brasure)',
+    date: '27/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'CYBER SOC 3D',

@@ -189,6 +189,7 @@ function applyActiveZoneCulling(mode = 'hall') {
   lab.setVisible?.(vis.labVisible);
   combatArena.setZoneVisibility?.(vis.combatZone);
   survivalArena.setZoneVisibility?.(vis.survivalZone);
+  sceneMgr.requestShadowUpdate?.();
 }
 
 let effectiveQualityTier = gameState.quality || 'high';
@@ -3921,6 +3922,7 @@ async function openTp(tpId, stationItem = null, { skipBriefing = false } = {}) {
 
   miniGameModal.open(tpId, factory, {
     vrManager,
+    sceneMgr,
     jpoMode: jpoDemo,
     onOpenHelp: jpoDemo ? () => jpoBriefingModal?.open?.(tpId, { mode: 'help' }) : null,
     onComplete: ({ tpId: doneId, score, durationSec }) => {
@@ -3993,6 +3995,7 @@ async function openTp(tpId, stationItem = null, { skipBriefing = false } = {}) {
       }
       voiceChat.setInTp(false);
       setModalActive(false, false, false);
+      sceneMgr.resumeRenderLoop?.();
       if (!vrManager?.isVrActive?.()) {
         player._applyCamera?.();
       }
@@ -6411,6 +6414,10 @@ let lastTouchRayAt = 0;
 let cachedTouchLookTarget = null;
 let lastCrosshairReady = false;
 let lastCanvasCursor = '';
+let lastShadowPlayerX = NaN;
+let lastShadowPlayerY = NaN;
+let lastShadowPlayerZ = NaN;
+let lastDynamicShadowAt = 0;
 
 sceneMgr.addUpdater((dt, elapsed) => {
   const vrActivePre = Boolean(vrManager?.isVrActive?.());
@@ -6660,6 +6667,19 @@ sceneMgr.addUpdater((dt, elapsed) => {
     _cullOptsScratch.isVr = vrOn;
     _cullOptsScratch.quality = effectiveQualityTier;
     sceneMgr.updateShadowAnchor?.(player.position.x, player.position.z);
+    const sdx = player.position.x - lastShadowPlayerX;
+    const sdy = feetY - lastShadowPlayerY;
+    const sdz = player.position.z - lastShadowPlayerZ;
+    const playerMovedForShadow =
+      !Number.isFinite(lastShadowPlayerX) || sdx * sdx + sdy * sdy + sdz * sdz > 0.0025;
+    const hasActiveRemoteShadow = (remotePlayers.peers?.size || 0) > 0 || Boolean(horrorTeacher?.root?.visible);
+    if ((playerMovedForShadow || hasActiveRemoteShadow) && elapsed - lastDynamicShadowAt >= 0.065) {
+      lastShadowPlayerX = player.position.x;
+      lastShadowPlayerY = feetY;
+      lastShadowPlayerZ = player.position.z;
+      lastDynamicShadowAt = elapsed;
+      sceneMgr.requestShadowUpdate?.();
+    }
     lab.updateCulling?.(sceneMgr.camera, _cullPlayerPosScratch, _cullOptsScratch);
     lab.update(elapsed, player.position, gameState.profile.diplomaEarned, sceneMgr.camera);
   }
@@ -6896,6 +6916,7 @@ function startGameSession(
         currentMapData = jpoMap;
         lab.rebuildWorld(currentMapData, { skipCombatFallback: true });
         sceneMgr.updateWorldBounds(currentMapData.bounds);
+        sceneMgr.requestShadowUpdate?.();
         player.setWalkableSurfaces?.(lab.walkableSurfaces);
         player.setSpatialHash?.(lab.spatialHash);
         player.setColliders(lab.colliders);

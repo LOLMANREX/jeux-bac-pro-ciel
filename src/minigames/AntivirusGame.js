@@ -327,30 +327,35 @@ export function createAntivirusGame(api) {
   bench.scene.add(socSignFace);
 
   const socRackLeds = [];
+  const rackCabGeo = bench.track(new THREE.BoxGeometry(0.32, 0.48, 0.34));
+  const rackRailGeo = bench.track(new THREE.BoxGeometry(0.016, 0.45, 0.016));
+  const rackPlateGeo = bench.track(new THREE.BoxGeometry(0.26, 0.08, 0.014));
+  const rackVentGeo = bench.track(new THREE.BoxGeometry(0.14, 0.04, 0.008));
+  const rackLedGeo = bench.track(new THREE.SphereGeometry(0.0065, 8, 8));
   [-1, 1].forEach((side) => {
     const rackGrp = new THREE.Group();
     rackGrp.position.set(side * 1.04, 0, -0.34);
     rackGrp.rotation.y = side * -0.22;
     bench.scene.add(rackGrp);
 
-    const cab = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.32, 0.48, 0.34)), darkFrame);
+    const cab = new THREE.Mesh(rackCabGeo, darkFrame);
     cab.position.set(0, 0.24, 0);
     cab.castShadow = true;
     rackGrp.add(cab);
 
     for (const rx of [-0.14, 0.14]) {
-      const rail = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.016, 0.45, 0.016)), socMetalMat);
+      const rail = new THREE.Mesh(rackRailGeo, socMetalMat);
       rail.position.set(rx, 0.24, 0.172);
       rackGrp.add(rail);
     }
 
     for (let u = 0; u < 4; u++) {
       const uy = 0.09 + u * 0.10;
-      const plate = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.26, 0.08, 0.014)), socChassisMat);
+      const plate = new THREE.Mesh(rackPlateGeo, socChassisMat);
       plate.position.set(0, uy, 0.172);
       rackGrp.add(plate);
 
-      const vent = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.14, 0.04, 0.008)), darkFrame);
+      const vent = new THREE.Mesh(rackVentGeo, darkFrame);
       vent.position.set(-0.04, uy, 0.18);
       rackGrp.add(vent);
 
@@ -363,7 +368,7 @@ export function createAntivirusGame(api) {
             emissiveIntensity: 0.9
           })
         );
-        const led = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.0065, 8, 8)), lMat);
+        const led = new THREE.Mesh(rackLedGeo, lMat);
         led.position.set(0.06 + l * 0.022, uy + 0.01, 0.182);
         rackGrp.add(led);
         socRackLeds.push({ mat: lMat, phase: (side + 2) * 1.3 + u * 0.9 + l * 0.65, isAlert });
@@ -416,15 +421,20 @@ export function createAntivirusGame(api) {
   deskSurface.receiveShadow = true;
   bench.scene.add(deskSurface);
 
+  const grommetOuterGeo = bench.track(new THREE.CylinderGeometry(0.036, 0.036, 0.014, 16));
+  const grommetHoleGeo = bench.track(new THREE.CylinderGeometry(0.022, 0.022, 0.016, 16));
   for (const gx of [-0.62, 0, 0.62]) {
-    const grommet = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.036, 0.036, 0.014, 16)), socMetalMat);
+    const grommet = new THREE.Mesh(grommetOuterGeo, socMetalMat);
     grommet.position.set(gx, 0.01, -0.44);
     bench.scene.add(grommet);
-    const hole = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.022, 0.022, 0.016, 16)), darkFrame);
+    const hole = new THREE.Mesh(grommetHoleGeo, darkFrame);
     hole.position.set(gx, 0.011, -0.44);
     bench.scene.add(hole);
   }
 
+  const deskCableMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: '#0ea5e9', roughness: 0.42, metalness: 0.2 })
+  );
   for (const cPts of [
     [[-0.90, 0.05, -0.26], [-0.74, 0.02, -0.42], [-0.62, 0.015, -0.44]],
     [[0.90, 0.05, -0.26], [0.74, 0.02, -0.42], [0.62, 0.015, -0.44]],
@@ -434,31 +444,34 @@ export function createAntivirusGame(api) {
     const cCurve = new THREE.CatmullRomCurve3(cPts.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
     const cMesh = new THREE.Mesh(
       bench.track(new THREE.TubeGeometry(cCurve, 18, 0.007, 8, false)),
-      bench.track(new THREE.MeshStandardMaterial({ color: '#0ea5e9', roughness: 0.42, metalness: 0.2 }))
+      deskCableMat
     );
     bench.scene.add(cMesh);
   }
 
   const monitorLeds = [];
+  const monStandGeo = bench.track(new THREE.BoxGeometry(0.14, 0.014, 0.11));
+  const monNeckGeo = bench.track(new THREE.BoxGeometry(0.035, 0.22, 0.028));
+  const monStatusBarGeo = bench.track(new THREE.BoxGeometry(0.06, 0.006, 0.008));
+  const monLedMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: '#38bdf8', emissive: '#38bdf8', emissiveIntensity: 1.2 })
+  );
+  monitorLeds.push(monLedMat);
   function makeSocMonitor(x, z, rotY, width = 0.52, height = 0.30) {
     const grp = new THREE.Group();
     grp.position.set(x, 0.012, z);
     grp.rotation.y = rotY;
-    const stand = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.14, 0.014, 0.11)), darkFrame);
+    const stand = new THREE.Mesh(monStandGeo, darkFrame);
     stand.position.y = 0.007;
-    const neck = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.035, 0.22, 0.028)), darkFrame);
+    const neck = new THREE.Mesh(monNeckGeo, darkFrame);
     neck.position.set(0, 0.11, -0.018);
     const bezel = new THREE.Mesh(bench.track(new THREE.BoxGeometry(width + 0.03, height + 0.03, 0.024)), darkFrame);
     bezel.position.set(0, 0.27, 0);
     bezel.castShadow = true;
-    const ledMat = bench.track(
-      new THREE.MeshStandardMaterial({ color: '#38bdf8', emissive: '#38bdf8', emissiveIntensity: 1.2 })
-    );
-    const statusBar = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.06, 0.006, 0.008)), ledMat);
+    const statusBar = new THREE.Mesh(monStatusBarGeo, monLedMat);
     statusBar.position.set(width * 0.36, 0.27 - height * 0.5 - 0.008, 0.012);
     grp.add(stand, neck, bezel, statusBar);
     bench.scene.add(grp);
-    monitorLeds.push(ledMat);
     return { grp, width, height };
   }
 
@@ -466,6 +479,7 @@ export function createAntivirusGame(api) {
   const mCenter = makeSocMonitor(0.0, -0.34, 0.0, 0.56, 0.32);
   const mRight = makeSocMonitor(0.54, -0.26, -0.36);
 
+  const SCREEN_THROTTLE_MS = 84;
   const idsScreen = makeCanvasScreen(640, 400, (ctx, w, h, st) => {
     ctx.fillStyle = '#060a14';
     ctx.fillRect(0, 0, w, h);
@@ -513,7 +527,7 @@ export function createAntivirusGame(api) {
       ctx.fillStyle = alertRatio > 0 && b % 4 === 0 ? '#ef4444' : alertRatio === 0 ? '#22c55e' : '#38bdf8';
       ctx.fillRect(24 + b * 21, 374 - bh, 14, bh);
     }
-  });
+  }, { minIntervalMs: SCREEN_THROTTLE_MS });
 
   const centerScreen = makeCanvasScreen(640, 400, (ctx, w, h, st) => {
     const s = st || { integrity: 100, activeThreats: 8, cveCount: 0, fwCount: 0 };
@@ -590,7 +604,7 @@ export function createAntivirusGame(api) {
       40,
       348
     );
-  });
+  }, { minIntervalMs: SCREEN_THROTTLE_MS });
 
   const rightScreen = makeCanvasScreen(640, 400, (ctx, w, h, st) => {
     const s = st || { scanPct: 0 };
@@ -644,7 +658,7 @@ export function createAntivirusGame(api) {
     ctx.fillRect(30, 336, barW, 20);
     ctx.fillStyle = s.edrDone ? '#22c55e' : '#38bdf8';
     ctx.fillRect(30, 336, barW * fill, 20);
-  });
+  }, { minIntervalMs: SCREEN_THROTTLE_MS });
 
   bench.track(idsScreen.texture);
   bench.track(centerScreen.texture);
@@ -713,6 +727,11 @@ export function createAntivirusGame(api) {
   const nodes = {};
   const nodeActivityLeds = [];
   let pcMiniScreenMat = null;
+  const srvFrontPlateGeo = bench.track(new THREE.BoxGeometry(0.064, 0.115, 0.008));
+  const srvBayGeo = bench.track(new THREE.BoxGeometry(0.052, 0.018, 0.005));
+  const srvLedGeo = bench.track(new THREE.SphereGeometry(0.004, 8, 8));
+  const swLedGeo = bench.track(new THREE.BoxGeometry(0.007, 0.006, 0.004));
+  const pcLedGeo = bench.track(new THREE.SphereGeometry(0.0045, 8, 8));
   for (const nd of nodeDefs) {
     const mat = bench.track(
       new THREE.MeshStandardMaterial({
@@ -730,17 +749,17 @@ export function createAntivirusGame(api) {
     mesh.castShadow = true;
 
     if (nd.id === 'SRV-WEB' || nd.id === 'SRV-BDD') {
-      const frontPlate = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.064, 0.115, 0.008)), darkFrame);
+      const frontPlate = new THREE.Mesh(srvFrontPlateGeo, darkFrame);
       frontPlate.position.set(0, 0, 0.039);
       mesh.add(frontPlate);
       for (let b = 0; b < 3; b++) {
-        const bay = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.052, 0.018, 0.005)), socChassisMat);
+        const bay = new THREE.Mesh(srvBayGeo, socChassisMat);
         bay.position.set(0, -0.032 + b * 0.026, 0.044);
         mesh.add(bay);
         const ledMat = bench.track(
           new THREE.MeshStandardMaterial({ color: '#38bdf8', emissive: '#38bdf8', emissiveIntensity: 1.1 })
         );
-        const led = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.004, 8, 8)), ledMat);
+        const led = new THREE.Mesh(srvLedGeo, ledMat);
         led.position.set(0.02, -0.032 + b * 0.026, 0.048);
         mesh.add(led);
         nodeActivityLeds.push({ mat: ledMat, phase: b * 1.4 + (nd.id === 'SRV-BDD' ? 1.8 : 0), nodeId: nd.id });
@@ -753,7 +772,7 @@ export function createAntivirusGame(api) {
         const ledMat = bench.track(
           new THREE.MeshStandardMaterial({ color: '#22c55e', emissive: '#16a34a', emissiveIntensity: 1.0 })
         );
-        const led = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.007, 0.006, 0.004)), ledMat);
+        const led = new THREE.Mesh(swLedGeo, ledMat);
         led.position.set(-0.032 + p * 0.013, 0.004, 0.045);
         mesh.add(led);
         nodeActivityLeds.push({ mat: ledMat, phase: p * 0.7, nodeId: 'SW-CORE' });
@@ -773,7 +792,7 @@ export function createAntivirusGame(api) {
         const ledMat = bench.track(
           new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 1.2 })
         );
-        const led = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.0045, 8, 8)), ledMat);
+        const led = new THREE.Mesh(pcLedGeo, ledMat);
         led.position.set(-0.02 + l * 0.016, 0.016, 0.044);
         mesh.add(led);
         nodeActivityLeds.push({ mat: ledMat, phase: l * 1.1, nodeId: 'PC-WORK' });
@@ -895,24 +914,27 @@ export function createAntivirusGame(api) {
     }
   }
 
+  const switchPadGeo = bench.track(new THREE.BoxGeometry(0.085, 0.018, 0.07));
+  const switchPadMat = bench.track(new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 }));
+  const switchStickGeo = bench.track(new THREE.CylinderGeometry(0.006, 0.006, 0.045, 10));
+  const switchLedGeo = bench.track(new THREE.SphereGeometry(0.0065, 10, 8));
   function makeToggleSwitch(x, z, baseColor) {
     const grp = new THREE.Group();
     grp.position.set(x, 0.032, z);
-    const pad = new THREE.Mesh(
-      new THREE.BoxGeometry(0.085, 0.018, 0.07),
-      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 })
-    );
+    const pad = new THREE.Mesh(switchPadGeo, switchPadMat);
     const leverPivot = new THREE.Group();
     leverPivot.position.set(0, 0.012, 0);
     const stick = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.006, 0.006, 0.045, 10),
-      new THREE.MeshStandardMaterial({ color: baseColor, metalness: 0.7, roughness: 0.25 })
+      switchStickGeo,
+      bench.track(new THREE.MeshStandardMaterial({ color: baseColor, metalness: 0.7, roughness: 0.25 }))
     );
     stick.position.y = 0.022;
     leverPivot.add(stick);
     leverPivot.rotation.x = -0.45;
-    const ledMat = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 1.5 });
-    const led = new THREE.Mesh(new THREE.SphereGeometry(0.0065, 10, 8), ledMat);
+    const ledMat = bench.track(
+      new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 1.5 })
+    );
+    const led = new THREE.Mesh(switchLedGeo, ledMat);
     led.position.set(0.026, 0.012, 0.02);
     grp.add(pad, leverPivot, led);
     bench.scene.add(grp);
@@ -926,24 +948,28 @@ export function createAntivirusGame(api) {
   const edrUsbGroup = new THREE.Group();
   edrUsbGroup.position.set(0.56, 0.028, 0.22);
   const usbBody = new THREE.Mesh(
-    new THREE.BoxGeometry(0.042, 0.018, 0.095),
-    new THREE.MeshStandardMaterial({ color: 0x0ea5e9, emissive: 0x0284c7, emissiveIntensity: 0.45, roughness: 0.28 })
+    bench.track(new THREE.BoxGeometry(0.042, 0.018, 0.095)),
+    bench.track(
+      new THREE.MeshStandardMaterial({ color: 0x0ea5e9, emissive: 0x0284c7, emissiveIntensity: 0.45, roughness: 0.28 })
+    )
   );
   const usbTip = new THREE.Mesh(
-    new THREE.BoxGeometry(0.028, 0.012, 0.024),
-    new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.2 })
+    bench.track(new THREE.BoxGeometry(0.028, 0.012, 0.024)),
+    bench.track(new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.2 }))
   );
   usbTip.position.z = -0.055;
   edrUsbGroup.add(usbBody, usbTip);
   bench.scene.add(edrUsbGroup);
 
-  const scanPlaneMat = new THREE.MeshBasicMaterial({
-    color: 0x38bdf8,
-    transparent: true,
-    opacity: 0.35,
-    side: THREE.DoubleSide
-  });
-  const scanPlane = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.14, 24), scanPlaneMat);
+  const scanPlaneMat = bench.track(
+    new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide
+    })
+  );
+  const scanPlane = new THREE.Mesh(bench.track(new THREE.RingGeometry(0.05, 0.14, 24)), scanPlaneMat);
   scanPlane.rotation.x = Math.PI / 2;
   scanPlane.position.copy(nodes['PC-WORK'].basePos);
   scanPlane.visible = false;
@@ -995,33 +1021,53 @@ export function createAntivirusGame(api) {
     return { fwCount, cveCount, activeThreats, secured };
   }
 
-  function updateScreensAndVisuals(animPhase = 0) {
+  let lastCenterSig = '';
+  let lastRightSig = '';
+  function syncMonitorScreens(animPhase = 0, forceIds = false) {
     const st = getStats();
-    idsScreen.update({
+    const idsPayload = {
       fw185: state.fw185,
       fw91: state.fw91,
       fw4444: state.fw4444,
       isolated: state.isolated,
       edrDone: state.edrDone,
       animPhase
-    });
-    centerScreen.update({
-      integrity: state.integrity,
-      activeThreats: st.activeThreats,
-      cveCount: st.cveCount,
-      fwCount: st.fwCount,
-      edrDone: state.edrDone,
-      edrScanning: state.edrScanning,
-      secured: st.secured
-    });
-    rightScreen.update({
-      cveWeb: state.cveWeb,
-      cveBdd: state.cveBdd,
-      cveHost: state.cveHost,
-      edrDone: state.edrDone,
-      edrScanning: state.edrScanning,
-      scanPct: state.scanPct
-    });
+    };
+    if (forceIds) {
+      idsScreen.forceUpdate(idsPayload);
+    } else {
+      idsScreen.update(idsPayload);
+    }
+    const centerSig = `${Math.round(state.integrity)}|${st.activeThreats}|${st.cveCount}|${st.fwCount}|${state.edrDone}|${state.edrScanning}|${st.secured}`;
+    if (centerSig !== lastCenterSig) {
+      lastCenterSig = centerSig;
+      centerScreen.forceUpdate({
+        integrity: state.integrity,
+        activeThreats: st.activeThreats,
+        cveCount: st.cveCount,
+        fwCount: st.fwCount,
+        edrDone: state.edrDone,
+        edrScanning: state.edrScanning,
+        secured: st.secured
+      });
+    }
+    const rightSig = `${state.cveWeb}|${state.cveBdd}|${state.cveHost}|${state.edrDone}|${state.edrScanning}|${Math.round(state.scanPct)}`;
+    if (rightSig !== lastRightSig) {
+      lastRightSig = rightSig;
+      rightScreen.forceUpdate({
+        cveWeb: state.cveWeb,
+        cveBdd: state.cveBdd,
+        cveHost: state.cveHost,
+        edrDone: state.edrDone,
+        edrScanning: state.edrScanning,
+        scanPct: state.scanPct
+      });
+    }
+    return st;
+  }
+
+  function updateScreensAndVisuals(animPhase = 0) {
+    const st = syncMonitorScreens(animPhase, true);
 
     const fwActive = st.fwCount > 0;
     fwDome.visible = fwActive;
@@ -1694,35 +1740,26 @@ export function createAntivirusGame(api) {
     }
 
     uiRefreshTimer += dt;
-    if (uiRefreshTimer > 0.25) {
+    if (uiRefreshTimer >= 0.09) {
       uiRefreshTimer = 0;
-      idsScreen.update({
-        fw185: state.fw185,
-        fw91: state.fw91,
-        fw4444: state.fw4444,
-        isolated: state.isolated,
-        edrDone: state.edrDone,
-        animPhase: elapsed
-      });
-      centerScreen.update({
-        integrity: state.integrity,
-        activeThreats: st.activeThreats,
-        cveCount: st.cveCount,
-        fwCount: st.fwCount,
-        edrDone: state.edrDone,
-        edrScanning: state.edrScanning,
-        secured: st.secured
-      });
-      rightScreen.update({
-        cveWeb: state.cveWeb,
-        cveBdd: state.cveBdd,
-        cveHost: state.cveHost,
-        edrDone: state.edrDone,
-        edrScanning: state.edrScanning,
-        scanPct: state.scanPct
-      });
+      syncMonitorScreens(elapsed, false);
     }
   });
+
+  bench.freezeStatic([
+    nodes['FW-01'].mesh,
+    fwDome,
+    fwShieldWire,
+    fwShieldRing,
+    edrShieldDome,
+    edrShieldWire,
+    edrShieldRing,
+    isoSwitch.leverPivot,
+    fwSwitch.leverPivot,
+    patchSwitch.leverPivot,
+    scanPlane,
+    ...beamPulses.map((b) => b.mesh)
+  ]);
 
   refreshAll();
 
@@ -1730,6 +1767,10 @@ export function createAntivirusGame(api) {
     destroy: () => {
       socKeypadCleanup?.();
       socKeypadCleanup = null;
+      for (const p of attackPackets) {
+        bench.scene.remove(p.mesh);
+      }
+      attackPackets.length = 0;
       bench.destroy();
     }
   };

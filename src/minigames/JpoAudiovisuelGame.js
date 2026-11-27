@@ -298,11 +298,16 @@ export function createJpoAudiovisuelGame(api) {
   deskMat.receiveShadow = true;
   bench.scene.add(deskMat);
 
+  const CANVAS_THROTTLE_SEC = 1 / 12;
+  const CANVAS_THROTTLE_MS = 84;
+
+  const grommetOuterGeo = bench.track(new THREE.CylinderGeometry(0.055, 0.055, 0.016, 16));
+  const grommetHoleGeo = bench.track(new THREE.CylinderGeometry(0.036, 0.036, 0.018, 16));
   for (const cx of [-1.25, -0.45, 0.45, 1.25]) {
-    const grommet = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.055, 0.055, 0.016, 16)), metalMat);
+    const grommet = new THREE.Mesh(grommetOuterGeo, metalMat);
     grommet.position.set(cx, 0.01, -0.78);
     bench.scene.add(grommet);
-    const grommetHole = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.036, 0.036, 0.018, 16)), darkMat);
+    const grommetHole = new THREE.Mesh(grommetHoleGeo, darkMat);
     grommetHole.position.set(cx, 0.011, -0.78);
     bench.scene.add(grommetHole);
   }
@@ -331,20 +336,24 @@ export function createJpoAudiovisuelGame(api) {
   rackCabinet.castShadow = true;
   rackGroup.add(rackCabinet);
 
+  const rackRailGeo = bench.track(new THREE.BoxGeometry(0.022, 0.58, 0.02));
   for (const rx of [-0.185, 0.185]) {
-    const rail = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.022, 0.58, 0.02)), metalMat);
+    const rail = new THREE.Mesh(rackRailGeo, metalMat);
     rail.position.set(rx, 0.31, 0.218);
     rackGroup.add(rail);
   }
 
   const rackLeds = [];
+  const rackFaceGeo = bench.track(new THREE.BoxGeometry(0.34, 0.105, 0.018));
+  const rackGrillGeo = bench.track(new THREE.BoxGeometry(0.18, 0.055, 0.01));
+  const rackLedGeo = bench.track(new THREE.SphereGeometry(0.009, 8, 8));
   for (let u = 0; u < 4; u++) {
     const unitY = 0.12 + u * 0.13;
-    const face = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.34, 0.105, 0.018)), chassisMat);
+    const face = new THREE.Mesh(rackFaceGeo, chassisMat);
     face.position.set(0, unitY, 0.218);
     rackGroup.add(face);
 
-    const grill = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.18, 0.055, 0.01)), darkMat);
+    const grill = new THREE.Mesh(rackGrillGeo, darkMat);
     grill.position.set(-0.05, unitY, 0.228);
     rackGroup.add(grill);
 
@@ -357,7 +366,7 @@ export function createJpoAudiovisuelGame(api) {
           emissiveIntensity: 0.9
         })
       );
-      const led = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.009, 8, 8)), ledMat);
+      const led = new THREE.Mesh(rackLedGeo, ledMat);
       led.position.set(0.08 + l * 0.032, unitY + 0.015, 0.232);
       rackGroup.add(led);
       rackLeds.push({ mat: ledMat, phase: u * 1.1 + l * 0.7 });
@@ -414,8 +423,9 @@ export function createJpoAudiovisuelGame(api) {
   mixerFaceplate.position.set(0, 0.047, 0);
   mixerChassis.add(mixerFaceplate);
 
+  const mixerCheekGeo = bench.track(new THREE.BoxGeometry(0.032, 0.11, 0.64));
   for (const sx of [-0.43, 0.43]) {
-    const cheek = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.032, 0.11, 0.64)), chassisMat);
+    const cheek = new THREE.Mesh(mixerCheekGeo, chassisMat);
     cheek.position.set(sx, 0.005, 0);
     mixerChassis.add(cheek);
   }
@@ -449,7 +459,9 @@ export function createJpoAudiovisuelGame(api) {
   });
 
   const knobBodyGeo = bench.track(new THREE.CylinderGeometry(0.014, 0.016, 0.022, 12));
+  const knobCapGeo = bench.track(new THREE.CylinderGeometry(0.01, 0.01, 0.008, 10));
   const knobCapColors = ['#ef4444', '#38bdf8', '#fbbf24'];
+  const knobCapMats = knobCapColors.map((c) => bench.track(new THREE.MeshStandardMaterial({ color: c, roughness: 0.35 })));
   const knobBodyMat = bench.track(new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.4, metalness: 0.4 }));
   for (let col = 0; col < 6; col++) {
     const cx = channelX[col];
@@ -458,8 +470,7 @@ export function createJpoAudiovisuelGame(api) {
       pot.position.set(cx, 0.058, -0.19 + row * 0.058);
       mixerChassis.add(pot);
 
-      const capMat = bench.track(new THREE.MeshStandardMaterial({ color: knobCapColors[row], roughness: 0.35 }));
-      const cap = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.01, 0.01, 0.008, 10)), capMat);
+      const cap = new THREE.Mesh(knobCapGeo, knobCapMats[row]);
       cap.position.set(0, 0.012, 0);
       pot.add(cap);
     }
@@ -545,7 +556,7 @@ export function createJpoAudiovisuelGame(api) {
     ctx.fillStyle = '#f8fafc';
     ctx.font = 'bold 18px monospace';
     ctx.fillText(`Volume : ${s.audioLevel}%`, 16, 146);
-  });
+  }, { minIntervalMs: CANVAS_THROTTLE_MS });
   bench.track(audioScreen.texture);
   const audioDisplay = new THREE.Mesh(
     bench.track(new THREE.PlaneGeometry(0.56, 0.21)),
@@ -558,20 +569,30 @@ export function createJpoAudiovisuelGame(api) {
   trussGroup.position.set(0, 0, -0.44);
   bench.scene.add(trussGroup);
 
+  const trussStrutMatrices = [];
+  const _trussA = new THREE.Vector3();
+  const _trussB = new THREE.Vector3();
+  const _trussDir = new THREE.Vector3();
+  const _trussMid = new THREE.Vector3();
+  const _trussUp = new THREE.Vector3(0, 1, 0);
+  const _trussQuat = new THREE.Quaternion();
+  const _trussScale = new THREE.Vector3();
   function addTrussStrut(p1, p2, radius = 0.008) {
-    const a = new THREE.Vector3(...p1);
-    const b = new THREE.Vector3(...p2);
-    const dir = new THREE.Vector3().subVectors(b, a);
-    const len = dir.length();
+    _trussA.set(p1[0], p1[1], p1[2]);
+    _trussB.set(p2[0], p2[1], p2[2]);
+    _trussDir.subVectors(_trussB, _trussA);
+    const len = _trussDir.length();
     if (len < 0.001) return;
-    const mesh = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(radius, radius, len, 8)), chromeMat);
-    mesh.position.copy(a).addScaledVector(dir, 0.5);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-    trussGroup.add(mesh);
+    _trussMid.copy(_trussA).addScaledVector(_trussDir, 0.5);
+    _trussQuat.setFromUnitVectors(_trussUp, _trussDir.normalize());
+    _trussScale.set(radius, len, radius);
+    const m = new THREE.Matrix4().compose(_trussMid, _trussQuat, _trussScale);
+    trussStrutMatrices.push(m);
   }
 
+  const trussBaseGeo = bench.track(new THREE.BoxGeometry(0.18, 0.02, 0.18));
   for (const px of [-0.74, 0.74]) {
-    const basePlate = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.18, 0.02, 0.18)), metalMat);
+    const basePlate = new THREE.Mesh(trussBaseGeo, metalMat);
     basePlate.position.set(px, 0.01, 0);
     trussGroup.add(basePlate);
     for (const dx of [-0.042, 0.042]) {
@@ -602,11 +623,51 @@ export function createJpoAudiovisuelGame(api) {
     addTrussStrut([x0, 1.04, -0.045], [x1, 1.04, 0.045], 0.006);
     addTrussStrut([x0, 0.96, -0.045], [x1, 0.96, 0.045], 0.006);
   }
+  if (trussStrutMatrices.length > 0) {
+    const trussUnitCylGeo = bench.track(new THREE.CylinderGeometry(1, 1, 1, 8));
+    const trussInst = new THREE.InstancedMesh(trussUnitCylGeo, chromeMat, trussStrutMatrices.length);
+    for (let i = 0; i < trussStrutMatrices.length; i++) {
+      trussInst.setMatrixAt(i, trussStrutMatrices[i]);
+    }
+    trussInst.instanceMatrix.needsUpdate = true;
+    trussInst.computeBoundingBox?.();
+    trussInst.computeBoundingSphere?.();
+    trussGroup.add(trussInst);
+  }
 
   const dmxSpots = [];
   const spotXs = [-0.54, -0.18, 0.18, 0.54];
+  const yokeGeo = bench.track(new THREE.BoxGeometry(0.15, 0.06, 0.03));
+  const parBarrelGeo = bench.track(new THREE.CylinderGeometry(0.062, 0.052, 0.17, 16));
+  const bezelRingGeo = bench.track(new THREE.TorusGeometry(0.062, 0.008, 8, 18));
+  const lensGeo = bench.track(new THREE.CylinderGeometry(0.056, 0.056, 0.014, 16));
+  const coneGeo = bench.track(new THREE.ConeGeometry(0.32, 0.96, 22, 1, true));
+  const coreConeGeo = bench.track(new THREE.ConeGeometry(0.15, 0.88, 16, 1, true));
+  const sharedLensMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: '#1e293b', emissive: '#c084fc', emissiveIntensity: 0 })
+  );
+  const sharedConeMat = bench.track(
+    new THREE.MeshBasicMaterial({
+      color: '#c084fc',
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide
+    })
+  );
+  const sharedCoreConeMat = bench.track(
+    new THREE.MeshBasicMaterial({
+      color: '#ffffff',
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide
+    })
+  );
   spotXs.forEach((sx, idx) => {
-    const yoke = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.15, 0.06, 0.03)), metalMat);
+    const yoke = new THREE.Mesh(yokeGeo, metalMat);
     yoke.position.set(sx, 0.93, 0.03);
     trussGroup.add(yoke);
 
@@ -616,54 +677,25 @@ export function createJpoAudiovisuelGame(api) {
     housing.rotation.y = (1.5 - idx) * 0.12;
     trussGroup.add(housing);
 
-    const parBarrel = new THREE.Mesh(
-      bench.track(new THREE.CylinderGeometry(0.062, 0.052, 0.17, 16)),
-      darkMat
-    );
+    const parBarrel = new THREE.Mesh(parBarrelGeo, darkMat);
     parBarrel.rotation.x = Math.PI / 2;
     housing.add(parBarrel);
 
-    const bezelRing = new THREE.Mesh(
-      bench.track(new THREE.TorusGeometry(0.062, 0.008, 8, 18)),
-      metalMat
-    );
+    const bezelRing = new THREE.Mesh(bezelRingGeo, metalMat);
     bezelRing.position.set(0, 0, 0.085);
     housing.add(bezelRing);
 
-    const lensMat = bench.track(
-      new THREE.MeshStandardMaterial({ color: '#1e293b', emissive: '#c084fc', emissiveIntensity: 0 })
-    );
-    const lens = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.056, 0.056, 0.014, 16)), lensMat);
+    const lens = new THREE.Mesh(lensGeo, sharedLensMat);
     lens.rotation.x = Math.PI / 2;
     lens.position.set(0, 0, 0.084);
     housing.add(lens);
 
-    const coneMat = bench.track(
-      new THREE.MeshBasicMaterial({
-        color: '#c084fc',
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide
-      })
-    );
-    const cone = new THREE.Mesh(bench.track(new THREE.ConeGeometry(0.32, 0.96, 22, 1, true)), coneMat);
+    const cone = new THREE.Mesh(coneGeo, sharedConeMat);
     cone.rotation.x = -Math.PI / 2;
     cone.position.set(0, 0, 0.56);
     housing.add(cone);
 
-    const coreConeMat = bench.track(
-      new THREE.MeshBasicMaterial({
-        color: '#ffffff',
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide
-      })
-    );
-    const coreCone = new THREE.Mesh(bench.track(new THREE.ConeGeometry(0.15, 0.88, 16, 1, true)), coreConeMat);
+    const coreCone = new THREE.Mesh(coreConeGeo, sharedCoreConeMat);
     coreCone.rotation.x = -Math.PI / 2;
     coreCone.position.set(0, 0, 0.52);
     housing.add(coreCone);
@@ -673,7 +705,7 @@ export function createJpoAudiovisuelGame(api) {
     spot.target.position.set(sx * 0.55, 0.02, 0.52);
     trussGroup.add(spot);
     trussGroup.add(spot.target);
-    dmxSpots.push({ lensMat, coneMat, coreConeMat, spot });
+    dmxSpots.push({ lensMat: sharedLensMat, coneMat: sharedConeMat, coreConeMat: sharedCoreConeMat, spot });
   });
 
   const stagePad = new THREE.Mesh(
@@ -684,8 +716,9 @@ export function createJpoAudiovisuelGame(api) {
   stagePad.receiveShadow = true;
   bench.scene.add(stagePad);
 
+  const wedgeGeo = bench.track(new THREE.BoxGeometry(0.18, 0.075, 0.12));
   for (const wx of [-0.36, 0.36]) {
-    const wedge = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.18, 0.075, 0.12)), darkMat);
+    const wedge = new THREE.Mesh(wedgeGeo, darkMat);
     wedge.position.set(wx, 0.072, 0.33);
     wedge.rotation.x = -0.35;
     bench.scene.add(wedge);
@@ -802,7 +835,7 @@ export function createJpoAudiovisuelGame(api) {
     const mm = String(Math.floor(sec / 60)).padStart(2, '0');
     const ss = String(sec % 60).padStart(2, '0');
     ctx.fillText(`TC 01:${mm}:${ss}`, 34, 232);
-  });
+  }, { minIntervalMs: CANVAS_THROTTLE_MS });
   bench.track(videoScreen.texture);
   const monitorFace = new THREE.Mesh(
     bench.track(new THREE.PlaneGeometry(0.69, 0.41)),
@@ -845,7 +878,7 @@ export function createJpoAudiovisuelGame(api) {
     ctx.strokeStyle = isSel ? (s.videoLive ? '#ef4444' : '#22c55e') : '#334155';
     ctx.lineWidth = isSel ? 5 : 2;
     ctx.strokeRect(3, 3, w - 6, h - 6);
-  });
+  }, { minIntervalMs: CANVAS_THROTTLE_MS });
   bench.track(cam1Screen.texture);
 
   const cam2Screen = makeCanvasScreen(240, 150, (ctx, w, h, st) => {
@@ -870,25 +903,27 @@ export function createJpoAudiovisuelGame(api) {
     ctx.strokeStyle = isSel ? (s.videoLive ? '#ef4444' : '#22c55e') : '#334155';
     ctx.lineWidth = isSel ? 5 : 2;
     ctx.strokeRect(3, 3, w - 6, h - 6);
-  });
+  }, { minIntervalMs: CANVAS_THROTTLE_MS });
   bench.track(cam2Screen.texture);
 
   const previewMonitorSpecs = [
     { y: 0.47, screen: cam1Screen },
     { y: 0.23, screen: cam2Screen }
   ];
+  const previewFrameGeo = bench.track(new THREE.BoxGeometry(0.32, 0.21, 0.045));
+  const previewFaceGeo = bench.track(new THREE.PlaneGeometry(0.28, 0.175));
   for (const pm of previewMonitorSpecs) {
     const subWrap = new THREE.Group();
     subWrap.position.set(0.45, pm.y, -0.07);
     subWrap.rotation.y = -0.26;
     videoGroup.add(subWrap);
 
-    const frame = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.32, 0.21, 0.045)), darkMat);
+    const frame = new THREE.Mesh(previewFrameGeo, darkMat);
     frame.castShadow = true;
     subWrap.add(frame);
 
     const face = new THREE.Mesh(
-      bench.track(new THREE.PlaneGeometry(0.28, 0.175)),
+      previewFaceGeo,
       bench.track(new THREE.MeshBasicMaterial({ map: pm.screen.texture }))
     );
     face.position.set(0, 0, 0.025);
@@ -969,7 +1004,16 @@ export function createJpoAudiovisuelGame(api) {
   onAirBtn.position.set(-0.25, 0.044, 0.075);
   switcherGroup.add(onAirBtn);
 
+  let vuZeroed = false;
+  let screensDirty = true;
+  let lastVideoSec = -1;
+  let lastScreenFlushMs = -Infinity;
+  let lastShadowFaderZ = null;
+  let lastShadowLive = null;
+
   function updateVuMeters() {
+    if (!state.micOn && vuZeroed) return;
+    vuZeroed = !state.micOn;
     const baseLevel = state.micOn
       ? Math.max(8, Math.min(100, state.audioLevel + Math.sin(state.vuPhase) * 8 + Math.cos(state.vuPhase * 1.7) * 5))
       : 0;
@@ -985,6 +1029,27 @@ export function createJpoAudiovisuelGame(api) {
         seg.mat.emissiveIntensity = lit ? 1.5 : 0.04;
       });
     });
+  }
+
+  function flushScreens(forceAll = false) {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (!forceAll && now - lastScreenFlushMs < CANVAS_THROTTLE_MS) {
+      return;
+    }
+    lastScreenFlushMs = now;
+    const curSec = Math.floor(state.elapsedSec);
+    if (forceAll || screensDirty || state.micOn) {
+      audioScreen.update(state);
+    }
+    if (forceAll || screensDirty || curSec !== lastVideoSec) {
+      lastVideoSec = curSec;
+      videoScreen.update(state);
+    }
+    if (forceAll || screensDirty || state.dmxPower) {
+      cam1Screen.update(state);
+    }
+    cam2Screen.update(state);
+    screensDirty = false;
   }
 
   function sync3D() {
@@ -1003,13 +1068,16 @@ export function createJpoAudiovisuelGame(api) {
     micButtonMat.emissiveIntensity = state.micOn ? 1.4 : 0.35;
 
     const lightFactor = state.dmxPower ? state.dmxIntensity / 100 : 0;
+    const firstSpot = dmxSpots[0];
+    if (firstSpot) {
+      firstSpot.lensMat.emissive.set(presetSpec.color);
+      firstSpot.lensMat.emissiveIntensity = state.dmxPower ? 0.45 + lightFactor * 1.85 : 0.04;
+      firstSpot.coneMat.color.set(presetSpec.color);
+      firstSpot.coneMat.opacity = state.dmxPower ? 0.09 + lightFactor * 0.28 : 0;
+      firstSpot.coreConeMat.color.set(presetSpec.color);
+      firstSpot.coreConeMat.opacity = state.dmxPower ? 0.04 + lightFactor * 0.18 : 0;
+    }
     for (const sp of dmxSpots) {
-      sp.lensMat.emissive.set(presetSpec.color);
-      sp.lensMat.emissiveIntensity = state.dmxPower ? 0.45 + lightFactor * 1.85 : 0.04;
-      sp.coneMat.color.set(presetSpec.color);
-      sp.coneMat.opacity = state.dmxPower ? 0.09 + lightFactor * 0.28 : 0;
-      sp.coreConeMat.color.set(presetSpec.color);
-      sp.coreConeMat.opacity = state.dmxPower ? 0.04 + lightFactor * 0.18 : 0;
       sp.spot.color.set(presetSpec.color);
       sp.spot.intensity = state.dmxPower ? 1.2 + lightFactor * 4.2 : 0;
     }
@@ -1040,11 +1108,16 @@ export function createJpoAudiovisuelGame(api) {
     tallyBarMat.emissive.set(state.videoLive ? '#dc2626' : '#000000');
     tallyBarMat.emissiveIntensity = state.videoLive ? 1.5 : 0;
 
+    if (faderZ !== lastShadowFaderZ || state.videoLive !== lastShadowLive) {
+      lastShadowFaderZ = faderZ;
+      lastShadowLive = state.videoLive;
+      bench.requestShadowUpdate();
+    }
+
+    vuZeroed = false;
     updateVuMeters();
-    audioScreen.update(state);
-    videoScreen.update(state);
-    cam1Screen.update(state);
-    cam2Screen.update(state);
+    screensDirty = true;
+    flushScreens(false);
   }
 
   function syncStagePills(ev) {
@@ -1296,17 +1369,20 @@ export function createJpoAudiovisuelGame(api) {
     rackLeds.forEach((rl) => {
       rl.mat.emissiveIntensity = 0.5 + 0.5 * Math.sin(state.vuPhase * 0.6 + rl.phase);
     });
-    updateVuMeters();
-    if (vuAccum >= 0.1) {
+    if (vuAccum >= CANVAS_THROTTLE_SEC) {
       vuAccum = 0;
-      audioScreen.update(state);
-      videoScreen.update(state);
-      cam1Screen.update(state);
-      cam2Screen.update(state);
+      updateVuMeters();
+      flushScreens(false);
     }
   });
 
+  bench.freezeStatic([
+    ...faderKnobs.filter((fk) => fk.isMic || fk.isMaster).map((fk) => fk.mesh),
+    tBarArm
+  ]);
+
   sync3D();
+  flushScreens(true);
   setCameraById('overview');
   refreshUi();
 

@@ -65,7 +65,7 @@ export function createEsdMatTexture(baseHex = '#1e5b70', gridHex = '#2f829c') {
   return tex;
 }
 
-export function makeCanvasScreen(width, height, drawFn) {
+export function makeCanvasScreen(width, height, drawFn, options = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -75,12 +75,27 @@ export function makeCanvasScreen(width, height, drawFn) {
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   const safeDraw = typeof drawFn === 'function' ? drawFn : () => {};
-  const update = (...args) => {
+  const minIntervalMs = Math.max(0, Number(options?.minIntervalMs) || 0);
+  let lastDrawAt = -Infinity;
+  let uploadCount = 0;
+  const forceUpdate = (...args) => {
+    lastDrawAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     safeDraw(ctx, width, height, ...args);
     texture.needsUpdate = true;
+    uploadCount += 1;
+    return true;
   };
-  update();
-  return { canvas, ctx, texture, update };
+  const update = (...args) => {
+    if (minIntervalMs > 0) {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (now - lastDrawAt < minIntervalMs) {
+        return false;
+      }
+    }
+    return forceUpdate(...args);
+  };
+  forceUpdate();
+  return { canvas, ctx, texture, update, forceUpdate, getUploadCount: () => uploadCount };
 }
 
 export function buildFlexibleCable(points, colorHex = '#0284c7', radius = 0.012, emissive = null) {
@@ -204,6 +219,7 @@ export function createWorkbench3D(container, options = {}) {
   const devProfile = detectDeviceProfile();
   let renderer = null;
   let envTarget = null;
+  let shadowNeedsUpdate = true;
   if (vrActive) {
     renderer = vrBridge.renderer || null;
     scene.environment = vrBridge.envTexture || null;
@@ -214,19 +230,25 @@ export function createWorkbench3D(container, options = {}) {
       antialias: !devProfile.isMobile,
       powerPreference: 'high-performance'
     });
+    const maxDpr = Math.min(window.devicePixelRatio || 1, 1.5);
     renderer.setPixelRatio(
-      computeAdaptivePixelRatio({
-        devicePixelRatio: window.devicePixelRatio || 1,
-        quality: 'high',
-        isMobile: devProfile.isMobile,
-        isTablet: devProfile.isTablet
-      })
+      Math.min(
+        maxDpr,
+        computeAdaptivePixelRatio({
+          devicePixelRatio: window.devicePixelRatio || 1,
+          quality: 'high',
+          isMobile: devProfile.isMobile,
+          isTablet: devProfile.isTablet
+        })
+      )
     );
     renderer.setSize(initW, initH, false);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.02;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
 
     const pmrem = new THREE.PMREMGenerator(renderer);
     const roomEnv = new RoomEnvironment();
@@ -275,6 +297,8 @@ export function createWorkbench3D(container, options = {}) {
     const benchMesh = new THREE.Mesh(track(new THREE.BoxGeometry(benchW, 0.08, benchD)), benchMat);
     benchMesh.position.set(0, -0.04, 0);
     benchMesh.receiveShadow = true;
+    benchMesh.updateMatrix();
+    benchMesh.matrixAutoUpdate = false;
     benchGroup.add(benchMesh);
 
     const trimMat = track(
@@ -282,6 +306,8 @@ export function createWorkbench3D(container, options = {}) {
     );
     const frontTrim = new THREE.Mesh(track(new THREE.BoxGeometry(benchW, 0.082, 0.04)), trimMat);
     frontTrim.position.set(0, -0.04, benchD / 2);
+    frontTrim.updateMatrix();
+    frontTrim.matrixAutoUpdate = false;
     benchGroup.add(frontTrim);
 
     const backWallMat = track(
@@ -290,6 +316,8 @@ export function createWorkbench3D(container, options = {}) {
     const backWall = new THREE.Mesh(track(new THREE.PlaneGeometry(14, 6)), backWallMat);
     backWall.position.set(0, 2.1, -benchD / 2 - 0.65);
     backWall.receiveShadow = true;
+    backWall.updateMatrix();
+    backWall.matrixAutoUpdate = false;
     benchGroup.add(backWall);
 
     const floorMesh = new THREE.Mesh(
@@ -298,6 +326,8 @@ export function createWorkbench3D(container, options = {}) {
     );
     floorMesh.rotation.x = -Math.PI / 2;
     floorMesh.position.y = -0.82;
+    floorMesh.updateMatrix();
+    floorMesh.matrixAutoUpdate = false;
     benchGroup.add(floorMesh);
 
     if (options.hasEsdMat) {
@@ -308,9 +338,13 @@ export function createWorkbench3D(container, options = {}) {
       const matMesh = new THREE.Mesh(track(new THREE.BoxGeometry(matW, 0.01, matD)), esdMat);
       matMesh.position.set(0, 0.005, 0.08);
       matMesh.receiveShadow = true;
+      matMesh.updateMatrix();
+      matMesh.matrixAutoUpdate = false;
       benchGroup.add(matMesh);
     }
 
+    benchGroup.updateMatrix();
+    benchGroup.matrixAutoUpdate = false;
     scene.add(benchGroup);
   }
 
@@ -824,6 +858,7 @@ export function createWorkbench3D(container, options = {}) {
   };
 
   let resizeObserver = null;
+  let initResizeRafId = null;
   if (!vrActive) {
     canvas.addEventListener('pointerdown', handlePointerDown);
     canvas.addEventListener('pointerleave', handlePointerLeave);
@@ -837,7 +872,10 @@ export function createWorkbench3D(container, options = {}) {
     resizeObserver =
       typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => handleResize()) : null;
     resizeObserver?.observe(container);
-    requestAnimationFrame(() => handleResize());
+    initResizeRafId = requestAnimationFrame(() => {
+      initResizeRafId = null;
+      handleResize();
+    });
   }
 
   zoomInBtn?.addEventListener('click', () => {
@@ -873,6 +911,7 @@ export function createWorkbench3D(container, options = {}) {
   });
 
   let rafId = null;
+  let destroyed = false;
   const mountTime = performance.now();
   let lastTime = mountTime;
   const updaters = [];
@@ -1064,6 +1103,7 @@ export function createWorkbench3D(container, options = {}) {
   };
 
   const tick = (now) => {
+    if (destroyed) return;
     rafId = requestAnimationFrame(tick);
     const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
     lastTime = now;
@@ -1113,6 +1153,10 @@ export function createWorkbench3D(container, options = {}) {
       tag.el.style.transform = `translate3d(${sx}px, ${sy}px, 0) translate(-50%, -100%)`;
     }
 
+    if (shadowNeedsUpdate && renderer?.shadowMap && renderer.shadowMap.enabled) {
+      renderer.shadowMap.needsUpdate = true;
+      shadowNeedsUpdate = false;
+    }
     renderer.render(scene, camera);
   };
   if (!vrActive) {
@@ -1132,6 +1176,38 @@ export function createWorkbench3D(container, options = {}) {
     };
   };
 
+  const requestShadowUpdate = () => {
+    shadowNeedsUpdate = true;
+    if (!vrActive && renderer?.shadowMap && renderer.shadowMap.enabled) {
+      renderer.shadowMap.needsUpdate = true;
+    }
+  };
+
+  const freezeStatic = (dynamicObjects = []) => {
+    const dynamicSet = new Set();
+    const lightTargets = new Set();
+    for (const item of dynamicObjects || []) {
+      if (item) dynamicSet.add(item);
+    }
+    scene.traverse((obj) => {
+      if (obj.isLight && obj.target) {
+        lightTargets.add(obj.target);
+      }
+    });
+    scene.updateMatrixWorld(true);
+    scene.traverse((obj) => {
+      if (obj === scene || obj === camera) return;
+      let cur = obj;
+      while (cur) {
+        if (cur.name === 'vr-rig' || cur.userData?.__isVrRig) return;
+        cur = cur.parent;
+      }
+      if (dynamicSet.has(obj) || obj.isLight || lightTargets.has(obj)) return;
+      obj.updateMatrix();
+      obj.matrixAutoUpdate = false;
+    });
+  };
+
   const apiObj = {
     scene,
     camera,
@@ -1139,6 +1215,8 @@ export function createWorkbench3D(container, options = {}) {
     root,
     canvas,
     track,
+    requestShadowUpdate,
+    freezeStatic,
     addUpdate: addUpdateFn,
     onTick: addUpdateFn,
     handleResize,
@@ -1339,8 +1417,19 @@ export function createWorkbench3D(container, options = {}) {
       return projectOntoPlane(clientX, clientY, pl);
     },
     destroy: () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      if (toastTimer) clearTimeout(toastTimer);
+      destroyed = true;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      if (initResizeRafId) {
+        cancelAnimationFrame(initResizeRafId);
+        initResizeRafId = null;
+      }
+      if (toastTimer) {
+        clearTimeout(toastTimer);
+        toastTimer = null;
+      }
       activeZoomOverlay?.close?.();
       activeZoomOverlay = null;
       drawerSteppersCleanup?.();
@@ -1363,28 +1452,68 @@ export function createWorkbench3D(container, options = {}) {
         resizeObserver?.disconnect();
       }
       for (const pt of particles) pt.mat.dispose();
+      particles.length = 0;
       for (const pr of pulseRings) pr.mat.dispose();
+      pulseRings.length = 0;
+      interactiveMeshes.length = 0;
+      interactives.length = 0;
+      floatingTags.length = 0;
       envTarget?.dispose?.();
+      const disposed = new Set();
+      const disposeTex = (t) => {
+        if (t && !disposed.has(t)) {
+          disposed.add(t);
+          t.dispose?.();
+        }
+      };
+      const disposeMat = (m) => {
+        if (!m) return;
+        disposeTex(m.map);
+        disposeTex(m.alphaMap);
+        disposeTex(m.aoMap);
+        disposeTex(m.bumpMap);
+        disposeTex(m.displacementMap);
+        disposeTex(m.emissiveMap);
+        disposeTex(m.envMap);
+        disposeTex(m.lightMap);
+        disposeTex(m.metalnessMap);
+        disposeTex(m.normalMap);
+        disposeTex(m.roughnessMap);
+        if (!disposed.has(m)) {
+          disposed.add(m);
+          m.dispose?.();
+        }
+      };
       scene.traverse((obj) => {
         let cur = obj;
         while (cur) {
           if (cur.name === 'vr-rig' || cur.userData?.__isVrRig) return;
           cur = cur.parent;
         }
-        if (obj.geometry) obj.geometry.dispose();
+        if (obj.isLight && obj.shadow?.map && !disposed.has(obj.shadow.map)) {
+          disposed.add(obj.shadow.map);
+          obj.shadow.map.dispose?.();
+        }
+        if (obj.geometry && !disposed.has(obj.geometry)) {
+          disposed.add(obj.geometry);
+          obj.geometry.dispose?.();
+        }
         if (obj.material) {
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-          for (const m of mats) {
-            if (m.map) m.map.dispose();
-            m.dispose();
-          }
+          for (const m of mats) disposeMat(m);
         }
       });
       for (const d of disposables) {
-        d?.dispose?.();
+        if (d && !disposed.has(d)) {
+          disposed.add(d);
+          d.dispose?.();
+        }
       }
+      disposables.length = 0;
       if (!vrActive) {
+        renderer?.renderLists?.dispose?.();
         renderer?.dispose?.();
+        scene.clear();
       }
       root.remove();
     }

@@ -1273,6 +1273,9 @@ test('VR WebXR v4.20 : renderToTarget POV Live sous WebXR, surfaces salle de col
       origRender(sc, cam);
     };
 
+    assert.equal(mockRenderer.shadowMap.autoUpdate, false);
+    mockRenderer.shadowMap.autoUpdate = true;
+
     const okRt = sm.renderToTarget(pocket.povRenderTarget, povCam, {
       hiddenObjects: [hiddenMesh],
       ambientBoost: 0.4,

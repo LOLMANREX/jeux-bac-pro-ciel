@@ -37,7 +37,7 @@ function disposeNodeTree(root) {
     mat.dispose();
   };
   root.traverse((obj) => {
-    if (obj.geometry) {
+    if (obj.geometry && !obj.geometry.userData?.managedBySharedPool) {
       obj.geometry.dispose();
     }
     if (obj.material) {
@@ -675,7 +675,7 @@ function buildWorkbenchMesh(w, d, topHeight = 0.82, mats, useTechTop = false) {
   return grp;
 }
 
-function buildRackMesh(w, d, h = 2.15, ledOffsetPhase = 0, ledColor = '#10b981', mats, animatedRefs) {
+function buildRackMesh(w, d, h = 2.15, ledOffsetPhase = 0, ledColor = '#10b981', mats, animatedRefs, sharedPool = null) {
   const grp = new THREE.Group();
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(w, h, d),
@@ -693,15 +693,15 @@ function buildRackMesh(w, d, h = 2.15, ledOffsetPhase = 0, ledColor = '#10b981',
   glassDoor.position.set(0, h / 2, d / 2 + 0.01);
   grp.add(glassDoor);
 
+  const ledGeo = sharedPool?.rackLedGeo || new THREE.BoxGeometry(0.08, 0.036, 0.04);
   for (let i = 0; i < 6; i++) {
     const tray = new THREE.Mesh(new THREE.BoxGeometry(w * 0.78, 0.07, 0.04), mats.brushedMetalMat);
     tray.position.set(0, 0.38 + i * 0.27, d / 2 - 0.01);
     grp.add(tray);
 
-    const led = new THREE.Mesh(
-      new THREE.BoxGeometry(0.08, 0.036, 0.04),
-      new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? ledColor : '#38bdf8' })
-    );
+    const col = i % 2 === 0 ? ledColor : '#38bdf8';
+    const ledMat = sharedPool ? sharedPool.getBasicColorMat(col) : new THREE.MeshBasicMaterial({ color: col });
+    const led = new THREE.Mesh(ledGeo, ledMat);
     led.position.set(-w * 0.24 + (i % 3) * (w * 0.2), 0.38 + i * 0.27, d / 2 + 0.02);
     grp.add(led);
     animatedRefs.leds.push({ mesh: led, phase: ledOffsetPhase + i * 0.7, alert: false });
@@ -727,7 +727,7 @@ function findSupportingSurfaceHeight(obj, supportBoxes) {
   return null;
 }
 
-function createPropMountGroup(obj, supportHeight, mats) {
+function createPropMountGroup(obj, supportHeight, mats, sharedPool = null) {
   const grp = new THREE.Group();
   let mountY = supportHeight;
   if (mountY === null) {
@@ -737,7 +737,10 @@ function createPropMountGroup(obj, supportHeight, mats) {
     base.castShadow = false;
     base.receiveShadow = false;
     grp.add(base);
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.12, 0.75, 10), mats.legMat);
+    const post = new THREE.Mesh(
+      sharedPool?.propMountPostGeo || new THREE.CylinderGeometry(0.04, 0.12, 0.75, 10),
+      mats.legMat
+    );
     post.position.y = 0.375;
     post.castShadow = false;
     post.receiveShadow = false;
@@ -828,6 +831,91 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   };
   let leaderboardBoards = [];
   let materialPack = null;
+  let sharedPool = null;
+  function createSharedPool() {
+    const geos = [];
+    const matsList = [];
+    const texs = [];
+    const trackGeo = (g) => {
+      g.userData = { ...(g.userData || {}), managedBySharedPool: true };
+      geos.push(g);
+      return g;
+    };
+    const trackMat = (m) => {
+      m.userData = { ...(m.userData || {}), managedByMaterialPack: true };
+      matsList.push(m);
+      return m;
+    };
+    const trackTex = (t) => {
+      texs.push(t);
+      return t;
+    };
+    const basicColorCache = new Map();
+    let scopeMat = null;
+    let avMonitorMat = null;
+    let whiteboardMat = null;
+    return {
+      rackLedGeo: trackGeo(new THREE.BoxGeometry(0.08, 0.036, 0.04)),
+      hidingRackLedGeo: trackGeo(new THREE.BoxGeometry(0.022, 0.012, 0.014)),
+      stationRingGeo: trackGeo(new THREE.RingGeometry(0.68, 0.86, 36)),
+      pcRingGeo: trackGeo(new THREE.RingGeometry(0.52, 0.66, 28)),
+      propMountPostGeo: trackGeo(new THREE.CylinderGeometry(0.04, 0.12, 0.75, 10)),
+      doorSignFaceGeo: trackGeo(new THREE.PlaneGeometry(1.4, 0.29)),
+      camTripodLegGeo: trackGeo(new THREE.CylinderGeometry(0.04, 0.25, 1.38, 6)),
+      camLensGeo: trackGeo(new THREE.CylinderGeometry(0.09, 0.1, 0.26, 12)),
+      camTallyGeo: trackGeo(new THREE.SphereGeometry(0.035, 8, 8)),
+      studioLightStandGeo: trackGeo(new THREE.CylinderGeometry(0.035, 0.26, 1.65, 6)),
+      studioLightFaceGeo: trackGeo(new THREE.PlaneGeometry(0.48, 0.36)),
+      micBaseGeo: trackGeo(new THREE.CylinderGeometry(0.18, 0.2, 0.04, 14)),
+      micPoleGeo: trackGeo(new THREE.CylinderGeometry(0.022, 0.022, 1.38, 8)),
+      micBoomGeo: trackGeo(new THREE.CylinderGeometry(0.015, 0.015, 0.56, 8)),
+      micHeadGeo: trackGeo(new THREE.CylinderGeometry(0.04, 0.035, 0.16, 10)),
+      solderIronGeo: trackGeo(new THREE.CylinderGeometry(0.018, 0.022, 0.26, 8)),
+      fanCylGeo: trackGeo(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 16)),
+      getBasicColorMat(hex) {
+        const key = String(hex || '#ffffff').toLowerCase();
+        let m = basicColorCache.get(key);
+        if (!m) {
+          m = trackMat(new THREE.MeshBasicMaterial({ color: hex }));
+          basicColorCache.set(key, m);
+        }
+        return m;
+      },
+      getScopeMat() {
+        if (!scopeMat) {
+          scopeMat = trackMat(new THREE.MeshBasicMaterial({ map: trackTex(makeScopeTexture()) }));
+        }
+        return scopeMat;
+      },
+      getAvMonitorMat() {
+        if (!avMonitorMat) {
+          avMonitorMat = trackMat(new THREE.MeshBasicMaterial({ map: trackTex(makeAvMonitorTexture()) }));
+        }
+        return avMonitorMat;
+      },
+      getWhiteboardMat() {
+        if (!whiteboardMat) {
+          whiteboardMat = trackMat(new THREE.MeshBasicMaterial({ map: trackTex(makeWhiteboardTexture()) }));
+        }
+        return whiteboardMat;
+      },
+      getStats() {
+        return { geometries: geos.length, materials: matsList.length };
+      },
+      dispose() {
+        for (const g of geos) g.dispose?.();
+        for (const m of matsList) m.dispose?.();
+        for (const t of texs) t.dispose?.();
+        geos.length = 0;
+        matsList.length = 0;
+        texs.length = 0;
+        basicColorCache.clear();
+        scopeMat = null;
+        avMonitorMat = null;
+        whiteboardMat = null;
+      }
+    };
+  }
   const initialMapInput = initialMapData || createDefaultMap();
   const defaultSkipCombatOpt = options.skipCombatFallback;
   let currentMapData = normalizeMapData(initialMapInput);
@@ -936,11 +1024,11 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     housing.rotation.y = rotY;
     parentGroup.add(housing);
 
-    const f1 = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.29), mat);
+    const f1 = new THREE.Mesh(sharedPool?.doorSignFaceGeo || new THREE.PlaneGeometry(1.4, 0.29), mat);
     f1.position.set(0, 0, (thickness + 0.1) / 2 + 0.004);
     housing.add(f1);
 
-    const f2 = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.29), mat);
+    const f2 = new THREE.Mesh(sharedPool?.doorSignFaceGeo || new THREE.PlaneGeometry(1.4, 0.29), mat);
     f2.rotation.y = Math.PI;
     f2.position.set(0, 0, -(thickness + 0.1) / 2 - 0.004);
     housing.add(f2);
@@ -950,7 +1038,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     const color = obj.color || stationDef.color || '#0284c7';
     const objFloor = clampFloor(obj.floor ?? 0);
     const baseY = getFloorBaseY(currentMapData, objFloor);
-    const ringGeo = new THREE.RingGeometry(0.68, 0.86, 36);
+    const ringGeo = sharedPool?.stationRingGeo || new THREE.RingGeometry(0.68, 0.86, 36);
     const ringMat = new THREE.MeshBasicMaterial({
       color,
       side: THREE.DoubleSide,
@@ -1075,7 +1163,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     });
 
     const pcRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.52, 0.66, 28),
+      sharedPool?.pcRingGeo || new THREE.RingGeometry(0.52, 0.66, 28),
       new THREE.MeshBasicMaterial({
         color: obj.color || cat.defaultColor || '#38bdf8',
         side: THREE.DoubleSide,
@@ -1249,6 +1337,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
   function renderMapIntoGroup(mapData, buildOpts = {}) {
     const mats = createRealisticMaterialPack(options.maxAnisotropy || 8, { lowRes: Boolean(options.lowRes) });
     materialPack = mats;
+    sharedPool = createSharedPool();
     const b = mapData.bounds;
     const H = b.height || 4.6;
     const floorH = Number(mapData.floorHeight) || H;
@@ -2277,10 +2366,12 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
 
         const interiorLeds = [];
         const ledPalette = ['#22d3ee', '#10b981', '#f59e0b', '#38bdf8'];
+        const hrLedGeo = sharedPool?.hidingRackLedGeo || new THREE.BoxGeometry(0.022, 0.012, 0.014);
         for (let li = 0; li < 8; li++) {
+          const ledCol = ledPalette[li % ledPalette.length];
           const ledMesh = new THREE.Mesh(
-            new THREE.BoxGeometry(0.022, 0.012, 0.014),
-            new THREE.MeshBasicMaterial({ color: ledPalette[li % ledPalette.length] })
+            hrLedGeo,
+            sharedPool ? sharedPool.getBasicColorMat(ledCol) : new THREE.MeshBasicMaterial({ color: ledCol })
           );
           if (li < 4) {
             const sideSign = li % 2 === 0 ? -1 : 1;
@@ -2341,9 +2432,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           grp.add(vent);
         }
 
+        const statusLedCol = obj.color || '#38bdf8';
         const statusLed = new THREE.Mesh(
           new THREE.BoxGeometry(0.18, 0.045, 0.03),
-          new THREE.MeshBasicMaterial({ color: obj.color || '#38bdf8' })
+          sharedPool ? sharedPool.getBasicColorMat(statusLedCol) : new THREE.MeshBasicMaterial({ color: statusLedCol })
         );
         statusLed.position.set(0, rackH - 0.14, d / 2 + 0.01);
         grp.add(statusLed);
@@ -2512,7 +2604,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           chassis.position.set(0, 1.09, 0);
           chassis.castShadow = false;
           grp.add(chassis);
-          const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.3), new THREE.MeshBasicMaterial({ map: makeScopeTexture() }));
+          const scr = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.56, 0.3),
+            sharedPool ? sharedPool.getScopeMat() : new THREE.MeshBasicMaterial({ map: makeScopeTexture() })
+          );
           scr.position.set(0, 1.12, 0.29);
           grp.add(scr);
           attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.6, 2.55);
@@ -2547,14 +2642,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         }
 
         if (obj.type === 'tp_vmvlan') {
-          const rack = buildRackMesh(w, d, 2.25, 0.4, color, mats, animatedRefs);
+          const rack = buildRackMesh(w, d, 2.25, 0.4, color, mats, animatedRefs, sharedPool);
           grp.add(rack);
           attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.8, 2.65);
           continue;
         }
 
         if (obj.type === 'tp_patchrack') {
-          const rack = buildRackMesh(w, d, 2.1, 0.2, color, mats, animatedRefs);
+          const rack = buildRackMesh(w, d, 2.1, 0.2, color, mats, animatedRefs, sharedPool);
           grp.add(rack);
           attachStationMarker(stationDef, obj, grp, cat.interactRadius || 2.4, 2.5);
           continue;
@@ -2591,7 +2686,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           grp.add(dualMon);
           const monFace = new THREE.Mesh(
             new THREE.PlaneGeometry(Math.min(w * 0.68, 1.34), 0.42),
-            new THREE.MeshBasicMaterial({ map: makeAvMonitorTexture() })
+            sharedPool ? sharedPool.getAvMonitorMat() : new THREE.MeshBasicMaterial({ map: makeAvMonitorTexture() })
           );
           monFace.position.set(0, 1.24, -0.158);
           grp.add(monFace);
@@ -2740,7 +2835,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           const riser = new THREE.Mesh(new THREE.BoxGeometry(w * 0.94, 0.46, 0.28), mats.brushedMetalMat);
           riser.position.set(0, topH + 0.26, -d * 0.3);
           grp.add(riser);
-          const dial = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.24), new THREE.MeshBasicMaterial({ map: makeScopeTexture() }));
+          const dial = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.45, 0.24),
+            sharedPool ? sharedPool.getScopeMat() : new THREE.MeshBasicMaterial({ map: makeScopeTexture() })
+          );
           dial.position.set(-w * 0.2, topH + 0.28, -d * 0.3 + 0.145);
           grp.add(dial);
         } else if (obj.type === 'network_island') {
@@ -2769,7 +2867,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         grp.add(frame);
         const face = new THREE.Mesh(
           new THREE.PlaneGeometry(boardW - 0.1, boardH - 0.1),
-          new THREE.MeshBasicMaterial({ map: makeWhiteboardTexture() })
+          sharedPool ? sharedPool.getWhiteboardMat() : new THREE.MeshBasicMaterial({ map: makeWhiteboardTexture() })
         );
         face.position.set(0, 1.65, WALL_MOUNT_CLEARANCE + frameD + 0.005);
         grp.add(face);
@@ -2835,7 +2933,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'av_camera') {
-        const legCol = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.25, 1.38, 6), mats.legMat);
+        const legCol = new THREE.Mesh(sharedPool?.camTripodLegGeo || new THREE.CylinderGeometry(0.04, 0.25, 1.38, 6), mats.legMat);
         legCol.position.y = 0.69;
         grp.add(legCol);
         const camHlMat = new THREE.MeshStandardMaterial({
@@ -2848,11 +2946,14 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const camBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.5), camHlMat);
         camBody.position.y = 1.48;
         grp.add(camBody);
-        const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.26, 12), mats.darkMetalMat);
+        const lens = new THREE.Mesh(sharedPool?.camLensGeo || new THREE.CylinderGeometry(0.09, 0.1, 0.26, 12), mats.darkMetalMat);
         lens.rotation.x = Math.PI / 2;
         lens.position.set(0, 1.48, 0.34);
         grp.add(lens);
-        const tally = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), new THREE.MeshBasicMaterial({ color: '#ef4444' }));
+        const tally = new THREE.Mesh(
+          sharedPool?.camTallyGeo || new THREE.SphereGeometry(0.035, 8, 8),
+          sharedPool ? sharedPool.getBasicColorMat('#ef4444') : new THREE.MeshBasicMaterial({ color: '#ef4444' })
+        );
         tally.position.set(0, 1.65, 0.2);
         grp.add(tally);
         const linkedTpId = mapData?.jpoIsolated ? 'audiovisual' : (obj.z < -3.2 ? 'audiovisual' : 'studio');
@@ -2873,7 +2974,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'av_led_light') {
-        const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.26, 1.65, 6), mats.legMat);
+        const stand = new THREE.Mesh(sharedPool?.studioLightStandGeo || new THREE.CylinderGeometry(0.035, 0.26, 1.65, 6), mats.legMat);
         stand.position.y = 0.825;
         grp.add(stand);
         const housingMat = new THREE.MeshStandardMaterial({
@@ -2887,7 +2988,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         housing.position.set(0, 1.82, 0);
         housing.rotation.x = 0.18;
         grp.add(housing);
-        const face = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.36), new THREE.MeshBasicMaterial({ color: '#fffef7' }));
+        const face = new THREE.Mesh(
+          sharedPool?.studioLightFaceGeo || new THREE.PlaneGeometry(0.48, 0.36),
+          sharedPool ? sharedPool.getBasicColorMat('#fffef7') : new THREE.MeshBasicMaterial({ color: '#fffef7' })
+        );
         face.position.set(0, 0, 0.075);
         housing.add(face);
         const linkedTpId = mapData?.jpoIsolated ? 'audiovisual' : (obj.z < -3.2 ? 'audiovisual' : 'studio');
@@ -2908,13 +3012,13 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'av_mic_stand') {
-        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.04, 14), mats.darkMetalMat);
+        const base = new THREE.Mesh(sharedPool?.micBaseGeo || new THREE.CylinderGeometry(0.18, 0.2, 0.04, 14), mats.darkMetalMat);
         base.position.y = 0.02;
         grp.add(base);
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.38, 8), mats.legMat);
+        const pole = new THREE.Mesh(sharedPool?.micPoleGeo || new THREE.CylinderGeometry(0.022, 0.022, 1.38, 8), mats.legMat);
         pole.position.y = 0.71;
         grp.add(pole);
-        const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.56, 8), mats.legMat);
+        const boom = new THREE.Mesh(sharedPool?.micBoomGeo || new THREE.CylinderGeometry(0.015, 0.015, 0.56, 8), mats.legMat);
         boom.rotation.x = Math.PI / 2 - 0.35;
         boom.position.set(0, 1.44, 0.14);
         grp.add(boom);
@@ -2925,7 +3029,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           emissive: '#000000',
           emissiveIntensity: 0
         });
-        const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.16, 10), micHlMat);
+        const mic = new THREE.Mesh(sharedPool?.micHeadGeo || new THREE.CylinderGeometry(0.04, 0.035, 0.16, 10), micHlMat);
         mic.position.set(0, 1.5, 0.34);
         grp.add(mic);
         const linkedTpId = mapData?.jpoIsolated ? 'audiovisual' : 'studio';
@@ -2946,7 +3050,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       if (obj.type === 'net_rack_19') {
-        const rack = buildRackMesh(w, d, 2.15, (obj.x + obj.z) * 0.2, color || '#10b981', mats, animatedRefs);
+        const rack = buildRackMesh(w, d, 2.15, (obj.x + obj.z) * 0.2, color || '#10b981', mats, animatedRefs, sharedPool);
         grp.add(rack);
         continue;
       }
@@ -2960,7 +3064,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           const strip = new THREE.Mesh(new THREE.BoxGeometry(w * 0.88, 0.09, 0.04), mats.brushedMetalMat);
           strip.position.set(0, 1.32 + r * 0.22, WALL_MOUNT_CLEARANCE + chassisD + 0.01);
           grp.add(strip);
-          const led = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.035, 0.03), new THREE.MeshBasicMaterial({ color: '#10b981' }));
+          const led = new THREE.Mesh(
+            new THREE.BoxGeometry(0.14, 0.035, 0.03),
+            sharedPool ? sharedPool.getBasicColorMat('#10b981') : new THREE.MeshBasicMaterial({ color: '#10b981' })
+          );
           led.position.set(-w * 0.28, 1.32 + r * 0.22, WALL_MOUNT_CLEARANCE + chassisD + 0.028);
           grp.add(led);
           animatedRefs.leds.push({ mesh: led, phase: r * 0.9, alert: false });
@@ -2974,7 +3081,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         ups.castShadow = true;
         ups.receiveShadow = true;
         grp.add(ups);
-        const lcd = new THREE.Mesh(new THREE.BoxGeometry(w * 0.55, 0.14, 0.03), new THREE.MeshBasicMaterial({ color: '#0284c7' }));
+        const lcd = new THREE.Mesh(
+          new THREE.BoxGeometry(w * 0.55, 0.14, 0.03),
+          sharedPool ? sharedPool.getBasicColorMat('#0284c7') : new THREE.MeshBasicMaterial({ color: '#0284c7' })
+        );
         lcd.position.set(0, 1.15, d / 2 + 0.01);
         grp.add(lcd);
         continue;
@@ -3062,7 +3172,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
 
       const sh = cat.surfaceProp ? findSupportingSurfaceHeight(obj, supportBoxes) : null;
-      const { grp: propGrp, mountY } = createPropMountGroup(obj, sh, mats);
+      const { grp: propGrp, mountY } = createPropMountGroup(obj, sh, mats, sharedPool);
       grp.add(propGrp);
 
       if (obj.type === 'av_mixer') {
@@ -3107,7 +3217,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
           const sw = new THREE.Mesh(new THREE.BoxGeometry(w, 0.11, d), mats.darkMetalMat);
           sw.position.set(0, mountY + 0.06 + s * 0.13, 0);
           propGrp.add(sw);
-          const bar = new THREE.Mesh(new THREE.BoxGeometry(w * 0.78, 0.03, 0.02), new THREE.MeshBasicMaterial({ color: '#10b981' }));
+          const bar = new THREE.Mesh(
+            new THREE.BoxGeometry(w * 0.78, 0.03, 0.02),
+            sharedPool ? sharedPool.getBasicColorMat('#10b981') : new THREE.MeshBasicMaterial({ color: '#10b981' })
+          );
           bar.position.set(0, 0, d / 2 + 0.01);
           sw.add(bar);
         }
@@ -3121,7 +3234,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         );
         box.position.set(0, mountY + 0.11, 0);
         propGrp.add(box);
-        const iron = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.26, 8), mats.legMat);
+        const iron = new THREE.Mesh(sharedPool?.solderIronGeo || new THREE.CylinderGeometry(0.018, 0.022, 0.26, 8), mats.legMat);
         iron.rotation.z = Math.PI / 3;
         iron.position.set(0.22, mountY + 0.14, 0.06);
         propGrp.add(iron);
@@ -3132,7 +3245,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.32), mats.lightPlasticMat);
         body.position.set(0, mountY + 0.16, 0);
         propGrp.add(body);
-        const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.2), new THREE.MeshBasicMaterial({ map: makeScopeTexture() }));
+        const scr = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.32, 0.2),
+          sharedPool ? sharedPool.getScopeMat() : new THREE.MeshBasicMaterial({ map: makeScopeTexture() })
+        );
         scr.position.set(-0.04, mountY + 0.17, 0.165);
         propGrp.add(scr);
         continue;
@@ -3146,7 +3262,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         mm.position.set(0, mountY + 0.06, 0);
         mm.rotation.x = 0.2;
         propGrp.add(mm);
-        const lcd = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.09), new THREE.MeshBasicMaterial({ color: '#94a3b8' }));
+        const lcd = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.14, 0.09),
+          sharedPool ? sharedPool.getBasicColorMat('#94a3b8') : new THREE.MeshBasicMaterial({ color: '#94a3b8' })
+        );
         lcd.rotation.x = -Math.PI / 2;
         lcd.position.set(0, 0.045, -0.04);
         mm.add(lcd);
@@ -3157,7 +3276,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         const unit = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.32, 0.3), mats.lightPlasticMat);
         unit.position.set(0, mountY + 0.17, 0);
         propGrp.add(unit);
-        const fan = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 16), mats.darkMetalMat);
+        const fan = new THREE.Mesh(sharedPool?.fanCylGeo || new THREE.CylinderGeometry(0.12, 0.12, 0.04, 16), mats.darkMetalMat);
         fan.rotation.x = Math.PI / 2;
         fan.position.set(0, mountY + 0.18, 0.16);
         propGrp.add(fan);
@@ -3454,6 +3573,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     disposeNodeTree(worldGroup);
     perfRackDoorTex?.dispose?.();
     perfRackDoorTex = null;
+    if (sharedPool) {
+      sharedPool.dispose();
+      sharedPool = null;
+    }
     if (materialPack) {
       materialPack.dispose();
       materialPack = null;
@@ -3606,6 +3729,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
         if (n.matrixAutoUpdate === false) staticFrozenCount++;
       }
     });
+    const poolStats = sharedPool?.getStats?.() || { geometries: 0, materials: 0 };
     return {
       meshCount,
       instancedMeshCount,
@@ -3613,7 +3737,9 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       drawCallEstimate: meshCount + instancedMeshCount,
       staticFrozenCount,
       pcStationCount: pcStations.length,
-      chunkCount: spatialCulling ? spatialCulling.chunks.length : 0
+      chunkCount: spatialCulling ? spatialCulling.chunks.length : 0,
+      sharedGeometryCount: poolStats.geometries,
+      sharedMaterialCount: poolStats.materials
     };
   }
 
@@ -3782,6 +3908,10 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     disposeNodeTree(worldGroup);
     perfRackDoorTex?.dispose?.();
     perfRackDoorTex = null;
+    if (sharedPool) {
+      sharedPool.dispose();
+      sharedPool = null;
+    }
     if (materialPack) {
       materialPack.dispose();
       materialPack = null;

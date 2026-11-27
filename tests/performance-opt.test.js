@@ -503,3 +503,218 @@ test('v4.31 — Zéro timer ou socket orphelin à la déconnexion client et ferm
   fs.rmSync(tmpDir, { recursive: true, force: true });
   assert.ok(true);
 });
+
+function scanJsCommentsLocal(code) {
+  const found = [];
+  let inSingle = false;
+  let inDouble = false;
+  let inTemplate = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let escaped = false;
+  let line = 1;
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    const next = code[i + 1];
+    if (ch === '\n') {
+      inLineComment = false;
+      line++;
+      escaped = false;
+      continue;
+    }
+    if (inLineComment) continue;
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (inSingle || inDouble || inTemplate) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (inSingle && ch === "'") inSingle = false;
+      else if (inDouble && ch === '"') inDouble = false;
+      else if (inTemplate && ch === '`') inTemplate = false;
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      found.push({ line, kind: '//' });
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      found.push({ line, kind: '/*' });
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    if (ch === "'") inSingle = true;
+    else if (ch === '"') inDouble = true;
+    else if (ch === '`') inTemplate = true;
+  }
+  return found;
+}
+
+test('v4.46 — Zéro double rendu GPU, ombres statiques, pixelRatio <= 1.5, throttling 12 FPS & mutualisation', async () => {
+  const loopCalls = [];
+  const baseMock = createMockRenderer();
+  baseMock.setAnimationLoop = (fn) => {
+    loopCalls.push(fn);
+  };
+  const mgr = new SceneManager(null, {
+    renderer: baseMock,
+    skipEnvironment: true,
+    deviceProfile: { isMobile: false, isTablet: false, isVr: false },
+    quality: 'high'
+  });
+  assert.equal(baseMock.shadowMap.autoUpdate, false);
+  assert.equal(baseMock.shadowMap.needsUpdate, true);
+  assert.ok(baseMock.getStats().pixelRatio <= 1.5);
+  assert.ok(mgr.sun.shadow.mapSize.x <= 1024);
+
+  mgr.start();
+  assert.equal(loopCalls.length, 1);
+  assert.equal(typeof loopCalls[0], 'function');
+  mgr.pauseRenderLoop();
+  assert.equal(mgr.isRenderLoopPaused(), true);
+  assert.equal(loopCalls[loopCalls.length - 1], null);
+  mgr.resumeRenderLoop();
+  assert.equal(mgr.isRenderLoopPaused(), false);
+  assert.equal(typeof loopCalls[loopCalls.length - 1], 'function');
+
+  baseMock.shadowMap.needsUpdate = false;
+  mgr.requestShadowUpdate();
+  assert.equal(baseMock.shadowMap.needsUpdate, true);
+  mgr.dispose();
+
+  const { MiniGameModal } = await import('../src/minigames/MiniGameModal.js');
+  const modal = Object.create(MiniGameModal.prototype);
+  modal.backdrop = createMockEl('minigame-modal', ['hidden']);
+  modal.iconEl = createMockEl('mg-icon');
+  modal.subtitleEl = createMockEl('mg-subtitle');
+  modal.titleEl = createMockEl('mg-title');
+  modal.stagePillsEl = createMockEl('mg-stage-pills');
+  modal.jpoHelpBtn = createMockEl('mg-jpo-help-btn', ['hidden']);
+  modal.timerEl = createMockEl('mg-timer');
+  modal.contentEl = createMockEl('mg-content');
+  modal.exitBtn = createMockEl('mg-exit-btn');
+  modal.activeGame = null;
+  modal.timerInterval = null;
+  modal.vrManager = null;
+  modal.sceneMgr = null;
+  modal._openRafId = null;
+  modal.vrResultScene = null;
+  modal.vrResultActive = false;
+  modal._isOpen = false;
+  modal.stageSnapshot = { stages: [], activeStageIdx: 0, onSelectStage: null };
+
+  let pausedCount = 0;
+  let resumedCount = 0;
+  let destroyedCount = 0;
+  const prevDoc = globalThis.document;
+  const prevWin = globalThis.window;
+  const prevRaf = globalThis.requestAnimationFrame;
+  const prevCancel = globalThis.cancelAnimationFrame;
+  globalThis.document = {
+    pointerLockElement: null,
+    exitPointerLock() {},
+    getElementById: () => createMockEl()
+  };
+  globalThis.window = { dispatchEvent() {} };
+  globalThis.requestAnimationFrame = () => 99;
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    modal.open(
+      'antivirus',
+      () => ({
+        destroy: () => {
+          destroyedCount++;
+        }
+      }),
+      {
+        sceneMgr: {
+          pauseRenderLoop: () => {
+            pausedCount++;
+          },
+          resumeRenderLoop: () => {
+            resumedCount++;
+          }
+        },
+        onClose: () => {}
+      }
+    );
+    assert.equal(pausedCount, 1);
+    modal.close();
+    assert.equal(resumedCount, 1);
+    assert.equal(destroyedCount, 1);
+  } finally {
+    globalThis.document = prevDoc;
+    globalThis.window = prevWin;
+    globalThis.requestAnimationFrame = prevRaf;
+    globalThis.cancelAnimationFrame = prevCancel;
+  }
+
+  const labScene = new THREE.Scene();
+  const lab = buildLabWorld(labScene, null, { hideSprites: true });
+  const labStats = lab.getRenderStats();
+  assert.ok(labStats.sharedGeometryCount >= 10, `Géométries mutualisées attendues >= 10, reçu ${labStats.sharedGeometryCount}`);
+  assert.ok(labStats.sharedMaterialCount >= 3, `Matériaux mutualisés attendus >= 3, reçu ${labStats.sharedMaterialCount}`);
+  assert.ok(labStats.drawCallEstimate < 500);
+  lab.dispose();
+
+  const wbSrc = fs.readFileSync(path.resolve('src/minigames/Workbench3DHost.js'), 'utf8');
+  assert.ok(wbSrc.includes('shadowMap.autoUpdate = false'));
+  assert.ok(wbSrc.includes("powerPreference: 'high-performance'"));
+  assert.ok(wbSrc.includes('Math.min(window.devicePixelRatio || 1, 1.5)'));
+  assert.ok(wbSrc.includes('freezeStatic'));
+  assert.ok(wbSrc.includes('renderer?.renderLists?.dispose?.()'));
+
+  const avSrc = fs.readFileSync(path.resolve('src/minigames/AntivirusGame.js'), 'utf8');
+  assert.ok(avSrc.includes('SCREEN_THROTTLE_MS = 84'));
+  assert.ok(avSrc.includes('bench.freezeStatic('));
+
+  const vlanSrc = fs.readFileSync(path.resolve('src/minigames/VlanConfigGame.js'), 'utf8');
+  assert.ok(vlanSrc.includes('lastLaptopDrawMs'));
+  assert.ok(vlanSrc.includes('packetOrbGeo'));
+  assert.ok(vlanSrc.includes('bench.freezeStatic('));
+
+  const solderSrc = fs.readFileSync(path.resolve('src/minigames/SolderingGame.js'), 'utf8');
+  assert.ok(solderSrc.includes('minIntervalMs: 84'));
+  assert.ok(solderSrc.includes('wb.freezeStatic('));
+  assert.equal(solderSrc.includes('copperMat.clone()'), false);
+
+  const jpoAvSrc = fs.readFileSync(path.resolve('src/minigames/JpoAudiovisuelGame.js'), 'utf8');
+  assert.ok(jpoAvSrc.includes('CANVAS_THROTTLE_SEC = 1 / 12'));
+  assert.ok(jpoAvSrc.includes('THREE.InstancedMesh'));
+  assert.ok(jpoAvSrc.includes('bench.freezeStatic('));
+
+  for (const rel of [
+    'src/world/SceneManager.js',
+    'src/world/LabBuilder.js',
+    'src/main.js',
+    'src/minigames/MiniGameModal.js',
+    'src/minigames/Workbench3DHost.js',
+    'src/minigames/AntivirusGame.js',
+    'src/minigames/VlanConfigGame.js',
+    'src/minigames/SolderingGame.js',
+    'src/minigames/JpoAudiovisuelGame.js',
+    'src/ui/ShopModal.js',
+    'src/ui/LockerModal.js',
+    'src/ui/SkinCustomizer.js',
+    'src/admin/MapEditor.js',
+    'src/ui/ChangelogModal.js',
+    'vite.config.js',
+    'tests/performance-opt.test.js'
+  ]) {
+    const txt = fs.readFileSync(path.resolve(rel), 'utf8');
+    assert.deepEqual(scanJsCommentsLocal(txt), [], `Commentaire JS détecté dans ${rel}`);
+  }
+});

@@ -503,11 +503,13 @@ export function createVlanConfigGame(api) {
   deskPad.receiveShadow = true;
   bench.scene.add(deskPad);
 
+  const grommetOuterGeo = bench.track(new THREE.CylinderGeometry(0.036, 0.036, 0.014, 16));
+  const grommetHoleGeo = bench.track(new THREE.CylinderGeometry(0.022, 0.022, 0.016, 16));
   for (const gx of [-0.68, 0, 0.68]) {
-    const grommet = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.036, 0.036, 0.014, 16)), brushedAluMat);
+    const grommet = new THREE.Mesh(grommetOuterGeo, brushedAluMat);
     grommet.position.set(gx, 0.009, -0.44);
     bench.scene.add(grommet);
-    const hole = new THREE.Mesh(bench.track(new THREE.CylinderGeometry(0.022, 0.022, 0.016, 16)), darkMetalMat);
+    const hole = new THREE.Mesh(grommetHoleGeo, darkMetalMat);
     hole.position.set(gx, 0.01, -0.44);
     bench.scene.add(hole);
   }
@@ -691,8 +693,9 @@ export function createVlanConfigGame(api) {
   rackBack.position.set(0, 0.152, -0.128);
   stackGroup.add(rackBack);
 
+  const rackRailGeo = bench.track(new THREE.BoxGeometry(0.016, 0.29, 0.016));
   for (const rx of [-0.222, 0.222]) {
-    const rail = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.016, 0.29, 0.016)), brushedAluMat);
+    const rail = new THREE.Mesh(rackRailGeo, brushedAluMat);
     rail.position.set(rx, 0.15, 0.128);
     stackGroup.add(rail);
   }
@@ -754,6 +757,7 @@ export function createVlanConfigGame(api) {
   stackGroup.add(routerOled);
 
   const routerLeds = [];
+  const routerLedGeo = bench.track(new THREE.SphereGeometry(0.0055, 8, 8));
   for (let rp = 0; rp < 4; rp++) {
     const rx = 0.02 + rp * 0.034;
     const rPocket = new THREE.Mesh(rj45PocketGeo, darkMetalMat);
@@ -763,7 +767,7 @@ export function createVlanConfigGame(api) {
     const rLedMat = bench.track(
       new THREE.MeshStandardMaterial({ color: '#f59e0b', emissive: '#d97706', emissiveIntensity: 0.8 })
     );
-    const rLed = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.0055, 8, 8)), rLedMat);
+    const rLed = new THREE.Mesh(routerLedGeo, rLedMat);
     rLed.position.set(rx, 0.16, 0.124);
     stackGroup.add(rLed);
     routerLeds.push(rLedMat);
@@ -925,14 +929,25 @@ export function createVlanConfigGame(api) {
 
   const nodeMeshes = {};
   const campusPortLeds = { core: [], firewall: [], stations: [] };
+  const campusNodeBodyMat = bench.track(
+    new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.38, metalness: 0.52 })
+  );
+  const stationBodyGeo = bench.track(new THREE.BoxGeometry(0.22, 0.11, 0.18));
+  const stationRoofGeo = bench.track(new THREE.BoxGeometry(0.22 * 0.86, 0.014, 0.18 * 0.86));
+  const coreLedGeo = bench.track(new THREE.BoxGeometry(0.02, 0.012, 0.006));
+  const fwLedGeo = bench.track(new THREE.SphereGeometry(0.009, 8, 8));
+  const miniMonGeo = bench.track(new THREE.BoxGeometry(0.11, 0.07, 0.012));
+  const miniMonFaceGeo = bench.track(new THREE.PlaneGeometry(0.092, 0.052));
+  const wifiAntGeo = bench.track(new THREE.CylinderGeometry(0.005, 0.007, 0.07, 8));
   for (const n of NODE_DEFS) {
     const group = new THREE.Group();
     group.position.set(n.pos[0], n.pos[1], n.pos[2]);
 
-    const bodyMat = bench.track(
-      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.38, metalness: 0.52 })
+    const isStation = n.id === 'admin' || n.id === 'atelier' || n.id === 'wifi';
+    const body = new THREE.Mesh(
+      isStation ? stationBodyGeo : bench.track(new THREE.BoxGeometry(n.size[0], n.size[1], n.size[2])),
+      campusNodeBodyMat
     );
-    const body = new THREE.Mesh(bench.track(new THREE.BoxGeometry(n.size[0], n.size[1], n.size[2])), bodyMat);
     body.position.y = n.size[1] / 2;
     body.castShadow = true;
     group.add(body);
@@ -946,7 +961,7 @@ export function createVlanConfigGame(api) {
       })
     );
     const roof = new THREE.Mesh(
-      bench.track(new THREE.BoxGeometry(n.size[0] * 0.86, 0.014, n.size[2] * 0.86)),
+      isStation ? stationRoofGeo : bench.track(new THREE.BoxGeometry(n.size[0] * 0.86, 0.014, n.size[2] * 0.86)),
       roofMat
     );
     roof.position.y = n.size[1] + 0.008;
@@ -960,7 +975,7 @@ export function createVlanConfigGame(api) {
         const lMat = bench.track(
           new THREE.MeshStandardMaterial({ color: '#38bdf8', emissive: '#0284c7', emissiveIntensity: 1.0 })
         );
-        const lMesh = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.02, 0.012, 0.006)), lMat);
+        const lMesh = new THREE.Mesh(coreLedGeo, lMat);
         lMesh.position.set(-0.054 + cl * 0.036, 0.07, 0.118);
         group.add(lMesh);
         campusPortLeds.core.push(lMat);
@@ -973,20 +988,20 @@ export function createVlanConfigGame(api) {
         const lMat = bench.track(
           new THREE.MeshStandardMaterial({ color: '#ef4444', emissive: '#ef4444', emissiveIntensity: 1.0 })
         );
-        const lMesh = new THREE.Mesh(bench.track(new THREE.SphereGeometry(0.009, 8, 8)), lMat);
+        const lMesh = new THREE.Mesh(fwLedGeo, lMat);
         lMesh.position.set(-0.04 + fl * 0.08, 0.05, 0.094);
         group.add(lMesh);
         campusPortLeds.firewall.push(lMat);
       }
     } else if (n.id === 'admin' || n.id === 'atelier') {
-      const miniMon = new THREE.Mesh(bench.track(new THREE.BoxGeometry(0.11, 0.07, 0.012)), darkMetalMat);
+      const miniMon = new THREE.Mesh(miniMonGeo, darkMetalMat);
       miniMon.position.set(-0.03, n.size[1] + 0.055, -0.02);
       miniMon.rotation.x = -0.12;
       group.add(miniMon);
       const monGlowMat = bench.track(
         new THREE.MeshStandardMaterial({ color: n.baseColor, emissive: n.baseColor, emissiveIntensity: 0.75 })
       );
-      const monFace = new THREE.Mesh(bench.track(new THREE.PlaneGeometry(0.092, 0.052)), monGlowMat);
+      const monFace = new THREE.Mesh(miniMonFaceGeo, monGlowMat);
       monFace.position.set(-0.03, n.size[1] + 0.055, -0.012);
       monFace.rotation.x = -0.12;
       group.add(monFace);
@@ -1001,10 +1016,7 @@ export function createVlanConfigGame(api) {
       group.add(apRing);
       campusPortLeds.stations.push({ id: 'wifi', mat: apRingMat });
       for (const ax of [-0.05, 0.05]) {
-        const ant = new THREE.Mesh(
-          bench.track(new THREE.CylinderGeometry(0.005, 0.007, 0.07, 8)),
-          brushedAluMat
-        );
+        const ant = new THREE.Mesh(wifiAntGeo, brushedAluMat);
         ant.position.set(ax, n.size[1] + 0.045, -0.04);
         group.add(ant);
       }
@@ -1050,11 +1062,11 @@ export function createVlanConfigGame(api) {
     trunkFw: makeLinkPipe([-0.29, 0, -0.22], [0, 0, 0.0])
   };
 
+  const packetOrbGeo = bench.track(new THREE.SphereGeometry(0.022, 12, 12));
+  const packetOkMat = bench.track(new THREE.MeshBasicMaterial({ color: 0x22c55e }));
+  const packetErrMat = bench.track(new THREE.MeshBasicMaterial({ color: 0xef4444 }));
   function spawnPacketFlow(segmentsSpec, success) {
-    const orb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.022, 12, 12),
-      new THREE.MeshBasicMaterial({ color: success ? 0x22c55e : 0xef4444 })
-    );
+    const orb = new THREE.Mesh(packetOrbGeo, success ? packetOkMat : packetErrMat);
     campusGroup.add(orb);
     state.packets.push({
       orb,
@@ -1244,7 +1256,20 @@ export function createVlanConfigGame(api) {
     netWallBarMat.emissive.setHex(ev.fullRouteOk ? 0x16a34a : 0x0ea5e9);
   }
 
-  function drawLaptopScreen() {
+  let lastCliSig = '';
+  let lastLaptopDrawMs = -Infinity;
+  let laptopScreenDirty = false;
+  function drawLaptopScreen(force = false) {
+    const cliSig = state.cliHistory.join('\n');
+    if (cliSig === lastCliSig && !laptopScreenDirty) return;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (!force && now - lastLaptopDrawMs < 84) {
+      laptopScreenDirty = true;
+      return;
+    }
+    lastCliSig = cliSig;
+    laptopScreenDirty = false;
+    lastLaptopDrawMs = now;
     const { ctx, canvas, texture } = laptopScreen;
     ctx.fillStyle = '#050b14';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1614,7 +1639,11 @@ export function createVlanConfigGame(api) {
   bench.addFloatingTag([-0.34, 0.34, -0.34], 'Baie 19" • Switch L3', 'info');
   bench.addFloatingTag([0.36, 0.25, 0.0], 'Maquette Infra 3D', 'info');
 
+  const _pktOffset = new THREE.Vector3(0, 0.03, 0);
   const unsubTick = bench.addUpdate((dt, elapsed) => {
+    if (laptopScreenDirty) {
+      drawLaptopScreen(false);
+    }
     ambientRackLeds.forEach((al) => {
       al.mat.emissiveIntensity = 0.4 + 0.75 * Math.abs(Math.sin(elapsed * 3.8 + al.phase));
     });
@@ -1644,10 +1673,11 @@ export function createVlanConfigGame(api) {
       const seg = pkt.segments[pkt.segIdx];
       const u = seg.reverse ? 1 - pkt.t : pkt.t;
       const pt = seg.curve.getPoint(Math.max(0, Math.min(1, u)));
-      pkt.orb.position.copy(pt).add(new THREE.Vector3(0, 0.03, 0));
+      pkt.orb.position.copy(pt).add(_pktOffset);
     }
   });
 
+  bench.freezeStatic([]);
   syncTopology3D();
   setCameraById('overview');
   refreshUi();
@@ -1656,6 +1686,10 @@ export function createVlanConfigGame(api) {
     destroy: () => {
       keypadCleanup?.();
       keypadCleanup = null;
+      for (const pkt of state.packets) {
+        campusGroup.remove(pkt.orb);
+      }
+      state.packets.length = 0;
       unsubTick();
       bench.destroy();
     }

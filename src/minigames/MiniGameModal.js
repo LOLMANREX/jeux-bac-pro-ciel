@@ -27,6 +27,8 @@ export class MiniGameModal {
     this.onOpenHelpCallback = null;
     this.jpoMode = false;
     this.vrManager = null;
+    this.sceneMgr = null;
+    this._openRafId = null;
     this.vrResultScene = null;
     this.vrResultActive = false;
     this._isOpen = false;
@@ -43,15 +45,20 @@ export class MiniGameModal {
     });
   }
 
-  open(tpId, createGameFn, { vrManager = null, jpoMode = false, onOpenHelp = null, onComplete, onClose }) {
+  open(tpId, createGameFn, { vrManager = null, sceneMgr = null, jpoMode = false, onOpenHelp = null, onComplete, onClose }) {
     const tp = getStationById(tpId);
     if (!tp) return;
     if (document.pointerLockElement) {
       document.exitPointerLock?.();
     }
+    if (this._openRafId) {
+      cancelAnimationFrame(this._openRafId);
+      this._openRafId = null;
+    }
     this.vrResultActive = false;
     this._cleanupVrResultScene();
     this.vrManager = vrManager || this.vrManager || null;
+    this.sceneMgr = sceneMgr || this.vrManager?.sceneMgr || this.sceneMgr || null;
     if (this.vrManager?.isVrActive()) {
       this.vrManager.detachTpContext();
       this.vrManager.sceneMgr?.setCustomRenderTarget?.(null, null);
@@ -70,6 +77,9 @@ export class MiniGameModal {
     this.jpoHelpBtn?.classList.toggle('hidden', !(this.jpoMode && this.onOpenHelpCallback));
 
     const vrActive = Boolean(this.vrManager?.isVrActive());
+    if (!vrActive) {
+      this.sceneMgr?.pauseRenderLoop?.();
+    }
     this.backdrop.classList.toggle('vr-passthrough', vrActive);
 
     this.contentEl.__vrBridge = {
@@ -111,7 +121,8 @@ export class MiniGameModal {
     this.stagePillsEl.innerHTML = '';
     this.backdrop.classList.add('tp3d-mode');
     this.backdrop.classList.remove('hidden');
-    requestAnimationFrame(() => {
+    this._openRafId = requestAnimationFrame(() => {
+      this._openRafId = null;
       this.backdrop.classList.add('tp3d-visible');
       window.dispatchEvent(new Event('resize'));
     });
@@ -202,7 +213,18 @@ export class MiniGameModal {
       if (obj.geometry) obj.geometry.dispose();
       if (obj.material) {
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        for (const m of mats) m.dispose?.();
+        for (const m of mats) {
+          if (!m) continue;
+          m.map?.dispose?.();
+          m.roughnessMap?.dispose?.();
+          m.metalnessMap?.dispose?.();
+          m.normalMap?.dispose?.();
+          m.bumpMap?.dispose?.();
+          m.emissiveMap?.dispose?.();
+          m.alphaMap?.dispose?.();
+          m.aoMap?.dispose?.();
+          m.dispose?.();
+        }
       }
     });
     this.vrResultScene = null;
@@ -344,6 +366,10 @@ export class MiniGameModal {
 
   close(payload = {}) {
     this._isOpen = false;
+    if (this._openRafId) {
+      cancelAnimationFrame(this._openRafId);
+      this._openRafId = null;
+    }
     this.jpoMode = false;
     this.onOpenHelpCallback = null;
     this.jpoHelpBtn?.classList.add('hidden');
@@ -357,6 +383,9 @@ export class MiniGameModal {
     this.backdrop.classList.add('hidden');
     this.contentEl.innerHTML = '';
     this.stagePillsEl.innerHTML = '';
+    if (!payload?.replayTpId && !this.vrManager?.isVrActive?.()) {
+      this.sceneMgr?.resumeRenderLoop?.();
+    }
     const cb = this.onCloseCallback;
     this.onCloseCallback = null;
     cb?.(payload);

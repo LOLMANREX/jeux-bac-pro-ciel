@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.45 - Sublimation 3D Pro des 3 TP Portes Ouvertes (Cyber SOC, VLAN & Brasure)'),
+    __APP_VERSION__: JSON.stringify('v4.46 - Optimisation Performance 60 FPS WebGL/Three.js (Zéro Double Rendu, Ombres Statiques & Mutualisation)'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

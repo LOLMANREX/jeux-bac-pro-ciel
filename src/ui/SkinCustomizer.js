@@ -253,7 +253,12 @@ export class SkinPreview3D {
     this.initialized = true;
 
     try {
-      this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
+      this.renderer = new THREE.WebGLRenderer({
+        canvas: this.canvas,
+        alpha: true,
+        antialias: true,
+        powerPreference: 'high-performance'
+      });
       const dprCap = (typeof window !== 'undefined' && window.innerWidth < 768) ? 1.15 : 1.5;
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
       this.renderer.setSize(this.width, this.height, false);

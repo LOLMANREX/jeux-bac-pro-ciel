@@ -227,6 +227,8 @@ export function createSolderingGame(api) {
   lampSpotLight.position.set(-0.08, 0.98, -0.18);
   lampSpotLight.target.position.set(0.02, 0.14, 0.04);
   lampSpotLight.castShadow = true;
+  lampSpotLight.shadow.mapSize.set(1024, 1024);
+  lampSpotLight.shadow.bias = -0.0005;
   wb.scene.add(lampSpotLight);
   wb.scene.add(lampSpotLight.target);
 
@@ -440,21 +442,27 @@ export function createSolderingGame(api) {
   hhRail.castShadow = true;
   helpingHandsGroup.add(hhRail);
 
+  const hhBaseGeo = wb.track(new THREE.CylinderGeometry(0.075, 0.095, 0.032, 18));
+  const hhCollarGeo = wb.track(new THREE.CylinderGeometry(0.026, 0.032, 0.024, 14));
+  const hhArmGeo = wb.track(new THREE.CylinderGeometry(0.013, 0.013, 0.105, 12));
+  const hhJointGeo = wb.track(new THREE.SphereGeometry(0.02, 12, 12));
+  const hhBootGeo = wb.track(new THREE.BoxGeometry(0.044, 0.028, 0.036));
+  const hhJawGeo = wb.track(new THREE.BoxGeometry(0.042, 0.01, 0.022));
   for (const sx of [-0.74, 0.74]) {
-    const base = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.075, 0.095, 0.032, 18)), darkLabMat);
+    const base = new THREE.Mesh(hhBaseGeo, darkLabMat);
     base.position.set(sx, 0.022, 0.04);
     base.castShadow = true;
     helpingHandsGroup.add(base);
 
-    const collar = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.026, 0.032, 0.024, 14)), chromeMat);
+    const collar = new THREE.Mesh(hhCollarGeo, chromeMat);
     collar.position.set(sx, 0.044, 0.04);
     helpingHandsGroup.add(collar);
 
-    const arm = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.013, 0.013, 0.105, 12)), chromeMat);
+    const arm = new THREE.Mesh(hhArmGeo, chromeMat);
     arm.position.set(sx, 0.095, 0.04);
     helpingHandsGroup.add(arm);
 
-    const ballJoint = new THREE.Mesh(wb.track(new THREE.SphereGeometry(0.02, 12, 12)), chromeMat);
+    const ballJoint = new THREE.Mesh(hhJointGeo, chromeMat);
     ballJoint.position.set(sx, 0.142, 0.04);
     helpingHandsGroup.add(ballJoint);
 
@@ -462,16 +470,16 @@ export function createSolderingGame(api) {
     const bootMat = wb.track(
       new THREE.MeshStandardMaterial({ color: sx < 0 ? '#dc2626' : '#0f172a', roughness: 0.55 })
     );
-    const boot = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.044, 0.028, 0.036)), bootMat);
+    const boot = new THREE.Mesh(hhBootGeo, bootMat);
     boot.position.set(sx + dir * 0.028, 0.142, 0.04);
     helpingHandsGroup.add(boot);
 
-    const upperJaw = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.042, 0.01, 0.022)), chromeMat);
+    const upperJaw = new THREE.Mesh(hhJawGeo, chromeMat);
     upperJaw.position.set(sx + dir * 0.056, 0.153, 0.04);
     upperJaw.rotation.z = dir * -0.06;
     helpingHandsGroup.add(upperJaw);
 
-    const lowerJaw = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.042, 0.01, 0.022)), chromeMat);
+    const lowerJaw = new THREE.Mesh(hhJawGeo, chromeMat);
     lowerJaw.position.set(sx + dir * 0.056, 0.131, 0.04);
     lowerJaw.rotation.z = dir * 0.06;
     helpingHandsGroup.add(lowerJaw);
@@ -581,13 +589,14 @@ export function createSolderingGame(api) {
   pcbGroup.add(boardMesh);
 
   const goldHoleMat = wb.track(new THREE.MeshStandardMaterial({ color: '#fbbf24', metalness: 0.9, roughness: 0.2 }));
+  const mountHoleGeo = wb.track(new THREE.TorusGeometry(0.022, 0.006, 8, 16));
   for (const [mx, mz] of [
     [-0.65, -0.37],
     [0.65, -0.37],
     [-0.65, 0.37],
     [0.65, 0.37]
   ]) {
-    const holeRing = new THREE.Mesh(wb.track(new THREE.TorusGeometry(0.022, 0.006, 8, 16)), goldHoleMat);
+    const holeRing = new THREE.Mesh(mountHoleGeo, goldHoleMat);
     holeRing.rotation.x = Math.PI / 2;
     holeRing.position.set(mx, 0.013, mz);
     pcbGroup.add(holeRing);
@@ -600,8 +609,9 @@ export function createSolderingGame(api) {
   j1Header.position.set(-0.62, 0.035, -0.07);
   j1Header.castShadow = true;
   pcbGroup.add(j1Header);
+  const j1PinGeo = wb.track(new THREE.BoxGeometry(0.014, 0.03, 0.014));
   for (const pz of [-0.11, -0.03]) {
-    const j1Pin = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.014, 0.03, 0.014)), goldHoleMat);
+    const j1Pin = new THREE.Mesh(j1PinGeo, goldHoleMat);
     j1Pin.position.set(-0.62, 0.06, pz);
     pcbGroup.add(j1Pin);
   }
@@ -616,9 +626,10 @@ export function createSolderingGame(api) {
   pcbGroup.add(rBody);
 
   const bandColors = ['#facc15', '#7e22ce', '#78350f', '#fbbf24'];
+  const resBandGeo = wb.track(new THREE.CylinderGeometry(0.025, 0.025, 0.012, 14));
   bandColors.forEach((bc, bi) => {
     const band = new THREE.Mesh(
-      wb.track(new THREE.CylinderGeometry(0.025, 0.025, 0.012, 14)),
+      resBandGeo,
       wb.track(new THREE.MeshStandardMaterial({ color: bc, roughness: 0.35 }))
     );
     band.rotation.z = Math.PI / 2;
@@ -677,6 +688,8 @@ export function createSolderingGame(api) {
   }
 
   const smdBodyMat = wb.track(new THREE.MeshStandardMaterial({ color: '#92400e', roughness: 0.45 }));
+  const smdChipGeo = wb.track(new THREE.BoxGeometry(0.042, 0.014, 0.022));
+  const smdCapGeo = wb.track(new THREE.BoxGeometry(0.01, 0.015, 0.023));
   const smdSpecs = [
     [-0.36, 0.18],
     [-0.24, 0.26],
@@ -685,11 +698,11 @@ export function createSolderingGame(api) {
     [-0.05, 0.30]
   ];
   for (const [sx, sz] of smdSpecs) {
-    const smdChip = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.042, 0.014, 0.022)), smdBodyMat);
+    const smdChip = new THREE.Mesh(smdChipGeo, smdBodyMat);
     smdChip.position.set(sx, 0.018, sz);
     pcbGroup.add(smdChip);
     for (const ex of [-0.022, 0.022]) {
-      const cap = new THREE.Mesh(wb.track(new THREE.BoxGeometry(0.01, 0.015, 0.023)), chromeMat);
+      const cap = new THREE.Mesh(smdCapGeo, chromeMat);
       cap.position.set(sx + ex, 0.018, sz);
       pcbGroup.add(cap);
     }
@@ -700,9 +713,12 @@ export function createSolderingGame(api) {
   pcbGroup.add(crystalCan);
 
   const pcbLeds = [];
+  const ledCollarGeo = wb.track(new THREE.CylinderGeometry(0.026, 0.028, 0.01, 14));
+  const ledBulbGeo = wb.track(new THREE.SphereGeometry(0.022, 14, 14));
+  const ledHaloGeo = wb.track(new THREE.RingGeometry(0.024, 0.044, 20));
   for (let i = 0; i < 4; i++) {
     const colHex = i === 0 ? '#22c55e' : '#38bdf8';
-    const collar = new THREE.Mesh(wb.track(new THREE.CylinderGeometry(0.026, 0.028, 0.01, 14)), darkLabMat);
+    const collar = new THREE.Mesh(ledCollarGeo, darkLabMat);
     collar.position.set(0.45 + i * 0.075, 0.016, 0.26);
     pcbGroup.add(collar);
 
@@ -715,7 +731,7 @@ export function createSolderingGame(api) {
         metalness: 0.05
       })
     );
-    const led = new THREE.Mesh(wb.track(new THREE.SphereGeometry(0.022, 14, 14)), lMat);
+    const led = new THREE.Mesh(ledBulbGeo, lMat);
     led.position.set(0.45 + i * 0.075, 0.032, 0.26);
     pcbGroup.add(led);
 
@@ -727,7 +743,7 @@ export function createSolderingGame(api) {
         side: THREE.DoubleSide
       })
     );
-    const halo = new THREE.Mesh(wb.track(new THREE.RingGeometry(0.024, 0.044, 20)), haloMat);
+    const halo = new THREE.Mesh(ledHaloGeo, haloMat);
     halo.rotation.x = -Math.PI / 2;
     halo.position.set(0.45 + i * 0.075, 0.013, 0.26);
     pcbGroup.add(halo);
@@ -767,6 +783,8 @@ export function createSolderingGame(api) {
   const padMeshes = new Map();
   const solderWorkPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.155);
   let holdHudAccum = 0;
+  const padLeadGeo = wb.track(new THREE.CylinderGeometry(0.007, 0.007, 0.048, 10));
+  const padHitMat = wb.track(new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
 
   allPads.forEach((pad) => {
     const grp = new THREE.Group();
@@ -774,14 +792,11 @@ export function createSolderingGame(api) {
 
     const ring = new THREE.Mesh(
       wb.track(new THREE.CylinderGeometry(pad.r, pad.r * 1.08, 0.006, 20)),
-      copperMat.clone()
+      copperMat
     );
     grp.add(ring);
 
-    const lead = new THREE.Mesh(
-      wb.track(new THREE.CylinderGeometry(0.007, 0.007, 0.048, 10)),
-      pinMetalMat
-    );
+    const lead = new THREE.Mesh(padLeadGeo, pinMetalMat);
     lead.position.y = 0.024;
     lead.castShadow = true;
     grp.add(lead);
@@ -811,7 +826,7 @@ export function createSolderingGame(api) {
 
     const hitSphere = new THREE.Mesh(
       wb.track(new THREE.CylinderGeometry(pad.r * 1.65, pad.r * 1.65, 0.06, 12)),
-      wb.track(new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }))
+      padHitMat
     );
     hitSphere.position.y = 0.025;
     grp.add(hitSphere);
@@ -872,6 +887,7 @@ export function createSolderingGame(api) {
             }
           });
           bridgeMesh.visible = false;
+          wb.requestShadowUpdate();
         } else {
           pad.state = 'empty';
           pad.tinProgress = 0;
@@ -983,6 +999,7 @@ export function createSolderingGame(api) {
       tinFeeding = false;
       activePad = null;
       updatePadVisual(pad);
+      wb.requestShadowUpdate();
       refreshHud();
     } else if (activePad === pad && tool === 'wick') {
       activePad = null;
@@ -1080,7 +1097,7 @@ export function createSolderingGame(api) {
     ctx.fillStyle = inZone ? '#86efac' : '#fde68a';
     ctx.font = 'bold 16px sans-serif';
     ctx.fillText(inZone ? '● SAC305 OPTIMAL' : 'CIBLE: 340-365°C', 28, 110);
-  });
+  }, { minIntervalMs: 84 });
   wb.track(lcdScreen.texture);
   const lcdPlane = new THREE.Mesh(
     wb.track(new THREE.PlaneGeometry(0.24, 0.11)),
@@ -1105,12 +1122,23 @@ export function createSolderingGame(api) {
   tempKnobGroup.add(knobInd);
   stationGroup.add(tempKnobGroup);
 
-  const syncKnobAngle = () => {
+  let lastLcdTemp = null;
+  let lcdPending = false;
+  const syncKnobAngle = (forceLcd = false) => {
     const ratio = (tempC - 260) / (420 - 260);
     tempKnobGroup.rotation.z = -(ratio * 4.4 - 2.2);
-    lcdScreen.update(tempC);
+    const roundedTemp = Math.round(tempC);
+    if (roundedTemp !== lastLcdTemp || forceLcd) {
+      const updated = forceLcd ? lcdScreen.forceUpdate(roundedTemp) : lcdScreen.update(roundedTemp);
+      if (updated) {
+        lastLcdTemp = roundedTemp;
+        lcdPending = false;
+      } else {
+        lcdPending = true;
+      }
+    }
   };
-  syncKnobAngle();
+  syncKnobAngle(true);
 
   wb.addInteractive(tempKnobGroup, {
     label: () => `🌡️ Molette Station : ${Math.round(tempC)}°C (Glisser ↔ ou cliquer)`,
@@ -1158,11 +1186,10 @@ export function createSolderingGame(api) {
 
   const fanHub = new THREE.Group();
   fanHub.position.set(0, 0.21, 0.086);
+  const fanBladeGeo = wb.track(new THREE.BoxGeometry(0.032, 0.11, 0.008));
+  const fanBladeMat = wb.track(new THREE.MeshStandardMaterial({ color: '#0284c7', roughness: 0.4 }));
   for (let b = 0; b < 5; b++) {
-    const blade = new THREE.Mesh(
-      wb.track(new THREE.BoxGeometry(0.032, 0.11, 0.008)),
-      wb.track(new THREE.MeshStandardMaterial({ color: '#0284c7', roughness: 0.4 }))
-    );
+    const blade = new THREE.Mesh(fanBladeGeo, fanBladeMat);
     blade.rotation.z = (b / 5) * Math.PI * 2;
     fanHub.add(blade);
   }
@@ -1405,6 +1432,7 @@ export function createSolderingGame(api) {
     }
   });
 
+  let finishTimer = null;
   function triggerPowerTest() {
     if (finalized) return;
     powerOn = !powerOn;
@@ -1446,7 +1474,9 @@ export function createSolderingGame(api) {
       sfx.success();
       finalized = true;
       wb.showToast('🚀 Toutes les LEDs s’allument ! Carte validée !', 'success');
-      setTimeout(() => {
+      if (finishTimer) clearTimeout(finishTimer);
+      finishTimer = setTimeout(() => {
+        finishTimer = null;
         api.finishTp(
           evalRes.score,
           `
@@ -1612,6 +1642,10 @@ export function createSolderingGame(api) {
         label: '🔄 Réinitialiser',
         onClick: () => {
           stopTouchHold();
+          if (finishTimer) {
+            clearTimeout(finishTimer);
+            finishTimer = null;
+          }
           stageIdx = 0;
           tempC = 280;
           tempDialRaw = 280;
@@ -1646,7 +1680,8 @@ export function createSolderingGame(api) {
           });
           selectedPadId = allPads[0]?.id || 'P1';
           bridgeMesh.visible = true;
-          syncKnobAngle();
+          syncKnobAngle(true);
+          wb.requestShadowUpdate();
           sfx.click();
           wb.showToast('Carte PCB & station de soudure réinitialisées.', 'info');
           refreshHud();
@@ -1825,7 +1860,13 @@ export function createSolderingGame(api) {
   }
   wb.setCameras(cams, activeCam, selectCameraView);
 
+  const _tinGoal = new THREE.Vector3();
+  const _fluxWp = new THREE.Vector3();
   wb.addUpdate((dt) => {
+    if (lcdPending && lcdScreen.update(Math.round(tempC))) {
+      lastLcdTemp = Math.round(tempC);
+      lcdPending = false;
+    }
     if (fumeExtractorOn) {
       fanHub.rotation.z += dt * 18;
     }
@@ -1839,8 +1880,8 @@ export function createSolderingGame(api) {
 
     ironGroup.position.lerp(ironTargetPos, 1 - Math.exp(-18 * dt));
     if (tinWireGroup.visible) {
-      const tinGoal = ironTargetPos.clone().add(new THREE.Vector3(0.14, -0.04, 0.06));
-      tinWireGroup.position.lerp(tinGoal, 1 - Math.exp(-16 * dt));
+      _tinGoal.copy(ironTargetPos).add({ x: 0.14, y: -0.04, z: 0.06 });
+      tinWireGroup.position.lerp(_tinGoal, 1 - Math.exp(-16 * dt));
     }
 
     if (heatingActive && activePad && activePad.temp >= 180 && tool !== 'wick') {
@@ -1851,11 +1892,10 @@ export function createSolderingGame(api) {
           fluxEmitAccum -= 1;
           const idx = fluxSpawnCursor;
           fluxSpawnCursor = (fluxSpawnCursor + 1) % FLUX_COUNT;
-          const wp = new THREE.Vector3();
-          pm.grp.getWorldPosition(wp);
-          fluxPositions[idx * 3] = wp.x + (Math.random() - 0.5) * 0.018;
-          fluxPositions[idx * 3 + 1] = wp.y + 0.015;
-          fluxPositions[idx * 3 + 2] = wp.z + (Math.random() - 0.5) * 0.018;
+          pm.grp.getWorldPosition(_fluxWp);
+          fluxPositions[idx * 3] = _fluxWp.x + (Math.random() - 0.5) * 0.018;
+          fluxPositions[idx * 3 + 1] = _fluxWp.y + 0.015;
+          fluxPositions[idx * 3 + 2] = _fluxWp.z + (Math.random() - 0.5) * 0.018;
           fluxMeta[idx].active = true;
           fluxMeta[idx].age = 0;
           fluxMeta[idx].life = 0.9 + Math.random() * 0.6;
@@ -1909,12 +1949,27 @@ export function createSolderingGame(api) {
     }
   });
 
+  wb.freezeStatic([
+    fanHub,
+    tempKnobGroup,
+    pwrLever,
+    ironGroup,
+    tinWireGroup,
+    fluxSmokePoints,
+    bridgeMesh,
+    ...Array.from(padMeshes.values()).map((pm) => pm.cone)
+  ]);
+
   allPads.forEach(updatePadVisual);
   refreshHud();
 
   return {
     destroy: () => {
       stopTouchHold();
+      if (finishTimer) {
+        clearTimeout(finishTimer);
+        finishTimer = null;
+      }
       wb.destroy();
     }
   };

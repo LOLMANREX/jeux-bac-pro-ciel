@@ -671,6 +671,8 @@ export class SceneManager {
 
     this.xrErrors = [];
     this.paused = false;
+    this.renderLoopPaused = false;
+    this._loopCallback = null;
     this.vrPresenting = false;
     this.vrManager = null;
     this.quality = 'auto';
@@ -751,6 +753,8 @@ export class SceneManager {
     if (this.renderer.shadowMap) {
       this.renderer.shadowMap.enabled = true;
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      this.renderer.shadowMap.autoUpdate = false;
+      this.renderer.shadowMap.needsUpdate = true;
     }
 
     if (!options.skipEnvironment && !options.renderer) {
@@ -786,6 +790,7 @@ export class SceneManager {
     this._onContextRestored = () => {
       this.renderer.autoClear = true;
       this.renderer.setClearColor?.('#cfe4f7', 1);
+      this.requestShadowUpdate();
     };
 
     this.renderer.xr?.addEventListener?.('sessionstart', this._onXrSessionStart);
@@ -1052,6 +1057,7 @@ export class SceneManager {
     this.sun.target.position.set(sx, 0, sz);
     this.sun.target.updateMatrixWorld();
     this.sun.position.set(sx + span * 0.45, Math.max(18, span * 0.95), sz + span * 0.55);
+    this.requestShadowUpdate();
   }
 
   updateWorldBounds(bounds) {
@@ -1091,6 +1097,7 @@ export class SceneManager {
         }
       }
       this.sun.shadow.camera.updateProjectionMatrix();
+      this.requestShadowUpdate();
     }
     if (this.fill) {
       this.fill.position.set(cx - halfSpan * 0.65, Math.max(8, halfSpan * 0.45), cz - halfSpan * 0.65);
@@ -1198,7 +1205,7 @@ export class SceneManager {
       dynamicScale: this.dynamicResolutionScale
     });
     if (!xrPresenting) {
-      this.renderer.setPixelRatio?.(targetPr);
+      this.renderer.setPixelRatio?.(Math.min(targetPr, Math.min(dpr, 1.5)));
     }
 
     this.vrFoveation = preset.vrFoveation ?? 1.0;
@@ -1225,7 +1232,7 @@ export class SceneManager {
     }
     if (this.sun) {
       this.sun.castShadow = shadowsAllowed;
-      const targetMapSize = xrPresenting ? 512 : preset.shadowMapSize || 1024;
+      const targetMapSize = Math.min(1024, xrPresenting ? 512 : preset.shadowMapSize || 1024);
       if (this.sun.shadow?.mapSize && this.sun.shadow.mapSize.x !== targetMapSize) {
         this.sun.shadow.mapSize.set(targetMapSize, targetMapSize);
         if (this.sun.shadow.map) {
@@ -1233,6 +1240,9 @@ export class SceneManager {
           this.sun.shadow.map = null;
         }
       }
+    }
+    if (shadowsAllowed) {
+      this.requestShadowUpdate();
     }
 
     this._applyCampusAtmosphereRange();
@@ -1307,6 +1317,31 @@ export class SceneManager {
     m.particleScale = this.particleScale;
     m.textureThrottleMult = this.textureThrottleMult;
     return m;
+  }
+
+  requestShadowUpdate() {
+    if (this.renderer?.shadowMap && this.renderer.shadowMap.enabled) {
+      this.renderer.shadowMap.needsUpdate = true;
+    }
+  }
+
+  pauseRenderLoop() {
+    this.renderLoopPaused = true;
+    if (!this.renderer?.xr?.isPresenting && !this.vrPresenting) {
+      this.renderer?.setAnimationLoop?.(null);
+    }
+  }
+
+  resumeRenderLoop() {
+    this.renderLoopPaused = false;
+    this.clock.getDelta();
+    if (this._loopCallback) {
+      this.renderer?.setAnimationLoop?.(this._loopCallback);
+    }
+  }
+
+  isRenderLoopPaused() {
+    return Boolean(this.renderLoopPaused);
   }
 
   setPaused(paused) {
@@ -1511,7 +1546,9 @@ export class SceneManager {
   }
 
   start() {
-    this.renderer.setAnimationLoop(() => {
+    this._loopCallback = () => {
+      const isXrEarly = Boolean(this.renderer.xr?.isPresenting || this.vrPresenting);
+      if (this.renderLoopPaused && !isXrEarly) return;
       const rawDt = this.clock.getDelta();
       if (rawDt > 0.0005) {
         const instFps = Math.min(240, Math.max(1, 1 / rawDt));
@@ -1520,7 +1557,7 @@ export class SceneManager {
       }
       const dt = Math.min(rawDt, 0.1);
       const elapsed = this.clock.elapsedTime;
-      const isXr = Boolean(this.renderer.xr?.isPresenting || this.vrPresenting);
+      const isXr = isXrEarly;
       this._stepAutoFpsGuard(dt, isXr);
       try {
         this.celebrationRig?.update(dt, elapsed);
@@ -1593,7 +1630,10 @@ export class SceneManager {
           this.recordXrError('render', err);
         }
       }
-    });
+    };
+    if (!this.renderLoopPaused || this.renderer.xr?.isPresenting || this.vrPresenting) {
+      this.renderer.setAnimationLoop(this._loopCallback);
+    }
   }
 
   dispose() {
