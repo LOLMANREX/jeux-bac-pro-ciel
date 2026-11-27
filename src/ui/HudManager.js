@@ -1,5 +1,6 @@
 import { sfx } from '../core/audio.js';
 import { detectDeviceProfile, getMention, QUICK_EMOTES, TP_CATALOG, EXTRA_STATIONS } from '../core/gameState.js';
+import { getJpoHudVisibility } from '../core/jpoConfig.js';
 import { getCatalogItem, getStationTeleportInMap, getZoneAtPositionInMap } from '../world/mapSchema.js';
 import {
   ASCENSION_SPECIALTIES,
@@ -519,6 +520,7 @@ export class HudManager {
     };
     this.setMinimapCollapsed = setMinimapCollapsed;
     this.toggleMinimap = () => {
+      if (this.isJpoActive()) return;
       const isCollapsed = this.minimapPanelEl?.classList.contains('collapsed');
       setMinimapCollapsed(!isCollapsed);
     };
@@ -1010,12 +1012,14 @@ export class HudManager {
     });
 
     this.shopHudBtn?.addEventListener('click', () => {
+      if (this.isJpoActive()) return;
       sfx.click();
       this.closeSettings();
       this.handlers.onOpenShop?.();
     });
 
     this.coinsPillEl?.addEventListener('click', () => {
+      if (this.isJpoActive()) return;
       sfx.click();
       this.handlers.onOpenShop?.();
     });
@@ -1340,6 +1344,7 @@ export class HudManager {
   }
 
   updateMiniMap(data) {
+    if (this.isJpoActive()) return;
     this.vrManager?.updateMiniMap?.(data);
     if (this.minimapPanelEl?.classList.contains('collapsed')) return;
     this.miniMap?.render(data);
@@ -1632,10 +1637,24 @@ export class HudManager {
     }
   }
 
+  isJpoActive() {
+    return Boolean(this.jpoState?.roomConfig && this.jpoState.roomConfig.id && this.jpoState.roomConfig.id !== 'standard');
+  }
+
   setJpoMode({ roomConfig = null, kiosk = false } = {}) {
     this.jpoState = { roomConfig, kiosk: Boolean(kiosk) };
-    const hasActiveRoom = Boolean(roomConfig && roomConfig.id && roomConfig.id !== 'standard');
-    const showBanner = (hasActiveRoom || Boolean(kiosk)) && !this.detentionHudHidden;
+    const vis = getJpoHudVisibility(roomConfig?.id, kiosk);
+    const hasActiveRoom = vis.isJpo;
+    const showBanner = vis.showBanner && !this.detentionHudHidden;
+    this.hudEl?.classList.toggle('jpo-active', hasActiveRoom);
+    if (typeof document !== 'undefined' && document.body?.classList) {
+      document.body.classList.toggle('jpo-mode', hasActiveRoom);
+    }
+    this.coinsPillEl?.classList.toggle('hidden', !vis.showCoins);
+    this.shopHudBtn?.classList.toggle('hidden', !vis.showShop);
+    this.minimapPanelEl?.classList.toggle('hidden', !vis.showMinimap);
+    this.questPanelEl?.classList.toggle('hidden', !vis.showQuestPanel);
+    this.emoteBarEl?.classList.toggle('hidden', hasActiveRoom);
     if (!this.jpoBannerEl) return;
     this.jpoBannerEl.classList.toggle('hidden', !showBanner);
     this.jpoBannerEl.classList.toggle('kiosk-only', !hasActiveRoom && Boolean(kiosk));
@@ -1653,7 +1672,7 @@ export class HudManager {
       this.jpoPoleInfoEl?.classList.add('hidden');
       this.jpoOpenTpBtn?.classList.add('hidden');
     }
-    this.jpoNewVisitBtn?.classList.toggle('hidden', !Boolean(kiosk));
+    this.jpoNewVisitBtn?.classList.toggle('hidden', !vis.showNewVisitBtn);
     if (!kiosk) {
       this.setJpoIdleCountdown(null);
     }
@@ -2015,6 +2034,7 @@ export class HudManager {
   }
 
   showCoinGain(amount, label = '') {
+    if (this.isJpoActive()) return;
     const n = Math.max(0, Math.floor(Number(amount) || 0));
     if (n <= 0) return;
     if (this.coinsEl) {

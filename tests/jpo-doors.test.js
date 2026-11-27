@@ -8,8 +8,10 @@ import {
   JPO_KIOSK_STORAGE_KEY,
   JPO_ROOM_STORAGE_KEY,
   JPO_ROOMS,
+  createJpoRoomMap,
   createJpoVisitorName,
   createKioskIdleController,
+  getJpoHudVisibility,
   getJpoRoomConfig,
   isJpoRoomActive,
   normalizeJpoRoom,
@@ -17,7 +19,7 @@ import {
   resolveJpoSpawnPose,
   saveJpoConfig
 } from '../src/core/jpoConfig.js';
-import { createDefaultMap } from '../src/world/mapSchema.js';
+import { createDefaultMap, getDynamicMapColliders } from '../src/world/mapSchema.js';
 
 function createMemoryStorage() {
   const map = new Map();
@@ -227,7 +229,7 @@ test('jpoConfig : constantes, normalisation et persistance localStorage', () => 
   assert.equal(JPO_ROOM_STORAGE_KEY, 'ciel_jpo_salle');
   assert.equal(JPO_KIOSK_STORAGE_KEY, 'ciel_jpo_kiosk');
   assert.equal(JPO_KIOSK_IDLE_MS, 60000);
-  assert.equal(JPO_DEMO_COINS, 500);
+  assert.equal(JPO_DEMO_COINS, 0);
 
   assert.equal(normalizeJpoRoom('CYBER'), 'cyber');
   assert.equal(normalizeJpoRoom('reseau'), 'reseau');
@@ -252,7 +254,9 @@ test('jpoConfig : constantes, normalisation et persistance localStorage', () => 
   assert.equal(getJpoRoomConfig('cyber').tpId, 'antivirus');
   assert.equal(getJpoRoomConfig('reseau').tpId, 'vmvlan');
   assert.equal(getJpoRoomConfig('elec').tpId, 'electronics');
-  assert.equal(JPO_ROOMS.cyber.demoCoins, 500);
+  assert.equal(JPO_ROOMS.cyber.demoCoins, 0);
+  assert.equal(JPO_ROOMS.reseau.demoCoins, 0);
+  assert.equal(JPO_ROOMS.elec.demoCoins, 0);
 });
 
 test('jpoConfig : resolveJpoSpawnPose place directement au pôle Cyber, Réseau et Élec', () => {
@@ -317,7 +321,79 @@ test('jpoConfig : createKioskIdleController réinitialise après 60s et reporte 
   assert.equal(cleared, true);
 });
 
-test('Portes Ouvertes v4.38 : DOM admin.html, index.html, zéro commentaire et zéro nom interdit', () => {
+test('Portes Ouvertes v4.39 : visibilité HUD, salle dédiée fermée et préservation du mode standard', () => {
+  assert.equal(createJpoRoomMap('standard'), null);
+  assert.equal(createJpoRoomMap('unknown'), null);
+
+  const stdVis = getJpoHudVisibility('standard', false);
+  assert.deepEqual(stdVis, {
+    isJpo: false,
+    requireAuth: true,
+    showBanner: false,
+    showNewVisitBtn: false,
+    showCoins: true,
+    showShop: true,
+    showMinimap: true,
+    showQuestPanel: true,
+    showTopBar: true
+  });
+
+  const stdMap = createDefaultMap();
+  assert.ok(stdMap.zones.length >= 6);
+  assert.ok(stdMap.walls.length >= 10);
+
+  const expectedTpType = {
+    cyber: 'tp_antivirus',
+    reseau: 'tp_vmvlan',
+    elec: 'tp_electronics'
+  };
+
+  for (const roomId of ['cyber', 'reseau', 'elec']) {
+    const jpoVis = getJpoHudVisibility(roomId, false);
+    assert.deepEqual(jpoVis, {
+      isJpo: true,
+      requireAuth: false,
+      showBanner: true,
+      showNewVisitBtn: true,
+      showCoins: false,
+      showShop: false,
+      showMinimap: false,
+      showQuestPanel: false,
+      showTopBar: false
+    });
+
+    const roomMap = createJpoRoomMap(roomId);
+    assert.ok(roomMap, `Salle dédiée manquante pour ${roomId}`);
+    assert.equal(roomMap.jpoIsolated, true);
+    assert.equal(roomMap.bounds.width, 12);
+    assert.equal(roomMap.bounds.depth, 12);
+    assert.equal(roomMap.walls.length, 4);
+    assert.ok(roomMap.walls.every((w) => w.kind === 'solid'));
+    assert.equal(roomMap.zones.length, 1);
+
+    const doorTypes = new Set(['door_single', 'door_double', 'survival_door', 'combat_door']);
+    assert.equal(
+      roomMap.objects.some((o) => doorTypes.has(o.type)),
+      false,
+      `Aucune porte de sortie ne doit exister dans la salle ${roomId}`
+    );
+
+    const tpObj = roomMap.objects.find((o) => o.type === expectedTpType[roomId]);
+    assert.ok(tpObj, `Poste TP ${expectedTpType[roomId]} manquant dans la salle ${roomId}`);
+
+    const pose = resolveJpoSpawnPose(roomMap, roomId);
+    assert.ok(pose.pos.x > roomMap.bounds.minX && pose.pos.x < roomMap.bounds.maxX);
+    assert.ok(pose.pos.z > roomMap.bounds.minZ && pose.pos.z < roomMap.bounds.maxZ);
+
+    const colliders = getDynamicMapColliders(roomMap);
+    const perimeterWallColliders = colliders.filter(
+      (c) => Math.abs(c.minX - (-6)) < 0.4 || Math.abs(c.maxX - 6) < 0.4 || Math.abs(c.minZ - (-6)) < 0.4 || Math.abs(c.maxZ - 6) < 0.4
+    );
+    assert.ok(perimeterWallColliders.length >= 4, `Colliders de fermeture manquants pour ${roomId}`);
+  }
+});
+
+test('Portes Ouvertes v4.39 : contournement login, HUD épuré, isolation LabBuilder, zéro commentaire et zéro nom interdit', () => {
   const adminHtml = fs.readFileSync(path.resolve('admin.html'), 'utf8');
   for (const needle of [
     'id="admin-tab-jpo"',
@@ -331,10 +407,13 @@ test('Portes Ouvertes v4.38 : DOM admin.html, index.html, zéro commentaire et z
     'id="jpo-kiosk-toggle"',
     'Activer le Mode Kiosque',
     'id="btn-jpo-launch"',
-    'Lancer le jeu dans cette salle'
+    'Lancer le jeu dans cette salle',
+    'Salle dédiée fermée',
+    'Zéro connexion'
   ]) {
     assert.ok(adminHtml.includes(needle), `Élément manquant dans admin.html : ${needle}`);
   }
+  assert.equal(adminHtml.includes('500 🪙 CC démo'), false);
   assert.deepEqual(scanHtmlComments(adminHtml), []);
 
   const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf8');
@@ -354,12 +433,36 @@ test('Portes Ouvertes v4.38 : DOM admin.html, index.html, zéro commentaire et z
   const hudActionButtons = hudActionsMatch[1].match(/<button\b/g) || [];
   assert.equal(hudActionButtons.length, 2);
 
+  const mainMenuSrc = fs.readFileSync(path.resolve('src/ui/MainMenu.js'), 'utf8');
+  assert.ok(mainMenuSrc.includes('isJpoRoomActive(initialJpoCfg.room)'));
+  assert.ok(mainMenuSrc.includes('isJpoRoomActive(jpoCfg.room)'));
+
+  const hudSrc = fs.readFileSync(path.resolve('src/ui/HudManager.js'), 'utf8');
+  assert.ok(hudSrc.includes('getJpoHudVisibility'));
+  assert.ok(hudSrc.includes("classList.toggle('jpo-active'"));
+  assert.ok(hudSrc.includes("classList.toggle('jpo-mode'"));
+
+  const mainSrc = fs.readFileSync(path.resolve('src/main.js'), 'utf8');
+  assert.ok(mainSrc.includes('createJpoRoomMap'));
+  assert.ok(mainSrc.includes('if (isJpoDemoActive()) {\n    return;\n  }'));
+  assert.ok(mainSrc.includes('if (isJpoDemoActive()) return false;'));
+
+  const labSrc = fs.readFileSync(path.resolve('src/world/LabBuilder.js'), 'utf8');
+  assert.ok(labSrc.includes('skipCombatFallback'));
+
+  const mainCss = fs.readFileSync(path.resolve('src/styles/main.css'), 'utf8');
+  assert.ok(mainCss.includes('.hud.jpo-active .hud-top'));
+  assert.ok(mainCss.includes('.hud.jpo-active #minimap-panel'));
+  assert.ok(mainCss.includes('.hud.jpo-active #hud-coins-pill'));
+
   const forbiddenPattern = new RegExp('for' + 'tin', 'i');
   for (const rel of [
     'src/core/jpoConfig.js',
     'src/admin/admin.js',
+    'src/ui/MainMenu.js',
     'src/ui/HudManager.js',
     'src/main.js',
+    'src/world/LabBuilder.js',
     'src/ui/ChangelogModal.js',
     'vite.config.js',
     'tests/jpo-doors.test.js'

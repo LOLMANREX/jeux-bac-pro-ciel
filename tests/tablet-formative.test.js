@@ -1508,8 +1508,8 @@ test('Audit automatisé v4.36 : zéro commentaire JS/CSS/HTML, zéro nom interdi
   assert.equal(hudActionButtons.length, 2);
 
   const viteSrc = fs.readFileSync(path.resolve('vite.config.js'), 'utf8');
-  assert.ok(viteSrc.includes('v4.38'));
-  assert.ok(APP_VERSION.startsWith('v4.38'));
-  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.38'));
+  assert.ok(viteSrc.includes('v4.39'));
+  assert.ok(APP_VERSION.startsWith('v4.39'));
+  assert.ok(CHANGELOG_RELEASES[0].version.startsWith('v4.39'));
   assert.equal(CHANGELOG_RELEASES[0].tag, 'DERNIÈRE MÀJ');
 });

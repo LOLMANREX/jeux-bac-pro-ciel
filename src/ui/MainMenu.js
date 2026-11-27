@@ -1,8 +1,9 @@
 import { sfx } from '../core/audio.js';
 import { getBattlePassSkinId } from '../core/battlePassSkins.js';
 import { getAllTps } from '../core/gameState.js';
+import { createJpoVisitorName, isJpoRoomActive, readJpoConfig } from '../core/jpoConfig.js';
 import { DEFAULT_ROOM } from '../core/network.js';
-import { ASCENSION_SPECIALTIES, ULTIMATE_SECRET_SKIN_ID } from '../world/AvatarBuilder.js';
+import { ASCENSION_SPECIALTIES, DEFAULT_SKIN, ULTIMATE_SECRET_SKIN_ID } from '../world/AvatarBuilder.js';
 import { pickRandomSkin, renderSkinControls, SkinPreview3D } from './SkinCustomizer.js';
 
 function escapeHtml(text) {
@@ -124,8 +125,15 @@ export class MainMenu {
     this.pollTimer = null;
     this.healthPending = false;
     this.roomsPending = false;
-    this._startPolling();
-    this._restoreSessionOnStartup();
+    const initialJpoCfg = readJpoConfig();
+    if (isJpoRoomActive(initialJpoCfg.room)) {
+      this.visible = false;
+      this.preview?.setActive?.(false);
+      this.root?.classList.add('hidden');
+    } else {
+      this._startPolling();
+      this._restoreSessionOnStartup();
+    }
   }
 
   async _restoreSessionOnStartup() {
@@ -545,6 +553,28 @@ export class MainMenu {
   }
 
   async _launchWithRoom(room, startVr = false, forceIntro = false) {
+    const jpoCfg = readJpoConfig();
+    if (isJpoRoomActive(jpoCfg.room)) {
+      const visitorName = createJpoVisitorName(jpoCfg.room);
+      const targetRoom = String(room || '').trim() || DEFAULT_ROOM;
+      sfx.interact();
+      this.closeRoomsModal();
+      this.hide();
+      const payload = {
+        name: visitorName,
+        room: targetRoom,
+        skin: { ...DEFAULT_SKIN },
+        forceIntro: false,
+        jpoRoom: jpoCfg.room
+      };
+      if (startVr && this.onStartVr) {
+        this.onStartVr(payload);
+      } else {
+        this.onStartGame?.(payload);
+      }
+      return;
+    }
+
     if (!this.gameState.isAuthenticated()) {
       const hasInput =
         this.activeAuthTab === 'register'

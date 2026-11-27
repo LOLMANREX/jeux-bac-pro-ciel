@@ -73,6 +73,7 @@ import {
   isShopSkinId
 } from './world/ShopCatalog.js';
 import {
+  createJpoRoomMap,
   createJpoVisitorName,
   createKioskIdleController,
   getJpoRoomConfig,
@@ -143,7 +144,17 @@ sceneMgr.setAutoFpsGuard(gameState.autoFpsGuard !== false);
 sceneMgr.setQuality(gameState.quality);
 sceneMgr.setFov(gameState.fov);
 
-let currentMapData = createDefaultMap();
+const initialPrivateDebugRequested = (() => {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search || '');
+  const debugFlag = params.get('debug') === '1' || params.get('mode') === 'debug';
+  const roomParam = String(params.get('room') || '').trim();
+  return Boolean(debugFlag || roomParam.toLowerCase().startsWith('priv-debug'));
+})();
+const initialJpoConfig = readJpoConfig();
+const initialJpoActive = Boolean(!initialPrivateDebugRequested && isJpoRoomActive(initialJpoConfig.room));
+let currentMapData = initialJpoActive ? createJpoRoomMap(initialJpoConfig.room) : createDefaultMap();
+let standardMapData = initialJpoActive ? null : currentMapData;
 const lab = buildLabWorld(sceneMgr.scene, currentMapData, {
   maxAnisotropy: sceneMgr.getMaxAnisotropy(),
   lowRes: lowResWorld
@@ -481,6 +492,9 @@ function handleCoinReward({
   profile = null,
   isNewRecord = false
 } = {}) {
+  if (isJpoDemoActive()) {
+    return;
+  }
   if (profile) {
     gameState.setProfile(profile);
   }
@@ -518,34 +532,7 @@ function handleCoinReward({
 async function buyShopItemAction(item) {
   if (!item?.id) return { ok: false, error: 'Article invalide.' };
   if (isJpoDemoActive()) {
-    const spec = getShopItemById(item.id);
-    if (!spec) return { ok: false, error: 'Article introuvable.' };
-    if (gameState.hasOwnedItem(spec.id)) {
-      return { ok: false, error: 'Article déjà possédé.' };
-    }
-    const balance = Math.max(0, Math.floor(Number(gameState.coins) || 0));
-    if (balance < spec.price) {
-      return { ok: false, error: 'Solde insuffisant.' };
-    }
-    const nextCoins = balance - spec.price;
-    const nextOwned = [...gameState.ownedItems, spec.id];
-    jpoState.demoCoins = nextCoins;
-    sfx.shopPurchase?.();
-    gameState.applyEconomySnapshot({
-      coins: nextCoins,
-      ownedItems: nextOwned
-    });
-    lab.setLocalCoins?.(nextCoins);
-    hud?.refresh?.();
-    mainMenu?.syncPlayerBadge?.();
-    shopModal?.refresh?.();
-    lockerModal?.refresh?.();
-    syncVrWatchHud();
-    return {
-      ok: true,
-      coins: nextCoins,
-      ownedItems: nextOwned
-    };
+    return { ok: false, error: 'Boutique indisponible en mode Portes Ouvertes.' };
   }
   if (gameState.authToken && !network.getAuthToken()) {
     network.setAuthToken(gameState.authToken);
@@ -741,6 +728,7 @@ function buildVrLockerPanelPayload() {
 }
 
 function openShopUi(initialCategory = 'skins', initialItemId = null) {
+  if (isJpoDemoActive()) return false;
   hud?.closeSettings?.();
   lockerModal?.close?.();
   tabletOS?.close?.({ restoreControls: false });
@@ -1170,6 +1158,7 @@ function buildVrTabletPanelPayload(extra = {}) {
       syncVrWatchHud();
     },
     onSubmitFormativeAnswer: async (tpId, _qId, _val, nextAnswers) => {
+      if (isJpoDemoActive()) return;
       const playerName = gameState.account?.username || gameState.profile?.name || 'Eleve_CIEL';
       const res = await network.submitFormativeProgress(tpId, nextAnswers, playerName);
       if (res?.ok) {
@@ -1288,6 +1277,7 @@ try {
 }
 
 lab.setArcadeGameEndHandler?.(async ({ gameId, score, difficulty, won, elapsedSec, desktop }) => {
+  if (isJpoDemoActive()) return;
   if (!Number.isFinite(Number(score)) || Number(score) <= 0) return;
   const playerName = gameState.account?.username || gameState.profile?.name || 'Eleve_CIEL';
   const res = await network.submitArcadeScore(gameId, score, playerName, {
@@ -3753,16 +3743,12 @@ function applyMapData(rawMap, liveUpdate = false) {
 }
 
 async function fetchInitialMap() {
+  if (isJpoDemoActive() || (initialJpoActive && !joined)) return;
   const remoteMap = await network.fetchMap(3500);
   if (remoteMap) {
+    if (isJpoDemoActive()) return;
     applyMapData(remoteMap, false);
-    if (joined && isJpoDemoActive() && !jpoState.hasMovedSinceSpawn) {
-      const pose = resolveJpoSpawnPose(currentMapData, jpoState.roomId);
-      player.teleportTo(pose.pos, pose.lookAt);
-      const zone = getZoneAtPositionInMap(currentMapData, pose.pos.x, pose.pos.z, player.getCurrentFloor());
-      lastZoneId = zone.id;
-      hud?.setCurrentZone?.(zone);
-    }
+    standardMapData = currentMapData;
   }
 }
 
@@ -3844,11 +3830,15 @@ async function openTp(tpId, stationItem = null) {
 
   if (!gameState.profile.questAccepted) {
     gameState.profile.questAccepted = true;
-    network.acceptQuest(gameState.profile.name);
+    if (!isJpoDemoActive()) {
+      network.acceptQuest(gameState.profile.name);
+    }
   }
 
   sfx.interact();
-  network.sendActivity(`En ${tp.shortTitle}`);
+  if (!isJpoDemoActive()) {
+    network.sendActivity(`En ${tp.shortTitle}`);
+  }
   voiceChat.setInTp(true);
   setModalActive(true, !survivalState.inActiveMatch, true);
 
@@ -3892,6 +3882,10 @@ async function openTp(tpId, stationItem = null) {
 
       const allTpsAt20 = hasAllTpsAt20(p.grades, allTps);
       const firstTimeAllAt20 = !wasAllAt20 && allTpsAt20;
+      if (isJpoDemoActive()) {
+        hud.toast(`${tp.icon} ${tp.shortTitle} terminé : ${safeScore.toFixed(1)}/20 !`, safeScore >= 10 ? 'success' : 'info');
+        return;
+      }
       network.submitScore(gameState.profile.name, doneId, safeScore, durationSec, gameState.skin);
       if (
         survivalState.inActiveMatch &&
@@ -3900,14 +3894,12 @@ async function openTp(tpId, stationItem = null) {
       ) {
         network.sendSurvivalTpDone(doneId, safeScore);
       }
-      if (!isJpoDemoActive()) {
-        network.saveAccount({
-          tpScores: p.grades,
-          unlockedDivineSkins: gameState.unlockedDivineSkins,
-          selectedSkin: getSelectedSkinIdFromSkin(gameState.skin),
-          avatarCustomization: gameState.skin
-        });
-      }
+      network.saveAccount({
+        tpScores: p.grades,
+        unlockedDivineSkins: gameState.unlockedDivineSkins,
+        selectedSkin: getSelectedSkinIdFromSkin(gameState.skin),
+        avatarCustomization: gameState.skin
+      });
       if (firstTimeAllAt20 && !network.connected) {
         runWorldCelebration({
           playerName: gameState.profile.name,
@@ -3931,7 +3923,9 @@ async function openTp(tpId, stationItem = null) {
         openTp(replayTpId, null);
         return;
       }
-      network.sendActivity('Dans l’atelier');
+      if (!isJpoDemoActive()) {
+        network.sendActivity('Dans l’atelier');
+      }
       voiceChat.setInTp(false);
       setModalActive(false, false, false);
       if (!vrManager?.isVrActive?.()) {
@@ -4867,13 +4861,13 @@ network.on('welcome', (msg) => {
   gameState.room = msg.room || gameState.room;
   gameState.setProfile(msg.profile);
   if (isJpoDemoActive()) {
-    const nextCoins = Math.max(gameState.coins, jpoState.demoCoins || JPO_DEMO_COINS);
+    jpoState.demoCoins = 0;
     gameState.applyEconomySnapshot({
-      coins: nextCoins,
-      ownedItems: [...gameState.ownedItems],
-      equippedSkin: gameState.equippedSkin,
-      equippedPet: gameState.equippedPet,
-      equippedTrail: gameState.equippedTrail
+      coins: 0,
+      ownedItems: [],
+      equippedSkin: null,
+      equippedPet: null,
+      equippedTrail: null
     });
   }
   sessionDivineSpecialty = gameState.skin?.secretSkin
@@ -5059,7 +5053,9 @@ network.on('profile_reset', ({ profile, message }) => {
 
 network.on('map_updated', ({ map }) => {
   if (!map) return;
+  if (isJpoDemoActive()) return;
   applyMapData(map, true);
+  standardMapData = currentMapData;
   hud?.toast?.('🗺️ Carte mise à jour en direct par l’administrateur !', 'success');
 });
 
@@ -5861,6 +5857,7 @@ window.addEventListener('keydown', (e) => {
       return;
     }
     if (
+      !isJpoDemoActive() &&
       shouldHandleTabShortcut({
         joined,
         isTyping,
@@ -5944,15 +5941,15 @@ window.addEventListener('keydown', (e) => {
   } else if (e.code === 'KeyC') {
     e.preventDefault();
     toggleCameraMode();
-  } else if (e.code === 'KeyT') {
+  } else if (e.code === 'KeyT' && !isJpoDemoActive()) {
     e.preventDefault();
     player.clearKeys();
     hud.toggleChat(true, true);
-  } else if (e.code === 'KeyM') {
+  } else if (e.code === 'KeyM' && !isJpoDemoActive()) {
     e.preventDefault();
     sfx.click();
     hud.toggleMinimap();
-  } else if (e.code.startsWith('Digit') || e.code.startsWith('Numpad')) {
+  } else if (!isJpoDemoActive() && (e.code.startsWith('Digit') || e.code.startsWith('Numpad'))) {
     const num = Number(e.code.replace('Digit', '').replace('Numpad', ''));
     if (num >= 1 && num <= QUICK_EMOTES.length) {
       e.preventDefault();
@@ -6747,11 +6744,13 @@ sceneMgr.addUpdater((dt, elapsed) => {
 });
 
 sceneMgr.start();
-fetchInitialMap();
-refreshWallLeaderboard();
+if (!initialJpoActive) {
+  fetchInitialMap();
+  refreshWallLeaderboard();
+}
 
 const leaderboardPollInterval = setInterval(() => {
-  if (joined && !subModalActive) {
+  if (joined && !subModalActive && !isJpoDemoActive()) {
     refreshWallLeaderboard();
   }
 }, 12000);
@@ -6800,11 +6799,24 @@ function startGameSession(
   if (activeJpo) {
     jpoState.roomId = jpoRoom;
     jpoState.roomConfig = getJpoRoomConfig(jpoRoom);
-    jpoState.demoCoins = jpoState.roomConfig.demoCoins || JPO_DEMO_COINS;
+    jpoState.demoCoins = 0;
     jpoState.tpAutoOpened = false;
     jpoState.hasMovedSinceSpawn = false;
+    const expectedMapId = `jpo-room-${jpoRoom}`;
+    if (!currentMapData?.jpoIsolated || currentMapData.id !== expectedMapId) {
+      const jpoMap = createJpoRoomMap(jpoRoom);
+      if (jpoMap) {
+        currentMapData = jpoMap;
+        lab.rebuildWorld(currentMapData);
+        sceneMgr.updateWorldBounds(currentMapData.bounds);
+        player.setWalkableSurfaces?.(lab.walkableSurfaces);
+        player.setSpatialHash?.(lab.spatialHash);
+        player.setColliders(lab.colliders);
+        player.setBounds(currentMapData.bounds);
+      }
+    }
     gameState.applyEconomySnapshot({
-      coins: jpoState.demoCoins,
+      coins: 0,
       ownedItems: [],
       equippedSkin: null,
       equippedPet: null,
@@ -6820,7 +6832,7 @@ function startGameSession(
       diplomaEarned: false,
       xp: 0,
       questAccepted: true,
-      coins: jpoState.demoCoins,
+      coins: 0,
       ownedItems: [],
       equippedSkin: null,
       equippedPet: null,
@@ -6833,11 +6845,15 @@ function startGameSession(
     jpoState.demoCoins = 0;
     jpoState.tpAutoOpened = false;
     jpoState.hasMovedSinceSpawn = false;
+    if (currentMapData?.jpoIsolated) {
+      applyMapData(standardMapData || createDefaultMap(), false);
+      fetchInitialMap();
+    }
     gameState.setProfile({ ...gameState.profile, name, skin });
   }
 
   rebuildLocalAvatar(skin);
-  lab.setLocalCoins?.(gameState.coins);
+  lab.setLocalCoins?.(activeJpo ? 0 : gameState.coins);
   shopModal?.refresh?.();
   joined = true;
 
@@ -6845,7 +6861,7 @@ function startGameSession(
   hud.setPrivateDebugMode(isDebugRoom, cleanRoom);
   hud?.setJpoMode?.({
     roomConfig: activeJpo ? jpoState.roomConfig : null,
-    kiosk: !isDebugRoom && jpoState.kiosk
+    kiosk: activeJpo || (!isDebugRoom && jpoState.kiosk)
   });
   vrManager?.setPrivateDebug?.(isDebugRoom);
   hud?.syncDebugVrPanelBtn?.(Boolean(vrManager?.debugOverlayEnabled));
@@ -6857,22 +6873,30 @@ function startGameSession(
   player.setEnabled(true);
   touchControls?.syncCameraMode?.(gameState.cameraMode);
   touchControls?.setVisible?.(gameState.touchMode);
-  hud?.miniMap?.setMapData?.(currentMapData);
-  hud?.setMapData?.(currentMapData);
+  if (!activeJpo) {
+    hud?.miniMap?.setMapData?.(currentMapData);
+    hud?.setMapData?.(currentMapData);
+  }
   const pose = activeJpo ? resolveJpoSpawnPose(currentMapData, jpoState.roomId) : getSpawnPose(currentMapData);
   player.teleportTo(pose.pos, pose.lookAt);
   const startZone = getZoneAtPositionInMap(currentMapData, pose.pos.x, pose.pos.z);
   lastZoneId = startZone.id;
   hud?.setCurrentZone?.(startZone);
-  network.connect(name, cleanRoom, skin, {
-    x: pose.pos.x,
-    y: 0,
-    z: pose.pos.z,
-    yaw: player.yaw,
-    zoneId: startZone.id,
-    zoneLabel: startZone.badgeText.replace('📍 ', '')
-  });
-  refreshWallLeaderboard();
+  if (activeJpo) {
+    network.disconnect();
+    remotePlayers.clearAll();
+    hud?.setNetworkStatus?.({ state: 'disconnected', connected: false }, 1);
+  } else {
+    network.connect(name, cleanRoom, skin, {
+      x: pose.pos.x,
+      y: 0,
+      z: pose.pos.z,
+      yaw: player.yaw,
+      zoneId: startZone.id,
+      zoneLabel: startZone.badgeText.replace('📍 ', '')
+    });
+    refreshWallLeaderboard();
+  }
 
   if (!isDebugRoom && jpoState.kiosk) {
     startKioskMode();
@@ -6897,7 +6921,7 @@ function startGameSession(
     }, 450);
     setTimeout(() => {
       hud?.toast?.(
-        `${jpoState.roomConfig.icon} ${jpoState.roomConfig.label} — ${jpoState.demoCoins} 🪙 CIEL Coins de démo crédités !`,
+        `${jpoState.roomConfig.icon} ${jpoState.roomConfig.label} — Approchez-vous du poste ou cliquez sur « Lancer le TP » !`,
         'success'
       );
     }, 300);
@@ -6976,7 +7000,9 @@ try {
       );
     }
   });
-  platformModal.open(gameState.touchMode, null, false, Boolean(vrManager?.isVrActive?.()));
+  if (!initialJpoActive && !initialPrivateDebugRequested) {
+    platformModal.open(gameState.touchMode, null, false, Boolean(vrManager?.isVrActive?.()));
+  }
 } catch (err) {
   console.warn('Sélecteur de plateforme indisponible:', err);
 }

@@ -1,7 +1,7 @@
 export const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined'
     ? __APP_VERSION__
-    : 'v4.38 - Portes Ouvertes CIEL : Configuration Salle Admin, Spawn Pôle, TP Pré-activé & Mode Kiosque';
+    : 'v4.39 - Mode Portes Ouvertes Affiné : Zéro Login, HUD Épuré & Salle Unique Dédiée';
 
 export const BUILD_TIME_ISO =
   typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -20,9 +20,31 @@ export function formatBuildTime(iso = BUILD_TIME_ISO) {
 
 export const CHANGELOG_RELEASES = [
   {
-    version: 'v4.38 — Portes Ouvertes CIEL : Configuration Salle Admin, Spawn Pôle, TP Pré-activé & Mode Kiosque',
+    version: 'v4.39 — Mode Portes Ouvertes Affiné : Zéro Login, HUD Épuré & Salle Unique Dédiée',
     date: '27/11/2026',
     tag: 'DERNIÈRE MÀJ',
+    items: [
+      {
+        badge: 'ZÉRO COMPTE / ZÉRO BASE',
+        title: 'Contournement complet du login et session visiteur locale sans écriture en base',
+        desc: 'En mode Portes Ouvertes (Cybersécurité, Réseaux ou Électronique), l’écran d’authentification est totalement contourné dès le démarrage et aucune donnée visiteur n’est envoyée au serveur ou enregistrée dans db.json.'
+      },
+      {
+        badge: 'HUD ULTRA ÉPURÉ',
+        title: 'Suppression des CIEL Coins, de la boutique et de la mini-map en mode JPO',
+        desc: 'L’interface en mode Portes Ouvertes masque les CIEL Coins, la boutique, la mini-map, le panneau de quêtes et les barres annexes pour ne conserver que le bandeau JPO avec accès direct au TP et « Nouvelle visite ».'
+      },
+      {
+        badge: 'SALLE UNIQUE DÉDIÉE',
+        title: 'Salle 3D fermée et adaptée par pôle sans impact sur le mode standard',
+        desc: 'Au lieu de charger tout le lycée, chaque salle JPO (Cyber U305, Réseaux U307, Électronique U302) génère une salle fermée sur mesure équipée de son mobilier et du poste TP interactif correspondant, tandis que le mode Standard reste 100 % intact.'
+      }
+    ]
+  },
+  {
+    version: 'v4.38 — Portes Ouvertes CIEL : Configuration Salle Admin, Spawn Pôle, TP Pré-activé & Mode Kiosque',
+    date: '27/11/2026',
+    tag: 'HISTORIQUE',
     items: [
       {
         badge: 'ONGLET PORTES OUVERTES (/ADMIN)',

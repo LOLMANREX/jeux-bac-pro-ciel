@@ -7670,3 +7670,18 @@ body.combat-active #crosshair {
     font-size: 0.76rem;
   }
 }
+
+.hud.jpo-active .hud-top,
+.hud.jpo-active #hud-coins-pill,
+.hud.jpo-active #minimap-panel,
+.hud.jpo-active #quest-panel,
+.hud.jpo-active #hud-left-stack,
+.hud.jpo-active #emote-bar,
+.hud.jpo-active .hud-bottom-hint,
+body.jpo-mode #btn-shop-ingame {
+  display: none !important;
+}
+
+.hud.jpo-active .hud-jpo-banner {
+  margin: 12px auto 0;
+}

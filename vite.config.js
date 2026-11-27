@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify('v4.38 - Portes Ouvertes CIEL : Configuration Salle Admin, Spawn Pôle, TP Pré-activé & Mode Kiosque'),
+    __APP_VERSION__: JSON.stringify('v4.39 - Mode Portes Ouvertes Affiné : Zéro Login, HUD Épuré & Salle Unique Dédiée'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
   server: {

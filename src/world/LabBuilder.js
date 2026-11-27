@@ -1235,7 +1235,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
     return grp;
   }
 
-  function renderMapIntoGroup(mapData) {
+  function renderMapIntoGroup(mapData, buildOpts = {}) {
     const mats = createRealisticMaterialPack(options.maxAnisotropy || 8, { lowRes: Boolean(options.lowRes) });
     materialPack = mats;
     const b = mapData.bounds;
@@ -3159,7 +3159,7 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       }
     }
 
-    if (combatDoors.length === 0) {
+    if (combatDoors.length === 0 && !buildOpts?.skipCombatFallback) {
       const combatCat = getCatalogItem('combat_door');
       buildSpecialModeDoor(
         {
@@ -3446,11 +3446,12 @@ export function buildLabWorld(scene, initialMapData = null, options = {}) {
       worldGroup.remove(worldGroup.children[0]);
     }
 
+    const skipCombatFallback = Boolean(nextMapData?.jpoIsolated);
     currentMapData = normalizeMapData(nextMapData || createDefaultMap());
     const dynColliders = getDynamicMapColliders(currentMapData);
     for (const c of dynColliders) colliders.push(c);
 
-    renderMapIntoGroup(currentMapData);
+    renderMapIntoGroup(currentMapData, { skipCombatFallback });
     updateStationBadges(lastGrades);
     updateLeaderboardBoard(lastLeaderboardEntries, lastLocalPlayerName);
     return currentMapData;
